@@ -702,7 +702,7 @@ runs the whole pipeline against a local fixture before any git, lock, or prune l
 
 ### Validation and health
 
-- [ ] **A23 — `ambit validate`.**
+- [x] **A23 — `ambit validate`.**
   **Depends:** A22
   **Done when:** Full-catalog validation catches unregistered scopes, unresolvable
   `requires`, cycles, name↔path mismatches, and shadowing; exits 3 with all problems listed,

@@ -30,6 +30,7 @@ export {
 } from "./catalog.js";
 export type {
   Catalog,
+  CatalogParseOptions,
   CatalogSkill,
   MergedCatalog,
   MergedMcp,
@@ -127,11 +128,17 @@ export {
   MCP_REQUIREMENT_PREFIX,
   assertScopesRegistered,
   closeOverRequires,
+  cycleError,
   explainSelection,
   formatReason,
   isSelected,
+  missingRequirement,
   reasonOf,
   resolveBundle,
+  scopeSuggestion,
+  skillFile,
+  unknownExplicitSkill,
+  unknownScopeError,
 } from "./resolve.js";
 export type {
   Bundle,
@@ -168,6 +175,20 @@ export {
 export type { ArtifactKind, ArtifactMode, OwnedArtifact, State } from "./state.js";
 export { ARTIFACT_STATES, isClean, projectStatus, statusDrift } from "./status.js";
 export type { ArtifactState, ProjectStatus, StatusArtifact, StatusOptions } from "./status.js";
+export {
+  VALIDATION_PROBLEM_KINDS,
+  isValid,
+  validateCatalog,
+  validateCatalogDirectory,
+  validateProject,
+} from "./validate.js";
+export type {
+  ValidateOptions,
+  ValidationCounts,
+  ValidationProblem,
+  ValidationProblemKind,
+  ValidationReport,
+} from "./validate.js";
 export { VERSION } from "./version.js";
 export {
   YamlMapping,

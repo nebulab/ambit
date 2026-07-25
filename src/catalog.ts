@@ -49,6 +49,26 @@ const MCP_EXTENSIONS: readonly string[] = [".yml", ".yaml"];
 const SCOPES_KEYS = ["scopes"] as const;
 const SCOPE_KEYS = ["description"] as const;
 
+/**
+ * How a catalog is parsed when the caller wants every problem rather than only the first (spec §4's
+ * validation split).
+ *
+ * Only `ambit validate` passes one. Everything else parses strictly, because a resolution that
+ * carried on past a broken skill would install something nobody described.
+ */
+export interface CatalogParseOptions {
+  /**
+   * Receives a problem that would otherwise have been thrown, letting parsing continue past it.
+   *
+   * Exactly one problem takes this route: a skill whose frontmatter `name` disagrees with its path.
+   * It is the one violation parsing can recover from — the path is what every other tool derives
+   * the name from, so taking the path's answer and reporting the disagreement leaves a catalog
+   * whose remaining checks still mean something. Everything else is a document ambit cannot read,
+   * and there is no useful report to build on top of that.
+   */
+  readonly collect?: (problem: AmbitError) => void;
+}
+
 /** One registered scope. The description is the picker label a consuming tool renders. */
 export interface ScopeDefinition {
   readonly name: string;
@@ -273,7 +293,17 @@ function skillAnnotations(mapping: YamlMapping): Omit<CatalogSkill, "name" | "pa
   };
 }
 
-async function parseSkill(root: string, relative: string): Promise<CatalogSkill> {
+/**
+ * Parses one skill directory.
+ *
+ * @param collect when given, a name that disagrees with its path is reported through it and the
+ *   path's name is used, rather than thrown — see {@link CatalogParseOptions}.
+ */
+async function parseSkill(
+  root: string,
+  relative: string,
+  collect?: (problem: AmbitError) => void,
+): Promise<CatalogSkill> {
   const file = `${SKILLS_DIRNAME}/${relative}/${SKILL_FILENAME}`;
 
   if (relative === "") {
@@ -288,13 +318,17 @@ async function parseSkill(root: string, relative: string): Promise<CatalogSkill>
   const name = mapping.requireString("name");
   const derived = skillNameFromPath(relative);
   if (name !== derived) {
-    throw mapping.keyError("name", `skill name "${name}" does not match its path`, [
+    const problem = mapping.keyError("name", `skill name "${name}" does not match its path`, [
       `${file} derives the name "${derived}"`,
       "rename the directory, or correct `name` to match it",
     ]);
+    if (collect === undefined) throw problem;
+    collect(problem);
   }
 
-  return { name, path: `${SKILLS_DIRNAME}/${relative}`, ...skillAnnotations(mapping) };
+  // The path's name, always: it is what every other tool would install the skill under, so it is
+  // the answer that keeps a collected disagreement from cascading into a second, invented problem.
+  return { name: derived, path: `${SKILLS_DIRNAME}/${relative}`, ...skillAnnotations(mapping) };
 }
 
 /** MCP entity stems under `mcps/`, each with the one file that defines it. */
@@ -349,11 +383,28 @@ function inSource(subject: string, root: string, error: unknown): unknown {
 }
 
 /**
+ * The same attribution for a *collected* problem, naming the catalog but not its root.
+ *
+ * The root is a machine path — a cache checkout, for a git source — and a collected problem is
+ * printed as part of a report rather than as a fatal error, which is output tests compare
+ * byte-for-byte across machines. The catalog's name is what disambiguates two catalogs holding the
+ * same relative path anyway.
+ */
+function fromCatalog(name: string, problem: AmbitError): AmbitError {
+  return new AmbitError(problem.code, problem.message, [
+    `in catalog "${name}"`,
+    ...problem.detail,
+  ]);
+}
+
+/**
  * Parses the catalog rooted at `root`.
  *
  * @param name the catalog's name, as errors report it.
  * @param source the `source` it was resolved from.
  * @param commit the commit the directory holds, for a git source.
+ * @param options a collector for the one problem parsing can continue past — see
+ *   {@link CatalogParseOptions}.
  * @throws {AmbitError} exit 2 for a missing registry, a malformed file, or a name that
  *   disagrees with its path.
  */
@@ -362,7 +413,12 @@ export async function parseCatalogDirectory(
   source: string,
   root: string,
   commit?: string,
+  options: CatalogParseOptions = {},
 ): Promise<Catalog> {
+  const collect = options.collect;
+  const collectFromCatalog =
+    collect === undefined ? undefined : (problem: AmbitError) => collect(fromCatalog(name, problem));
+
   try {
     const registryPath = path.join(root, SCOPES_FILENAME);
     if (!(await isFile(registryPath))) {
@@ -376,7 +432,7 @@ export async function parseCatalogDirectory(
 
     const skills: CatalogSkill[] = [];
     for (const relative of await findSkillDirectories(root)) {
-      skills.push(await parseSkill(root, relative));
+      skills.push(await parseSkill(root, relative, collectFromCatalog));
     }
 
     const mcps: McpEntity[] = [];
@@ -404,12 +460,15 @@ export async function parseCatalogDirectory(
  * Sequential rather than concurrent: two catalogs can be two refs of one repository, and a shared
  * cache directory is not something two fetches may race over.
  *
+ * @param options a collector for the one problem parsing can continue past — see
+ *   {@link CatalogParseOptions}.
  * @throws {AmbitError} exit 2 for an unresolvable source or a malformed catalog; exit 4 if a fetch
  *   fails.
  */
 export async function loadCatalogs(
   config: ProjectConfig,
   context: SourceContext,
+  options: CatalogParseOptions = {},
 ): Promise<readonly Catalog[]> {
   const catalogs: Catalog[] = [];
   for (const entry of config.catalogs) {
@@ -419,6 +478,7 @@ export async function loadCatalogs(
       entry.source,
       resolved.root,
       resolved.commit,
+      options,
     );
     // `ref` is a fact about the config entry, not about the directory that was parsed, so it is
     // attached here rather than threaded through parsing — which also keeps a catalog parsed

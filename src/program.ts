@@ -9,6 +9,7 @@ import { installHandler } from "./handlers/install.js";
 import { pruneHandler } from "./handlers/prune.js";
 import { resolveHandler } from "./handlers/resolve.js";
 import { statusHandler } from "./handlers/status.js";
+import { validateHandler } from "./handlers/validate.js";
 import { whyHandler } from "./handlers/why.js";
 import { VERSION } from "./version.js";
 
@@ -22,6 +23,7 @@ export const HANDLERS: CommandHandlers = {
   prune: pruneHandler,
   resolve: resolveHandler,
   status: statusHandler,
+  validate: validateHandler,
   why: whyHandler,
 };
 

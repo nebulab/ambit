@@ -3,11 +3,43 @@
 Rewritten by each Ralph iteration for the next one. Short, current, and only what would cost
 real time to rediscover — see `PROMPT.md` §6.
 
-Last iteration: **A22 — `--dry-run`, `prune`, and `clean`** (the tip of `main`). Next task is
-**A23 — `ambit validate`**, whose `Depends: A22` is now checked.
+Last iteration: **A23 — `ambit validate`** (the tip of `main`). Next task is **A24 — `ambit
+doctor`**, whose `Depends: A23` is now checked.
 
 ## Constraints later tasks inherit
 
+- **`src/validate.ts` is the whole of `validate`, and `validateCatalog(merged, { config, parsed })` is
+  pure** — that is the function B04–B07 call to satisfy spec §6 authoring rule 4 ("validate before
+  writing"). Two I/O wrappers sit beside it: `validateProject(context)` runs the same
+  `loadCatalogs → mergeCatalogs → mergeConfigEntities` pipeline `resolve` does (minus resolution), and
+  `validateCatalogDirectory(root)` parses one directory and reads **no `ambit.yml`, no other catalog,
+  no cache**. `validateProject` takes a **`SourceContext`**, deliberately, so `--offline` still has
+  exactly three construction sites.
+- **A problem is a finding, not a throw.** `validateHandler` prints the report and *returns*
+  `ExitCode.Resolution`, the way `status --check` returns `Drift`. So the problem list goes to
+  **stdout** (it is the report, and `--json` has to be parseable) and nothing reaches stderr.
+- **Every problem reuses resolution's own error builder**, now exported from `src/resolve.ts`:
+  `unknownScopeError`, `scopeSuggestion`, `missingRequirement`, `cycleError`,
+  `unknownExplicitSkill`, `skillFile`. A problem therefore reads identically whether `validate`
+  listed it or `resolve` threw it — **do not re-word one side only**. `unregistered-scope` and
+  `shadowed-name` are the two validate builds itself, since nothing else reports them.
+- **Parsing can be told to collect instead of throw**: `CatalogParseOptions.collect`, threaded
+  through `parseCatalogDirectory` and `loadCatalogs`, both of which take it as a trailing optional
+  argument. **Exactly one problem takes that route** — a skill whose frontmatter `name` disagrees
+  with its path — and `parseSkill` now always returns the **path-derived** name, which is a no-op on
+  the strict path. Everything else still throws exit 2 at the first offender: malformed YAML, a
+  missing `scopes.yml`, an MCP filename↔`name` disagreement, a `skills` entry whose source
+  disagrees. So `validate` on an unparseable catalog is exit **2** with one error, and a test pins
+  that boundary.
+- **Two multi-problem gaps are deliberate and exit 3 one at a time**, because both are refusals to
+  build a merged view at all: a config declaration a catalog also provides (`mergeConfigEntities`),
+  and one scope two catalogs describe differently (`mergeCatalogs`).
+- **`validate` calls shadowing a problem** even though resolution has a well-defined answer for it
+  (spec §4 lists "no name shadowing"). A project that deliberately overlays a personal catalog on a
+  company one therefore *fails* `validate` while installing fine. **Worth a second opinion**; the
+  alternative reading is that shadowing is only a problem in `--catalog` mode.
+- **`validate` reports nothing about env vars, the lock, ownership, or drift** — all four are
+  **A24's `doctor`**, which should build on `projectStatus` and the bundle's `env`.
 - **Everything up to the first write is `planInstall` in `src/install.ts`** — config, catalogs,
   resolution, the lock bytes, `readState`, and every adapter's plan — and `previewInstall` is that
   plan rendered for `--dry-run` rather than applied. `installProject` and `pruneProject` both start
@@ -153,9 +185,10 @@ Last iteration: **A22 — `--dry-run`, `prune`, and `clean`** (the tip of `main`
   reason: the two answer different questions, and folding them would cost a shadowed item its reason in
   `--explain` **and** in `ambit why`'s chain. `formatReason` is still an exhaustive three-arm `switch`
   and **`ambit.lock`'s `reason:` is untouched**.
-- **`--explain` is the only surface that reports shadowing so far.** Text gets a **fourth** cell,
-  `--json` gets `shadows: [catalog…]`. **`ambit why` and `catalog dump` deliberately do not report it**
-  (spec §4.5 names `--explain` and `validate`), so **A23's `validate` is the other half.**
+- **`--explain` and `validate` are the two surfaces that report shadowing** (spec §4.5 names exactly
+  those two). `--explain`'s text gets a **fourth** cell and its `--json` gets `shadows: [catalog…]`;
+  `validate` lists one `shadowed-name` problem per colliding name. **`ambit why` and `catalog dump`
+  deliberately do not report it.**
 - **A config `skills`/`mcps` declaration colliding with a catalog is still exit 3, not precedence**
   (spec §3.1); catalog-vs-catalog is the only place first-wins applies.
 - **`mergeCatalogs` throws** (exit 3) when two catalogs describe one scope differently; identical
@@ -180,9 +213,11 @@ Last iteration: **A22 — `--dry-run`, `prune`, and `clean`** (the tip of `main`
   **anything that starts spreading a `MergedSkill` into output must exclude `catalogRoot` and think
   about `commit`.**
 - **`Catalog` carries `ref?`**, attached by `loadCatalogs` after `parseCatalogDirectory` returns — a fact
-  about the config entry, not the directory, so a catalog parsed straight off disk (A23's
-  `validate --catalog`) has none.
-- **`--frozen`, `--adopt`, `--copy`, `--link`, `--dry-run` and `status --check` are implemented.**
+  about the config entry, not the directory, so a catalog parsed straight off disk
+  (`validate --catalog`) has none.
+- **`--frozen`, `--adopt`, `--copy`, `--link`, `--dry-run`, `status --check` and `validate --catalog`
+  are implemented.** The unbuilt commands are `init`, `scopes`, `doctor`, and the whole `catalog`
+  authoring group; each is caught by `notImplemented` in `commands.ts`.
 - **Every source resolves through `src/sources.ts`** (§3.1 grammar) returning
   `ResolvedSource = { root, commit? }`. `loadCatalogs`, `mergeConfigEntities`, `loadSourceSkill` and
   `resolveCatalogRoot` take a `SourceContext` (`{ projectDir, env }`); `env` is where the cache location
@@ -213,8 +248,9 @@ Last iteration: **A22 — `--dry-run`, `prune`, and `clean`** (the tip of `main`
 - **Duplicate names inside one config list are exit 2 at parse time**, via `nameTracker` in
   `src/config.ts`. Later lists should use it too.
 - **`closeOverRequires` throws on the first cycle**, and `resolve` hard-validates the **closure only**
-  (spec §4 validation split) — a skill nothing selects may carry a dangling `requires`. **A23 needs a
-  multi-problem variant** of this, of unknown scopes, of unknown explicit names, and now of shadowing.
+  (spec §4 validation split) — a skill nothing selects may carry a dangling `requires`. `validate`
+  walks the **whole** catalog instead, reporting one cycle per back edge (two independent cycles are
+  two problems; two cycles sharing a back edge collapse into one).
 - **`at(file, line)` lives in `src/errors.ts`.** Errors inside a catalog or skill source cite the
   source-relative path and get a prepended `in catalog "x" (root)` line from `inSource` — for a git
   source that root is the cache checkout, machine-specific, so it must stay out of golden output.
@@ -239,10 +275,11 @@ Last iteration: **A22 — `--dry-run`, `prune`, and `clean`** (the tip of `main`
   could report the first.
 - **Nothing persists a materialization mode.** `--copy`/`--link` are per-run (spec §5) and there is no
   config key for them. Fixing that is a config change and a spec change, not an adapter change.
-- Shadowing is recorded for every colliding name but reported only under `--explain`; `validate`
-  listing all of them is **A23**.
 - `status` reports artifacts only: no lock drift, no env vars, no harness list, no mode divergence —
-  **A24's `doctor`**.
+  **A24's `doctor`**. `validate` adds none of those four either.
+- **Nothing validates a catalog's *reachability*** — a registered scope nothing declares, an item no
+  scope and no `requires` reaches. That is deliberately **B09's `catalog audit`**, not `validate`:
+  dead weight is a smell, not a broken catalog.
 
 ## Traps
 
@@ -300,8 +337,12 @@ Last iteration: **A22 — `--dry-run`, `prune`, and `clean`** (the tip of `main`
   and four artifacts set the column widths. Those three files stub `SCOPED_API_KEY` to `undefined` in
   `beforeEach` because the fixture interpolates it into a header. Any new test that installs and asserts
   file contents needs the same discipline.
-- The fixture catalog must stay cycle-free and dangling-free: `validate` (A23) will run against it and
-  every golden profile resolves it. Tests needing extra catalog shapes write them into the per-test copy
+- **The fixture catalog must stay cycle-free, dangling-free, and exactly 4 scopes / 4 skills / 2
+  mcps**: `test/validate.test.ts` asserts `ambit validate` against it reports byte-for-byte
+  `checked 4 scopes, 4 skills, 2 mcps` and `problems (0)`, and several of its cases add one item and
+  assert the count went up by one. Adding anything to `scripts/fixture-catalog.ts` means updating the
+  three constants at the top of that file. Every golden profile resolves it too. Tests needing extra
+  catalog shapes write them into the per-test copy
   rather than into `scripts/fixture-catalog.ts`. **Under link mode a test that edits an installed skill
   edits the fixture copy**, which is per-test and disposable — but the edit is visible to the catalog
   immediately.

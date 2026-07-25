@@ -192,6 +192,39 @@ function nearestScope(scope: string, registered: readonly ScopeDefinition[]): st
 }
 
 /**
+ * The concrete next step for a scope nothing recognizes (spec §6): the nearest registered scope
+ * when one is a plausible correction, and how to register it otherwise.
+ *
+ * Exported because two surfaces reject a scope — resolution, on the first offender, and
+ * `ambit validate`, on every one of them — and the advice must read identically from both.
+ */
+export function scopeSuggestion(
+  scope: string,
+  registered: readonly ScopeDefinition[],
+): string {
+  const suggestion = nearestScope(scope, registered);
+  return suggestion === undefined
+    ? `register it in a catalog's ${SCOPES_FILENAME}, or correct the spelling`
+    : `did you mean "${suggestion}"?`;
+}
+
+/**
+ * The error for a held scope the merged registry does not know (spec §4.6).
+ *
+ * @param where the `(file line N)` suffix, as {@link at} renders it.
+ */
+export function unknownScopeError(
+  scope: string,
+  where: string,
+  registered: readonly ScopeDefinition[],
+): AmbitError {
+  return resolutionError(`unknown scope "${scope}" ${where}`, [
+    "not found in the merged registry",
+    scopeSuggestion(scope, registered),
+  ]);
+}
+
+/**
  * Rejects a held scope the merged registry does not know (spec §4.6).
  *
  * A typo has to fail loudly, because the alternative is worse than an error: expanding to
@@ -201,6 +234,9 @@ function nearestScope(scope: string, registered: readonly ScopeDefinition[]): st
  * The registry decides what may be held, not the shape of the tree — holding `function` when
  * only `function.engineering` is registered is a typo like any other, since a parent nobody
  * declared is not a scope.
+ *
+ * Stops at the first offender, in name order. Listing every problem at once is `ambit validate`'s
+ * job (spec §4 validation split), which reuses the same error builder so the two agree.
  *
  * @throws {AmbitError} exit 3, naming the scope, the config line it was written on, and the
  *   nearest registered scope when one is a plausible correction.
@@ -215,22 +251,21 @@ export function assertScopesRegistered(
   // rather than on the order the config happens to list them in.
   for (const scope of sortedUnique(config.scopes)) {
     if (known.has(scope)) continue;
-
-    const suggestion = nearestScope(scope, registered);
-    throw resolutionError(
-      `unknown scope "${scope}" ${at(config.origin.file, config.origin.scopeLines.get(scope))}`,
-      [
-        "not found in the merged registry",
-        suggestion === undefined
-          ? `register it in a catalog's ${SCOPES_FILENAME}, or correct the spelling`
-          : `did you mean "${suggestion}"?`,
-      ],
+    throw unknownScopeError(
+      scope,
+      at(config.origin.file, config.origin.scopeLines.get(scope)),
+      registered,
     );
   }
 }
 
-/** Where a skill's `requires` list is written, so an error about one can name a file (spec §6). */
-function skillFile(skill: MergedSkill): string {
+/**
+ * Where a skill's annotations are written, so an error about one can name a file (spec §6).
+ *
+ * Exported for `ambit validate`, which reports problems about skills nothing selected and needs to
+ * locate them the same way resolution does.
+ */
+export function skillFile(skill: MergedSkill): string {
   return `${skill.path}/${SKILL_FILENAME}`;
 }
 
@@ -240,7 +275,7 @@ function skillFile(skill: MergedSkill): string {
  * Both halves of the edge are named — the requirer and the target — because either could be the
  * mistake: a skill may have been renamed, or the requirement misspelled.
  */
-function missingRequirement(requirer: MergedSkill, requirement: string): AmbitError {
+export function missingRequirement(requirer: MergedSkill, requirement: string): AmbitError {
   const isMcp = requirement.startsWith(MCP_REQUIREMENT_PREFIX);
   const target = isMcp ? requirement.slice(MCP_REQUIREMENT_PREFIX.length) : requirement;
 
@@ -259,8 +294,9 @@ function missingRequirement(requirer: MergedSkill, requirement: string): AmbitEr
  * of one — the offending edge is only obvious once a reader can see the loop closing.
  *
  * @param cycle the skill names around the loop, opening and closing on the same name.
+ * @param head the skill the printed path opens on, whose file holds the loop's first edge.
  */
-function cycleError(cycle: readonly string[], head: MergedSkill): AmbitError {
+export function cycleError(cycle: readonly string[], head: MergedSkill): AmbitError {
   return resolutionError("requirement cycle", [
     cycle.join(" → "),
     `each step is a \`requires\` entry, the first in ${skillFile(head)}`,
@@ -364,7 +400,7 @@ interface ExplicitNames {
  * name that selects nothing leaves a bundle missing the one thing the config went out of its way
  * to ask for.
  */
-function unknownExplicitSkill(name: string, config: ProjectConfig): AmbitError {
+export function unknownExplicitSkill(name: string, config: ProjectConfig): AmbitError {
   return resolutionError(
     `unknown skill "${name}" ${at(config.origin.file, config.origin.skillLines.get(name))}`,
     [
