@@ -3,8 +3,8 @@
 Rewritten by each Ralph iteration for the next one. Short, current, and only what would cost
 real time to rediscover — see `PROMPT.md` §6.
 
-Last iteration: **A15 — multi-catalog merge and shadowing** (the tip of `main`). Next task is
-**A16 — `--offline`**, whose `Depends: A15` is now checked.
+Last iteration: **A16 — `--offline`** (the tip of `main`). Next task is
+**A17 — ownership enforcement**, whose `Depends: A16` is now checked.
 
 ## Constraints later tasks inherit
 
@@ -68,8 +68,19 @@ Last iteration: **A15 — multi-catalog merge and shadowing** (the tip of `main`
   `SourceContext` (`{ projectDir, env }`); `env` is where the cache location comes from, read once at
   the boundary (`sourceContextOf(ctx)`, or `process.env` in `installProject`).
 - **The cache is refreshed only when it cannot resolve the ref** (`src/git.ts`), so `ref: main` pins to
-  the commit first seen and a cache hit touches nothing. **A16's `--offline` is therefore mostly about
-  the miss path.** A refresh needs a new flag, not a change here: two runs a minute apart must agree.
+  the commit first seen and a cache hit touches nothing. A refresh needs a new flag, not a change here:
+  two runs a minute apart must agree.
+- **`--offline` rides on `SourceContext.offline?: boolean`**, set in exactly two places —
+  `sourceContextOf(ctx)` (so `resolve`, `catalog`, `why` get it for free) and `installProject`, whose
+  `InstallOptions` gained `offline`. It is optional, so **absent means fetching is allowed**: a third
+  construction site that forgets it would silently reach the network. Add one only with a reason, and
+  set the flag there.
+- **Offline refuses the clone and the fetch, nothing else** (`notCached` / `refNotCached` in
+  `src/git.ts`, both exit 4). A `git worktree add` from a clone ambit already has is still an offline
+  answer, and `path:` sources never consult the cache at all — so **A20's symlink mode and A22's
+  `clean` need no offline branch.** Offline also turns an unresolvable ref into exit **4** where the
+  fetching path calls it exit 2 (`unknownRef`): only a fetch could tell "the repo lacks it" from
+  "the clone was never told".
 - **Clones are `--mirror`** (a bare clone gets no `remote.origin.fetch`); checkouts are
   `git worktree add --detach` into `sources/<key>/<commit>` with a `<commit>.ready` sentinel written
   last. Cache layout `<cache>/repos/<host>/<path…>.git` and `<cache>/sources/<host>/<path…>/<commit>/`,
@@ -135,6 +146,10 @@ Last iteration: **A15 — multi-catalog merge and shadowing** (the tip of `main`
   `scripts/fixture-catalog.ts`'s or every multi-catalog test fails with the §4.4 conflict. Kept out of
   the shared fixture on purpose: a catalog whose point is to collide has no business in the tree every
   golden profile resolves.
+- `test/git-source.test.ts`'s `--offline` block proves "no fetch" **by leaving the remote in place**:
+  a cold-cache offline run must fail even though the repository is right there. Two of its tests
+  instead delete `fixture.repo` to prove the cache alone answered. Keep both directions — either one
+  on its own is satisfiable by a bug.
 - `test/git-source.test.ts`'s `installed()` skips **`PER_SOURCE_FILES` = `ambit.yml` + `ambit.lock`**:
   the git and path projects must install byte-identically *except* for the two files that record where
   the catalog came from. Anything that adds a third per-source file belongs in that set, with a reason.

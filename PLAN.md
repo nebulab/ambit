@@ -658,7 +658,7 @@ runs the whole pipeline against a local fixture before any git, lock, or prune l
   **Done when:** Two catalogs providing the same skill name resolve to the first in config
   order, `--explain` reports the shadowing, and conflicting scope descriptions exit 3.
 
-- [ ] **A16 — `--offline`.**
+- [x] **A16 — `--offline`.**
   **Depends:** A15
   **Done when:** Resolves entirely from cache; a cache miss exits 4 naming what's missing.
 

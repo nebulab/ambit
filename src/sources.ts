@@ -75,6 +75,14 @@ export interface SourceContext {
   readonly projectDir: string;
   /** Environment the cache location and git itself are read from. */
   readonly env: NodeJS.ProcessEnv;
+  /**
+   * `--offline` (spec §5): resolve from the cache alone, and fail with exit 4 rather than fetch.
+   *
+   * Absent means fetching is allowed, so a caller that forgets it gets the default behaviour rather
+   * than a type error — which is why the two places a context is built (`sourceContextOf`, and
+   * `installProject`) are the only ones that should exist.
+   */
+  readonly offline?: boolean;
 }
 
 /** A source resolved to a directory on disk. */
@@ -186,8 +194,12 @@ async function resolvePathRoot(
 /**
  * Resolves a source to a directory on disk, fetching it if it is a git source.
  *
+ * A `path:` source is read in place, so `--offline` has nothing to say about it: there is no cache
+ * between the project and the directory it names.
+ *
  * @throws {AmbitError} exit 2 for a source ambit cannot read, a missing directory, or an unknown
- *   ref; exit 4 if git is missing or a fetch fails.
+ *   ref; exit 4 if git is missing, a fetch fails, or `--offline` was given and the cache cannot
+ *   answer.
  */
 export async function resolveSource(
   request: SourceRequest,
@@ -206,6 +218,7 @@ export async function resolveSource(
     where: request.where,
     env: context.env,
     cwd: context.projectDir,
+    ...(context.offline !== undefined && { offline: context.offline }),
   });
   return { root: fetched.root, commit: fetched.commit };
 }

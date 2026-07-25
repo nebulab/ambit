@@ -11,7 +11,7 @@
  */
 import type { AppliedArtifact } from "../adapter.js";
 import type { CommandContext, CommandHandler } from "../commands.js";
-import { jsonRequested, projectDirOf } from "../commands.js";
+import { jsonRequested, offlineRequested, projectDirOf } from "../commands.js";
 import { AmbitError, ExitCode } from "../errors.js";
 import type { InstallResult } from "../install.js";
 import { installProject } from "../install.js";
@@ -72,7 +72,10 @@ function toText(result: InstallResult): readonly string[] {
 export const installHandler: CommandHandler = async (ctx) => {
   rejectUnimplemented(ctx);
 
-  const result = await installProject(projectDirOf(ctx), { frozen: ctx.options.frozen === true });
+  const result = await installProject(projectDirOf(ctx), {
+    frozen: ctx.options.frozen === true,
+    offline: offlineRequested(ctx),
+  });
 
   if (jsonRequested(ctx)) {
     ctx.stdout(JSON.stringify(toJson(result), null, 2));

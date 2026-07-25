@@ -38,7 +38,13 @@ export type {
   Shadowing,
   Shadowings,
 } from "./catalog.js";
-export { COMMAND_SPECS, jsonRequested, projectDirOf, sourceContextOf } from "./commands.js";
+export {
+  COMMAND_SPECS,
+  jsonRequested,
+  offlineRequested,
+  projectDirOf,
+  sourceContextOf,
+} from "./commands.js";
 export type { CommandContext, CommandHandler, CommandHandlers, CommandSpec } from "./commands.js";
 export {
   CONFIG_FILENAMES,

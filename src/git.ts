@@ -16,6 +16,12 @@
  *
  * **The checkout is a `git worktree`,** because the alternative — piping `git archive` into `tar` —
  * would put a second tool on the required-PATH list, and spec §1 allows only git.
+ *
+ * **`--offline` refuses the clone and the fetch, and nothing else.** It is a promise about the
+ * network rather than about the cache as a whole: a checkout ambit can produce from a clone it
+ * already has is still an answer that came out of the cache, so a first offline run against a
+ * warm clone is allowed to write one. What it may not do is reach for the remote — so both places
+ * this module would have done that fail with exit 4 naming what the cache is missing.
  */
 import { execFile } from "node:child_process";
 import { mkdir, rename, rm, stat, writeFile } from "node:fs/promises";
@@ -73,6 +79,8 @@ export interface GitFetchRequest {
   readonly env: NodeJS.ProcessEnv;
   /** Directory git runs in, so a URL naming a relative path means something definite. */
   readonly cwd: string;
+  /** `--offline` (spec §5): answer from the cache, and fail rather than reach the remote. */
+  readonly offline?: boolean;
 }
 
 /** A fetched source: a directory to read, and the commit its contents are. */
@@ -321,6 +329,34 @@ function unknownRef(request: GitFetchRequest): never {
 }
 
 /**
+ * The error for a repository `--offline` would have had to clone (spec §5).
+ *
+ * Exit 4 rather than 2: nothing here says the config is wrong. The source may well be correct and
+ * reachable — it simply is not in the cache, which is a cache error, and the fix is a run that is
+ * allowed to fetch.
+ */
+function notCached(request: GitFetchRequest, repo: string): never {
+  throw networkError(`${request.subject} is not in the cache ${request.where}`, [
+    `\`--offline\` was given, and ${request.url} has never been fetched into ${repo}`,
+    "run the command again without `--offline` to fetch it",
+  ]);
+}
+
+/** The error for a ref the cached clone cannot answer, which `--offline` may not fetch for. */
+function refNotCached(request: GitFetchRequest): never {
+  const ref = request.ref;
+  const named = ref === undefined ? "the default branch" : `ref "${ref}"`;
+
+  throw networkError(
+    `cannot resolve ${named} from the cache for ${request.subject} ${request.where}`,
+    [
+      `\`--offline\` was given, and the cached clone of ${request.url} does not have it`,
+      "run the command again without `--offline` to fetch it",
+    ],
+  );
+}
+
+/**
  * Materializes one commit as a directory, reusing the checkout if a previous run made it.
  *
  * @throws {AmbitError} exit 4 if the checkout fails.
@@ -382,24 +418,30 @@ async function ensureCheckout(
  * The clone is fetched only when the cache cannot resolve the ref, so a second run over an unchanged
  * config touches the network not at all.
  *
- * @throws {AmbitError} exit 4 if git is missing, or a clone, fetch, or checkout fails; exit 2 for a
- *   ref the repository does not have.
+ * @throws {AmbitError} exit 4 if git is missing, a clone, fetch, or checkout fails, or `--offline`
+ *   was given and the cache cannot answer; exit 2 for a ref the repository does not have.
  */
 export async function fetchGitSource(request: GitFetchRequest): Promise<FetchedGitSource> {
   assertUsableRef(request);
 
+  const offline = request.offline === true;
   const cache = cacheRoot(request.env);
   const key = gitCacheKey(request.url);
   const repo = path.join(cache, REPOS_DIRNAME, `${key}${GIT_SUFFIX}`);
 
   let cloned = false;
   if (!(await isDirectory(repo))) {
+    if (offline) notCached(request, repo);
     await clone(repo, request);
     cloned = true;
   }
 
   let commit = await resolveCommit(repo, request.ref, request);
   if (commit === undefined && !cloned) {
+    // Offline, an unresolvable ref is reported as the cache miss it is rather than as the config
+    // error the online path would go on to prove it was: the clone has simply never been told
+    // about it, and only a fetch could tell the two apart.
+    if (offline) refNotCached(request);
     await fetchInto(repo, request);
     commit = await resolveCommit(repo, request.ref, request);
   }

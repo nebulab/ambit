@@ -106,15 +106,21 @@ export function jsonRequested(ctx: CommandContext): boolean {
   return ctx.options.json === true;
 }
 
+/** Whether `--offline` was requested: resolve from the cache alone (spec §5). */
+export function offlineRequested(ctx: CommandContext): boolean {
+  return ctx.options.offline === true;
+}
+
 /**
- * What resolving a `source` needs from a command: the project directory, and the environment the
- * catalog cache is looked for in (spec §5).
+ * What resolving a `source` needs from a command: the project directory, the environment the
+ * catalog cache is looked for in, and whether fetching is allowed at all (spec §5).
  *
  * `process.env` is read here, at the CLI boundary, so one command run sees one environment and
- * nothing further down reaches for ambient state of its own.
+ * nothing further down reaches for ambient state of its own. `--offline` travels the same way,
+ * because every command that reads a catalog accepts it and none of them should have to remember to.
  */
 export function sourceContextOf(ctx: CommandContext): SourceContext {
-  return { projectDir: projectDirOf(ctx), env: process.env };
+  return { projectDir: projectDirOf(ctx), env: process.env, offline: offlineRequested(ctx) };
 }
 
 /** Handlers, keyed by command name. Absent means declared-but-unimplemented. */

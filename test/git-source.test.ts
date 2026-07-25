@@ -11,6 +11,11 @@
  * The second claim is about the cache: a resolve that the cache can already answer must not touch
  * the remote. That is asserted the only way it can be believed — by deleting the remote between the
  * two runs.
+ *
+ * The third is `--offline` (spec §5), which is the same claim from the other side: with the remote
+ * present and perfectly reachable, an offline run against a cold cache has to fail rather than
+ * quietly fetch. Deleting the remote proves the cache can answer; leaving it in place proves ambit
+ * did not ask it to.
  */
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -363,5 +368,105 @@ describe("git source failures", () => {
     expect(result.stderr).toContain("git said:");
     // A failed clone must leave nothing a later run would mistake for a cache hit.
     expect(await pathExists(cachePaths().clone)).toBe(false);
+  });
+});
+
+describe("--offline", () => {
+  /** Fills the cache the way a normal run does, so an offline run has something to work from. */
+  async function warmTheCache(): Promise<void> {
+    const result = await cli(gitProject, "install");
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+  }
+
+  it("resolves entirely from the cache, with the remote gone", async () => {
+    await warmTheCache();
+    await rm(fixture.repo, { recursive: true, force: true });
+
+    const result = await cli(gitProject, "resolve", "--offline");
+
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+    expect(result.stdout).toContain(CORE_SKILL);
+  });
+
+  it("installs a project that never fetched, from the cache another project filled", async () => {
+    await warmTheCache();
+    const second = path.join(root, "from-cache");
+    await writeProject(second, fixture.url);
+    await rm(fixture.repo, { recursive: true, force: true });
+
+    const result = await cli(second, "install", "--offline");
+
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+    expect(Object.keys(await installed(second))).toContain(`${SKILLS_DIR}/${CORE_SKILL}/SKILL.md`);
+  });
+
+  it("checks a commit out from a clone it already has, since that needs no remote", async () => {
+    await warmTheCache();
+    // The clone stays; only the materialized checkout goes, which is the case the cache can still
+    // answer without asking anyone.
+    const { checkouts } = cachePaths();
+    await rm(path.join(checkouts, fixture.commit), { recursive: true, force: true });
+    await rm(`${path.join(checkouts, fixture.commit)}.ready`, { force: true });
+    await rm(fixture.repo, { recursive: true, force: true });
+
+    const result = await cli(gitProject, "install", "--offline");
+
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+    expect(await pathExists(path.join(checkouts, fixture.commit, "scopes.yml"))).toBe(true);
+  });
+
+  it("exits 4 naming the catalog it would have had to clone, and clones nothing", async () => {
+    // The remote is right there and reachable, so a run that succeeds fetched something it was
+    // told not to.
+    const result = await cli(gitProject, "install", "--offline");
+
+    expect(result.code).toBe(ExitCode.Network);
+    expect(result.stderr).toContain(`catalog "${CATALOG_NAME}" is not in the cache`);
+    expect(result.stderr).toContain(fixture.url);
+    expect(result.stderr).toContain("without `--offline`");
+    expect(await pathExists(cachePaths().clone)).toBe(false);
+    expect(await pathExists(path.join(gitProject, SKILLS_DIR))).toBe(false);
+  });
+
+  it("exits 4 for a ref the cached clone was never told about, without fetching", async () => {
+    await warmTheCache();
+    await writeProject(gitProject, fixture.url, "v2");
+    await rm(fixture.repo, { recursive: true, force: true });
+
+    const result = await cli(gitProject, "install", "--offline");
+
+    expect(result.code).toBe(ExitCode.Network);
+    expect(result.stderr).toContain(
+      `cannot resolve ref "v2" from the cache for catalog "${CATALOG_NAME}"`,
+    );
+    // The online path would have tried a fetch before deciding, and said so.
+    expect(result.stderr).not.toContain("cannot fetch");
+  });
+
+  it("exits 4 naming a skill whose own source is not cached", async () => {
+    await writeFile(
+      path.join(gitProject, "ambit.yml"),
+      `version: 1
+scopes: []
+skills:
+  - name: ${CORE_SKILL}
+    source: ${fixture.url}
+`,
+      "utf8",
+    );
+
+    const result = await cli(gitProject, "install", "--offline");
+
+    expect(result.code).toBe(ExitCode.Network);
+    expect(result.stderr).toContain(`skill "${CORE_SKILL}" is not in the cache`);
+  });
+
+  it("has nothing to say about a catalog read from a directory", async () => {
+    const result = await cli(pathProject, "install", "--offline");
+
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+    expect(Object.keys(await installed(pathProject))).toContain(
+      `${SKILLS_DIR}/${CORE_SKILL}/SKILL.md`,
+    );
   });
 });

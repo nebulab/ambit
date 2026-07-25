@@ -38,6 +38,8 @@ export const ADAPTERS: Readonly<Record<string, HarnessAdapter>> = {
 export interface InstallOptions {
   /** Fail rather than write when resolution would change the lock (spec §6). */
   readonly frozen?: boolean;
+  /** Resolve from the catalog cache alone, failing rather than fetching (spec §5). */
+  readonly offline?: boolean;
 }
 
 /** What an install did, for the command to report. */
@@ -78,9 +80,10 @@ function adaptersFor(harnesses: readonly string[]): readonly HarnessAdapter[] {
  * Resolves the project and materializes the bundle.
  *
  * @param projectDir the project root, absolute.
- * @param options `--frozen` and, later, the rest of `install`'s flags.
- * @throws {AmbitError} exit 2 for a malformed config or catalog, or an unknown harness; exit 5 under
- *   `--frozen` when the committed lock is not what resolution produces.
+ * @param options `--frozen`, `--offline`, and, later, the rest of `install`'s flags.
+ * @throws {AmbitError} exit 2 for a malformed config or catalog, or an unknown harness; exit 4 if a
+ *   fetch fails, or under `--offline` when the cache cannot answer; exit 5 under `--frozen` when the
+ *   committed lock is not what resolution produces.
  */
 export async function installProject(
   projectDir: string,
@@ -93,7 +96,7 @@ export async function installProject(
   // `process.env` is read once, here, so every adapter interpolates against the same environment,
   // the cache is looked for in one place (spec §5), and nothing deeper down reaches for ambient
   // state of its own.
-  const context: SourceContext = { projectDir, env: process.env };
+  const context: SourceContext = { projectDir, env: process.env, offline: options.offline === true };
 
   const loaded = await loadCatalogs(config, context);
   const catalogs = mergeCatalogs(loaded);
