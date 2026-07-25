@@ -6,7 +6,17 @@
  * directories" is the claim A06 makes, and a test that only looks for what should be there would
  * pass while an extra skill sat next to it.
  */
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  readlink,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -90,16 +100,27 @@ async function cli(
   return { code, stdout: out.join("\n"), stderr: err.join("\n") };
 }
 
+/**
+ * Whether a path is a directory, *through* a symlink.
+ *
+ * The walkers below have to follow links, because a linked skill (spec §5) is a directory as far as
+ * the harness reading it is concerned — the claims about what is installed are the same claims
+ * whichever mode put it there. Which mode that was is asserted on its own, from state and `lstat`.
+ */
+async function isDirectoryAt(target: string): Promise<boolean> {
+  return (await stat(target)).isDirectory();
+}
+
 /** Every file under `dir`, project-relative, `/`-separated and sorted. */
 async function tree(dir: string): Promise<readonly string[]> {
   const absolute = path.join(projectDir, dir);
   const found: string[] = [];
 
   const walk = async (current: string, relative: string): Promise<void> => {
-    for (const entry of await readdir(current, { withFileTypes: true })) {
-      const within = relative === "" ? entry.name : `${relative}/${entry.name}`;
-      if (entry.isDirectory()) {
-        await walk(path.join(current, entry.name), within);
+    for (const entry of await readdir(current)) {
+      const within = relative === "" ? entry : `${relative}/${entry}`;
+      if (await isDirectoryAt(path.join(current, entry))) {
+        await walk(path.join(current, entry), within);
       } else {
         found.push(within);
       }
@@ -115,10 +136,11 @@ async function snapshot(): Promise<Record<string, string>> {
   const found: Record<string, string> = {};
 
   const walk = async (current: string, relative: string): Promise<void> => {
-    for (const entry of await readdir(current, { withFileTypes: true })) {
-      const within = relative === "" ? entry.name : `${relative}/${entry.name}`;
-      if (entry.isDirectory()) await walk(path.join(current, entry.name), within);
-      else found[within] = await readFile(path.join(current, entry.name), "utf8");
+    for (const entry of await readdir(current)) {
+      const within = relative === "" ? entry : `${relative}/${entry}`;
+      const absolute = path.join(current, entry);
+      if (await isDirectoryAt(absolute)) await walk(absolute, within);
+      else found[within] = await readFile(absolute, "utf8");
     }
   };
 
@@ -128,11 +150,19 @@ async function snapshot(): Promise<Record<string, string>> {
 
 /** The installed skill directory names, sorted. */
 async function installedSkills(): Promise<readonly string[]> {
-  const entries = await readdir(path.join(projectDir, SKILLS_DIR), { withFileTypes: true });
-  return entries
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => entry.name)
-    .sort();
+  const skills = path.join(projectDir, SKILLS_DIR);
+  const names: string[] = [];
+  for (const entry of await readdir(skills)) {
+    if (await isDirectoryAt(path.join(skills, entry))) names.push(entry);
+  }
+  return names.sort();
+}
+
+/** Where an installed skill's symlink points, or undefined when it is not a symlink at all. */
+async function linkAt(target: string): Promise<string | undefined> {
+  const absolute = path.join(projectDir, target);
+  if (!(await lstat(absolute)).isSymbolicLink()) return undefined;
+  return readlink(absolute);
 }
 
 async function readStateFile(): Promise<string> {
@@ -153,13 +183,17 @@ async function writeCatalogFile(relative: string, contents: string): Promise<voi
   await writeFile(path.join(catalogDir, relative), contents, "utf8");
 }
 
-async function pathExists(target: string): Promise<boolean> {
+async function exists(absolute: string): Promise<boolean> {
   try {
-    await stat(path.join(projectDir, target));
+    await stat(absolute);
     return true;
   } catch {
     return false;
   }
+}
+
+async function pathExists(target: string): Promise<boolean> {
+  return exists(path.join(projectDir, target));
 }
 
 beforeEach(async () => {
@@ -200,13 +234,26 @@ describe("the Claude adapter's plan", () => {
       MCP_FILE,
     ]);
 
+    // The fixture is a `path:` catalog, so every skill is planned as a link (spec §5).
     const skills = plan.filter((artifact): artifact is PlannedSkillDir => artifact.kind === "skill-dir");
-    expect(skills.map((artifact) => artifact.mode)).toEqual(["copy", "copy", "copy"]);
+    expect(skills.map((artifact) => artifact.mode)).toEqual(["link", "link", "link"]);
     expect(skills[0]?.source).toBe(
       path.join(catalogDir, "skills/acme/commons/use-company-context"),
     );
     expect(await pathExists(SKILLS_DIR)).toBe(false);
     expect(await pathExists(MCP_FILE)).toBe(false);
+  });
+
+  it("plans the mode `--copy` and `--link` ask for, whatever the source would have chosen", async () => {
+    const bundle = await bundleFor();
+    const modes = (mode?: "copy" | "link"): readonly (string | undefined)[] =>
+      claudeAdapter
+        .plan(bundle, { root: projectDir, env: {}, ...(mode !== undefined && { mode }) })
+        .filter((artifact): artifact is PlannedSkillDir => artifact.kind === "skill-dir")
+        .map((artifact) => artifact.mode);
+
+    expect(modes("copy")).toEqual(["copy", "copy", "copy"]);
+    expect(modes("link")).toEqual(["link", "link", "link"]);
   });
 
   it("is pure: planning twice yields the same paths", async () => {
@@ -238,7 +285,7 @@ describe("ambit install", () => {
     ]);
   });
 
-  it("copies the skill byte-for-byte from the catalog", async () => {
+  it("serves the catalog's bytes, byte-for-byte, at the installed path", async () => {
     await cli("install");
 
     const installed = await readFile(
@@ -277,9 +324,9 @@ describe("ambit install", () => {
       version: 1,
       harnesses: ["claude"],
       artifacts: [
-        { path: `${SKILLS_DIR}/${CORE_SKILL}`, kind: "skill-dir", mode: "copy" },
-        { path: `${SKILLS_DIR}/${FRONTEND_SKILL}`, kind: "skill-dir", mode: "copy" },
-        { path: `${SKILLS_DIR}/${ENGINEERING_SKILL}`, kind: "skill-dir", mode: "copy" },
+        { path: `${SKILLS_DIR}/${CORE_SKILL}`, kind: "skill-dir", mode: "link" },
+        { path: `${SKILLS_DIR}/${FRONTEND_SKILL}`, kind: "skill-dir", mode: "link" },
+        { path: `${SKILLS_DIR}/${ENGINEERING_SKILL}`, kind: "skill-dir", mode: "link" },
         { path: MCP_FILE, kind: "harness-config", managedKeys: [`mcpServers.${SCOPED_MCP}`] },
       ],
     });
@@ -303,11 +350,13 @@ describe("ambit install", () => {
   });
 
   it("replaces an owned skill directory rather than merging into it", async () => {
-    await cli("install");
+    // `--copy` because the claim is about a directory of ambit's own bytes: writing into a *linked*
+    // skill writes into the catalog, where a stale file is the catalog's problem and not install's.
+    await cli("install", "--copy");
     const stale = path.join(projectDir, SKILLS_DIR, CORE_SKILL, "stale.md");
     await writeFile(stale, "left over from an older catalog\n", "utf8");
 
-    await cli("install");
+    await cli("install", "--copy");
 
     expect(await tree(SKILLS_DIR)).toEqual([
       `${CORE_SKILL}/SKILL.md`,
@@ -328,9 +377,9 @@ describe("ambit install", () => {
         "  claude",
         "",
         "artifacts (4)",
-        `  ${`${SKILLS_DIR}/${CORE_SKILL}`.padEnd(width)}  skill-dir       copy`,
-        `  ${SKILLS_DIR}/${FRONTEND_SKILL}  skill-dir       copy`,
-        `  ${`${SKILLS_DIR}/${ENGINEERING_SKILL}`.padEnd(width)}  skill-dir       copy`,
+        `  ${`${SKILLS_DIR}/${CORE_SKILL}`.padEnd(width)}  skill-dir       link`,
+        `  ${SKILLS_DIR}/${FRONTEND_SKILL}  skill-dir       link`,
+        `  ${`${SKILLS_DIR}/${ENGINEERING_SKILL}`.padEnd(width)}  skill-dir       link`,
         `  ${MCP_FILE.padEnd(width)}  harness-config  -`,
       ].join("\n"),
     );
@@ -341,9 +390,9 @@ describe("ambit install", () => {
 
     expect(JSON.parse(result.stdout)).toEqual({
       artifacts: [
-        { kind: "skill-dir", mode: "copy", path: `${SKILLS_DIR}/${CORE_SKILL}` },
-        { kind: "skill-dir", mode: "copy", path: `${SKILLS_DIR}/${FRONTEND_SKILL}` },
-        { kind: "skill-dir", mode: "copy", path: `${SKILLS_DIR}/${ENGINEERING_SKILL}` },
+        { kind: "skill-dir", mode: "link", path: `${SKILLS_DIR}/${CORE_SKILL}` },
+        { kind: "skill-dir", mode: "link", path: `${SKILLS_DIR}/${FRONTEND_SKILL}` },
+        { kind: "skill-dir", mode: "link", path: `${SKILLS_DIR}/${ENGINEERING_SKILL}` },
         { kind: "harness-config", managedKeys: [`mcpServers.${SCOPED_MCP}`], path: MCP_FILE },
       ],
       harnesses: ["claude"],
@@ -361,6 +410,108 @@ describe("ambit install", () => {
       ENGINEERING_SKILL,
     ]);
     expect(result.harnesses).toEqual(["claude"]);
+  });
+});
+
+/**
+ * Spec §5's materialization modes, and spec §1's reason for them: a local catalog is a working tree
+ * someone edits, so the file the agent reads must be that file and not a duplicate of it.
+ */
+describe("how a skill's source reaches its target", () => {
+  const CORE_TARGET = `${SKILLS_DIR}/${CORE_SKILL}`;
+  const CORE_SOURCE = "skills/acme/commons/use-company-context";
+  const EDITED = "---\nname: acme.commons.use-company-context\nscopes: [core]\n---\n\n# edited\n";
+
+  /** The skill's file inside the catalog, which a linked install must be the very same file as. */
+  async function readSource(): Promise<string> {
+    return readFile(path.join(catalogDir, CORE_SOURCE, "SKILL.md"), "utf8");
+  }
+
+  async function readInstalled(): Promise<string> {
+    return readFile(path.join(projectDir, CORE_TARGET, "SKILL.md"), "utf8");
+  }
+
+  /** The mode state records for one skill directory. */
+  async function recordedMode(target: string): Promise<string | undefined> {
+    const state = parseState(await readStateFile(), STATE_FILENAME);
+    return state.artifacts.find((artifact) => artifact.path === target)?.mode;
+  }
+
+  it("symlinks a `path:` catalog's skill, relatively, at the directory the catalog holds", async () => {
+    const result = await cli("install");
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+
+    const written = await linkAt(CORE_TARGET);
+    expect(written).toBe(
+      path.relative(path.dirname(path.join(projectDir, CORE_TARGET)), path.join(catalogDir, CORE_SOURCE)),
+    );
+    // Relative, so the project and its catalog can be moved together — and so no absolute path from
+    // this machine lands in the working tree.
+    expect(written?.startsWith("..")).toBe(true);
+    expect(await recordedMode(CORE_TARGET)).toBe("link");
+  });
+
+  it("makes editing the installed skill edit the tracked source", async () => {
+    await cli("install");
+
+    await writeFile(path.join(projectDir, CORE_TARGET, "SKILL.md"), EDITED, "utf8");
+
+    // The whole point of linking (spec §1): there is no second copy to go stale.
+    expect(await readSource()).toBe(EDITED);
+  });
+
+  it("copies under `--copy`, so editing the installed skill leaves the source alone", async () => {
+    const result = await cli("install", "--copy");
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+    expect(await linkAt(CORE_TARGET)).toBeUndefined();
+    expect(await recordedMode(CORE_TARGET)).toBe("copy");
+    const source = await readSource();
+
+    await writeFile(path.join(projectDir, CORE_TARGET, "SKILL.md"), EDITED, "utf8");
+
+    expect(await readSource()).toBe(source);
+  });
+
+  it("replaces a copy with a link and a link with a copy when the mode changes", async () => {
+    expect((await cli("install", "--copy")).code).toBe(ExitCode.Success);
+
+    expect((await cli("install")).code).toBe(ExitCode.Success);
+    expect(await linkAt(CORE_TARGET)).toBeDefined();
+    expect(await recordedMode(CORE_TARGET)).toBe("link");
+    // Replaced, not written through: the source still holds exactly what the catalog ships.
+    expect(await readInstalled()).toBe(await readSource());
+
+    expect((await cli("install", "--copy")).code).toBe(ExitCode.Success);
+    expect(await linkAt(CORE_TARGET)).toBeUndefined();
+    expect(await recordedMode(CORE_TARGET)).toBe("copy");
+    expect(await tree(SKILLS_DIR)).toEqual([
+      `${CORE_SKILL}/SKILL.md`,
+      `${FRONTEND_SKILL}/SKILL.md`,
+      `${ENGINEERING_SKILL}/SKILL.md`,
+    ]);
+  });
+
+  it("refuses `--copy` and `--link` together rather than picking one", async () => {
+    const result = await cli("install", "--copy", "--link");
+
+    expect(result.code).toBe(ExitCode.Config);
+    expect(result.stderr).toContain("`--copy` and `--link` contradict each other");
+    expect(await pathExists(SKILLS_DIR)).toBe(false);
+  });
+
+  it("unlinks a pruned skill without following the link into the catalog", async () => {
+    expect((await cli("install")).code).toBe(ExitCode.Success);
+    await writeProfile(["core"]);
+
+    const result = await cli("install");
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+
+    expect(await installedSkills()).toEqual([CORE_SKILL]);
+    // The skill ambit stopped selecting is gone from the project and untouched in the catalog.
+    expect(await pathExists(`${SKILLS_DIR}/${ENGINEERING_SKILL}`)).toBe(false);
+    expect(
+      await exists(path.join(catalogDir, "skills/acme/engineering/use-code-review/SKILL.md")),
+    ).toBe(true);
   });
 });
 
@@ -539,7 +690,7 @@ describe("explicitly declared skills and servers", () => {
     expect(await installedSkills()).toEqual([READWISE]);
     expect(await readMcpConfig()).toEqual({ mcpServers: { custom: { command: "custom-mcp" } } });
     expect(parseState(await readStateFile(), STATE_FILENAME).artifacts).toEqual([
-      { path: `${SKILLS_DIR}/${READWISE}`, kind: "skill-dir", mode: "copy" },
+      { path: `${SKILLS_DIR}/${READWISE}`, kind: "skill-dir", mode: "link" },
       { path: MCP_FILE, kind: "harness-config", managedKeys: ["mcpServers.custom"] },
     ]);
   });
@@ -592,15 +743,13 @@ describe("ambit install failures", () => {
     expect(result.stderr).toContain("not a valid ambit state file");
   });
 
-  for (const flag of ["--dry-run", "--copy", "--link"]) {
-    it(`reports \`${flag}\` as unimplemented instead of ignoring it`, async () => {
-      const result = await cli("install", flag);
+  it("reports `--dry-run` as unimplemented instead of ignoring it", async () => {
+    const result = await cli("install", "--dry-run");
 
-      expect(result.code).toBe(ExitCode.Internal);
-      expect(result.stderr).toContain(`\`${flag}\` is not implemented yet`);
-      expect(await pathExists(SKILLS_DIR)).toBe(false);
-    });
-  }
+    expect(result.code).toBe(ExitCode.Internal);
+    expect(result.stderr).toContain("`--dry-run` is not implemented yet");
+    expect(await pathExists(SKILLS_DIR)).toBe(false);
+  });
 });
 
 /**
@@ -799,7 +948,7 @@ describe("pruning", () => {
     await cli("install");
 
     expect(parseState(await readStateFile(), STATE_FILENAME).artifacts).toEqual([
-      { path: `${SKILLS_DIR}/${CORE_SKILL}`, kind: "skill-dir", mode: "copy" },
+      { path: `${SKILLS_DIR}/${CORE_SKILL}`, kind: "skill-dir", mode: "link" },
     ]);
   });
 
@@ -828,8 +977,8 @@ describe("pruning", () => {
     // `requires`, which this profile no longer selects.
     expect(Object.keys((await readMcpConfig()).mcpServers as object)).toEqual([SCOPED_MCP]);
     expect(parseState(await readStateFile(), STATE_FILENAME).artifacts).toEqual([
-      { path: `${SKILLS_DIR}/${FRONTEND_SKILL}`, kind: "skill-dir", mode: "copy" },
-      { path: `${SKILLS_DIR}/${ENGINEERING_SKILL}`, kind: "skill-dir", mode: "copy" },
+      { path: `${SKILLS_DIR}/${FRONTEND_SKILL}`, kind: "skill-dir", mode: "link" },
+      { path: `${SKILLS_DIR}/${ENGINEERING_SKILL}`, kind: "skill-dir", mode: "link" },
       { path: MCP_FILE, kind: "harness-config", managedKeys: [`mcpServers.${SCOPED_MCP}`] },
     ]);
   });

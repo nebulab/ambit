@@ -39,7 +39,7 @@ function isMissing(error: unknown): boolean {
  * Whether anything at all sits at `target`.
  *
  * `lstat`, not `stat`: a symlink — even a dangling one — is something ambit did not create and must
- * not silently replace, and A20 makes symlinks a target shape of its own.
+ * not silently replace, and a symlink is a shape ambit installs in its own right (spec §5).
  *
  * @throws {AmbitError} exit 2 when the path cannot be inspected. "I could not look" is not the same
  *   answer as "nothing is there", and guessing the second would be guessing in the one direction

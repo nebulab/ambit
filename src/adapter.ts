@@ -14,7 +14,7 @@ import type { ConfigEntry } from "./harness-config.js";
 import type { Bundle } from "./resolve.js";
 import type { ArtifactMode, OwnedArtifact, State } from "./state.js";
 
-/** Where a bundle is being materialized. */
+/** Where — and how — a bundle is being materialized. */
 export interface ProjectPaths {
   /** The project root, absolute. Every artifact path is relative to it. */
   readonly root: string;
@@ -24,6 +24,14 @@ export interface ProjectPaths {
    * test can pin what lands in a config file without touching the real environment.
    */
   readonly env: Readonly<Record<string, string | undefined>>;
+  /**
+   * `--copy` / `--link`: force every skill's materialization mode for this run (spec §5).
+   *
+   * Absent — the normal case — means each skill follows its own source: a pinned remote one is
+   * copied, a local one is symlinked. Carried here rather than read from a flag inside the adapter
+   * for the same reason `env` is: `plan` decides the mode, and it must decide it from its arguments.
+   */
+  readonly mode?: ArtifactMode;
 }
 
 /** A skill directory to materialize. */
@@ -35,7 +43,10 @@ export interface PlannedSkillDir {
   readonly target: string;
   /** Absolute source directory within the catalog. */
   readonly source: string;
-  /** How the source reaches the target. This build always copies; A20 adds symlinks. */
+  /**
+   * How the source reaches the target: copied for a source pinned to a commit, symlinked for a
+   * local directory someone edits (spec §5). `--copy`/`--link` force one for the whole run.
+   */
   readonly mode: ArtifactMode;
   /** The skill's name, so a failure names the skill and not only a path. */
   readonly name: string;

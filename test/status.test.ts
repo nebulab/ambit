@@ -8,7 +8,7 @@
  * `--check` is asserted in both directions every time: exit 5 on drift and 0 when clean. A checker
  * that always failed and a checker that never did would each satisfy half of it.
  */
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -71,15 +71,21 @@ async function cli(
   return { code, stdout: out.join("\n"), stderr: err.join("\n") };
 }
 
-/** Every file in the project, keyed by relative path and carrying its contents. */
+/**
+ * Every file in the project, keyed by relative path and carrying its contents.
+ *
+ * Symlinks are followed, because the default install of a `path:` catalog is a link (spec §5) and the
+ * claim being made is about the files a harness would read.
+ */
 async function snapshot(): Promise<Record<string, string>> {
   const found: Record<string, string> = {};
 
   const walk = async (current: string, relative: string): Promise<void> => {
-    for (const entry of await readdir(current, { withFileTypes: true })) {
-      const within = relative === "" ? entry.name : `${relative}/${entry.name}`;
-      if (entry.isDirectory()) await walk(path.join(current, entry.name), within);
-      else found[within] = await readFile(path.join(current, entry.name), "utf8");
+    for (const entry of await readdir(current)) {
+      const within = relative === "" ? entry : `${relative}/${entry}`;
+      const absolute = path.join(current, entry);
+      if ((await stat(absolute)).isDirectory()) await walk(absolute, within);
+      else found[within] = await readFile(absolute, "utf8");
     }
   };
 
@@ -180,9 +186,14 @@ describe("ambit status on an installed project", () => {
   });
 });
 
+/**
+ * Content drift, which is a question about a *copy*: a symlinked skill has no bytes of its own, so
+ * these cases install with `--copy` (spec §5). Editing a linked skill edits the catalog, and the
+ * block below pins that as the non-drift it is.
+ */
 describe("ambit status after a manual edit", () => {
   beforeEach(async () => {
-    expect((await cli("install")).code).toBe(ExitCode.Success);
+    expect((await cli("install", "--copy")).code).toBe(ExitCode.Success);
   });
 
   it("reports an edited skill file as modified, naming the file", async () => {
@@ -294,6 +305,64 @@ describe("ambit status after a manual edit", () => {
     );
 
     expect(await detailOf(CORE_TARGET)).toBe("SKILL.md differs from its source");
+  });
+});
+
+/**
+ * The other half of spec §5's materialization modes: what is on disk decides how a skill is compared,
+ * so a link is checked for pointing at its source and a copy for holding its bytes.
+ */
+describe("ambit status on a symlinked install", () => {
+  const CORE_SOURCE = "skills/acme/commons/use-company-context";
+
+  it("says nothing when the source is edited through the link, which is what linking is for", async () => {
+    expect((await cli("install")).code).toBe(ExitCode.Success);
+
+    await writeFile(
+      path.join(projectDir, CORE_TARGET, "SKILL.md"),
+      "---\nname: acme.commons.use-company-context\nscopes: [core]\n---\n\n# edited in place\n",
+      "utf8",
+    );
+
+    // The edit landed in the catalog, so there is no second copy for the two to disagree about.
+    expect(await readFile(path.join(catalogDir, CORE_SOURCE, "SKILL.md"), "utf8")).toContain(
+      "edited in place",
+    );
+    expect(isClean(await projectStatus(projectDir))).toBe(true);
+    expect((await cli("status", "--check")).code).toBe(ExitCode.Success);
+  });
+
+  it("reports a link pointing elsewhere as modified, naming where it points", async () => {
+    expect((await cli("install")).code).toBe(ExitCode.Success);
+    await rm(path.join(projectDir, CORE_TARGET));
+    await symlink("../../../elsewhere", path.join(projectDir, CORE_TARGET), "dir");
+
+    // A link is not followed, so one pointing at nothing is drift rather than an absent artifact.
+    expect(await detailOf(CORE_TARGET)).toBe("it points at ../../../elsewhere, not at its source");
+    expect(await states()).toContain(`${CORE_TARGET}=modified`);
+    expect((await cli("status", "--check")).code).toBe(ExitCode.Drift);
+  });
+
+  it("reports a file sitting where a linked skill belongs as modified", async () => {
+    expect((await cli("install")).code).toBe(ExitCode.Success);
+    await rm(path.join(projectDir, CORE_TARGET));
+    await writeFile(path.join(projectDir, CORE_TARGET), "not a skill directory\n", "utf8");
+
+    expect(await detailOf(CORE_TARGET)).toBe("it is not a directory");
+  });
+
+  it("reads an intact copy as clean, even though a plain install would relink it", async () => {
+    expect((await cli("install", "--copy")).code).toBe(ExitCode.Success);
+
+    // Mode is a per-run choice and both modes put the same bytes in front of the harness, so
+    // `--copy` must not leave `status --check` permanently red.
+    expect(await states()).toEqual([
+      `${CORE_TARGET}=ok`,
+      `${FRONTEND_TARGET}=ok`,
+      `${ENGINEERING_TARGET}=ok`,
+      `${MCP_FILE}=ok`,
+    ]);
+    expect((await cli("status", "--check")).code).toBe(ExitCode.Success);
   });
 });
 

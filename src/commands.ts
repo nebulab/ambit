@@ -64,8 +64,12 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
     options: [
       new Option("--frozen", "fail if resolution would change ambit.lock"),
       new Option("--adopt", "take ownership of existing unowned artifacts"),
-      new Option("--copy", "copy local-source skills instead of symlinking").conflicts("link"),
-      new Option("--link", "symlink skills instead of copying").conflicts("copy"),
+      // Mutually exclusive, but deliberately not through Commander's `.conflicts()`: a subcommand
+      // added with `addCommand` inherits neither `exitOverride` nor `configureOutput`, so
+      // Commander's own refusal would leave the process rather than travel out as an exit code. The
+      // handler refuses them instead, in spec §6's message shape.
+      new Option("--copy", "copy local-source skills instead of symlinking"),
+      new Option("--link", "symlink skills instead of copying"),
     ],
   },
   {

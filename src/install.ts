@@ -34,6 +34,7 @@ import { pruneArtifacts } from "./prune.js";
 import type { Bundle } from "./resolve.js";
 import { resolveBundle } from "./resolve.js";
 import type { SourceContext } from "./sources.js";
+import type { ArtifactMode } from "./state.js";
 import { STATE_VERSION, readState, writeState } from "./state.js";
 
 /** Every adapter this build ships, keyed by the name `harnesses` uses. */
@@ -49,6 +50,11 @@ export interface InstallOptions {
   readonly offline?: boolean;
   /** Take ownership of existing unowned targets instead of refusing them (spec §5). */
   readonly adopt?: boolean;
+  /**
+   * `--copy` / `--link`: materialize every skill this way, whatever its source would have chosen
+   * (spec §5). Absent means each skill follows its source, which is the mode to leave alone.
+   */
+  readonly mode?: ArtifactMode;
 }
 
 /** What an install did, for the command to report. */
@@ -94,7 +100,8 @@ export function adaptersFor(harnesses: readonly string[]): readonly HarnessAdapt
  * Resolves the project and materializes the bundle.
  *
  * @param projectDir the project root, absolute.
- * @param options `--frozen`, `--offline`, `--adopt`, and, later, the rest of `install`'s flags.
+ * @param options `--frozen`, `--offline`, `--adopt`, `--copy`/`--link`, and, later, the rest of
+ *   `install`'s flags.
  * @throws {AmbitError} exit 2 for a malformed config or catalog, an unknown harness, or a target path
  *   or config key ambit does not own and was not told to adopt; exit 4 if a
  *   fetch fails, or under `--offline` when the cache cannot answer; exit 5 under `--frozen` when the
@@ -124,7 +131,11 @@ export async function installProject(
   if (options.frozen === true) await assertLockCurrent(projectDir, lockText);
 
   const prior = await readState(projectDir);
-  const project: ProjectPaths = { root: projectDir, env: process.env };
+  const project: ProjectPaths = {
+    root: projectDir,
+    env: process.env,
+    ...(options.mode !== undefined && { mode: options.mode }),
+  };
 
   // Plan everything first: the ownership check has to see every target before the first write, or a
   // project whose second skill collides is left with its first one already installed.

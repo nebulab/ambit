@@ -6,7 +6,8 @@
  * installed once from a repository and once from a directory, must leave byte-identical projects
  * behind — anything else means fetching quietly changed what a project gets. The two files that
  * record *where* it came from are the deliberate exception, and are named in
- * {@link PER_SOURCE_FILES}.
+ * {@link PER_SOURCE_FILES}; the materialization mode is the other one, since a commit is copied and a
+ * working directory is linked (spec §5), so the comparison passes `--copy` on the directory side.
  *
  * The second claim is about the cache: a resolve that the cache can already answer must not touch
  * the remote. That is asserted the only way it can be believed — by deleting the remote between the
@@ -17,7 +18,7 @@
  * quietly fetch. Deleting the remote proves the cache can answer; leaving it in place proves ambit
  * did not ask it to.
  */
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -30,6 +31,7 @@ import { ExitCode } from "../src/errors.js";
 import { REPOS_DIRNAME, SOURCES_DIRNAME, cacheRoot, gitCacheKey } from "../src/git.js";
 import { LOCK_FILENAME } from "../src/lock.js";
 import { run } from "../src/program.js";
+import { STATE_DIRNAME, STATE_FILENAME, parseState } from "../src/state.js";
 import type { YamlMapping } from "../src/yaml.js";
 import { parseYamlMapping } from "../src/yaml.js";
 
@@ -99,16 +101,22 @@ async function cli(
  */
 const PER_SOURCE_FILES: ReadonlySet<string> = new Set(["ambit.yml", "ambit.lock"]);
 
-/** Every file ambit left in a project, keyed by relative path and carrying its contents. */
+/**
+ * Every file ambit left in a project, keyed by relative path and carrying its contents.
+ *
+ * Symlinks are followed: a `path:` catalog's skills are linked by default (spec §5), and what this
+ * compares is the files a harness would read, not how they got there.
+ */
 async function installed(dir: string): Promise<Record<string, string>> {
   const found: Record<string, string> = {};
 
   const walk = async (current: string, relative: string): Promise<void> => {
-    for (const entry of await readdir(current, { withFileTypes: true })) {
-      const within = relative === "" ? entry.name : `${relative}/${entry.name}`;
+    for (const entry of await readdir(current)) {
+      const within = relative === "" ? entry : `${relative}/${entry}`;
       if (PER_SOURCE_FILES.has(within)) continue;
-      if (entry.isDirectory()) await walk(path.join(current, entry.name), within);
-      else found[within] = await readFile(path.join(current, entry.name), "utf8");
+      const absolute = path.join(current, entry);
+      if ((await stat(absolute)).isDirectory()) await walk(absolute, within);
+      else found[within] = await readFile(absolute, "utf8");
     }
   };
 
@@ -169,7 +177,11 @@ afterEach(async () => {
 
 describe("a catalog fetched from git", () => {
   it("installs exactly what the same catalog installs from a directory", async () => {
-    const fromPath = await cli(pathProject, "install");
+    // `--copy` on the directory side, because that is the one thing the two sources legitimately
+    // disagree about: a commit is immutable and gets copied, a working directory gets linked
+    // (spec §5), and state records which. Everything else — every skill, every server key — must
+    // match byte for byte, so the flag is what keeps this comparison about fetching.
+    const fromPath = await cli(pathProject, "install", "--copy");
     expect(fromPath.code, fromPath.stderr).toBe(ExitCode.Success);
     const fromGit = await cli(gitProject, "install");
     expect(fromGit.code, fromGit.stderr).toBe(ExitCode.Success);
@@ -178,6 +190,20 @@ describe("a catalog fetched from git", () => {
     expect(Object.keys(await installed(gitProject))).toContain(
       `${SKILLS_DIR}/${CORE_SKILL}/SKILL.md`,
     );
+  });
+
+  it("copies its skills, since a commit is not a working tree anyone edits", async () => {
+    const result = await cli(gitProject, "install");
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+
+    const target = path.join(gitProject, SKILLS_DIR, CORE_SKILL);
+    expect((await lstat(target)).isSymbolicLink()).toBe(false);
+    const state = await readFile(path.join(gitProject, STATE_DIRNAME, STATE_FILENAME), "utf8");
+    expect(parseState(state, STATE_FILENAME).artifacts).toContainEqual({
+      path: `${SKILLS_DIR}/${CORE_SKILL}`,
+      kind: "skill-dir",
+      mode: "copy",
+    });
   });
 
   it("clones into the cache, keyed by host and path, and checks the commit out there", async () => {

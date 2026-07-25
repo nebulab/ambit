@@ -13,15 +13,17 @@
  * a status that cannot resolve has nothing to compare against.
  *
  * Comparison follows the artifact kind, the same split ownership and pruning make. A copied skill
- * directory is the source's bytes and nothing else, so it is compared as a tree. A harness config
- * file is compared key by key: it is co-owned (spec §3.6), so a hand-added server beside ambit's is
- * not drift, and only the keys ambit wrote are ambit's to have an opinion about.
+ * directory is the source's bytes and nothing else, so it is compared as a tree; a symlinked one has
+ * no bytes of its own, so the only thing to check is where it points — editing through the link is
+ * editing the source, which is what linking is for and never drift. A harness config file is compared
+ * key by key: it is co-owned (spec §3.6), so a hand-added server beside ambit's is not drift, and
+ * only the keys ambit wrote are ambit's to have an opinion about.
  *
  * Ownership is part of the comparison rather than a separate audit. A target that exists but that
  * state does not claim is exactly what install would refuse (spec §5 rule 2), and reporting it as
  * `unowned` here is what lets someone find that out before the install that stops.
  */
-import { lstat, readFile, readdir } from "node:fs/promises";
+import { lstat, readFile, readdir, readlink } from "node:fs/promises";
 import path from "node:path";
 
 import type { PlannedArtifact, PlannedHarnessConfig, PlannedSkillDir, ProjectPaths } from "./adapter.js";
@@ -113,16 +115,22 @@ function unreadable(file: string, target: string, error: unknown): never {
 }
 
 /**
- * What sits at a target: nothing, a directory, or something else.
+ * What sits at a target: nothing, a symlink, a directory, or something else.
  *
- * `lstat`, not `stat`: a symlink is its own shape, and A20 makes one a legitimate install mode, so
- * following it here would compare the wrong thing.
+ * `lstat`, not `stat`: a symlink is a legitimate install mode of its own (spec §5), so following it
+ * here would compare a linked skill as though it were a copy — and would report a dangling link as
+ * absent, when it is very much there.
  *
  * @throws {AmbitError} exit 2 when the path cannot be inspected.
  */
-async function shapeOf(target: string, file: string): Promise<"absent" | "directory" | "other"> {
+async function shapeOf(
+  target: string,
+  file: string,
+): Promise<"absent" | "directory" | "link" | "other"> {
   try {
-    return (await lstat(target)).isDirectory() ? "directory" : "other";
+    const found = await lstat(target);
+    if (found.isSymbolicLink()) return "link";
+    return found.isDirectory() ? "directory" : "other";
   } catch (error) {
     if (isMissing(error)) return "absent";
     unreadable(file, target, error);
@@ -202,10 +210,43 @@ async function firstDifference(artifact: PlannedSkillDir): Promise<string | unde
 }
 
 /**
+ * Compares one installed symlink against the source it should name.
+ *
+ * The link is read rather than followed, and reported as written: a relative link is what `apply`
+ * creates and what someone sees in `ls -l`, so it is what a detail line should say — and reporting
+ * the resolved absolute path would put a machine-specific string into `status --json`.
+ *
+ * @throws {AmbitError} exit 2 when the link cannot be read.
+ */
+async function linkVerdict(artifact: PlannedSkillDir): Promise<Verdict> {
+  let written: string;
+  try {
+    written = await readlink(artifact.target);
+  } catch (error) {
+    unreadable(artifact.path, artifact.target, error);
+  }
+
+  // Resolved against the link's own directory, so a relative link and an absolute one that name the
+  // same directory compare equal. Deliberately not `realpath`: this is about where the link points,
+  // not about what symlinks anywhere above it resolve to.
+  const points = path.resolve(path.dirname(artifact.target), written);
+  if (points === artifact.source) return OK;
+  return { state: "modified", detail: `it points at ${written}, not at its source` };
+}
+
+/**
  * Compares one planned skill directory against the project.
  *
  * Existence, then ownership, then contents: something ambit did not create is `unowned` whatever it
  * holds, because install would refuse it rather than compare it.
+ *
+ * What is on disk decides *how* the comparison is made, not the plan's `mode`. A link is checked for
+ * pointing at its source; a directory is compared byte for byte. So a project installed with `--copy`
+ * whose copies are intact reads as clean even though a plain `install` would relink it: the mode is a
+ * per-run choice (spec §5), both modes put the same bytes in front of the harness, and the
+ * alternative would leave anyone who uses the flag with a `status --check` that can never pass.
+ * Reporting mode divergence belongs to `doctor` (A24), which is the command for "this is not how it
+ * would be set up today".
  *
  * @throws {AmbitError} exit 2 when the target cannot be inspected.
  */
@@ -218,6 +259,7 @@ async function skillVerdict(
   if (!owned.has(artifact.path)) {
     return { state: "unowned", detail: "it exists but ambit did not create it" };
   }
+  if (shape === "link") return linkVerdict(artifact);
   if (shape === "other") return { state: "modified", detail: "it is not a directory" };
 
   const difference = await firstDifference(artifact);

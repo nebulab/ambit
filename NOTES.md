@@ -3,28 +3,55 @@
 Rewritten by each Ralph iteration for the next one. Short, current, and only what would cost
 real time to rediscover — see `PROMPT.md` §6.
 
-Last iteration: **A19 — idempotence and `status`** (the tip of `main`). Next task is **A20 —
-symlink local sources**, whose `Depends: A19` is now checked.
+Last iteration: **A20 — symlink local sources** (the tip of `main`). Next task is **A21 — managed
+gitignore block**, whose `Depends: A20` is now checked.
 
 ## Constraints later tasks inherit
 
+- **A skill's materialization mode is derived from `MergedSkill.commit`** (`modeOf` in
+  `src/adapters/claude.ts`): absent means a `path:` source, which is a working tree someone edits, so
+  it is **linked**; present means a pinned commit, so it is **copied** (spec §5). That is the only
+  signal, and it is exact — `commit` is absent for `path:` and set for every git source. The override
+  rides on **`ProjectPaths.mode` / `InstallOptions.mode`** (`--copy`/`--link`), absent meaning "follow
+  each source"; a new construction site of `ProjectPaths` therefore decides the mode by omission, so
+  set it deliberately.
+- **The fixture catalog is a `path:` source, so the default install of it is now symlinks.** Every
+  install test's state, text, and `--json` assertions read `mode: link`; the tests that are about a
+  directory of ambit's own bytes pass `--copy` (see Traps).
+- **Links are relative** (`linkSkillDir`), resolved against the link's own directory, so a project and
+  its catalog move together and no absolute machine path lands in the working tree. `--link` against a
+  remote source deliberately links into the shared cache checkout: it is an explicit request, and
+  nothing else in ambit points into the cache.
+- **`status` compares a skill by the shape on disk, not by the plan's `mode`** (`skillVerdict`,
+  `linkVerdict` in `src/status.ts`). A link is checked for pointing at its source; a directory is
+  compared byte for byte. So a project installed with `--copy` whose copies are intact reads **clean**
+  even though a plain `install` would relink it. Deliberate, and the reverse of what A19's notes
+  guessed: mode is a per-run choice, both modes put identical bytes in front of the harness, and
+  treating divergence as drift would leave anyone who uses the flag with a `status --check` that can
+  never pass. **Reporting mode divergence is A24's `doctor`** — "this is not how it would be set up
+  today" is that command's question. Worth a second opinion.
+- **Editing a linked skill edits the catalog, and that is never drift.** `status.ts`'s comparison and
+  `test/status.test.ts`'s link block both say so; content drift is only a question about a copy.
+- **`--copy`/`--link` mutual exclusion is enforced in `installHandler`, not by Commander's
+  `.conflicts()`.** Reason, and a **pre-existing bug worth a task**: a subcommand added with
+  `addCommand` inherits neither `exitOverride` nor `configureOutput`, so *any* Commander-level usage
+  error in a subcommand (a bad `--flag`, a missing argument) writes to the real stderr and calls
+  `process.exit` instead of travelling out of `run()` as an exit code. `program.addCommand` calling
+  `copyInheritedSettings` would fix it for every command at once. No task owns it.
+- **`--dry-run` is the only entry left in the `UNIMPLEMENTED` map in `src/handlers/install.ts`**, with
+  one matching test in `test/install.test.ts`. A22 owns it — delete the entry and the test together.
 - **`src/status.ts`'s `projectStatus(projectDir, { offline })` plans through the adapters exactly as
-  `installProject` does** — that is why `adaptersFor` is now exported from `src/install.ts` — and then
+  `installProject` does** — that is why `adaptersFor` is exported from `src/install.ts` — and then
   compares, writing nothing. Every row is one artifact and one `ArtifactState`
   (`missing | modified | ok | stale | unowned`), so the whole report answers one question: would
   `ambit install` change this? **Drift is never an error**: `statusHandler` prints the same table and
   *returns* `ExitCode.Drift` under `--check`, which is what `buildCommand`'s `onExit` exists for.
   **A24's `doctor` should build on `projectStatus`** and add what status deliberately leaves out: lock
-  drift (status never reads `ambit.lock`) and env vars.
-- **`skillVerdict` in `src/status.ts` is copy-mode-only, and A20 must change it.** It asks `shapeOf`
-  (an `lstat`, so a symlink is `"other"`), then ownership, then compares the two trees byte for byte.
-  On this build a symlink at a skill target can only be a stranger's, so `unowned` is the right
-  answer — but once `--link` writes one, an *owned* symlink would report
-  `modified / it is not a directory`. Link mode needs its own branch (does the link point at
-  `artifact.source`?), and a target whose installed mode differs from the planned one is drift too.
-- **A skill's contents are compared against its `source`, so status reports upstream change, not only
-  local edits** (`test/status.test.ts` pins that by rewriting the catalog). One difference is
-  reported, the first in sorted order, and a file that cannot be read counts as differing.
+  drift (status never reads `ambit.lock`), env vars, and mode divergence.
+- **A copied skill's contents are compared against its `source`, so status reports upstream change,
+  not only local edits** (`test/status.test.ts` pins that by rewriting the catalog, under `--copy`).
+  One difference is reported, the first in sorted order, and a file that cannot be read counts as
+  differing.
 - **`.mcp.json` is compared key by key and the first problem in plan order wins the row** — the same
   choice ownership makes about which conflict to refuse. Key order inside a server is *not* a
   difference (`jsonEqual`): ambit owns the key, not the file's layout. Foreign keys are invisible.
@@ -44,7 +71,9 @@ symlink local sources**, whose `Depends: A19` is now checked.
   together** (same reason `authorizePlan` is), **after the last `apply` and before the lock and state
   writes**: a prune that throws is retryable because state still owns what it was about to remove, and
   a failed `apply` leaves the previous install standing instead of half-dismantled. `InstallResult`
-  carries `pruned: readonly PrunedArtifact[]`, sorted by path.
+  carries `pruned: readonly PrunedArtifact[]`, sorted by path. **It needs no mode branch**:
+  `rm(..., { recursive: true, force: true })` unlinks a symlink without following it, so a pruned link
+  never reaches the catalog behind it (pinned by a test).
 - **Pruning removes managed keys, never the config file.** A bundle with no MCPs plans no `.mcp.json`
   artifact at all, so the stale keys can only come from prior state — and what is left behind is
   `{"mcpServers": {}}` plus every foreign key, because ambit owns keys in that file and not the
@@ -65,10 +94,14 @@ symlink local sources**, whose `Depends: A19` is now checked.
   `installProject` before any adapter applies. It returns the `State` `apply` must act with: `prior`,
   plus an owned entry per target `--adopt` just took over. **That is the whole of `--adopt` for skill
   dirs** — an adopted path looks owned, so `applySkillDir` replaces it rather than copying on top of
-  it. Pruning is handed `prior` rather than that state, since anything just adopted is in the plan
-  anyway. **A20's symlink mode inherits the `lstat` check**, which is deliberately `lstat` so a
-  dangling symlink still counts as something ambit did not create; `rm(..., { recursive: true, force:
-  true })` in `prune.ts` unlinks a symlink without following it, so A20 needs no prune branch.
+  it. Its `exists` check is `lstat`, so a symlink — including a dangling one, and including one ambit
+  itself would have written — counts as something ambit did not create unless state says otherwise.
+  Pruning is handed `prior` rather than that state, since anything just adopted is in the plan anyway.
+- **`applySkillDir` removes an owned target before writing it**, which is also what makes a mode change
+  between runs work: a copy becomes a link and a link becomes a copy rather than one landing on top of
+  the other. An *unowned* target is still merged into in copy mode (a case install never reaches;
+  deliberate, so `apply` called directly cannot destroy a stranger's directory) — link mode has no
+  merge, so there it is exit 2 `cannot symlink <path>`.
 - **Ownership granularity follows the artifact kind.** `skill-dir` is owned as a path; `harness-config`
   is checked **per key** (`sectionKeys` in `src/harness-config.ts` × prior `managedKeys`), so a
   `.mcp.json` full of hand-added servers is a normal input and only a colliding server *name* is a
@@ -112,6 +145,7 @@ symlink local sources**, whose `Depends: A19` is now checked.
   renders it, `assertLockCurrent` is `--frozen`. `installProject(projectDir, { frozen })` serializes
   once and compares **before** anything is applied, so a stale-lock CI run leaves the project
   untouched; the write happens after `apply` and after pruning, beside `writeState`, for the §5.4 reason.
+  **The lock records no mode**, so `--copy` and `--link` cannot make a lock differ.
 - **`emitYaml` in `src/yaml.ts` is the only sanctioned way to write YAML** (spec §3.0): sorted keys at
   every depth, double quotes when quoting is needed, no anchors/aliases, no wrapping and no block
   scalars, core schema 1.2 to match the parser. **A25's `init` scaffold and B02's editor emit through
@@ -124,15 +158,14 @@ symlink local sources**, whose `Depends: A19` is now checked.
   URL), and an inline MCP's is the config filename — the same column `resolve --json` reports, so the
   two surfaces cannot disagree about the same fact.
 - **`MergedSkill` carries `commit?`** — a catalog skill inherits its catalog's, a `source` skill carries
-  its own. Absent for `path:`. Not in `resolve --json` or `catalog --json`, both of which build records
-  from explicit key lists, so the goldens are untouched; **anything that starts spreading a
-  `MergedSkill` into output must exclude `catalogRoot` and think about `commit`.**
+  its own. Absent for `path:`, which is now also what decides the install mode. Not in `resolve --json`
+  or `catalog --json`, both of which build records from explicit key lists, so the goldens are
+  untouched; **anything that starts spreading a `MergedSkill` into output must exclude `catalogRoot`
+  and think about `commit`.**
 - **`Catalog` carries `ref?`**, attached by `loadCatalogs` after `parseCatalogDirectory` returns —
   it is a fact about the config entry, not the directory, so a catalog parsed straight off disk
   (A23's `validate --catalog`) has none. A `path:` catalog with a pointless `ref` still records it.
-- **`--frozen`, `--adopt` and `status --check` are implemented; `--dry-run`, `--copy`, `--link` remain
-  in the `UNIMPLEMENTED` map in `src/handlers/install.ts`.** `test/install.test.ts` loops over those
-  three — delete the entry *and* the loop case together when you implement one.
+- **`--frozen`, `--adopt`, `--copy`, `--link` and `status --check` are implemented.**
 - **Every source resolves through `src/sources.ts`** (§3.1 grammar; `owner/repo[@ref]`, any URL,
   scp-like remotes, `git:<url>`, `path:./dir`) returning `ResolvedSource = { root, commit? }`.
   `loadCatalogs`, `mergeConfigEntities`, `loadSourceSkill`, and `resolveCatalogRoot` take a
@@ -147,15 +180,13 @@ symlink local sources**, whose `Depends: A19` is now checked.
   that forgets it would silently reach the network. Add one only with a reason, and set the flag there.
 - **Offline refuses the clone and the fetch, nothing else** (`notCached` / `refNotCached` in
   `src/git.ts`, both exit 4). A `git worktree add` from a clone ambit already has is still an offline
-  answer, and `path:` sources never consult the cache at all — so **A20's symlink mode and A22's
-  `clean` need no offline branch.** Offline also turns an unresolvable ref into exit **4** where the
-  fetching path calls it exit 2 (`unknownRef`): only a fetch could tell "the repo lacks it" from
-  "the clone was never told".
+  answer, and `path:` sources never consult the cache at all — so **A22's `clean` needs no offline
+  branch.** Offline also turns an unresolvable ref into exit **4** where the fetching path calls it
+  exit 2 (`unknownRef`): only a fetch could tell "the repo lacks it" from "the clone was never told".
 - **Clones are `--mirror`** (a bare clone gets no `remote.origin.fetch`); checkouts are
   `git worktree add --detach` into `sources/<key>/<commit>` with a `<commit>.ready` sentinel written
   last. Cache layout `<cache>/repos/<host>/<path…>.git` and `<cache>/sources/<host>/<path…>/<commit>/`,
-  key from `gitCacheKey()`. **A20's symlink mode must not point into a path `worktree prune` could
-  invalidate, and A22's `clean` must not touch the cache.**
+  key from `gitCacheKey()`. **A22's `clean` must not touch the cache.**
 - Exit codes for sources: **2** for an unrecognized/empty source, a missing `path:` directory, or an
   unusable/unknown ref; **4** for git missing from PATH or a failed clone/fetch/checkout.
 - **`Bundle` carries `reasons: SelectionReasons`**, one entry per selected item.
@@ -187,22 +218,23 @@ symlink local sources**, whose `Depends: A19` is now checked.
   placeholder rather than emptying the value, and **A24's `doctor` reports it**. `status` interpolates
   from the same `process.env`, so a variable that changed between two runs *is* drift. The entity's
   `env` list is deliberately not written into `.mcp.json`.
-- **`ProjectPaths` carries `env`**, supplied by `installProject` and `projectStatus`, so
-  `claudeAdapter.plan` stays pure.
-- **`applySkillDir` still treats an *unowned* target as a merge rather than a delete**, a case install
-  never reaches (ownership refused or adopted it first). Deliberate: `apply` called directly, with a
-  state that claims nothing, must not be able to destroy a stranger's directory. Deletion lives in
-  `prune.ts`, which only ever acts on paths state names.
+- **`ProjectPaths` carries `env` and `mode?`**, both supplied by `installProject` (and `env` by
+  `projectStatus`), so `claudeAdapter.plan` stays pure.
 
 ## Deliberate omissions, and who owns them
 
 - Nothing prunes the cache, and nothing locks it against a concurrent ambit (`loadCatalogs` is
   sequential for that reason). No task owns cache GC; raise it if it matters.
 - No `.gitignore` handling at all — **A21**. `.mcp.json` and `ambit.lock` are committed, so only
-  `.ambit/` and copied skills belong in that block.
+  `.ambit/` and installed skills belong in that block — **including linked ones**, which are still
+  files git would otherwise track.
+- **Nothing persists a materialization mode.** `--copy`/`--link` are per-run (spec §5) and there is no
+  config key for them, so a team that wants copies everywhere has to pass the flag every time. If that
+  ever needs fixing it is a config change and a spec change, not an adapter change.
 - Shadowing is recorded for every colliding name but reported only under `--explain`; `validate`
   listing all of them is **A23**.
-- `status` reports artifacts only: no lock drift, no env vars, no harness list — **A24's `doctor`**.
+- `status` reports artifacts only: no lock drift, no env vars, no harness list, no mode divergence —
+  **A24's `doctor`**.
 
 ## Traps
 
@@ -210,6 +242,17 @@ symlink local sources**, whose `Depends: A19` is now checked.
   repo, whose commit SHA is fixed by pinned dates and `GIT_CONFIG_GLOBAL=/dev/null`. A test needing a
   *rejected* source must pick one no fetch can be attempted for — a bare relative path like
   `../catalog` is unrecognized (`path:` is the prefix), whereas `acme/skills` resolves to a GitHub URL.
+- **Every test walker now follows symlinks** — `tree`/`snapshot`/`installedSkills` in
+  `test/install.test.ts`, `snapshot` in `test/status.test.ts`, `installed` in
+  `test/git-source.test.ts`. A `readdir`-dirent walk reads a linked skill as a *file* and then fails
+  with `EISDIR`, so a new walker must `stat` (not `lstat`) each entry. Mode itself is asserted
+  separately, from state and `lstat`/`readlink`.
+- **Three places deliberately pass `--copy`, and the claim collapses without it:**
+  `test/install.test.ts`'s "replaces an owned skill directory rather than merging into it" (writing
+  into a *linked* skill writes into the catalog), `test/status.test.ts`'s whole
+  `describe("ambit status after a manual edit")` block (content drift is a question about a copy), and
+  `test/git-source.test.ts`'s byte-for-byte git-vs-path comparison (otherwise one side links and the
+  other copies).
 - `test/install.test.ts`'s **`describe("idempotence")`** snapshots *every file in the project* and
   asserts the file list too, in `PROJECT_FILES`. **A21 adding `.gitignore` to what install writes has
   to extend that list** — the test is meant to fail when a new file appears.
@@ -250,7 +293,8 @@ symlink local sources**, whose `Depends: A19` is now checked.
 - `test/install.test.ts`'s **`describe("ownership")`** asserts what is still on disk after every
   refusal, not just the exit code — an unowned dir byte-identical, and no skills, no `.mcp.json`, no
   `ambit.lock`, no state file. That last part is what pins the check to being *pre*-apply. Same block
-  proves adoption **replaces** (a stray file in the adopted directory must be gone afterwards).
+  proves adoption **replaces** (a stray file in the adopted directory must be gone afterwards, which
+  under link mode means the whole directory is swapped for a link).
 - Because the check reads `.mcp.json` before anything is written, a **malformed `.mcp.json` fails
   before any skill lands**; the two parse-failure tests assert only that the file is unchanged, which
   holds either way.
@@ -265,7 +309,9 @@ symlink local sources**, whose `Depends: A19` is now checked.
 - The fixture catalog must stay cycle-free and dangling-free: `validate` (A23) will run against it and
   every golden profile resolves it. Tests needing extra catalog shapes write them into the per-test
   copy (`writeSkill`/`writeSourceSkill`/`writeMcp` in `test/resolve.test.ts`, `writeCatalogFile` in
-  `test/install.test.ts`) rather than into `scripts/fixture-catalog.ts`.
+  `test/install.test.ts`) rather than into `scripts/fixture-catalog.ts`. **Under link mode a test that
+  edits an installed skill edits the fixture copy**, which is per-test and disposable — but the edit is
+  visible to the catalog immediately, so assert accordingly.
 - The text output of `resolve`, `catalog`, `install`, `status`, and `why` is asserted with exact column
   padding from `src/output.ts`. `--explain` adds a **third and a fourth** cell to the skills and mcps
   rows (reason, then shadowing — the fourth is `""` when nothing is shadowed, which `columns` trims);

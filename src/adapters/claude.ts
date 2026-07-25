@@ -10,11 +10,15 @@
  * exactly the harness-specific knowledge this seam exists to contain. That file is co-owned —
  * ambit merges its own servers in and leaves anything else alone (see `harness-config.ts`).
  *
- * Remote-source skills are copied because they are immutable, pinned to a commit. This build
- * copies everything; symlinking `path:` sources so editing the installed skill edits the tracked
- * source arrives with A20.
+ * How a skill's source reaches its target follows the source (spec §5). A remote source is copied:
+ * it is pinned to a commit, so a copy cannot go stale, and nothing in the project should be editable
+ * bytes that no revision accounts for. A `path:` source is symlinked, because the directory it names
+ * is a working tree someone edits — copying it is how dotagents leaves an agent reading a stale
+ * duplicate of the file its author is changing (spec §1). `--copy`/`--link` force one mode for the
+ * whole run, including onto sources that would have chosen the other: `--link` against a cached
+ * remote checkout is a link into the shared cache, which is what asking for it means.
  */
-import { cp, mkdir, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import type {
@@ -33,9 +37,10 @@ import {
   readJsonDocument,
   serializeJsonDocument,
 } from "../harness-config.js";
+import { configError } from "../errors.js";
 import type { McpTransport } from "../mcp.js";
 import type { Bundle } from "../resolve.js";
-import type { State } from "../state.js";
+import type { ArtifactMode, State } from "../state.js";
 import { ownedPaths } from "../state.js";
 
 /** The harness name this adapter answers to in `ambit.yml`'s `harnesses`. */
@@ -101,6 +106,20 @@ function serverConfig(
   };
 }
 
+/**
+ * Which mode one skill is materialized in (spec §5).
+ *
+ * A commit is the signal, because it is exactly the question the mode turns on: a source pinned to
+ * one is immutable and gets copied, and a source without one is a working directory whose current
+ * contents are the answer, so it gets linked. `MergedSkill.commit` is absent precisely for a `path:`
+ * source — a catalog skill inherits its catalog's commit and a `source` skill carries its own — so
+ * this needs no second notion of "is this local".
+ */
+function modeOf(skill: MergedSkill, project: ProjectPaths): ArtifactMode {
+  if (project.mode !== undefined) return project.mode;
+  return skill.commit === undefined ? "link" : "copy";
+}
+
 function planSkill(skill: MergedSkill, project: ProjectPaths): PlannedSkillDir {
   const relative = `${CLAUDE_SKILLS_DIR}/${skill.name}`;
   return {
@@ -108,7 +127,7 @@ function planSkill(skill: MergedSkill, project: ProjectPaths): PlannedSkillDir {
     path: relative,
     target: path.join(project.root, relative),
     source: path.join(skill.catalogRoot, skill.path),
-    mode: "copy",
+    mode: modeOf(skill, project),
     name: skill.name,
   };
 }
@@ -144,23 +163,56 @@ function planMcpConfig(
 }
 
 /**
- * Writes one skill directory.
+ * Symlinks a skill directory at its source.
+ *
+ * The link is written **relative** to its own directory: a project and the catalog it points at are
+ * often one checkout, so a relative link survives that tree being moved, and it keeps a
+ * machine-specific absolute path out of the working copy. `readlink` then shows a reader the same
+ * thing `ambit status` compares.
+ *
+ * @throws {AmbitError} exit 2 when the link cannot be created — something already at the target,
+ *   which every install path has already refused or removed, or a filesystem that will not make
+ *   symlinks at all. `--copy` is the way past the second one, so the message says so.
+ */
+async function linkSkillDir(artifact: PlannedSkillDir): Promise<void> {
+  const from = path.relative(path.dirname(artifact.target), artifact.source);
+  try {
+    // The `dir` type is what Windows needs to make a directory link; POSIX ignores it.
+    await symlink(from, artifact.target, "dir");
+  } catch (error) {
+    throw configError(`cannot symlink ${artifact.path}`, [
+      error instanceof Error ? error.message : String(error),
+      `move ${artifact.path} aside, or run \`ambit install --copy\` to copy "${artifact.name}" instead`,
+    ]);
+  }
+}
+
+/**
+ * Writes one skill directory, in the mode the plan chose.
  *
  * An owned target is removed before being rewritten, so a skill that lost a file upstream does not
- * keep a stale copy of it. An unowned one is copied *over* rather than replaced — a case an install
- * never reaches, since ownership enforcement has already refused it or adopted it into `prior`
- * (`ownership.ts`). Keeping it a merge is deliberate anyway: `apply` called directly, with a state
- * that claims nothing, must not be able to delete a stranger's directory.
+ * keep a stale copy of it — and so a skill whose mode changed between runs becomes the other thing
+ * rather than a copy sitting on top of a link. An unowned one is copied *over* rather than replaced —
+ * a case an install never reaches, since ownership enforcement has already refused it or adopted it
+ * into `prior` (`ownership.ts`). Keeping it a merge is deliberate anyway: `apply` called directly,
+ * with a state that claims nothing, must not be able to delete a stranger's directory. Link mode has
+ * no merge to fall back on, so there the same case is an error rather than a silent overwrite.
+ *
+ * @throws {AmbitError} exit 2 when a link cannot be created.
  */
 async function applySkillDir(
   artifact: PlannedSkillDir,
   owned: ReadonlySet<string>,
 ): Promise<AppliedArtifact> {
   if (owned.has(artifact.path)) {
+    // `recursive` removes a directory; a symlink is unlinked without following it, so the source a
+    // previous link pointed at is never what gets deleted.
     await rm(artifact.target, { recursive: true, force: true });
   }
   await mkdir(path.dirname(artifact.target), { recursive: true });
-  await cp(artifact.source, artifact.target, { recursive: true });
+
+  if (artifact.mode === "link") await linkSkillDir(artifact);
+  else await cp(artifact.source, artifact.target, { recursive: true });
 
   return { path: artifact.path, kind: artifact.kind, mode: artifact.mode };
 }

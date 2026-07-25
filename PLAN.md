@@ -680,7 +680,7 @@ runs the whole pipeline against a local fixture before any git, lock, or prune l
   **Done when:** A second identical install changes no bytes; `status` reports drift after a
   manual edit; `status --check` exits 5 on drift, 0 when clean.
 
-- [ ] **A20 — Symlink local sources.**
+- [x] **A20 — Symlink local sources.**
   **Depends:** A19
   **Done when:** `path:` sources are symlinked so editing the installed skill edits the
   source; remote sources are copied; `--copy`/`--link` override; prune handles both.
