@@ -535,7 +535,7 @@ runs the whole pipeline against a local fixture before any git, lock, or prune l
   yields both, and neither profile yields the nested frontend skill or the acme one. An
   empty `scopes` list yields an empty bundle.
 
-- [ ] **A06 — Claude adapter: install skills.**
+- [x] **A06 — Claude adapter: install skills.**
   **Depends:** A05
   **Slice:** **the walking skeleton** — config in, skills on disk.
   **Do:** `plan`/`apply` split, copy skill dirs into `.claude/skills/`, write

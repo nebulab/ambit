@@ -85,6 +85,12 @@ export interface Catalog {
 /** A skill in the merged view, tagged with the catalog it came from. */
 export interface MergedSkill extends CatalogSkill {
   readonly catalog: string;
+  /**
+   * Absolute path to that catalog's root on disk, so materialization can find the skill without
+   * looking the catalog up again. Deliberately absent from every output surface: it is
+   * machine-specific, and golden files must not carry it.
+   */
+  readonly catalogRoot: string;
 }
 
 /** An MCP entity in the merged view, tagged with the catalog it came from. */
@@ -365,7 +371,9 @@ export function mergeCatalogs(catalogs: readonly Catalog[]): MergedCatalog {
       if (!scopes.has(scope.name)) scopes.set(scope.name, scope);
     }
     for (const skill of catalog.skills) {
-      if (!skills.has(skill.name)) skills.set(skill.name, { ...skill, catalog: catalog.name });
+      if (!skills.has(skill.name)) {
+        skills.set(skill.name, { ...skill, catalog: catalog.name, catalogRoot: catalog.root });
+      }
     }
     for (const mcp of catalog.mcps) {
       if (!mcps.has(mcp.name)) mcps.set(mcp.name, { ...mcp, catalog: catalog.name });
