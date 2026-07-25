@@ -416,7 +416,7 @@ ambit validate [--catalog DIR] full-catalog validation, for CI
 ambit doctor                   env vars, drift, ownership
 
 ambit catalog dump [--json]    dump the merged catalog (what `ambit catalog` does)
-ambit catalog new <dir>        scaffold a catalog repo
+ambit catalog init             scaffold a catalog repo, as `ambit init` does a project
 ambit catalog tree [--json]    the scope tree, and what each scope selects
 ambit catalog audit [--check]  find dead scopes and unreachable items
 ambit catalog scope add|rm|mv  maintain scopes.yml
@@ -743,14 +743,17 @@ mutation ends by re-validating.
   order, and the body untouched; a target outside the root exits 2 with nothing written; a
   write refused by validation leaves the file byte-identical.
 
-- [ ] **B03 — `ambit catalog new`.**
+- [ ] **B03 — `ambit catalog init`.**
   **Depends:** B02
-  **Do:** Scaffold a catalog: `scopes.yml` registering `core` with a comment, `skills/` and
-  `mcps/`, a README carrying the descendants-only rule and the sibling-vs-child guidance from
-  §2, and a CI workflow running `ambit validate --catalog .`.
-  **Done when:** The scaffold parses, `ambit validate` exits 0 against it, a non-empty target is
-  refused with exit 2 and nothing written, and two runs into fresh directories produce
-  byte-identical trees.
+  **Do:** Scaffold a catalog in `--catalog <dir>` (default cwd), the mirror of what `ambit init`
+  does for a project: `scopes.yml` registering `core` with a comment, `skills/` and `mcps/`, a
+  README carrying the descendants-only rule and the sibling-vs-child guidance from §2, and a CI
+  workflow running `ambit validate --catalog .`.
+  **Done when:** The scaffold parses, `ambit validate` exits 0 against it, and two runs into
+  fresh directories produce byte-identical trees. An existing `scopes.yml` is refused with exit 2
+  and nothing written — initializing a directory that already holds a catalog is the mistake
+  worth catching, while an otherwise-occupied directory (a README, a `.git`) is fine, since a
+  catalog is normally initialized inside a repo that already exists.
 
 - [ ] **B04 — Scope registry commands.**
   **Depends:** B03
@@ -813,7 +816,7 @@ mutation ends by re-validating.
   **Slice:** the compatibility promise becomes executable.
   **Done when:** A test installs the fixture catalog with `npx @sentry/dotagents` and
   asserts it succeeds, proving ambit's annotations don't break other tools; the same test
-  passes against a catalog produced by `catalog new` plus `catalog skill new`, so ambit's own
+  passes against a catalog produced by `catalog init` plus `catalog skill new`, so ambit's own
   authored output is covered by the promise and not just the hand-written fixture. Runs in CI,
   and is allowed to be the one test that needs network.
 
