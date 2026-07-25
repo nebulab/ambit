@@ -145,9 +145,11 @@ function planMcpConfig(
 /**
  * Writes one skill directory.
  *
- * An owned target is removed before being rewritten, so a skill that lost a file upstream does
- * not keep a stale copy of it. An *unowned* target is not yet refused — that check, and
- * `--adopt`, arrive with A17.
+ * An owned target is removed before being rewritten, so a skill that lost a file upstream does not
+ * keep a stale copy of it. An unowned one is copied *over* rather than replaced — a case an install
+ * never reaches, since ownership enforcement has already refused it or adopted it into `prior`
+ * (`ownership.ts`). Keeping it a merge is deliberate anyway: `apply` called directly, with a state
+ * that claims nothing, must not be able to delete a stranger's directory.
  */
 async function applySkillDir(
   artifact: PlannedSkillDir,

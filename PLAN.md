@@ -664,7 +664,7 @@ runs the whole pipeline against a local fixture before any git, lock, or prune l
 
 ### Install correctness
 
-- [ ] **A17 — Ownership enforcement.**
+- [x] **A17 — Ownership enforcement.**
   **Depends:** A16
   **Slice:** ambit can never eat a file it didn't create.
   **Done when:** An unowned file at a target path exits 2 and is left byte-identical;

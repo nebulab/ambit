@@ -18,6 +18,7 @@ import { loadCatalogs, mergeCatalogs, mergeConfigEntities } from "../src/catalog
 import { loadProjectConfig } from "../src/config.js";
 import { ExitCode } from "../src/errors.js";
 import { installProject } from "../src/install.js";
+import { LOCK_FILENAME } from "../src/lock.js";
 import { run } from "../src/program.js";
 import type { Bundle } from "../src/resolve.js";
 import { resolveBundle } from "../src/resolve.js";
@@ -568,7 +569,7 @@ describe("ambit install failures", () => {
     expect(result.stderr).toContain("not a valid ambit state file");
   });
 
-  for (const flag of ["--dry-run", "--adopt", "--copy", "--link"]) {
+  for (const flag of ["--dry-run", "--copy", "--link"]) {
     it(`reports \`${flag}\` as unimplemented instead of ignoring it`, async () => {
       const result = await cli("install", flag);
 
@@ -577,6 +578,166 @@ describe("ambit install failures", () => {
       expect(await pathExists(SKILLS_DIR)).toBe(false);
     });
   }
+});
+
+/**
+ * Spec §5's ownership rules — the safety core. Every refusal test asserts what is still on disk
+ * afterwards, because "exits 2" is only half the claim: the other half is that nothing moved.
+ */
+describe("ownership", () => {
+  const CORE_TARGET = `${SKILLS_DIR}/${CORE_SKILL}`;
+  const HANDWRITTEN = "---\nname: hand-written\n---\n\n# not ambit's\n";
+  const STRAY = "notes nobody told ambit about\n";
+  const STATE_FILE = `${STATE_DIRNAME}/${STATE_FILENAME}`;
+
+  /** A directory the plan targets, holding files no state claims. */
+  async function writeUnownedSkillDir(): Promise<void> {
+    const target = path.join(projectDir, CORE_TARGET);
+    await mkdir(target, { recursive: true });
+    await writeFile(path.join(target, "SKILL.md"), HANDWRITTEN, "utf8");
+    await writeFile(path.join(target, "notes.md"), STRAY, "utf8");
+  }
+
+  /** A `.mcp.json` whose `scoped` key collides with the one the fixture's server would write. */
+  async function writeUnownedServer(): Promise<string> {
+    const contents = `${JSON.stringify(
+      { mcpServers: { [SCOPED_MCP]: { command: "node", args: ["./scoped.js"] }, kept: { command: "keep" } } },
+      null,
+      2,
+    )}\n`;
+    await writeFile(path.join(projectDir, MCP_FILE), contents, "utf8");
+    return contents;
+  }
+
+  it("refuses to overwrite a skill directory it does not own", async () => {
+    await writeUnownedSkillDir();
+
+    const result = await cli("install");
+
+    expect(result.code).toBe(ExitCode.Config);
+    expect(result.stderr).toContain("refusing to overwrite unowned path");
+    expect(result.stderr).toContain(`${CORE_TARGET} exists but ambit did not create it`);
+    expect(result.stderr).toContain("run `ambit install --adopt` to take ownership");
+  });
+
+  it("leaves an unowned directory byte-identical, and installs nothing else either", async () => {
+    await writeUnownedSkillDir();
+
+    await cli("install");
+
+    // The check sees the whole plan before the first write, so the other two skills, the server
+    // file, the lock, and the state file are all still absent.
+    expect(await tree(SKILLS_DIR)).toEqual([`${CORE_SKILL}/SKILL.md`, `${CORE_SKILL}/notes.md`]);
+    expect(await readFile(path.join(projectDir, CORE_TARGET, "SKILL.md"), "utf8")).toBe(HANDWRITTEN);
+    expect(await pathExists(MCP_FILE)).toBe(false);
+    expect(await pathExists(LOCK_FILENAME)).toBe(false);
+    expect(await pathExists(STATE_FILE)).toBe(false);
+  });
+
+  it("refuses a plain file sitting where a skill directory belongs", async () => {
+    await mkdir(path.join(projectDir, SKILLS_DIR), { recursive: true });
+    await writeFile(path.join(projectDir, CORE_TARGET), STRAY, "utf8");
+
+    const result = await cli("install");
+
+    expect(result.code).toBe(ExitCode.Config);
+    expect(result.stderr).toContain("refusing to overwrite unowned path");
+    expect(await readFile(path.join(projectDir, CORE_TARGET), "utf8")).toBe(STRAY);
+  });
+
+  it("does not read owning one skill as permission to overwrite another", async () => {
+    await writeProfile(["core"]);
+    expect((await cli("install")).code).toBe(ExitCode.Success);
+    await writeProfile(["core", "function.engineering"]);
+    const target = path.join(projectDir, SKILLS_DIR, ENGINEERING_SKILL);
+    await mkdir(target, { recursive: true });
+    await writeFile(path.join(target, "SKILL.md"), HANDWRITTEN, "utf8");
+
+    const result = await cli("install");
+
+    expect(result.code).toBe(ExitCode.Config);
+    expect(result.stderr).toContain(`${SKILLS_DIR}/${ENGINEERING_SKILL} exists`);
+    expect(await readFile(path.join(target, "SKILL.md"), "utf8")).toBe(HANDWRITTEN);
+  });
+
+  it("refuses to overwrite a server key it does not own", async () => {
+    const contents = await writeUnownedServer();
+
+    const result = await cli("install");
+
+    expect(result.code).toBe(ExitCode.Config);
+    expect(result.stderr).toContain("refusing to overwrite unowned key");
+    expect(result.stderr).toContain(`"mcpServers.${SCOPED_MCP}" in ${MCP_FILE}`);
+    expect(result.stderr).toContain(`remove it from ${MCP_FILE}`);
+    expect(await readMcpFile()).toBe(contents);
+    expect(await pathExists(SKILLS_DIR)).toBe(false);
+  });
+
+  it("replaces an adopted skill directory rather than copying into it", async () => {
+    await writeUnownedSkillDir();
+
+    const result = await cli("install", "--adopt");
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+
+    // The stray file is gone and SKILL.md is the catalog's, which is what taking ownership means.
+    expect(await tree(SKILLS_DIR)).toEqual([
+      `${CORE_SKILL}/SKILL.md`,
+      `${FRONTEND_SKILL}/SKILL.md`,
+      `${ENGINEERING_SKILL}/SKILL.md`,
+    ]);
+    expect(await readFile(path.join(projectDir, CORE_TARGET, "SKILL.md"), "utf8")).toBe(
+      await readFile(path.join(catalogDir, "skills/acme/commons/use-company-context/SKILL.md"), "utf8"),
+    );
+    expect(
+      parseState(await readStateFile(), STATE_FILENAME).artifacts.map((artifact) => artifact.path),
+    ).toContain(CORE_TARGET);
+  });
+
+  it("adopts a colliding server key while leaving foreign keys alone", async () => {
+    await writeUnownedServer();
+
+    const result = await cli("install", "--adopt");
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+
+    const document = await readMcpConfig();
+    expect(document).toEqual({
+      mcpServers: {
+        [SCOPED_MCP]: {
+          type: "http",
+          url: "https://mcp.invalid/fixture",
+          headers: { Authorization: `Bearer \${${SCOPED_KEY_VAR}}` },
+        },
+        kept: { command: "keep" },
+      },
+    });
+    expect(
+      parseState(await readStateFile(), STATE_FILENAME).artifacts.find(
+        (artifact) => artifact.path === MCP_FILE,
+      )?.managedKeys,
+    ).toEqual([`mcpServers.${SCOPED_MCP}`]);
+  });
+
+  it("needs `--adopt` only once: the second install owns what the first adopted", async () => {
+    await writeUnownedSkillDir();
+    await writeUnownedServer();
+    expect((await cli("install", "--adopt")).code).toBe(ExitCode.Success);
+
+    const result = await cli("install");
+
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+  });
+
+  it("changes nothing when there is nothing to adopt", async () => {
+    expect((await cli("install")).code).toBe(ExitCode.Success);
+    const state = await readStateFile();
+    const servers = await readMcpFile();
+
+    const result = await cli("install", "--adopt");
+
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+    expect(await readStateFile()).toBe(state);
+    expect(await readMcpFile()).toBe(servers);
+  });
 });
 
 describe("state", () => {

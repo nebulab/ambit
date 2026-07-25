@@ -10,8 +10,10 @@
  * `--frozen` is checked before any of that (spec §6). A CI run whose committed lock is stale has to
  * leave the project exactly as it found it, so the comparison happens while nothing has been touched.
  *
- * Pruning (A18) and ownership enforcement (A17) are not here yet, so this build adds and overwrites
- * but never removes.
+ * Every adapter is asked to plan before any of them applies, so ownership can be checked against the
+ * complete set of targets while the project is still untouched (spec §5, `ownership.ts`).
+ *
+ * Pruning (A18) is not here yet, so this build adds and overwrites but never removes.
  *
  * The environment is captured here rather than inside an adapter, because `${VAR}` interpolation in
  * MCP headers (spec §5) is the one thing materialization reads outside its arguments, and an
@@ -24,6 +26,7 @@ import { loadProjectConfig } from "./config.js";
 import { configError } from "./errors.js";
 import type { Lock } from "./lock.js";
 import { assertLockCurrent, buildLock, serializeLock, writeLockText } from "./lock.js";
+import { authorizePlan } from "./ownership.js";
 import type { Bundle } from "./resolve.js";
 import { resolveBundle } from "./resolve.js";
 import type { SourceContext } from "./sources.js";
@@ -40,6 +43,8 @@ export interface InstallOptions {
   readonly frozen?: boolean;
   /** Resolve from the catalog cache alone, failing rather than fetching (spec §5). */
   readonly offline?: boolean;
+  /** Take ownership of existing unowned targets instead of refusing them (spec §5). */
+  readonly adopt?: boolean;
 }
 
 /** What an install did, for the command to report. */
@@ -80,8 +85,9 @@ function adaptersFor(harnesses: readonly string[]): readonly HarnessAdapter[] {
  * Resolves the project and materializes the bundle.
  *
  * @param projectDir the project root, absolute.
- * @param options `--frozen`, `--offline`, and, later, the rest of `install`'s flags.
- * @throws {AmbitError} exit 2 for a malformed config or catalog, or an unknown harness; exit 4 if a
+ * @param options `--frozen`, `--offline`, `--adopt`, and, later, the rest of `install`'s flags.
+ * @throws {AmbitError} exit 2 for a malformed config or catalog, an unknown harness, or a target path
+ *   or config key ambit does not own and was not told to adopt; exit 4 if a
  *   fetch fails, or under `--offline` when the cache cannot answer; exit 5 under `--frozen` when the
  *   committed lock is not what resolution produces.
  */
@@ -111,9 +117,18 @@ export async function installProject(
   const prior = await readState(projectDir);
   const project: ProjectPaths = { root: projectDir, env: process.env };
 
+  // Plan everything first: the ownership check has to see every target before the first write, or a
+  // project whose second skill collides is left with its first one already installed.
+  const plans = adapters.map((adapter) => ({ adapter, plan: adapter.plan(bundle, project) }));
+  const owner = await authorizePlan(
+    plans.flatMap(({ plan }) => plan),
+    prior,
+    { adopt: options.adopt === true },
+  );
+
   const artifacts: AppliedArtifact[] = [];
-  for (const adapter of adapters) {
-    artifacts.push(...(await adapter.apply(adapter.plan(bundle, project), prior)));
+  for (const { adapter, plan } of plans) {
+    artifacts.push(...(await adapter.apply(plan, owner)));
   }
 
   await writeLockText(projectDir, lockText);

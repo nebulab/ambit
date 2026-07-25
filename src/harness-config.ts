@@ -105,6 +105,19 @@ export function mergeConfigSection(
   return { ...document, [section]: merged };
 }
 
+/**
+ * The keys currently in `document[section]` — what ownership enforcement compares a plan against
+ * (spec §5).
+ *
+ * A section that is absent, or is present but holds something other than an object, reads as no keys
+ * at all: neither case is a *collision*, and an unusable section is `mergeConfigSection`'s error to
+ * raise, since that is the code which cannot proceed with it.
+ */
+export function sectionKeys(document: JsonObject, section: string): ReadonlySet<string> {
+  const existing = document[section];
+  return new Set(isRecord(existing) ? Object.keys(existing) : []);
+}
+
 /** The dotted key state records for one managed entry (spec §3.6). */
 export function managedKey(section: string, key: string): string {
   return `${section}.${key}`;

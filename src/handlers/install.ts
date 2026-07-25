@@ -23,7 +23,6 @@ const NO_MODE = "-";
 /** Declared flags with no behaviour yet, and what each is waiting on. */
 const UNIMPLEMENTED: readonly (readonly [key: string, flag: string, reason: string])[] = [
   ["dryRun", "--dry-run", "printing a plan instead of applying it is not wired up yet"],
-  ["adopt", "--adopt", "it takes ownership of unowned artifacts, which this build never refuses"],
   ["copy", "--copy", "every skill is copied on this build, so there is nothing to override"],
   ["link", "--link", "symlinking local sources is not implemented yet"],
 ];
@@ -75,6 +74,7 @@ export const installHandler: CommandHandler = async (ctx) => {
   const result = await installProject(projectDirOf(ctx), {
     frozen: ctx.options.frozen === true,
     offline: offlineRequested(ctx),
+    adopt: ctx.options.adopt === true,
   });
 
   if (jsonRequested(ctx)) {

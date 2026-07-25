@@ -3,10 +3,32 @@
 Rewritten by each Ralph iteration for the next one. Short, current, and only what would cost
 real time to rediscover — see `PROMPT.md` §6.
 
-Last iteration: **A16 — `--offline`** (the tip of `main`). Next task is
-**A17 — ownership enforcement**, whose `Depends: A16` is now checked.
+Last iteration: **A17 — ownership enforcement** (the tip of `main`). Next task is
+**A18 — pruning**, whose `Depends: A17` is now checked.
 
 ## Constraints later tasks inherit
+
+- **`src/ownership.ts`'s `authorizePlan(plan, prior, { adopt })` is the safety core**, called once from
+  `installProject` with **every adapter's plan flattened together**, before any adapter applies — that
+  is why install now plans all adapters up front instead of `plan`-then-`apply` per adapter. It
+  returns the `State` `apply` must act with: `prior`, plus an owned entry per target `--adopt` just
+  took over. **That is the whole of `--adopt` for skill dirs** — an adopted path looks owned, so
+  `applySkillDir` replaces it rather than copying on top of it. **A22's `clean` and `prune` should
+  route their own "may I touch this?" questions through this module** rather than re-deriving
+  ownership; **A20's symlink mode inherits the `lstat` check**, which is deliberately `lstat` so a
+  dangling symlink still counts as something ambit did not create.
+- **Ownership granularity follows the artifact kind.** `skill-dir` is owned as a path; `harness-config`
+  is checked **per key** (`sectionKeys` in `src/harness-config.ts` × prior `managedKeys`), so a
+  `.mcp.json` full of hand-added servers is a normal input and only a colliding server *name* is a
+  conflict. Adoption of a key needs no bookkeeping: `apply` writes managed keys unconditionally.
+- **Refusal is on the first conflict, in plan order** (skills sorted, then the config file), not a
+  list of every conflict — `--adopt` clears all of them at once, and multi-problem reporting is
+  A23's. The two messages are exit 2 and read
+  `refusing to overwrite unowned path` / `unowned key`; the path one is byte-for-byte spec §6's
+  example, so **do not reword it without changing the spec**.
+- **A crash mid-`apply` now costs a `--adopt`.** State is written last (§5 rule 4), so artifacts from
+  a failed run are present-but-unowned and the next plain `install` refuses them. That is the
+  intended reading of the safety core; **A24's `doctor` is what should explain it**.
 
 - **Shadowing is *not* a `SelectionReason`.** `MergedCatalog` gained
   `shadowing: { skills, mcps }` — name-keyed maps of `Shadowing = { name, catalog, shadows[] }`,
@@ -59,8 +81,8 @@ Last iteration: **A16 — `--offline`** (the tip of `main`). Next task is
 - **`Catalog` gained `ref?`**, attached by `loadCatalogs` after `parseCatalogDirectory` returns —
   it is a fact about the config entry, not the directory, so a catalog parsed straight off disk
   (A23's `validate --catalog`) has none. A `path:` catalog with a pointless `ref` still records it.
-- **`--frozen` is implemented; `--dry-run`, `--adopt`, `--copy`, `--link` remain in the
-  `UNIMPLEMENTED` map in `src/handlers/install.ts`.** `test/install.test.ts` loops over those four —
+- **`--frozen` and `--adopt` are implemented; `--dry-run`, `--copy`, `--link` remain in the
+  `UNIMPLEMENTED` map in `src/handlers/install.ts`.** `test/install.test.ts` loops over those three —
   delete the entry *and* the loop case together when you implement one.
 - **Every source resolves through `src/sources.ts`** (§3.1 grammar; `owner/repo[@ref]`, any URL,
   scp-like remotes, `git:<url>`, `path:./dir`) returning `ResolvedSource = { root, commit? }`.
@@ -114,9 +136,8 @@ Last iteration: **A16 — `--offline`** (the tip of `main`). Next task is
   threshold `max(2, floor(len/3))`, ties by the registry's sorted order. **Explicit skill names and
   `ambit why` arguments get no suggestion.**
 - **`.mcp.json` is co-owned, so ambit owns keys and not the file.** `src/harness-config.ts` replaces
-  only `mcpServers.<name>`. **A17's ownership check must be per-key for `harness-config`**, and
-  **A18's pruning removes managed keys, not the file** — and must work from `prior` state, since a
-  bundle with no MCPs plans no artifact at all.
+  only `mcpServers.<name>`. **A18's pruning removes managed keys, not the file** — and must work from
+  `prior` state, since a bundle with no MCPs plans no artifact at all.
 - `${VAR}` in http `headers` is interpolated at install (spec §5); an unset variable leaves its
   placeholder rather than emptying the value, and **A24's `doctor` reports it**. The entity's `env`
   list is deliberately not written into `.mcp.json`.
@@ -124,8 +145,10 @@ Last iteration: **A16 — `--offline`** (the tip of `main`). Next task is
 
 ## Deliberate omissions, and who owns them
 
-- `apply` removes a target only when `prior` state already owns it; nothing prunes `.mcp.json` keys.
-  Refusing unowned targets and `--adopt` are **A17**; pruning is **A18**.
+- `apply` removes a target only when `prior` state already owns it, and nothing prunes `.mcp.json`
+  keys or drops artifacts the new bundle no longer has — all of that is **A18**. `applySkillDir`
+  keeps the unowned case a *merge* rather than a delete on purpose, so calling `apply` directly with
+  an empty state can never destroy a stranger's directory.
 - Nothing prunes the cache, and nothing locks it against a concurrent ambit (`loadCatalogs` is
   sequential for that reason). No task owns cache GC; raise it if it matters.
 - No `.gitignore` handling at all — **A21**. `.mcp.json` and `ambit.lock` are committed, so only
@@ -165,6 +188,14 @@ Last iteration: **A16 — `--offline`** (the tip of `main`). Next task is
   land **after** the scopes list so the `FIRST_SCOPE_LINE`/`FIRST_EXTRA_LINE` line math holds.
   `test/git-source.test.ts` has its own `writeProject(dir, source, ref?, extra?)`. All of them write a
   single catalog; multi-catalog configs come from `test/catalog.test.ts`.
+- `test/install.test.ts`'s **`describe("ownership")`** asserts what is still on disk after every
+  refusal, not just the exit code — an unowned dir byte-identical, and no skills, no `.mcp.json`, no
+  `ambit.lock`, no state file. That last part is what pins the check to being *pre*-apply; a version
+  that refused per-artifact mid-write would pass the exit-code half alone. Same block proves adoption
+  **replaces** (a stray file in the adopted directory must be gone afterwards).
+- Because the check reads `.mcp.json` before anything is written, a **malformed `.mcp.json` now fails
+  before any skill lands**; the two parse-failure tests assert only that the file is unchanged, which
+  holds either way.
 - `test/install.test.ts`'s default profile is `[core, function.engineering]`, which selects the
   `scoped` http server — so it writes `.mcp.json` too. Its state, `--json`, and padded-text
   assertions list four artifacts; adding a fifth shifts the column widths.
