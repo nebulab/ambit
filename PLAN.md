@@ -501,7 +501,7 @@ runs the whole pipeline against a local fixture before any git, lock, or prune l
   Commander or a hand-rolled arg parser; no heavyweight framework.
   **Done when:** `npm test` passes with zero tests, `npx .` prints usage and exits 0.
 
-- [ ] **A02 — Fixture catalog builder.**
+- [x] **A02 — Fixture catalog builder.**
   **Depends:** A01
   **Do:** A script building a local catalog directory: `scopes.yml` with a nested scope,
   four skills (`core`, `function.engineering`, `function.engineering.frontend`, and a
