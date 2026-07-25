@@ -208,9 +208,13 @@ function report(ctx: CommandContext, subject: Subject, result: McpEdit): ExitCod
  *
  * `mcp new` is given no way to declare a scope, so what it writes is selected by nothing yet — and a
  * server nothing reaches is a server that is never installed (spec §3.3).
+ *
+ * Both halves name `catalog annotate`, which postdates this line: it is what gives an entity a scope and
+ * what gives a skill the requirement, so neither half sends the reader to a file to hand-edit.
  */
 function newNextStep(created: McpSummary): string {
-  return `next: nothing selects it yet — add a \`scopes\` entry to ${mcpDocumentPath(created.name)}, or require \`${MCP_REQUIREMENT_PREFIX}${created.name}\` from a skill`;
+  const target = `${MCP_REQUIREMENT_PREFIX}${created.name}`;
+  return `next: nothing selects it yet — run \`ambit catalog annotate ${target} --add-scope <scope>\`, or \`ambit catalog annotate <skill> --add-requires ${target}\``;
 }
 
 export const catalogMcpNewHandler: CommandHandler = async (ctx) => {

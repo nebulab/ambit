@@ -833,7 +833,7 @@ mutation ends by re-validating.
   a top-level one; `install --copy --link` is rejected by Commander's own `.conflicts()`
   rather than by the handler check A20 wrote to work around this.
 
-- [ ] **A31 — Error message accuracy.**
+- [x] **A31 — Error message accuracy.**
   **Depends:** A30
   **Do:** Two message-only defects B07 left, both against §6's own standard — an error must
   name the offending *file* and give a next step that exists. `declarersOf` in

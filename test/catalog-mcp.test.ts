@@ -394,7 +394,7 @@ describe("ambit catalog mcp new", () => {
         "files (1)",
         `  ${NOTES_FILE}  created`,
         "",
-        `next: nothing selects it yet — add a \`scopes\` entry to ${NOTES_FILE}, or require \`mcp.${NOTES}\` from a skill`,
+        `next: nothing selects it yet — run \`ambit catalog annotate mcp.${NOTES} --add-scope <scope>\`, or \`ambit catalog annotate <skill> --add-requires mcp.${NOTES}\``,
       ].join("\n"),
     );
   });

@@ -29,10 +29,15 @@ import type { Catalog, CatalogSkill, ScopeDefinition } from "./catalog.js";
 import { SCOPES_FILENAME, SKILL_FILENAME, parseCatalogDirectory } from "./catalog.js";
 import { mcpDocumentFile } from "./catalog-mcp.js";
 import type { CatalogChange, EditOptions, EditedFile } from "./editor.js";
-import { CatalogDocument, applyCatalogEdit, mcpDocumentPath } from "./editor.js";
+import { CatalogDocument, applyCatalogEdit } from "./editor.js";
 import type { AmbitError } from "./errors.js";
 import { at, configError, resolutionError } from "./errors.js";
-import { SCOPE_SEPARATOR, inSubtree, scopeSuggestion } from "./resolve.js";
+import {
+  MCP_REQUIREMENT_PREFIX,
+  SCOPE_SEPARATOR,
+  inSubtree,
+  scopeSuggestion,
+} from "./resolve.js";
 
 /** The registry's one top-level key (spec §3.4). */
 const REGISTRY_KEY = "scopes";
@@ -98,11 +103,21 @@ function unknownScope(scope: string, registered: readonly ScopeDefinition[]): Am
  *
  * Every declarer is named, with the file to edit, because clearing them one refusal at a time is the
  * cost of reporting only the first — and the whole list is already in hand.
+ *
+ * The next step names `catalog annotate`, which postdates this refusal: telling a reader to edit each
+ * declarer by hand is advice about work a command now does, and spec §6 asks for a next step that
+ * exists.
  */
-function stillDeclared(scope: string, declarers: readonly string[]): AmbitError {
+function stillDeclared(scope: string, declarers: Declarers): AmbitError {
+  // `annotate` takes a skill by name and a server as `mcp.<name>`, so that spelling is worth explaining
+  // only when a server is actually among the declarers.
+  const naming = declarers.servers
+    ? ` (naming a server \`${MCP_REQUIREMENT_PREFIX}<server>\`)`
+    : "";
+
   return resolutionError(`scope "${scope}" is still declared ${at(SCOPES_FILENAME, undefined)}`, [
-    ...declarers,
-    `remove the scope from each of them first, or rename it with \`ambit catalog scope mv ${scope} <new>\``,
+    ...declarers.lines,
+    `clear it from each with \`ambit catalog annotate <name> --remove-scope ${scope}\`${naming}, or rename it with \`ambit catalog scope mv ${scope} <new>\``,
   ]);
 }
 
@@ -143,19 +158,36 @@ function declares(kind: string, name: string, file: string): string {
   return `${kind} "${name}" declares it ${at(file, undefined)}`;
 }
 
-/** Everything declaring `scope`: skills first, each group in name order, as the catalog parsed them. */
-function declarersOf(catalog: Catalog, scope: string): readonly string[] {
+/** Everything declaring one scope, as a refusal names them. */
+interface Declarers {
+  /** One line per declarer: skills first, each group in name order, as the catalog parsed them. */
+  readonly lines: readonly string[];
+  /** Whether a server is among them, which `catalog annotate` names differently from a skill. */
+  readonly servers: boolean;
+}
+
+/**
+ * Everything declaring `scope`.
+ *
+ * An entity is named by the file it is actually written as ({@link mcpDocumentFile}), not by the `.yml`
+ * ambit would have chosen: this list *is* the refusal's list of files to edit, and a catalog spelling an
+ * entity `.yaml` has no `.yml` for the reader to open (spec §6). That is what makes this async — one
+ * `stat` per declaring entity, in the catalog's own name order.
+ */
+async function declarersOf(root: string, catalog: Catalog, scope: string): Promise<Declarers> {
   const declaring = <T extends { readonly scopes: readonly string[] }>(items: readonly T[]): T[] =>
     items.filter((item) => item.scopes.includes(scope));
 
-  return [
-    ...declaring(catalog.skills).map((skill) =>
-      declares("skill", skill.name, skillDocumentOf(skill)),
-    ),
-    ...declaring(catalog.mcps).map((mcp) =>
-      declares("MCP server", mcp.name, mcpDocumentPath(mcp.name)),
-    ),
-  ];
+  const lines = declaring(catalog.skills).map((skill) =>
+    declares("skill", skill.name, skillDocumentOf(skill)),
+  );
+
+  const servers = declaring(catalog.mcps);
+  for (const mcp of servers) {
+    lines.push(declares("MCP server", mcp.name, await mcpDocumentFile(root, mcp.name)));
+  }
+
+  return { lines, servers: servers.length > 0 };
 }
 
 /**
@@ -250,8 +282,8 @@ export async function removeScope(
   const catalog = await readCatalog(root);
   assertRegistered(catalog, scope);
 
-  const declarers = declarersOf(catalog, scope);
-  if (declarers.length > 0) throw stillDeclared(scope, declarers);
+  const declarers = await declarersOf(root, catalog, scope);
+  if (declarers.lines.length > 0) throw stillDeclared(scope, declarers);
 
   const registry = await CatalogDocument.open(root, SCOPES_FILENAME);
   registry.remove([REGISTRY_KEY, scope]);

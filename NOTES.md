@@ -3,11 +3,12 @@
 Rewritten by each Ralph iteration for the next one. Short, current, and only what would cost
 real time to rediscover — see `PROMPT.md` §6.
 
-Last iteration: **A30 — subcommand exit-code inheritance** (the tip of `main`). `inheritSettings` in
-`src/program.ts` copies the program's settings down the whole command tree, so a Commander-level usage
-error anywhere below the root now travels out of `run()` as an exit code instead of calling
-`process.exit`. **The whole spec §6 CLI surface is implemented** and both authoring sections are done.
-Next task is **A31 — error message accuracy** (`Depends: A30`, now checked), then A26–A29 (Shipping).
+Last iteration: **A31 — error message accuracy** (the tip of `main`), a message-only task: `scope rm`'s
+refusal now cites a declaring entity by the extension it actually carries, and it and `mcp new`'s closing
+line now name `catalog annotate` instead of telling the reader to hand-edit. **The whole spec §6 CLI
+surface is implemented**, both authoring sections are done, and every behavioural task is closed. Next
+task is **A26 — dotagents compatibility test** (`Depends: B09`, checked), then A27–A29 (Shipping) — A26 is
+the one test allowed to reach the network.
 
 ## Constraints later tasks inherit
 
@@ -167,10 +168,16 @@ Next task is **A31 — error message accuracy** (`Depends: A30`, now checked), t
 - **`--env` is sorted and deduplicated; `--arg` is not.** A set of env vars carries no order, and a
   program's positional arguments are nothing but order. `--header k=v` splits at the **first** `=`, and a
   repeated key is refused rather than overwritten.
-- **Every command that *edits* an existing MCP entity goes through `mcpDocumentFile(root, name)`**
-  (`src/catalog-mcp.ts`), which picks the §3.3 extension actually on disk: `mcp rm`, `annotate`, and — since
-  B07 — `catalog scope mv`. The editor's `mcpDocumentPath` still always says `.yml`, and is right only where
-  ambit is *creating* the file or naming one in a message about a name no file carries yet.
+- **Every command that *edits* an existing MCP entity — or *names one in a message* — goes through
+  `mcpDocumentFile(root, name)`** (`src/catalog-mcp.ts`), which picks the §3.3 extension actually on disk:
+  `mcp rm`, `annotate`, `catalog scope mv`, `catalog audit`, and — since A31 — `scope rm`'s refusal
+  (`declarersOf`, now async and taking `root`, which is the whole reason B07 left it). The editor's
+  `mcpDocumentPath` still always says `.yml`, and after A31 it is reached from exactly four places, all of
+  them right: `mcpDocumentFile`'s own fallback, the file `mcp new` *creates*, and the two messages about a
+  name **no file carries** (`unknownMcp`, and the handler's `transportRefusal`). Those last two name where
+  the entity *would* be, as `unknownSkill` does; there is no real file to name, and naming `mcps/` instead
+  would drop the one useful fact (the stem rule). **A new message about an entity that exists must use
+  `mcpDocumentFile`.**
 - **A flag belonging to the transport kind that was not named is exit 2, not ignored** (`--header` with
   `--stdio`, `--arg` with `--http`), as is an empty `--stdio`/`--http` value. The stance is that a flag
   someone typed which would be written nowhere is worse than an error. Every transport refusal names
@@ -251,8 +258,8 @@ Next task is **A31 — error message accuracy** (`Depends: A30`, now checked), t
 - **`auditCatalog(catalog, { mcpFiles })` is pure and takes the entity filenames as data**, because
   `McpEntity` carries none and a finding must name a file that is there (spec §6). The I/O wrapper
   `auditCatalogDirectory(root)` fills the map from `mcpDocumentFile`, so a `.yaml` entity is cited as
-  `.yaml` — deliberately *not* the `.yml`-only shortcut `validate`'s `mcpFile` still takes, which is
-  A31's. Absent, the map falls back to `.yml`.
+  `.yaml` — deliberately *not* the `.yml`-only shortcut `validate`'s `mcpFile` still takes (see the
+  omissions below: A31 left that one, and nobody owns it). Absent, the map falls back to `.yml`.
 - **`catalog audit` exits 0 however much it found; `--check` is what turns findings into exit 6**
   (`ExitCode.Doctor`, whose comment now covers both callers). Plain audit is a report, and one that
   broke a build by existing is one nobody adds to CI. The verdict helper is `isTidy(report)` and the
@@ -579,21 +586,27 @@ Next task is **A31 — error message accuracy** (`Depends: A30`, now checked), t
 - **`skill new` writes no scope registration and `skill rm` removes none.** A skill declaring a scope
   nothing registers is refused, not fixed; the registry is `catalog scope`'s.
 - **`mcp new` declares no scopes**, because the surface spec §6 gives it has no `--scope`: what it writes
-  is reachable only through a skill's `requires` until someone gives it a `scopes` entry, and the
-  command's closing line says exactly that. `annotate --add-scope` is now how a server gets one, but that
-  closing line still says "add a `scopes` entry to `mcps/<name>.yml`" rather than naming the command —
-  nobody owns changing it, and `test/catalog-mcp.test.ts` pins the line byte-for-byte. `mcp rm` closes with
+  is reachable only through a skill's `requires` until someone gives it a `scopes` entry. Since A31 its
+  closing line names the command for **both** halves — `ambit catalog annotate mcp.<name> --add-scope
+  <scope>`, or `ambit catalog annotate <skill> --add-requires mcp.<name>` — and cites no file at all;
+  `test/catalog-mcp.test.ts` pins it byte-for-byte inside a whole-stdout assertion. `mcp rm` closes with
   **nothing**, deliberately: no project's `ambit.yml` can name a catalog's server (§3.1's `mcps` declares
   one rather than selecting one), so there is nothing for its author to update.
-- **`declarersOf` in `src/catalog-scope.ts` still names an entity through `mcpDocumentPath`**, so `scope rm`
-  refusing because a `.yaml` entity declares the scope cites `mcps/<name>.yml` — a file that is not there.
-  Message-only (nothing is written on that path), one call site, and it needs `declarersOf` to become
-  async. Nobody owns it.
+- **`validate`'s `mcpFile` (`src/validate.ts`) is the last `.yml`-only citation**: an entity written as
+  `mcps/x.yaml` that declares an unregistered scope is reported against `mcps/x.yml`, a file that is not
+  there. A31 deliberately left it, because it is *not* the same fix as `declarersOf`'s was.
+  `validateCatalog(merged, …)` is pure over a **merged** view, `MergedMcp` carries neither a file nor a
+  catalog root, and an inline `ambit.yml` entity has no file at all — so making it accurate means either
+  duplicating `mergeCatalogs`' first-wins precedence in a second place (the drift this codebase avoids) or
+  carrying the filename `findMcpFiles` already computes through `Catalog` → `MergedCatalog`. The second is
+  the right shape and is a **data** change to two core types, not a message change. Nobody owns it.
 - **Removing an entity file prunes no directory.** `pruneEmptyAncestors` runs for tree changes only, so a
   catalog whose last server was removed keeps an empty `mcps/` — which is its shape, not its contents.
-- **`scope rm`'s refusal still tells the reader to edit each declarer by hand**, though
-  `annotate --remove-scope` now does exactly that. Naming it there would be an improvement nobody owns;
-  `test/catalog-scope.test.ts` pins the current wording.
+- **Both `rm` commands' "is still required" refusals still tell the reader to hand-edit** — `skill rm`'s
+  and `mcp rm`'s next step is "remove the `requires` entry from each of them first", though
+  `annotate --remove-requires` now does exactly that. Same class as the two lines A31 fixed; A31's
+  Done-when named only those two, so nobody owns these. Their wording is pinned in
+  `test/catalog-skill.test.ts` and `test/catalog-mcp.test.ts`.
 - **`catalog init` scaffolds no example skill and no example MCP entity**, so a fresh catalog installs
   nothing: `catalog skill new` is the next step and the command's own output says so. It also runs
   no `git init` and writes no `.gitignore` — a catalog has nothing generated to ignore, and the directory
@@ -688,7 +701,15 @@ Next task is **A31 — error message accuracy** (`Depends: A30`, now checked), t
   `function.engineering` in prose, so a blanket `replaceAll` over the fixture would pass against an edit
   that rewrote the body — the exact bug rule 2 forbids. One assertion pins that prose explicitly. Its
   `refused()` helper snapshots the whole tree around every rejection, so a refusal that half-wrote
-  something fails there rather than in a later case.
+  something fails there rather than in a later case. Its `rm` block now pins **three** things about that
+  refusal: the `catalog annotate` next step, that a `.yaml` declarer is cited as `.yaml` (it renames the
+  fixture entity first, and asserts `mcps/scoped.yml` appears **nowhere**), and — by a negative
+  assertion on `rm core`, whose only declarer is a skill — that the `` `mcp.<server>` `` spelling hint
+  appears only when a server is among the declarers.
+- **`src/validate.ts` holds a literal NUL byte** (a `join("\0")` written as a raw byte, in
+  `cycleProblems`' canonical-rotation key), so **`grep` treats the file as binary and silently finds
+  nothing in it**. Use `rg -a`, or read it. Harmless at runtime and left alone as out of scope; a
+  one-character change to `"\\u0000"` would fix it if a task ever touches that function.
 - **`test/catalog.test.ts`'s `describe("usage errors below the top level")` is the guard on
   `inheritSettings`**, and it is asserted two levels down (`catalog scope add`) on purpose: a top-level
   command could pass by accident. Four cases — an unknown flag (with Commander's own "did you mean"),

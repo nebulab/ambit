@@ -268,7 +268,29 @@ describe("ambit catalog scope rm", () => {
     expect(result.stderr).toContain(`scope "${PARENT}" is still declared (${REGISTRY})`);
     expect(result.stderr).toContain(`skill "acme.engineering.use-code-review" declares it (${CODE_REVIEW})`);
     expect(result.stderr).toContain(`MCP server "scoped" declares it (${SCOPED_MCP})`);
-    expect(result.stderr).toContain("remove the scope from each of them first");
+    // The next step names the command that clears a declaration, not the hand-editing it replaced.
+    expect(result.stderr).toContain(
+      `clear it from each with \`ambit catalog annotate <name> --remove-scope ${PARENT}\``,
+    );
+    expect(result.stderr).toContain("naming a server `mcp.<server>`");
+  });
+
+  it("names the `mcp.` spelling only when a server is among the declarers", async () => {
+    const result = await refused(ExitCode.Resolution, "rm", "core");
+
+    expect(result.stderr).toContain('skill "acme.commons.use-company-context" declares it');
+    expect(result.stderr).not.toContain("mcp.<server>");
+  });
+
+  it("cites a declaring entity by the file it is actually written as", async () => {
+    // The refusal's list is the list of files to edit, so citing the `.yml` ambit would have written
+    // sends the reader to a path this catalog does not have (spec §6).
+    await rename(path.join(catalogDir, SCOPED_MCP), path.join(catalogDir, "mcps/scoped.yaml"));
+
+    const result = await refused(ExitCode.Resolution, "rm", PARENT);
+
+    expect(result.stderr).toContain('MCP server "scoped" declares it (mcps/scoped.yaml)');
+    expect(result.stderr).not.toContain(SCOPED_MCP);
   });
 
   it("refuses a scope the registry does not hold, naming the nearest one it does", async () => {
