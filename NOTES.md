@@ -3,11 +3,40 @@
 Rewritten by each Ralph iteration for the next one. Short, current, and only what would cost
 real time to rediscover — see `PROMPT.md` §6.
 
-Last iteration: **A20 — symlink local sources** (the tip of `main`). Next task is **A21 — managed
-gitignore block**, whose `Depends: A20` is now checked.
+Last iteration: **A21 — managed gitignore block** (the tip of `main`). Next task is **A22 —
+`--dry-run`, `prune`, and `clean`**, whose `Depends: A21` is now checked.
 
 ## Constraints later tasks inherit
 
+- **`.gitignore` is written by install but is *not* an owned artifact.** `src/gitignore.ts` owns the
+  two marker lines (`# BEGIN ambit` … `# END ambit`) and everything between them, and that record is
+  **in band** — a text file has no keys for state to claim. So there is no state entry, no
+  `PlannedArtifact`, no prune branch, no `status` row and no install-output row for it, and an
+  existing `.gitignore` is a normal input rather than an ownership conflict (the same stance
+  `.mcp.json` takes, one level down). Each install re-renders the whole block from the artifacts it
+  just applied, so **pruning is free**: a skill that left the bundle leaves the block in the same run.
+  Worth a second opinion, since spec §5 rule 1 is phrased in terms of state.
+- **The block lists `.ambit/` plus every `skill-dir` path, sorted and deduplicated — never
+  `.mcp.json` and never `ambit.lock`**, both of which a team may commit (spec §3.5). Skill paths carry
+  **no trailing slash on purpose**: a `path:` skill installs as a symlink, git does not match a
+  `dir/` pattern against a symlink, and `dir/` would therefore leave every linked skill tracked.
+  Verified against real `git status`, not just asserted in a unit test.
+- **The gitignore write is the last thing `installProject` does — after the lock and after state.**
+  Deliberate inversion of "record-keeping last": the block is derived and rewritten every run, so a
+  failure there is free, whereas failing before `writeState` would leave correctly installed
+  artifacts unowned and the next plain install refusing them. **The trap that follows**: install can
+  exit 2 with every skill already installed, `.mcp.json` written, and state recorded. A test that
+  asserts "a failed install wrote nothing" must not use a broken `.gitignore` as its failure.
+- **Two shapes of `.gitignore` are exit 2, both leaving the file byte-identical:** more than one
+  `# BEGIN ambit` line, and a begin marker with no `# END ambit` after it. Guessing at the span is
+  how surrounding lines get eaten, so neither is recoverable in code. Detection matches the
+  **sentinel prefix**, not the full opening line, so the trailing explanation can be reworded without
+  orphaning blocks an older ambit wrote. Lines are split on `\n` only, so a CRLF file keeps its `\r`
+  on every line ambit does not own.
+- **`updateGitignoreText(existing, entries)` is pure and returns `undefined` when nothing changes**,
+  the same shape as `removeConfigKeys`, which is what keeps a second identical install from touching
+  the file. **A22's `clean` needs a block *removal* that does not exist yet** (and `--dry-run` should
+  report the block through the pure function rather than a second renderer).
 - **A skill's materialization mode is derived from `MergedSkill.commit`** (`modeOf` in
   `src/adapters/claude.ts`): absent means a `path:` source, which is a working tree someone edits, so
   it is **linked**; present means a pinned commit, so it is **copied** (spec §5). That is the only
@@ -59,8 +88,8 @@ gitignore block**, whose `Depends: A20` is now checked.
   `sectionKeys` is now defined on it) and `ownedKeys` (`src/ownership.ts`, exported). Use them rather
   than re-deriving "what does ambit own in this file".
 - **A new artifact kind means a new branch in `compareArtifacts`.** It switches on `skill-dir` vs
-  `harness-config` and nothing else, so **A21's gitignore block** — if it becomes an owned artifact —
-  needs a comparison of its own or it will fall through as a config file.
+  `harness-config` and nothing else, so a third kind would fall through as a config file. A21's
+  gitignore block avoided this by not being an artifact at all.
 - **`removeConfigKeys` (in `src/harness-config.ts`) returns `undefined` when the document held none of
   the keys**, and pruning skips the write entirely in that case. That is what keeps a run with nothing
   to prune byte-identical and what stops pruning from recreating a `.mcp.json` someone deleted by
@@ -137,7 +166,7 @@ gitignore block**, whose `Depends: A20` is now checked.
 - **`install` writes `ambit.lock`, and the lock is *not* an owned artifact.** It is absent from
   `.ambit/state.json`, from install's output, from `status`, and from every `PlannedArtifact` — a
   record of the resolution, not something ambit materialized. So **pruning cannot see it** (it works
-  from state), **A21's gitignore block must not list it** (spec §3.5: teams commit it), and **A22's
+  from state), **the gitignore block does not list it** (spec §3.5: teams commit it), and **A22's
   `clean` has to decide deliberately** whether "leaves the project identical to before the first
   install" reaches a file ambit does not own. Nothing parses it: `--frozen` compares *bytes*.
 - **`src/lock.ts` owns the whole lock.** `buildLock(loaded, bundle)` is pure and takes the
@@ -225,9 +254,9 @@ gitignore block**, whose `Depends: A20` is now checked.
 
 - Nothing prunes the cache, and nothing locks it against a concurrent ambit (`loadCatalogs` is
   sequential for that reason). No task owns cache GC; raise it if it matters.
-- No `.gitignore` handling at all — **A21**. `.mcp.json` and `ambit.lock` are committed, so only
-  `.ambit/` and installed skills belong in that block — **including linked ones**, which are still
-  files git would otherwise track.
+- Nothing *checks* the managed gitignore block: `status` has no row for it and no command reports a
+  block someone edited or deleted (the next install silently fixes it). **A24's `doctor`** is where
+  that belongs if it matters; removing the block is **A22's `clean`**.
 - **Nothing persists a materialization mode.** `--copy`/`--link` are per-run (spec §5) and there is no
   config key for them, so a team that wants copies everywhere has to pass the flag every time. If that
   ever needs fixing it is a config change and a spec change, not an adapter change.
@@ -254,8 +283,10 @@ gitignore block**, whose `Depends: A20` is now checked.
   `test/git-source.test.ts`'s byte-for-byte git-vs-path comparison (otherwise one side links and the
   other copies).
 - `test/install.test.ts`'s **`describe("idempotence")`** snapshots *every file in the project* and
-  asserts the file list too, in `PROJECT_FILES`. **A21 adding `.gitignore` to what install writes has
-  to extend that list** — the test is meant to fail when a new file appears.
+  asserts the file list too, in `PROJECT_FILES` — now seven entries, `.gitignore` included. The test
+  is meant to fail when a new file appears, so extend the list deliberately rather than loosening it.
+  `test/git-source.test.ts`'s `PER_SOURCE_FILES` needed no change: the block is byte-identical
+  between a git-installed and a path-installed project.
 - `test/status.test.ts` asserts the exact four-cell table (path, kind, state, detail) with the detail
   cell trimmed away on a clean project, and most of its cases assert the **whole** report through
   `states()` (`path=state` pairs) so a new row cannot appear unnoticed. Two of its cases are the ones

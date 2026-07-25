@@ -685,7 +685,7 @@ runs the whole pipeline against a local fixture before any git, lock, or prune l
   **Done when:** `path:` sources are symlinked so editing the installed skill edits the
   source; remote sources are copied; `--copy`/`--link` override; prune handles both.
 
-- [ ] **A21 — Managed gitignore block.**
+- [x] **A21 — Managed gitignore block.**
   **Depends:** A20
   **Done when:** Owned paths land in a delimited managed block that is rewritten in place
   across runs and never disturbs surrounding lines.

@@ -27,6 +27,7 @@ import { claudeAdapter } from "../src/adapters/claude.js";
 import { loadCatalogs, mergeCatalogs, mergeConfigEntities } from "../src/catalog.js";
 import { loadProjectConfig } from "../src/config.js";
 import { ExitCode } from "../src/errors.js";
+import { BLOCK_BEGIN, BLOCK_END, GITIGNORE_FILENAME } from "../src/gitignore.js";
 import { installProject } from "../src/install.js";
 import { LOCK_FILENAME } from "../src/lock.js";
 import { run } from "../src/program.js";
@@ -662,6 +663,102 @@ describe(".mcp.json", () => {
 });
 
 /**
+ * The managed `.gitignore` block (spec §5), end to end.
+ *
+ * The text transformation is pinned in `test/gitignore.test.ts`; what these cases add is the part
+ * only a real install can show — which paths land in the block, that the block tracks the bundle
+ * across runs, and that a `.gitignore` someone else wrote survives being written into.
+ */
+describe(".gitignore", () => {
+  const HANDWRITTEN = "node_modules/\n.env\n";
+
+  /** The lines between the markers, which is exactly what ambit claims to own. */
+  async function managedBlock(): Promise<readonly string[]> {
+    const lines = (await readFile(path.join(projectDir, GITIGNORE_FILENAME), "utf8")).split("\n");
+    const start = lines.findIndex((line) => line.startsWith(BLOCK_BEGIN));
+    const end = lines.findIndex((line) => line.startsWith(BLOCK_END));
+    expect(start, "no managed block in .gitignore").toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    return lines.slice(start + 1, end);
+  }
+
+  it("lists ambit's state directory and every skill directory it installed", async () => {
+    expect((await cli("install")).code).toBe(ExitCode.Success);
+
+    // Not `.mcp.json` and not `ambit.lock`: a team commits both (spec §3.5, §5).
+    expect(await managedBlock()).toEqual([
+      `${STATE_DIRNAME}/`,
+      `${SKILLS_DIR}/${CORE_SKILL}`,
+      `${SKILLS_DIR}/${FRONTEND_SKILL}`,
+      `${SKILLS_DIR}/${ENGINEERING_SKILL}`,
+    ]);
+  });
+
+  it("ignores a linked skill too, which git would otherwise track as a symlink", async () => {
+    await cli("install");
+
+    // The fixture is a `path:` catalog, so these are links (spec §5) — and the pattern carries no
+    // trailing slash precisely so that it still matches them.
+    expect(await linkAt(`${SKILLS_DIR}/${CORE_SKILL}`)).toBeDefined();
+    expect(await managedBlock()).toContain(`${SKILLS_DIR}/${CORE_SKILL}`);
+  });
+
+  it("appends to a .gitignore the project already had, leaving its lines untouched", async () => {
+    await writeFile(path.join(projectDir, GITIGNORE_FILENAME), HANDWRITTEN, "utf8");
+
+    expect((await cli("install")).code).toBe(ExitCode.Success);
+
+    const contents = await readFile(path.join(projectDir, GITIGNORE_FILENAME), "utf8");
+    expect(contents.startsWith(HANDWRITTEN)).toBe(true);
+    expect(await managedBlock()).toContain(`${STATE_DIRNAME}/`);
+  });
+
+  it("drops the skill a narrowed profile no longer installs", async () => {
+    await cli("install");
+    await writeProfile(["core"]);
+
+    const result = await cli("install");
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+
+    expect(await managedBlock()).toEqual([`${STATE_DIRNAME}/`, `${SKILLS_DIR}/${CORE_SKILL}`]);
+  });
+
+  it("rewrites its own block in place rather than adding a second one", async () => {
+    await writeFile(path.join(projectDir, GITIGNORE_FILENAME), HANDWRITTEN, "utf8");
+    await cli("install");
+    await writeProfile(["core"]);
+
+    await cli("install");
+
+    const contents = await readFile(path.join(projectDir, GITIGNORE_FILENAME), "utf8");
+    expect(contents.split(BLOCK_BEGIN)).toHaveLength(2);
+    expect(contents).not.toContain(ENGINEERING_SKILL);
+  });
+
+  it("writes nothing when the block already says what this install would write", async () => {
+    await cli("install");
+    const first = await readFile(path.join(projectDir, GITIGNORE_FILENAME), "utf8");
+
+    await cli("install");
+
+    expect(await readFile(path.join(projectDir, GITIGNORE_FILENAME), "utf8")).toBe(first);
+  });
+
+  it("exits 2 rather than guessing at an unterminated block, leaving the file alone", async () => {
+    const broken = `${HANDWRITTEN}${BLOCK_BEGIN}\n${STATE_DIRNAME}/\ncoverage/\n`;
+    await writeFile(path.join(projectDir, GITIGNORE_FILENAME), broken, "utf8");
+
+    const result = await cli("install");
+
+    expect(result.code).toBe(ExitCode.Config);
+    expect(result.stderr).toContain(`${GITIGNORE_FILENAME} holds an unterminated ambit block`);
+    expect(await readFile(path.join(projectDir, GITIGNORE_FILENAME), "utf8")).toBe(broken);
+    // The block is written last, so the skills themselves are installed and the retry is free.
+    expect(await installedSkills()).toEqual([CORE_SKILL, FRONTEND_SKILL, ENGINEERING_SKILL].sort());
+  });
+});
+
+/**
  * Spec §4.8 end to end: what a project names outright is materialized like anything else, and the
  * `source` form does not need a catalog behind it.
  */
@@ -804,6 +901,7 @@ describe("ownership", () => {
     expect(await pathExists(MCP_FILE)).toBe(false);
     expect(await pathExists(LOCK_FILENAME)).toBe(false);
     expect(await pathExists(STATE_FILE)).toBe(false);
+    expect(await pathExists(GITIGNORE_FILENAME)).toBe(false);
   });
 
   it("refuses a plain file sitting where a skill directory belongs", async () => {
@@ -1107,6 +1205,9 @@ describe("idempotence", () => {
     `${SKILLS_DIR}/${ENGINEERING_SKILL}/SKILL.md`,
     MCP_FILE,
     LOCK_FILENAME,
+    // The managed block (spec §5) is a file install writes, so it belongs in the claim: this list is
+    // meant to fail when a new one appears.
+    GITIGNORE_FILENAME,
     "ambit.yml",
   ];
 

@@ -1,7 +1,8 @@
 /**
  * Installation (spec §4–§5): resolve a project, then hand the bundle to each harness adapter.
  *
- * The order is load → resolve → plan → apply → write lock → write state, and the two record-keeping
+ * The order is load → resolve → plan → apply → write lock → write state → rewrite the gitignore
+ * block, and the two record-keeping
  * writes coming last is a safety property, not an implementation detail: a crash mid-apply leaves
  * artifacts unowned but present, which `doctor` can report, whereas recording ownership first would
  * leave state claiming files that were never written. The lock is written on the same terms — it
@@ -26,6 +27,7 @@ import { CLAUDE_HARNESS, claudeAdapter } from "./adapters/claude.js";
 import { loadCatalogs, mergeCatalogs, mergeConfigEntities } from "./catalog.js";
 import { loadProjectConfig } from "./config.js";
 import { configError } from "./errors.js";
+import { writeGitignoreBlock } from "./gitignore.js";
 import type { Lock } from "./lock.js";
 import { assertLockCurrent, buildLock, serializeLock, writeLockText } from "./lock.js";
 import { authorizePlan } from "./ownership.js";
@@ -154,6 +156,12 @@ export async function installProject(
 
   await writeLockText(projectDir, lockText);
   await writeState(projectDir, { version: STATE_VERSION, harnesses, artifacts });
+
+  // Last, and deliberately after state: the block is derived from what was just written and is
+  // rendered afresh every run, so a failure here is the one that costs nothing — the next install
+  // rewrites it — whereas failing before `writeState` would leave correctly installed artifacts
+  // unowned and the next plain install refusing them.
+  await writeGitignoreBlock(projectDir, artifacts);
 
   return { bundle, harnesses, artifacts, pruned, lock };
 }

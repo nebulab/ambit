@@ -72,6 +72,14 @@ export {
 } from "./git.js";
 export type { FetchedGitSource, GitFetchRequest } from "./git.js";
 export {
+  BLOCK_BEGIN,
+  BLOCK_END,
+  GITIGNORE_FILENAME,
+  gitignoreEntries,
+  updateGitignoreText,
+  writeGitignoreBlock,
+} from "./gitignore.js";
+export {
   EMPTY_DOCUMENT,
   managedKey,
   mergeConfigSection,
