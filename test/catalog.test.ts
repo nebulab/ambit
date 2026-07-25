@@ -555,7 +555,6 @@ describe("ambit catalog as a command group", () => {
    * process instead of returning a code.
    */
   const UNBUILT: readonly (readonly [name: string, argv: readonly string[]])[] = [
-    ["catalog tree", ["tree"]],
     ["catalog audit", ["audit"]],
   ];
 

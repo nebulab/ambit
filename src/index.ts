@@ -88,6 +88,8 @@ export type {
   SkillRenameResult,
   SkillSummary,
 } from "./catalog-skill.js";
+export { buildScopeTree, flattenScopeTree, scopeTree, selectionSize } from "./catalog-tree.js";
+export type { ScopeNode, ScopeSelection } from "./catalog-tree.js";
 export { cleanProject, pruneProject } from "./clean.js";
 export type { CleanOptions, CleanResult, PruneOptions, PruneResult } from "./clean.js";
 export {

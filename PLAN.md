@@ -801,7 +801,7 @@ mutation ends by re-validating.
   scope or an unresolvable `requires` target exits 3 with nothing written; annotating twice is
   idempotent; and `catalog scope mv` renames a scope declared by a `.yaml` MCP entity.
 
-- [ ] **B08 — `ambit catalog tree`.**
+- [x] **B08 — `ambit catalog tree`.**
   **Depends:** B07
   **Do:** Render the registry as a tree, each scope showing what it selects directly and what it
   selects by descent — the view that makes the §2 nest-vs-sibling decision visible before it is

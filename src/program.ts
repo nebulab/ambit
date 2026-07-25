@@ -16,6 +16,7 @@ import {
   catalogSkillRemoveHandler,
   catalogSkillRenameHandler,
 } from "./handlers/catalog-skill.js";
+import { catalogTreeHandler } from "./handlers/catalog-tree.js";
 import { catalogHandler } from "./handlers/catalog.js";
 import { cleanHandler } from "./handlers/clean.js";
 import { doctorHandler } from "./handlers/doctor.js";
@@ -50,6 +51,7 @@ export const HANDLERS: CommandHandlers = {
   "catalog skill mv": catalogSkillRenameHandler,
   "catalog skill new": catalogSkillNewHandler,
   "catalog skill rm": catalogSkillRemoveHandler,
+  "catalog tree": catalogTreeHandler,
   clean: cleanHandler,
   doctor: doctorHandler,
   init: initHandler,

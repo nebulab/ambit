@@ -3,15 +3,15 @@
 Rewritten by each Ralph iteration for the next one. Short, current, and only what would cost
 real time to rediscover — see `PROMPT.md` §6.
 
-Last iteration: **B07 — `ambit catalog annotate`** (the tip of `main`). `src/catalog-annotate.ts` +
-`src/handlers/catalog-annotate.ts`, plus the `.yml`-only fix in `catalog scope mv`. Next task is
-**B08 — `ambit catalog tree`**, whose `Depends: B07` is now checked. (A30 also depends on A25, but B08
-is topmost.)
+Last iteration: **B08 — `ambit catalog tree`** (the tip of `main`). `src/catalog-tree.ts` +
+`src/handlers/catalog-tree.ts`, `test/catalog-tree.test.ts`, and a new golden at
+`test/golden/catalog-tree.json`. Next task is **B09 — `ambit catalog audit`**, whose `Depends: B08` is now
+checked. (A30 also depends on A25, but B09 is topmost, and B09 is the last authoring task.)
 
 ## Constraints later tasks inherit
 
 - **`catalog` is a command group whose default action is `dump`**, and **handlers are keyed by the
-  words a user types**: `"catalog dump"`, `"catalog init"`, `"catalog scope add"`. B08 and B09 each add one
+  words a user types**: `"catalog dump"`, `"catalog init"`, `"catalog scope add"`. B09 adds one
   entry to `HANDLERS` in `src/program.ts` under that key and nothing else in the wiring. A declared
   command with no entry throws `notImplemented(<the whole invocation>)` — exit **1**, message
   `command "catalog tree" is not implemented yet` — pinned by a test over the still-unbuilt commands,
@@ -208,6 +208,22 @@ is topmost.)
   aid, not a patch** — nothing about a missing final newline or an intra-line change is shown, and the
   bytes travel in `--json` for anything that wants to apply them. Do not add a second renderer inside a
   command.
+- **`src/catalog-tree.ts` is the whole of `catalog tree`, and `buildScopeTree(catalog)` is pure** — one
+  read-only command, so there is no editor path, no `--dry-run`, and no diff. Three decisions in it that a
+  later task must not quietly reverse. **A node's parent is its longest *registered* ancestor**, not its
+  dotted prefix, because that is exactly what `expandHeldScopes` walks: the fixture's
+  `function.engineering` is a root, since `function` is registered nowhere and a parent nobody registered
+  is not a scope. **`direct` and `inherited` partition what a scope selects** — `direct` is what declares
+  the scope, `inherited` is what a registered descendant declares *minus* `direct` — so the two counts sum
+  to what holding the scope brings in, and an item declaring both a scope and its child is counted once.
+  **Nothing here follows `requires`**, so the fixture's `mcp.fixture` (declared by no scope) appears in no
+  row and in no golden entry; reporting that is B09's.
+- **`catalog tree --json` nests, where every other command's JSON is flat**, because the nesting is the
+  answer: each entry carries `children` (a name-keyed map of the same shape), `description`, `direct`, and
+  `inherited`, keys sorted as everywhere else. **Keys are full dotted names at every depth**, so one can be
+  pasted straight into an `ambit.yml` `scopes` list. Text is one indented row per scope:
+  `name | N direct | N inherited | description`, counts only — the itemization lives in `--json`, since a
+  scope whose subtree holds forty skills would bury the shape the report exists to show.
 - **`src/catalog-init.ts` is the whole of `catalog init`, and it goes through `applyCatalogEdit` like
   every other mutation** — so the scaffold gets the root check, atomic writes, `--dry-run`, and
   validation of the *result*. It therefore writes **files only**: `skills/` and `mcps/` exist because a
@@ -460,9 +476,9 @@ is topmost.)
   (`validate --catalog`) has none.
 - **`--frozen`, `--adopt`, `--copy`, `--link`, `--dry-run`, `status --check` and `validate --catalog`
   are implemented, as are `catalog dump`, `catalog init`, `catalog scope add|rm|mv`,
-  `catalog skill new|rm|mv`, `catalog mcp new|rm` and `catalog annotate`.** The unbuilt surface is
-  `catalog tree` and `catalog audit` (B08–B09), declared in `COMMAND_SPECS` and reporting itself
-  unimplemented until each task lands.
+  `catalog skill new|rm|mv`, `catalog mcp new|rm`, `catalog annotate` and `catalog tree`.** The unbuilt
+  surface is `catalog audit` (B09) alone, declared in `COMMAND_SPECS` — `--check` included — and reporting
+  itself unimplemented until that task lands.
 - **Every source resolves through `src/sources.ts`** (§3.1 grammar) returning
   `ResolvedSource = { root, commit? }`. `loadCatalogs`, `mergeConfigEntities`, `loadSourceSkill` and
   `resolveCatalogRoot` take a `SourceContext` (`{ projectDir, env }`); `env` is where the cache location
@@ -547,13 +563,17 @@ is topmost.)
   of the four.
 - **Nothing says which catalog registered a scope.** `mergeCatalogs` keeps that only long enough to
   raise the description conflict (`RegisteredScope` is internal), so `scopes` cannot report it and
-  neither can `catalog`. **B08's `catalog tree` works on one catalog directory**, so it needs none of
-  this; a merged view that wanted per-scope provenance would have to widen `ScopeDefinition`.
-- **`scopes` says nothing about what a scope *selects*** — no counts, no item lists. That is the scope
-  tree, and it is **B08's `catalog tree`**.
+  neither can `catalog`. `catalog tree` and `catalog audit` work on **one catalog directory**, so they need
+  none of this; a merged view that wanted per-scope provenance would have to widen `ScopeDefinition`.
+- **`ambit scopes` still says nothing about what a scope *selects*** — no counts, no item lists. That is
+  `catalog tree`, which is per-catalog and takes `--catalog`; nothing merges the two views, and nobody owns
+  doing so.
 - **Nothing validates a catalog's *reachability*** — a registered scope nothing declares, an item no
   scope and no `requires` reaches. That is deliberately **B09's `catalog audit`**, not `validate`:
-  dead weight is a smell, not a broken catalog.
+  dead weight is a smell, not a broken catalog. `catalog tree` shows the *shape* only, so an empty scope
+  reads as `0 direct  0 inherited` there and is a *finding* only in `audit`; `buildScopeTree` is worth
+  reusing for the "registered scopes nothing declares" class, but not for the two item classes, which are
+  about `requires` and so outside the tree entirely.
 
 ## Traps
 
@@ -571,9 +591,17 @@ is topmost.)
   are restated in the test rather than imported, so the emitted-shape claim is independent of the source.
 - **`test/diff.test.ts` asserts the renderer's exact lines**, elision marker and context width included.
   Changing `CONTEXT_LINES` or the tie-break rewrites several of its cases; that is the point.
-- **Each B0x task deletes its own row from `test/catalog.test.ts`'s `UNBUILT` table** (B07 removed the
-  `annotate` row; `tree` and `audit` are left). Leaving the row behind fails the "exits 1 from every
-  unbuilt subcommand" case, which is the intended alarm.
+- **Each B0x task deletes its own row from `test/catalog.test.ts`'s `UNBUILT` table** (B08 removed the
+  `tree` row; `audit` is the last one). Leaving the row behind fails the "exits 1 from every unbuilt
+  subcommand" case, which is the intended alarm — and B09 empties the table, so keep the loop working over
+  zero rows rather than deleting the case.
+- **`test/catalog-tree.test.ts` pins the text report's exact column padding** and carries its own copy of
+  `expectGolden` (`test/golden/catalog-tree.json`, regenerated by the same `UPDATE_GOLDEN=1 npm test` the
+  resolve goldens use — read it, it is short). Its last case is the load-bearing one: it rebuilds the tree
+  in-process and asserts, per scope, that `direct ∪ inherited` equals what `expandHeldScopes` selects, so
+  the view cannot drift from the resolver. Two cases deepen the fixture's registry by appending to
+  `scopes.yml` in the per-test copy (`function`, `person.jane`); the shared fixture's four scopes are
+  untouched, which `test/validate.test.ts` depends on.
 - **`test/catalog-mcp.test.ts` restates the values it expects emitted** rather than importing them, so the
   "the whole file is `emitYaml` of these values" claim is independent of the source — the `catalog init`
   trick. Two cases are load-bearing beyond their assertions: one renames a fixture entity to `.yaml`

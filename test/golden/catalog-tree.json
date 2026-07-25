@@ -1,0 +1,65 @@
+{
+  "scopes": {
+    "core": {
+      "children": {},
+      "description": "The universal floor — context everyone needs",
+      "direct": {
+        "mcps": [],
+        "skills": [
+          "acme.commons.use-company-context"
+        ]
+      },
+      "inherited": {
+        "mcps": [],
+        "skills": []
+      }
+    },
+    "function.engineering": {
+      "children": {
+        "function.engineering.frontend": {
+          "children": {},
+          "description": "Browser-side work: components, styling, accessibility",
+          "direct": {
+            "mcps": [],
+            "skills": [
+              "acme.engineering.frontend.use-design-tokens"
+            ]
+          },
+          "inherited": {
+            "mcps": [],
+            "skills": []
+          }
+        }
+      },
+      "description": "Building and shipping software",
+      "direct": {
+        "mcps": [
+          "scoped"
+        ],
+        "skills": [
+          "acme.engineering.use-code-review"
+        ]
+      },
+      "inherited": {
+        "mcps": [],
+        "skills": [
+          "acme.engineering.frontend.use-design-tokens"
+        ]
+      }
+    },
+    "project.acme": {
+      "children": {},
+      "description": "The Acme engagement",
+      "direct": {
+        "mcps": [],
+        "skills": [
+          "acme.projects.use-acme-brief"
+        ]
+      },
+      "inherited": {
+        "mcps": [],
+        "skills": []
+      }
+    }
+  }
+}
