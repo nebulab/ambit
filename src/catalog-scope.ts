@@ -27,6 +27,7 @@ import path from "node:path";
 
 import type { Catalog, CatalogSkill, ScopeDefinition } from "./catalog.js";
 import { SCOPES_FILENAME, SKILL_FILENAME, parseCatalogDirectory } from "./catalog.js";
+import { mcpDocumentFile } from "./catalog-mcp.js";
 import type { CatalogChange, EditOptions, EditedFile } from "./editor.js";
 import { CatalogDocument, applyCatalogEdit, mcpDocumentPath } from "./editor.js";
 import type { AmbitError } from "./errors.js";
@@ -363,7 +364,10 @@ export async function renameScope(
   for (const mcp of catalog.mcps) {
     const declared = rewritten(mcp.scopes, renames);
     if (declared === undefined) continue;
-    const document = await CatalogDocument.open(root, mcpDocumentPath(mcp.name));
+    // The file the author wrote, not the extension ambit would have chosen: `mcps/<name>.yaml` is as
+    // legal as `.yml` (spec §3.3), and rewriting the other one would leave two files defining one
+    // server — which parsing rejects, so the rename would fail with nothing written.
+    const document = await CatalogDocument.open(root, await mcpDocumentFile(root, mcp.name));
     document.setStringList([DECLARED_KEY], declared);
     documents.push(document);
   }

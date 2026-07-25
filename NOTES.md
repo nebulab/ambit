@@ -3,19 +3,19 @@
 Rewritten by each Ralph iteration for the next one. Short, current, and only what would cost
 real time to rediscover — see `PROMPT.md` §6.
 
-Last iteration: **B06 — MCP entity commands** (the tip of `main`). `catalog mcp new|rm` in
-`src/catalog-mcp.ts` + `src/handlers/catalog-mcp.ts`; no change to the editor, which already did
-everything they needed. Next task is **B07 — `ambit catalog annotate`**, whose `Depends: B06` is now
-checked. (A30 also depends on A25, but B07 is topmost.)
+Last iteration: **B07 — `ambit catalog annotate`** (the tip of `main`). `src/catalog-annotate.ts` +
+`src/handlers/catalog-annotate.ts`, plus the `.yml`-only fix in `catalog scope mv`. Next task is
+**B08 — `ambit catalog tree`**, whose `Depends: B07` is now checked. (A30 also depends on A25, but B08
+is topmost.)
 
 ## Constraints later tasks inherit
 
 - **`catalog` is a command group whose default action is `dump`**, and **handlers are keyed by the
-  words a user types**: `"catalog dump"`, `"catalog init"`, `"catalog scope add"`. B04–B09 each add one
+  words a user types**: `"catalog dump"`, `"catalog init"`, `"catalog scope add"`. B08 and B09 each add one
   entry to `HANDLERS` in `src/program.ts` under that key and nothing else in the wiring. A declared
   command with no entry throws `notImplemented(<the whole invocation>)` — exit **1**, message
-  `command "catalog scope add" is not implemented yet` — pinned by a test over the eleven still-unbuilt
-  commands, whose `UNBUILT` table shrinks by one row per task.
+  `command "catalog tree" is not implemented yet` — pinned by a test over the still-unbuilt commands,
+  whose `UNBUILT` table shrinks by one row per task.
 - **`CommandSpec` gained `subject`, `subcommands` and `defaultSubcommand`, and `argument` became
   `args`** (a list, because `mv <old> <new>` needs two positionals; Commander takes one name per
   `.argument()` call).
@@ -76,7 +76,7 @@ checked. (A30 also depends on A25, but B07 is topmost.)
   **source's** bytes as its `before`, so the preview reads as a one-line edit instead of a whole new file;
   and after a move or a removal the editor **prunes the emptied ancestor directories**, stopping at depth
   one so `skills/` and `mcps/` — the catalog's shape — always survive.
-- **`src/editor.ts` is the whole of authoring's write path, and B03–B07 are its callers.** Two halves:
+- **`src/editor.ts` is the whole of authoring's write path, and every B0x mutation is a caller.** Two halves:
   `CatalogDocument.open(root, file)` reads one document and gives back setters
   (`setString(path, value)`, `setStringList(path, values)`, `remove(path)`, `has(path)`, `text()`,
   `changed`, `change()`); `applyCatalogEdit(root, changes, { dryRun })` takes a list of
@@ -150,6 +150,10 @@ checked. (A30 also depends on A25, but B07 is topmost.)
 - **`--env` is sorted and deduplicated; `--arg` is not.** A set of env vars carries no order, and a
   program's positional arguments are nothing but order. `--header k=v` splits at the **first** `=`, and a
   repeated key is refused rather than overwritten.
+- **Every command that *edits* an existing MCP entity goes through `mcpDocumentFile(root, name)`**
+  (`src/catalog-mcp.ts`), which picks the §3.3 extension actually on disk: `mcp rm`, `annotate`, and — since
+  B07 — `catalog scope mv`. The editor's `mcpDocumentPath` still always says `.yml`, and is right only where
+  ambit is *creating* the file or naming one in a message about a name no file carries yet.
 - **A flag belonging to the transport kind that was not named is exit 2, not ignored** (`--header` with
   `--stdio`, `--arg` with `--http`), as is an empty `--stdio`/`--http` value. The stance is that a flag
   someone typed which would be written nowhere is worse than an error. Every transport refusal names
@@ -161,16 +165,36 @@ checked. (A30 also depends on A25, but B07 is topmost.)
   would delete it, so both are refused naming what is in the way. That refusal is what lets the editor
   assume a moved tree carries at most the one `SKILL.md` its caller restates.
 - **`assertRegisteredScopes(catalog, scopes)` is exported from `src/catalog-scope.ts`** and is how every
-  command that *declares* a scope refuses an unregistered one — **B07's `annotate` should call it**; it is
-  now the only caller left besides `skill new`. (B06 does not: the surface spec §6 gives `mcp new` has no
+  command that *declares* a scope refuses an unregistered one: `skill new` and `annotate --add-scope`, its
+  only two callers, and no command left to add. (`mcp new` does not: the surface spec §6 gives it has no
   `--scope`, so it declares none.) The editor would refuse such a write anyway (a declared scope nothing
   registers is a validation problem), but `refusedByValidation` quotes only each problem's **message**,
   not its detail, so the "did you mean" is lost; the pre-check is what makes a typo answerable.
   `--requires` deliberately has **no** such pre-check — validation's own message already names an
-  unresolvable requirement and there is no better advice to add.
+  unresolvable requirement and there is no better advice to add. **`annotate --remove-scope` is
+  deliberately not pre-checked either**: an unregistered scope is precisely what someone runs it to clear,
+  and refusing would leave the one command that can fix such a catalog unable to run against it.
+- **`src/catalog-annotate.ts` is the whole of `catalog annotate`, and it is the only command that edits a
+  document's *contents***, so authoring rule 2 is under the most pressure here. Two rules split the work:
+  a list ambit rewrites comes out **sorted and deduplicated** (argv order is not information, unlike a
+  stdio `args`), and a list whose **membership** the request would not change is left byte-for-byte alone —
+  layout, comment, and a hand-written duplicate included. That second half is what makes annotating twice a
+  true no-op *and* confines reordering to the keys the reader asked about. Emptying a list writes `[]`
+  rather than removing the key: "declares none" is a statement the author made. **An MCP entity has no
+  `requires`** (§3.3's key list), so a `--add-requires`/`--remove-requires` aimed at one is exit **2**
+  naming the skill-side flag that does what was meant, not silently dropped.
+- **`unknownSkill` (`catalog-skill.ts`) and `unknownMcp` (`catalog-mcp.ts`) are now exported**, so
+  `annotate` refuses a missing item in the same words `rm` does. One identity, one wording — reword one
+  side only and the two commands start disagreeing about what a catalog does not have.
+- **Two of `annotate`'s refusals are argv-shaped and live in the handler**: an invocation that names no
+  change at all (exit 2 — a mutating command reporting success having been given nothing is
+  indistinguishable from one whose flags a shell ate) and adding *and* removing the same entry (exit 2).
+  Both name a **directory** (`skills`/`mcps`) rather than a file, because neither has read the catalog yet
+  and a guessed `.yml` would send the reader to a file that may not exist.
 - **`positional(ctx, index, usage)` and `optionList(ctx, name)` now live in `src/commands.ts`**
   (`positional` moved out of `src/handlers/catalog-scope.ts`, which imports it back). `optionList` reads a
-  `repeatable()` flag: `undefined` when never given, `readonly string[]` otherwise. B06 and B07 want both.
+  `repeatable()` flag: `undefined` when never given, `readonly string[]` otherwise — which is how
+  `annotate` tells "leave this list alone" from "empty it".
 - **An authoring handler's heading follows `--dry-run`, not `written`** (`src/handlers/catalog-scope.ts`),
   unlike `catalog init`'s: a mutation that had nothing to do is a no-op, not a preview, so a second
   `scope add` prints `registered (1)` with `files (0)`. Every scope command prints exactly two sections —
@@ -227,8 +251,8 @@ checked. (A30 also depends on A25, but B07 is topmost.)
 - **The `mode` check only looks at artifacts `status` called `ok`**, and reads the mode off disk with
   `lstat` (not off state's recorded `mode`), so it cannot contradict what `status` reports.
 - **`src/validate.ts` is the whole of `validate`, and `validateCatalog(merged, { config, parsed })` is
-  pure** — that is the function B04–B07 call to satisfy spec §6 authoring rule 4 ("validate before
-  writing"). Two I/O wrappers sit beside it: `validateProject(context)` runs the same
+  pure** — that is the function every authoring mutation reaches through the editor, to satisfy spec §6
+  authoring rule 4 ("validate before writing"). Two I/O wrappers sit beside it: `validateProject(context)` runs the same
   `loadCatalogs → mergeCatalogs → mergeConfigEntities` pipeline `resolve` does (minus resolution), and
   `validateCatalogDirectory(root)` parses one directory and reads **no `ambit.yml`, no other catalog,
   no cache**. `validateProject` takes a **`SourceContext`**, deliberately, so `--offline` still has
@@ -436,9 +460,9 @@ checked. (A30 also depends on A25, but B07 is topmost.)
   (`validate --catalog`) has none.
 - **`--frozen`, `--adopt`, `--copy`, `--link`, `--dry-run`, `status --check` and `validate --catalog`
   are implemented, as are `catalog dump`, `catalog init`, `catalog scope add|rm|mv`,
-  `catalog skill new|rm|mv` and `catalog mcp new|rm`.** The unbuilt surface is the rest of the `catalog`
-  authoring group (`annotate`, `tree`, `audit` — B07–B09), declared in `COMMAND_SPECS` and reporting
-  itself unimplemented until each task lands.
+  `catalog skill new|rm|mv`, `catalog mcp new|rm` and `catalog annotate`.** The unbuilt surface is
+  `catalog tree` and `catalog audit` (B08–B09), declared in `COMMAND_SPECS` and reporting itself
+  unimplemented until each task lands.
 - **Every source resolves through `src/sources.ts`** (§3.1 grammar) returning
   `ResolvedSource = { root, commit? }`. `loadCatalogs`, `mergeConfigEntities`, `loadSourceSkill` and
   `resolveCatalogRoot` take a `SourceContext` (`{ projectDir, env }`); `env` is where the cache location
@@ -493,21 +517,20 @@ checked. (A30 also depends on A25, but B07 is topmost.)
   nothing registers is refused, not fixed; the registry is `catalog scope`'s.
 - **`mcp new` declares no scopes**, because the surface spec §6 gives it has no `--scope`: what it writes
   is reachable only through a skill's `requires` until someone gives it a `scopes` entry, and the
-  command's closing line says exactly that. **B07's `annotate --add-scope` is how a server gets one**, and
-  when it lands that line should probably name it. `mcp rm` closes with **nothing**, deliberately: no
-  project's `ambit.yml` can name a catalog's server (§3.1's `mcps` declares one rather than selecting
-  one), so there is nothing for its author to update.
-- **`mcpDocumentPath` (editor) always says `.yml`**, so a command that *edits* an entity someone wrote as
-  `mcps/x.yaml` must go through **`mcpDocumentFile(root, name)`** (`src/catalog-mcp.ts`) instead —
-  **B07's `annotate` needs it**. `catalog scope mv` still uses `mcpDocumentPath` when it rewrites a
-  server's `scopes`, so a `.yaml` entity makes that command fail exit 3 with nothing written (it would
-  write a second file for one name, which parsing rejects) rather than corrupt anything. Fixing that is
-  nobody's task yet; it is one call site.
+  command's closing line says exactly that. `annotate --add-scope` is now how a server gets one, but that
+  closing line still says "add a `scopes` entry to `mcps/<name>.yml`" rather than naming the command —
+  nobody owns changing it, and `test/catalog-mcp.test.ts` pins the line byte-for-byte. `mcp rm` closes with
+  **nothing**, deliberately: no project's `ambit.yml` can name a catalog's server (§3.1's `mcps` declares
+  one rather than selecting one), so there is nothing for its author to update.
+- **`declarersOf` in `src/catalog-scope.ts` still names an entity through `mcpDocumentPath`**, so `scope rm`
+  refusing because a `.yaml` entity declares the scope cites `mcps/<name>.yml` — a file that is not there.
+  Message-only (nothing is written on that path), one call site, and it needs `declarersOf` to become
+  async. Nobody owns it.
 - **Removing an entity file prunes no directory.** `pruneEmptyAncestors` runs for tree changes only, so a
   catalog whose last server was removed keeps an empty `mcps/` — which is its shape, not its contents.
-- **Nothing removes a scope from a declarer.** `scope rm` refuses while anything declares the scope and
-  tells the reader to edit each file; the flag that would do it for them is **B07's**
-  `annotate --remove-scope`. The refusal deliberately does not name that command yet.
+- **`scope rm`'s refusal still tells the reader to edit each declarer by hand**, though
+  `annotate --remove-scope` now does exactly that. Naming it there would be an improvement nobody owns;
+  `test/catalog-scope.test.ts` pins the current wording.
 - **`catalog init` scaffolds no example skill and no example MCP entity**, so a fresh catalog installs
   nothing: `catalog skill new` is the next step and the command's own output says so. It also runs
   no `git init` and writes no `.gitignore` — a catalog has nothing generated to ignore, and the directory
@@ -548,14 +571,23 @@ checked. (A30 also depends on A25, but B07 is topmost.)
   are restated in the test rather than imported, so the emitted-shape claim is independent of the source.
 - **`test/diff.test.ts` asserts the renderer's exact lines**, elision marker and context width included.
   Changing `CONTEXT_LINES` or the tie-break rewrites several of its cases; that is the point.
-- **Each B0x task deletes its own row from `test/catalog.test.ts`'s `UNBUILT` table** (B06 removed the
-  two `catalog mcp` rows; three rows are left). Leaving the row behind fails the "exits 1 from every
+- **Each B0x task deletes its own row from `test/catalog.test.ts`'s `UNBUILT` table** (B07 removed the
+  `annotate` row; `tree` and `audit` are left). Leaving the row behind fails the "exits 1 from every
   unbuilt subcommand" case, which is the intended alarm.
 - **`test/catalog-mcp.test.ts` restates the values it expects emitted** rather than importing them, so the
   "the whole file is `emitYaml` of these values" claim is independent of the source — the `catalog init`
   trick. Two cases are load-bearing beyond their assertions: one renames a fixture entity to `.yaml`
   before `rm` (the claim `mcpDocumentFile` exists for), and one asserts `--arg` order survives while
   `--env` is sorted, which is the only place that asymmetry is pinned.
+- **`test/catalog-annotate.test.ts` asserts whole documents with exactly one substitution**, which is the
+  only way to catch an edit that also reflowed a list or moved a key. It carries its own annotated-skill
+  fixture (`CLOSE_SKILL_TEXT`, the same shape `test/editor.test.ts` uses) rather than adding one to
+  `scripts/fixture-catalog.ts`, so the shared fixture's counts stay put. Three cases are load-bearing
+  beyond their assertions: one renames the fixture entity to `.yaml` before annotating it, one asks to add
+  an entry an *unsorted* list already holds and asserts the file is byte-identical (the claim that only a
+  membership change is written), and one removes an unregistered scope from a skill it first breaks — the
+  reason `--remove-scope` has no registry pre-check. Anything pointing a new `requires` at
+  `acme.projects.use-acme-brief` will hit the fixture's own cycle; use `acme.engineering.use-code-review`.
 - **`test/catalog-skill.test.ts` asserts what happened to *paths*, not only to bytes.** Its `snapshot()`
   is files-with-bytes and its `directories()` is the directory list, and both are load-bearing: the
   "writes one SKILL.md and nothing else" case asserts the whole file list, and two cases assert that an

@@ -788,7 +788,7 @@ mutation ends by re-validating.
   agreement; giving neither or both transport flags exits 2 naming the supported kinds; `rm` of
   a required server exits 3 naming the requirer; `validate` passes after each.
 
-- [ ] **B07 — `ambit catalog annotate`.**
+- [x] **B07 — `ambit catalog annotate`.**
   **Depends:** B06
   **Do:** Add and remove `scopes`, `requires`, and `env` entries on an existing skill or MCP,
   through the B02 editor. Being the last authoring command that edits an MCP document, it also

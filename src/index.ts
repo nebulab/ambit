@@ -42,6 +42,16 @@ export type {
   Shadowing,
   Shadowings,
 } from "./catalog.js";
+export { ANNOTATION_KEYS, annotate, annotationDirname, isMcpTarget } from "./catalog-annotate.js";
+export type {
+  AnnotateOptions,
+  AnnotateResult,
+  AnnotatedItem,
+  AnnotatedKind,
+  AnnotatedList,
+  AnnotationEdit,
+  AnnotationKey,
+} from "./catalog-annotate.js";
 export {
   CATALOG_INIT_SCOPE,
   CATALOG_KEEP_FILENAME,
@@ -51,7 +61,7 @@ export {
   scaffoldCatalog,
 } from "./catalog-init.js";
 export type { CatalogInitOptions, CatalogInitResult } from "./catalog-init.js";
-export { mcpDocumentFile, mcpTarget, newMcp, removeMcp } from "./catalog-mcp.js";
+export { mcpDocumentFile, mcpTarget, newMcp, removeMcp, unknownMcp } from "./catalog-mcp.js";
 export type {
   McpEdit,
   McpNewOptions,
@@ -67,7 +77,7 @@ export type {
   ScopeRename,
   ScopeRenameResult,
 } from "./catalog-scope.js";
-export { newSkill, removeSkill, renameSkill } from "./catalog-skill.js";
+export { newSkill, removeSkill, renameSkill, unknownSkill } from "./catalog-skill.js";
 export type {
   SkillAnnotations,
   SkillEdit,

@@ -146,8 +146,11 @@ function alreadyProvided(skill: CatalogSkill): AmbitError {
  * No "did you mean": a skill name is not chosen from a registry the way a scope is, so a near miss is
  * as likely to be a different skill as a typo — the same stance resolution takes on an explicitly
  * listed skill. What the reader gets instead is the rule that turns a path into a name.
+ *
+ * Exported so `catalog annotate` refuses an unknown skill in these exact words: one identity, one way of
+ * saying the catalog does not have it.
  */
-function unknownSkill(name: string): AmbitError {
+export function unknownSkill(name: string): AmbitError {
   return resolutionError(`unknown skill "${name}" ${at(skillDocumentPath(name), undefined)}`, [
     "this catalog provides no skill by that name",
     `a skill's name is its path under ${SKILLS_DIRNAME}/ with \`/\` replaced by \`${NAME_SEPARATOR}\``,

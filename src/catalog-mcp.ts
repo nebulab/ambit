@@ -149,8 +149,11 @@ function alreadyProvided(name: string, file: string): AmbitError {
  * No "did you mean": a server name is not chosen from a registry the way a scope is, so a near miss
  * is as likely to be a different server as a typo — the same stance `catalog skill rm` takes. What
  * the reader gets instead is the rule that turns a filename into a name.
+ *
+ * Exported so `catalog annotate` refuses an unknown server in these exact words: one identity, one way
+ * of saying the catalog does not have it.
  */
-function unknownMcp(name: string): AmbitError {
+export function unknownMcp(name: string): AmbitError {
   return resolutionError(
     `unknown MCP server "${name}" ${at(mcpDocumentPath(name), undefined)}`,
     [

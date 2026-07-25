@@ -3,6 +3,7 @@ import { Command, CommanderError } from "commander";
 import type { CommandContext, CommandHandlers } from "./commands.js";
 import { COMMAND_SPECS, buildCommand } from "./commands.js";
 import { AmbitError, ExitCode } from "./errors.js";
+import { catalogAnnotateHandler } from "./handlers/catalog-annotate.js";
 import { catalogInitHandler } from "./handlers/catalog-init.js";
 import { catalogMcpNewHandler, catalogMcpRemoveHandler } from "./handlers/catalog-mcp.js";
 import {
@@ -38,6 +39,7 @@ export type Io = Pick<CommandContext, "cwd" | "stdout" | "stderr">;
  * the two invocations cannot render the catalog differently.
  */
 export const HANDLERS: CommandHandlers = {
+  "catalog annotate": catalogAnnotateHandler,
   "catalog dump": catalogHandler,
   "catalog init": catalogInitHandler,
   "catalog mcp new": catalogMcpNewHandler,

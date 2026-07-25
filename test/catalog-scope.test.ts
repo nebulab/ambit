@@ -12,7 +12,7 @@
  * Everything runs against a per-test copy of the fixture catalog. The shared fixture must stay clean: it
  * is what the golden profiles resolve against.
  */
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -361,6 +361,22 @@ describe("ambit catalog scope mv", () => {
     await succeeds("mv", PARENT, RENAMED_PARENT);
 
     expect(await read(REGISTRY)).toBe(annotated.replaceAll(PARENT, RENAMED_PARENT));
+  });
+
+  it("rewrites a declaring entity written as `.yaml`, not the `.yml` ambit would have written", async () => {
+    // §3.3 accepts either extension, and rewriting the other one would leave two files defining one
+    // server — which parsing rejects, so the whole rename would fail with nothing written.
+    await rename(path.join(catalogDir, SCOPED_MCP), path.join(catalogDir, "mcps/scoped.yaml"));
+    const before = await snapshot();
+
+    const result = await succeeds("mv", PARENT, RENAMED_PARENT);
+
+    expect(result.stdout).toContain("  mcps/scoped.yaml");
+    expect(Object.keys(await snapshot())).toEqual(Object.keys(before));
+    expect(await read("mcps/scoped.yaml")).toBe(
+      fixture(SCOPED_MCP).replace(`scopes: [${PARENT}]`, `scopes: [${RENAMED_PARENT}]`),
+    );
+    await validates();
   });
 
   it("refuses a rename onto a name the registry already holds", async () => {
