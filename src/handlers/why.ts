@@ -17,7 +17,7 @@
 import type { MergedCatalog, MergedMcp, MergedSkill } from "../catalog.js";
 import { loadCatalogs, mergeCatalogs, mergeConfigEntities } from "../catalog.js";
 import type { CommandHandler } from "../commands.js";
-import { jsonRequested, projectDirOf } from "../commands.js";
+import { jsonRequested, sourceContextOf } from "../commands.js";
 import type { ProjectConfig } from "../config.js";
 import { loadProjectConfig } from "../config.js";
 import { AmbitError, ExitCode, resolutionError } from "../errors.js";
@@ -173,10 +173,10 @@ export const whyHandler: CommandHandler = async (ctx) => {
     ]);
   }
 
-  const projectDir = projectDirOf(ctx);
-  const config = await loadProjectConfig(projectDir);
-  const catalogs = mergeCatalogs(await loadCatalogs(config, projectDir));
-  const merged = await mergeConfigEntities(catalogs, config, projectDir);
+  const context = sourceContextOf(ctx);
+  const config = await loadProjectConfig(context.projectDir);
+  const catalogs = mergeCatalogs(await loadCatalogs(config, context));
+  const merged = await mergeConfigEntities(catalogs, config, context);
   const bundle = resolveBundle(config, merged);
 
   const item = locate(name, bundle, merged, config);

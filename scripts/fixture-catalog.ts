@@ -6,13 +6,19 @@
  * entities at `mcps/<name>.yml`, a `scopes.yml` registry at the root — so it doubles as the
  * subject of the dotagents compatibility test (A26).
  *
+ * It also builds that same catalog as a **local bare git repository**, which is how the git-source
+ * tests stay offline: a `file://` URL is a git URL like any other, so nothing in ambit needs a test
+ * mode to be exercised against one.
+ *
  * Tests call `buildFixtureCatalog()`. To eyeball the fixture, `npm run fixture -- <dir>` runs
  * it directly — that path needs a Node with type stripping (22.18+ or 24+), unlike the
  * published CLI.
  */
+import { execFile } from "node:child_process";
 import { mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 
 /**
  * Written at the catalog root so a rebuild knows the directory is ours to delete. Dotfiles
@@ -170,6 +176,85 @@ export async function buildFixtureCatalog(dir: string): Promise<string> {
   }
 
   return root;
+}
+
+/** The branch the fixture repository's `HEAD` points at, so an absent `ref` finds something. */
+export const FIXTURE_GIT_BRANCH = "main";
+
+/** A tag on the same commit, so a test can ask for a ref that is not a branch. */
+export const FIXTURE_GIT_TAG = "v1";
+
+/** The bare repository, within the directory the builder is given. */
+const BARE_DIRNAME = "catalog.git";
+
+/** The working tree the bare repository is cloned from. */
+const WORK_DIRNAME = "catalog-work";
+
+/**
+ * Fixed identity and dates, and neither user nor system config, so the fixture's commit SHA is the
+ * same in every run on every machine — which is what lets a test name the cache path it produces.
+ */
+const FIXTURE_GIT_ENV: Readonly<Record<string, string>> = {
+  GIT_CONFIG_NOSYSTEM: "1",
+  GIT_CONFIG_GLOBAL: "/dev/null",
+  GIT_AUTHOR_NAME: "ambit fixtures",
+  GIT_AUTHOR_EMAIL: "fixtures@ambit.invalid",
+  GIT_AUTHOR_DATE: "2024-01-01T00:00:00+00:00",
+  GIT_COMMITTER_NAME: "ambit fixtures",
+  GIT_COMMITTER_EMAIL: "fixtures@ambit.invalid",
+  GIT_COMMITTER_DATE: "2024-01-01T00:00:00+00:00",
+};
+
+/** The fixture catalog as a git repository ambit can fetch without a network (spec §7). */
+export interface FixtureGitCatalog {
+  /** Absolute path to the bare repository. */
+  readonly repo: string;
+  /** A `file://` URL for it — a git URL like any other, so no test mode is needed. */
+  readonly url: string;
+  /** The commit both the branch and the tag point at. */
+  readonly commit: string;
+  readonly branch: string;
+  readonly tag: string;
+}
+
+const execFileAsync = promisify(execFile);
+
+async function git(args: readonly string[], cwd: string): Promise<string> {
+  const { stdout } = await execFileAsync("git", [...args], {
+    cwd,
+    env: { ...process.env, ...FIXTURE_GIT_ENV },
+    encoding: "utf8",
+  });
+  return stdout.trim();
+}
+
+/**
+ * Builds the fixture catalog as a bare git repository inside `dir`, replacing any previous build.
+ *
+ * The tree committed is exactly {@link buildFixtureCatalog}'s, so a git-source install and a
+ * `path:`-source install of the same fixture must produce identical results — which is the claim the
+ * git-source tests make.
+ */
+export async function buildFixtureGitCatalog(dir: string): Promise<FixtureGitCatalog> {
+  const root = path.resolve(dir);
+  const work = path.join(root, WORK_DIRNAME);
+  const repo = path.join(root, BARE_DIRNAME);
+
+  await rm(work, { recursive: true, force: true });
+  await rm(repo, { recursive: true, force: true });
+  await buildFixtureCatalog(work);
+
+  await git(["init", "--quiet"], work);
+  // `symbolic-ref` rather than `init -b`: it names the initial branch the same way to every git.
+  await git(["symbolic-ref", "HEAD", `refs/heads/${FIXTURE_GIT_BRANCH}`], work);
+  await git(["add", "--all"], work);
+  await git(["commit", "--quiet", "--message", "the fixture catalog"], work);
+  await git(["tag", FIXTURE_GIT_TAG], work);
+  const commit = await git(["rev-parse", "HEAD"], work);
+
+  await git(["clone", "--mirror", "--quiet", "--", work, repo], root);
+
+  return { repo, url: `file://${repo}`, commit, branch: FIXTURE_GIT_BRANCH, tag: FIXTURE_GIT_TAG };
 }
 
 const DEFAULT_DIR = "test/tmp/fixture-catalog";

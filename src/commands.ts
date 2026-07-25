@@ -3,6 +3,7 @@ import path from "node:path";
 import { Command, Option } from "commander";
 
 import { AmbitError, ExitCode } from "./errors.js";
+import type { SourceContext } from "./sources.js";
 
 /**
  * Flags every command accepts, per spec §6.
@@ -103,6 +104,17 @@ export function projectDirOf(ctx: CommandContext): string {
 /** Whether `--json` was requested. */
 export function jsonRequested(ctx: CommandContext): boolean {
   return ctx.options.json === true;
+}
+
+/**
+ * What resolving a `source` needs from a command: the project directory, and the environment the
+ * catalog cache is looked for in (spec §5).
+ *
+ * `process.env` is read here, at the CLI boundary, so one command run sees one environment and
+ * nothing further down reaches for ambient state of its own.
+ */
+export function sourceContextOf(ctx: CommandContext): SourceContext {
+  return { projectDir: projectDirOf(ctx), env: process.env };
 }
 
 /** Handlers, keyed by command name. Absent means declared-but-unimplemented. */

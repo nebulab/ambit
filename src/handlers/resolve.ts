@@ -12,7 +12,7 @@
  */
 import { loadCatalogs, mergeCatalogs, mergeConfigEntities } from "../catalog.js";
 import type { CommandHandler } from "../commands.js";
-import { jsonRequested, projectDirOf } from "../commands.js";
+import { jsonRequested, sourceContextOf } from "../commands.js";
 import { loadProjectConfig } from "../config.js";
 import { ExitCode } from "../errors.js";
 import { keyed, printSections, section } from "../output.js";
@@ -70,10 +70,10 @@ function toText(bundle: Bundle, explain: boolean): readonly string[] {
 export const resolveHandler: CommandHandler = async (ctx) => {
   const explain = ctx.options.explain === true;
 
-  const projectDir = projectDirOf(ctx);
-  const config = await loadProjectConfig(projectDir);
-  const catalogs = mergeCatalogs(await loadCatalogs(config, projectDir));
-  const bundle = resolveBundle(config, await mergeConfigEntities(catalogs, config, projectDir));
+  const context = sourceContextOf(ctx);
+  const config = await loadProjectConfig(context.projectDir);
+  const catalogs = mergeCatalogs(await loadCatalogs(config, context));
+  const bundle = resolveBundle(config, await mergeConfigEntities(catalogs, config, context));
 
   if (jsonRequested(ctx)) {
     ctx.stdout(JSON.stringify(toJson(bundle, explain), null, 2));

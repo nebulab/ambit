@@ -29,6 +29,7 @@ import { AmbitError, ExitCode } from "../src/errors.js";
 import { run } from "../src/program.js";
 import type { Bundle } from "../src/resolve.js";
 import { assertScopesRegistered, expandHeldScopes, resolveBundle } from "../src/resolve.js";
+import type { SourceContext } from "../src/sources.js";
 
 const CATALOG_NAME = "company";
 
@@ -140,12 +141,17 @@ async function writeSourceSkill(
   );
 }
 
+/** What source resolution reads from outside its arguments; every source here is a local path. */
+function context(): SourceContext {
+  return { projectDir, env: process.env };
+}
+
 /** Resolves the project in-process, skipping the CLI. */
 async function bundle(scopes: readonly string[], extra: readonly string[] = []): Promise<Bundle> {
   await writeProfile(scopes, extra);
   const config = await loadProjectConfig(projectDir);
-  const catalogs = mergeCatalogs(await loadCatalogs(config, projectDir));
-  return resolveBundle(config, await mergeConfigEntities(catalogs, config, projectDir));
+  const catalogs = mergeCatalogs(await loadCatalogs(config, context()));
+  return resolveBundle(config, await mergeConfigEntities(catalogs, config, context()));
 }
 
 /** Runs the CLI against the project, collecting stdout and stderr. */
@@ -704,13 +710,15 @@ describe("explicit skills and inline servers", () => {
     expect(result.stderr).toContain("add `path:` naming the skill's directory");
   });
 
-  it("exits 2 for a source this build cannot fetch", async () => {
-    await writeProfile([], ["skills:", `  - name: ${READWISE}`, "    source: acme/skills"]);
+  it("exits 2 for a source in no recognized format", async () => {
+    await writeProfile([], ["skills:", `  - name: ${READWISE}`, "    source: ../extra"]);
 
     const result = await cli("resolve");
 
     expect(result.code).toBe(ExitCode.Config);
-    expect(result.stderr).toContain(`cannot resolve skill "${READWISE}" (ambit.yml line 7)`);
+    expect(result.stderr).toContain(
+      `skill "${READWISE}" has an unrecognized source (ambit.yml line 7)`,
+    );
   });
 
   it("exits 2 when the frontmatter name disagrees with the name it is declared under", async () => {

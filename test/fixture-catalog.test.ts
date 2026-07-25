@@ -4,7 +4,11 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { parse } from "yaml";
 
-import { FIXTURE_MARKER, buildFixtureCatalog } from "../scripts/fixture-catalog.js";
+import {
+  FIXTURE_MARKER,
+  buildFixtureCatalog,
+  buildFixtureGitCatalog,
+} from "../scripts/fixture-catalog.js";
 
 /** Every file under `dir`, as `/`-separated relative paths, sorted. */
 async function listFiles(dir: string, prefix = ""): Promise<string[]> {
@@ -212,5 +216,35 @@ describe("fixture catalog", () => {
 
     await expect(buildFixtureCatalog(empty)).resolves.toBe(empty);
     expect(await listFiles(empty)).toEqual(EXPECTED_FILES);
+  });
+});
+
+/**
+ * The same catalog as a local bare repository, which is how git sources are tested offline
+ * (spec §7).
+ */
+describe("fixture git catalog", () => {
+  let root: string;
+
+  beforeEach(async () => {
+    root = await mkdtemp(path.join(tmpdir(), "ambit-fixture-git-"));
+  });
+
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("commits the fixture tree at a commit two builds agree on", async () => {
+    const first = await buildFixtureGitCatalog(path.join(root, "a"));
+    const second = await buildFixtureGitCatalog(path.join(root, "b"));
+
+    // Fixed identity and dates, so the SHA is a property of the fixture rather than of the run —
+    // which is what lets a test name the cache path a fetch produces.
+    expect(first.commit).toMatch(/^[0-9a-f]{40}$/);
+    expect(second.commit).toBe(first.commit);
+    expect(first.url).toBe(`file://${first.repo}`);
+    expect(await readFile(path.join(first.repo, "HEAD"), "utf8")).toBe(
+      `ref: refs/heads/${first.branch}\n`,
+    );
   });
 });

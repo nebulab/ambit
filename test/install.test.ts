@@ -21,6 +21,7 @@ import { installProject } from "../src/install.js";
 import { run } from "../src/program.js";
 import type { Bundle } from "../src/resolve.js";
 import { resolveBundle } from "../src/resolve.js";
+import type { SourceContext } from "../src/sources.js";
 import { EMPTY_STATE, STATE_DIRNAME, STATE_FILENAME, parseState, readState } from "../src/state.js";
 
 const CATALOG_NAME = "company";
@@ -158,9 +159,10 @@ afterEach(async () => {
 
 /** The bundle the project's current profile resolves to. */
 async function bundleFor(): Promise<Bundle> {
+  const context: SourceContext = { projectDir, env: process.env };
   const config = await loadProjectConfig(projectDir);
-  const catalogs = mergeCatalogs(await loadCatalogs(config, projectDir));
-  return resolveBundle(config, await mergeConfigEntities(catalogs, config, projectDir));
+  const catalogs = mergeCatalogs(await loadCatalogs(config, context));
+  return resolveBundle(config, await mergeConfigEntities(catalogs, config, context));
 }
 
 describe("the Claude adapter's plan", () => {

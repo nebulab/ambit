@@ -641,7 +641,7 @@ runs the whole pipeline against a local fixture before any git, lock, or prune l
 
 ### Sources and reproducibility
 
-- [ ] **A13 — Git sources and cache.**
+- [x] **A13 — Git sources and cache.**
   **Depends:** A12
   **Do:** All source formats from §3.1, bare clones in the cache, ref → commit resolution.
   **Done when:** A fixture served from a local bare repo installs identically to the

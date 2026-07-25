@@ -35,7 +35,7 @@ export type {
   MergedSkill,
   ScopeDefinition,
 } from "./catalog.js";
-export { COMMAND_SPECS, jsonRequested, projectDirOf } from "./commands.js";
+export { COMMAND_SPECS, jsonRequested, projectDirOf, sourceContextOf } from "./commands.js";
 export type { CommandContext, CommandHandler, CommandHandlers, CommandSpec } from "./commands.js";
 export {
   CONFIG_FILENAMES,
@@ -53,6 +53,15 @@ export type {
   SkillRequest,
   SourceSkillRequest,
 } from "./config.js";
+export {
+  CACHE_DIRNAME,
+  REPOS_DIRNAME,
+  SOURCES_DIRNAME,
+  cacheRoot,
+  fetchGitSource,
+  gitCacheKey,
+} from "./git.js";
+export type { FetchedGitSource, GitFetchRequest } from "./git.js";
 export {
   EMPTY_DOCUMENT,
   managedKey,
@@ -86,6 +95,15 @@ export type {
   SelectionReason,
   SelectionReasons,
 } from "./resolve.js";
+export { parseSource, resolveSource } from "./sources.js";
+export type {
+  GitSource,
+  PathSource,
+  ResolvedSource,
+  Source,
+  SourceContext,
+  SourceRequest,
+} from "./sources.js";
 export {
   ARTIFACT_KINDS,
   ARTIFACT_MODES,

@@ -8,7 +8,7 @@
 import type { Catalog, MergedCatalog, MergedMcp, MergedSkill, ScopeDefinition } from "../catalog.js";
 import { loadCatalogs, mergeCatalogs } from "../catalog.js";
 import type { CommandHandler } from "../commands.js";
-import { jsonRequested, projectDirOf } from "../commands.js";
+import { jsonRequested, sourceContextOf } from "../commands.js";
 import { loadProjectConfig } from "../config.js";
 import { ExitCode } from "../errors.js";
 import type { McpTransport } from "../mcp.js";
@@ -99,9 +99,9 @@ function toText(catalogs: readonly Catalog[], merged: MergedCatalog): readonly s
 }
 
 export const catalogHandler: CommandHandler = async (ctx) => {
-  const projectDir = projectDirOf(ctx);
-  const config = await loadProjectConfig(projectDir);
-  const catalogs = await loadCatalogs(config, projectDir);
+  const context = sourceContextOf(ctx);
+  const config = await loadProjectConfig(context.projectDir);
+  const catalogs = await loadCatalogs(config, context);
   const merged = mergeCatalogs(catalogs);
 
   if (jsonRequested(ctx)) {

@@ -20,6 +20,7 @@ import { loadProjectConfig } from "./config.js";
 import { configError } from "./errors.js";
 import type { Bundle } from "./resolve.js";
 import { resolveBundle } from "./resolve.js";
+import type { SourceContext } from "./sources.js";
 import { STATE_VERSION, readState, writeState } from "./state.js";
 
 /** Every adapter this build ships, keyed by the name `harnesses` uses. */
@@ -70,11 +71,14 @@ export async function installProject(projectDir: string): Promise<InstallResult>
   const harnesses = [...new Set(config.harnesses)].sort(compare);
   const adapters = adaptersFor(harnesses);
 
-  const catalogs = mergeCatalogs(await loadCatalogs(config, projectDir));
-  const bundle = resolveBundle(config, await mergeConfigEntities(catalogs, config, projectDir));
+  // `process.env` is read once, here, so every adapter interpolates against the same environment,
+  // the cache is looked for in one place (spec §5), and nothing deeper down reaches for ambient
+  // state of its own.
+  const context: SourceContext = { projectDir, env: process.env };
+
+  const catalogs = mergeCatalogs(await loadCatalogs(config, context));
+  const bundle = resolveBundle(config, await mergeConfigEntities(catalogs, config, context));
   const prior = await readState(projectDir);
-  // `process.env` is read once, here, so every adapter interpolates against the same environment
-  // and nothing deeper down reaches for ambient state of its own.
   const project: ProjectPaths = { root: projectDir, env: process.env };
 
   const artifacts: AppliedArtifact[] = [];

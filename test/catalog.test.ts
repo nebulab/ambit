@@ -15,6 +15,7 @@ import { loadCatalogs, mergeCatalogs, parseCatalogDirectory } from "../src/catal
 import { loadProjectConfig } from "../src/config.js";
 import { AmbitError, ExitCode } from "../src/errors.js";
 import { run } from "../src/program.js";
+import type { SourceContext } from "../src/sources.js";
 
 const CATALOG_NAME = "company";
 const CODE_REVIEW = "skills/acme/engineering/use-code-review/SKILL.md";
@@ -22,6 +23,11 @@ const CODE_REVIEW = "skills/acme/engineering/use-code-review/SKILL.md";
 let root: string;
 let catalogDir: string;
 let projectDir: string;
+
+/** What source resolution reads from outside its arguments; every source here is a local path. */
+function context(): SourceContext {
+  return { projectDir, env: process.env };
+}
 
 /** Rewrites `ambit.yml` for the project under test. */
 async function writeConfig(body: string): Promise<void> {
@@ -267,21 +273,24 @@ transport:
 describe("catalog sources", () => {
   it("resolves a `path:` source relative to the project", async () => {
     const config = await loadProjectConfig(projectDir);
-    const catalogs = await loadCatalogs(config, projectDir);
+    const catalogs = await loadCatalogs(config, context());
 
     expect(catalogs.map((catalog) => catalog.root)).toEqual([catalogDir]);
+    // A directory has no revision, so nothing pretends to pin one.
+    expect(catalogs[0]?.commit).toBeUndefined();
   });
 
-  it("rejects a source this build cannot fetch", async () => {
+  it("rejects a source in no recognized format", async () => {
     await writeConfig(`version: 1
 catalogs:
   - name: ${CATALOG_NAME}
-    source: acme/skills
+    source: ../catalog
 `);
 
     const result = await cli("catalog");
     expect(result.code).toBe(ExitCode.Config);
-    expect(result.stderr).toContain(`cannot resolve catalog "${CATALOG_NAME}"`);
+    expect(result.stderr).toContain(`catalog "${CATALOG_NAME}" has an unrecognized source`);
+    expect(result.stderr).toContain("use owner/repo, a git URL, `git:<url>`, or `path:./dir`");
   });
 
   it("rejects a `path:` source that is not a directory", async () => {
@@ -423,7 +432,7 @@ describe("ambit catalog", () => {
 describe("merging", () => {
   it("tags every item with the catalog it came from", async () => {
     const merged = mergeCatalogs(
-      await loadCatalogs(await loadProjectConfig(projectDir), projectDir),
+      await loadCatalogs(await loadProjectConfig(projectDir), context()),
     );
 
     expect(merged.catalogs).toEqual([CATALOG_NAME]);
@@ -436,10 +445,10 @@ describe("merging", () => {
     const other = path.join(root, "other");
     await buildFixtureCatalog(other);
     const config = await loadProjectConfig(projectDir);
-    const first = await loadCatalogs(config, projectDir);
+    const first = await loadCatalogs(config, context());
     const second = await loadCatalogs(
       { ...config, catalogs: [{ name: "personal", source: "path:../other" }] },
-      projectDir,
+      context(),
     );
 
     const merged = mergeCatalogs([...first, ...second]);
