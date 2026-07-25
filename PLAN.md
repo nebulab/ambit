@@ -496,7 +496,7 @@ runs the whole pipeline against a local fixture before any git, lock, or prune l
 
 ### Walking skeleton
 
-- [ ] **A01 — Repo scaffold.**
+- [x] **A01 — Repo scaffold.**
   **Do:** TypeScript, tsup build, vitest, a single `ambit` bin, strict tsconfig, lint.
   Commander or a hand-rolled arg parser; no heavyweight framework.
   **Done when:** `npm test` passes with zero tests, `npx .` prints usage and exits 0.
