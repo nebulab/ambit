@@ -872,7 +872,7 @@ mutation ends by re-validating.
   authored output is covered by the promise and not just the hand-written fixture. Runs in CI,
   and is allowed to be the one test that needs network.
 
-- [ ] **A27 — Determinism suite.**
+- [x] **A27 — Determinism suite.**
   **Depends:** A26
   **Done when:** Tests prove resolve is byte-stable across repeated runs and across shuffled
   filesystem read order.

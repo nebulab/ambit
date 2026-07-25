@@ -3,16 +3,22 @@
 Rewritten by each Ralph iteration for the next one. Short, current, and only what would cost
 real time to rediscover — see `PROMPT.md` §6.
 
-Last iteration: **A26 — dotagents compatibility test** (the tip of `main`). `test/dotagents.test.ts`
-runs the real `npx @sentry/dotagents install` against two catalogs — the hand-written fixture and one
-authored by `catalog init` + `catalog skill new` — so spec §1's compatibility promise is now
-executable. **No source file changed**; this was a test-only task. Next task is
-**A27 — determinism suite** (`Depends: A26`), then A28 (README) and A29 (CI and npm publish).
-**A29 must not set `AMBIT_SKIP_NETWORK_TESTS` in CI**, and GitHub Actions sets `CI=true` on its own,
-which is exactly what makes the compatibility test mandatory there rather than skippable.
+Last iteration: **A27 — determinism suite** (the tip of `main`). `test/determinism.test.ts` is now the
+systematic version of spec §4: one table of every surface ambit prints, each run twice and then again
+with every directory listing permuted. **No source file changed** — the suite found no determinism
+defect; two test-only tasks in a row. Next task is **A28 — README** (`Depends: A27`), then A29 (CI and
+npm publish). **A29 must not set `AMBIT_SKIP_NETWORK_TESTS` in CI**, and GitHub Actions sets `CI=true`
+on its own, which is exactly what makes the compatibility test mandatory there rather than skippable.
 
 ## Constraints later tasks inherit
 
+- **A new command that prints anything owes a row in `SURFACES`** (`test/determinism.test.ts`), and one
+  row buys four claims: byte-identical on a second run, byte-identical under two permuted directory
+  read orders, no absolute path from this machine in either stream, and no date or clock time. A row is
+  `{ argv, dir }` where `dir` picks the trailing `--project`/`--catalog` flag; `--json` is its own row,
+  since text and JSON are two renderings. The machine-path claim is the one with the sharpest teeth —
+  it fails the moment something spreads a `MergedSkill` (and so `catalogRoot`) into output, which was
+  verified by making `resolve --json` leak it.
 - **`catalog` is a command group whose default action is `dump`**, and **handlers are keyed by the
   words a user types**: `"catalog dump"`, `"catalog init"`, `"catalog scope add"`. Every command
   `COMMAND_SPECS` declares now has an entry in `HANDLERS`; one added without a handler throws
@@ -663,6 +669,21 @@ which is exactly what makes the compatibility test mandatory there rather than s
 
 ## Traps
 
+- **`test/determinism.test.ts` is the one file that mocks a node builtin**, and the mock is the whole
+  point: it wraps `node:fs/promises`' `readdir` and permutes every listing (reversed, then rotated),
+  because no test can arrange the order a real filesystem answers in. Four things there not to undo.
+  The mock's state lives in a `vi.hoisted` object (`readOrder`) since the factory is hoisted above every
+  import; it records the directories it was asked for, and one case asserts the catalog's `skills/` and
+  `mcps/` are among them — that is the guard against a shuffle that silently stopped applying, which
+  would leave the whole file passing vacuously. **The surface table alone cannot fail under a shuffle**:
+  catalog entries are sorted as they are read (`sortedEntries`) *and* the items are sorted again before
+  emission (`byName`), so a single missing sort moves no bytes — the teeth are in
+  `describe("a report of problems is in the same order …")`, whose two cases (a `validate --catalog`
+  report of two name↔path mismatches, and a duplicate `mcps/dup.yml` + `mcps/dup.yaml` refusal) are in
+  *found* order and fail as soon as no sort remains between `readdir` and output. Verified by deleting
+  both sorts: those two cases fail, the other 62 pass. And the **whole table shares one installed
+  project** — safe only because every row is read-only or a `--dry-run`, which the "wrote nothing" case
+  pins by re-snapshotting the project; a row that wrote would corrupt whatever ran after it.
 - **`test/editor.test.ts` asserts whole files, deliberately.** Its round-trip case loops over every
   entry of `FIXTURE_CATALOG_FILES` bar the marker, so adding a fixture file adds a case for free — and a
   fixture written in a style the editor cannot re-emit (a block scalar, an anchor) will fail there
@@ -788,7 +809,10 @@ which is exactly what makes the compatibility test mandatory there rather than s
 - **Every test walker follows symlinks** — `tree`/`snapshot`/`installedSkills` in
   `test/install.test.ts`, `snapshot` in `test/status.test.ts` and `test/clean.test.ts`, `installed` in
   `test/git-source.test.ts`. A `readdir`-dirent walk reads a linked skill as a *file* and then fails with
-  `EISDIR`, so a new walker must `stat` (not `lstat`) each entry.
+  `EISDIR`, so a new walker must `stat` (not `lstat`) each entry. **`test/determinism.test.ts`'s
+  `snapshot` is the deliberate exception**: it `lstat`s, records a link as `-> target` and does not
+  descend, because which of the two shapes install chose is part of what has to stay stable and
+  following the link would compare the catalog's own bytes instead.
 - **Three places deliberately pass `--copy`, and the claim collapses without it:**
   `test/install.test.ts`'s "replaces an owned skill directory rather than merging into it",
   `test/status.test.ts`'s whole `describe("ambit status after a manual edit")` block, and
