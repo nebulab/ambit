@@ -13,14 +13,16 @@
  * from the current install, everything outside them is copied through untouched, and a `.gitignore`
  * that predates ambit by years is a normal input rather than a conflict. That is also why the block
  * needs no entry in `.ambit/state.json` and no prune branch: each install renders the whole block
- * from what it just wrote, so a skill that left the bundle leaves the block in the same run.
+ * from what it just wrote, so a skill that left the bundle leaves the block in the same run. `clean`
+ * is the one caller that removes the block outright (spec §6) — the same in-band record, read the
+ * other way, since state has nothing here to tell it what to delete.
  *
  * The markers are the only thing that can be misread, so both ways of breaking them — a second
  * block, a block whose end line was deleted — stop with exit 2 instead of guessing at a span of
  * lines to overwrite. "Never disturbs surrounding lines" is the claim; a guess is how it would be
  * lost.
  */
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { configError } from "./errors.js";
@@ -178,12 +180,40 @@ export function updateGitignoreText(
 }
 
 /**
+ * The `.gitignore` a project should hold once ambit owns nothing in it — what `clean` writes.
+ *
+ * The blank line above the block goes with it, because that separator is ambit's own doing
+ * (`updateGitignoreText` adds it), and leaving it behind would mean `install` followed by `clean`
+ * never returns a hand-written file to the bytes it had. The one file that comes back changed is one
+ * whose author happened to end it with a blank line of their own, which costs a blank line and
+ * nothing else — the alternative costs every project one, forever.
+ *
+ * @param existing the current contents, or undefined when there is no file.
+ * @returns the new contents; `""` when ambit's block was the whole file, which is a caller's cue to
+ *   delete it rather than leave an empty one where the project had none; `undefined` when there is no
+ *   block to remove, so a caller writes nothing at all.
+ * @throws {AmbitError} exit 2 for a file whose markers cannot be read unambiguously.
+ */
+export function removeGitignoreText(existing: string | undefined): string | undefined {
+  const lines = [...splitLines(existing)];
+  const block = findBlock(lines);
+  if (block === undefined) return undefined;
+
+  const start = block.start > 0 && lines[block.start - 1]?.trim() === "" ? block.start - 1 : block.start;
+  lines.splice(start, block.end - start + 1);
+
+  return lines.length === 0 ? "" : `${lines.join("\n")}\n`;
+}
+
+/**
  * Reads a project's `.gitignore`, treating an absent one as a file ambit is about to create.
  *
+ * @param projectDir the project root, absolute.
  * @throws {AmbitError} exit 2 for a file that is there but cannot be read. Writing a fresh one over
  *   it would discard lines ambit does not own, which is the one thing this module exists to prevent.
  */
-async function readGitignore(target: string): Promise<string | undefined> {
+export async function readGitignoreText(projectDir: string): Promise<string | undefined> {
+  const target = path.join(projectDir, GITIGNORE_FILENAME);
   try {
     return await readFile(target, "utf8");
   } catch (error) {
@@ -209,8 +239,29 @@ export async function writeGitignoreBlock(
   projectDir: string,
   artifacts: readonly OwnedArtifact[],
 ): Promise<void> {
-  const target = path.join(projectDir, GITIGNORE_FILENAME);
-  const next = updateGitignoreText(await readGitignore(target), gitignoreEntries(artifacts));
+  const next = updateGitignoreText(await readGitignoreText(projectDir), gitignoreEntries(artifacts));
   if (next === undefined) return;
-  await writeFile(target, next, "utf8");
+  await writeFile(path.join(projectDir, GITIGNORE_FILENAME), next, "utf8");
+}
+
+/**
+ * Takes ambit's block out of a project's `.gitignore` — the other half of ownership, for `clean`
+ * (spec §6).
+ *
+ * A file that is nothing but the block is deleted rather than truncated: ambit created it, so
+ * leaving an empty one behind would be leaving a file the project never had.
+ *
+ * @param projectDir the project root, absolute.
+ * @returns whether the file changed, so a report can say whether there was a block at all.
+ * @throws {AmbitError} exit 2 for a `.gitignore` that cannot be read, or whose markers are
+ *   ambiguous — the same refusal writing it makes, for the same reason.
+ */
+export async function removeGitignoreBlock(projectDir: string): Promise<boolean> {
+  const next = removeGitignoreText(await readGitignoreText(projectDir));
+  if (next === undefined) return false;
+
+  const target = path.join(projectDir, GITIGNORE_FILENAME);
+  if (next === "") await rm(target, { force: true });
+  else await writeFile(target, next, "utf8");
+  return true;
 }

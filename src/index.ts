@@ -38,8 +38,11 @@ export type {
   Shadowing,
   Shadowings,
 } from "./catalog.js";
+export { cleanProject, pruneProject } from "./clean.js";
+export type { CleanOptions, CleanResult, PruneOptions, PruneResult } from "./clean.js";
 export {
   COMMAND_SPECS,
+  dryRunRequested,
   jsonRequested,
   offlineRequested,
   projectDirOf,
@@ -76,6 +79,9 @@ export {
   BLOCK_END,
   GITIGNORE_FILENAME,
   gitignoreEntries,
+  readGitignoreText,
+  removeGitignoreBlock,
+  removeGitignoreText,
   updateGitignoreText,
   writeGitignoreBlock,
 } from "./gitignore.js";
@@ -90,8 +96,14 @@ export {
   serializeJsonDocument,
 } from "./harness-config.js";
 export type { ConfigEntry, JsonObject } from "./harness-config.js";
-export { ADAPTERS, adaptersFor, installProject } from "./install.js";
-export type { InstallOptions, InstallResult } from "./install.js";
+export { ADAPTERS, adaptersFor, installProject, planInstall, previewInstall } from "./install.js";
+export type {
+  AdapterPlan,
+  InstallOptions,
+  InstallPreview,
+  InstallResult,
+  PlannedInstall,
+} from "./install.js";
 export {
   LOCK_FILENAME,
   LOCK_VERSION,
@@ -109,7 +121,7 @@ export { authorizePlan, ownedKeys } from "./ownership.js";
 export type { OwnershipOptions } from "./ownership.js";
 export { buildProgram, run } from "./program.js";
 export type { Io } from "./program.js";
-export { pruneArtifacts } from "./prune.js";
+export { planPrune, pruneArtifacts, remainingArtifacts } from "./prune.js";
 export type { PrunedArtifact } from "./prune.js";
 export {
   MCP_REQUIREMENT_PREFIX,

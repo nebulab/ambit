@@ -4,7 +4,9 @@ import type { CommandContext, CommandHandlers } from "./commands.js";
 import { COMMAND_SPECS, buildCommand } from "./commands.js";
 import { AmbitError, ExitCode } from "./errors.js";
 import { catalogHandler } from "./handlers/catalog.js";
+import { cleanHandler } from "./handlers/clean.js";
 import { installHandler } from "./handlers/install.js";
+import { pruneHandler } from "./handlers/prune.js";
 import { resolveHandler } from "./handlers/resolve.js";
 import { statusHandler } from "./handlers/status.js";
 import { whyHandler } from "./handlers/why.js";
@@ -15,7 +17,9 @@ export type Io = Pick<CommandContext, "cwd" | "stdout" | "stderr">;
 /** Handlers wired up so far. Each task in the build fills in one more. */
 export const HANDLERS: CommandHandlers = {
   catalog: catalogHandler,
+  clean: cleanHandler,
   install: installHandler,
+  prune: pruneHandler,
   resolve: resolveHandler,
   status: statusHandler,
   why: whyHandler,

@@ -116,6 +116,16 @@ export function offlineRequested(ctx: CommandContext): boolean {
 }
 
 /**
+ * Whether `--dry-run` was requested: report what the command would do and touch nothing (spec §6).
+ *
+ * Only a mutating command is given the flag (`dryRunOption`), so every command that can read this is
+ * one that has something to withhold.
+ */
+export function dryRunRequested(ctx: CommandContext): boolean {
+  return ctx.options.dryRun === true;
+}
+
+/**
  * What resolving a `source` needs from a command: the project directory, the environment the
  * catalog cache is looked for in, and whether fetching is allowed at all (spec §5).
  *

@@ -1,44 +1,25 @@
 /**
  * `ambit install` — resolve, write the lock, materialize, record ownership (spec §6).
  *
- * The flags that would imply the parts still missing report themselves unimplemented rather than
- * being accepted and ignored: `install --dry-run` silently installing would be worse than no flag
- * at all, since the whole point of asking is to not touch the project.
- *
  * Output names artifacts by their project-relative path, so it is comparable between machines and
  * says exactly what a reader can go and look at. The lock is not among them: it is a record of the
  * resolution rather than an owned artifact, so nothing prunes it and it is not ambit's to delete.
+ *
+ * `--dry-run` prints the same two sections the install would print, plus the two things only a
+ * preview can usefully say: what install would *remove* (spec §5 rule 3) and whether the two derived
+ * files — `ambit.lock` and the managed `.gitignore` block — would change. The artifact rows are
+ * identical in shape to the real run's, so the two outputs diff against each other.
  */
-import type { AppliedArtifact } from "../adapter.js";
 import type { CommandContext, CommandHandler } from "../commands.js";
-import { jsonRequested, offlineRequested, projectDirOf } from "../commands.js";
+import { dryRunRequested, jsonRequested, offlineRequested, projectDirOf } from "../commands.js";
 import { AmbitError, ExitCode } from "../errors.js";
-import type { InstallResult } from "../install.js";
-import { installProject } from "../install.js";
+import { GITIGNORE_FILENAME } from "../gitignore.js";
+import type { InstallOptions, InstallPreview, InstallResult } from "../install.js";
+import { installProject, previewInstall } from "../install.js";
+import { LOCK_FILENAME } from "../lock.js";
 import { printSections, section } from "../output.js";
 import type { ArtifactMode } from "../state.js";
-
-/** Stands in for an artifact kind that carries no mode. */
-const NO_MODE = "-";
-
-/** Declared flags with no behaviour yet, and what each is waiting on. */
-const UNIMPLEMENTED: readonly (readonly [key: string, flag: string, reason: string])[] = [
-  ["dryRun", "--dry-run", "printing a plan instead of applying it is not wired up yet"],
-];
-
-/**
- * @throws {AmbitError} exit 1 naming the flag, rather than proceeding as if it had been honoured.
- */
-function rejectUnimplemented(ctx: CommandContext): void {
-  for (const [key, flag, reason] of UNIMPLEMENTED) {
-    if (ctx.options[key] === true) {
-      throw new AmbitError(ExitCode.Internal, `\`${flag}\` is not implemented yet`, [
-        reason,
-        "run `ambit install` without it",
-      ]);
-    }
-  }
-}
+import { artifactJson, artifactRows, removalRows } from "./artifacts.js";
 
 /**
  * `--copy` / `--link`, as the materialization mode they force (spec §5).
@@ -63,12 +44,14 @@ function modeOverride(ctx: CommandContext): ArtifactMode | undefined {
   return undefined;
 }
 
-function artifactJson(artifact: AppliedArtifact): Readonly<Record<string, unknown>> {
+/** Every flag `installProject` and `previewInstall` share, so the two paths cannot diverge. */
+function optionsOf(ctx: CommandContext): InstallOptions {
+  const mode = modeOverride(ctx);
   return {
-    kind: artifact.kind,
-    ...(artifact.managedKeys !== undefined && { managedKeys: artifact.managedKeys }),
-    ...(artifact.mode !== undefined && { mode: artifact.mode }),
-    path: artifact.path,
+    frozen: ctx.options.frozen === true,
+    offline: offlineRequested(ctx),
+    adopt: ctx.options.adopt === true,
+    ...(mode !== undefined && { mode }),
   };
 }
 
@@ -83,29 +66,47 @@ function toJson(result: InstallResult): Readonly<Record<string, unknown>> {
 function toText(result: InstallResult): readonly string[] {
   return [
     ...section("harnesses", result.harnesses.map((harness) => [harness])),
-    ...section(
-      "artifacts",
-      result.artifacts.map((artifact) => [artifact.path, artifact.kind, artifact.mode ?? NO_MODE]),
-    ),
+    ...section("artifacts", artifactRows(result.artifacts)),
+  ];
+}
+
+function previewJson(preview: InstallPreview): Readonly<Record<string, unknown>> {
+  return {
+    artifacts: preview.artifacts.map(artifactJson),
+    gitignoreChanged: preview.gitignoreChanged,
+    harnesses: preview.harnesses,
+    lockChanged: preview.lockChanged,
+    pruned: preview.pruned.map(artifactJson),
+    skills: preview.bundle.skills.map((skill) => skill.name),
+  };
+}
+
+function previewText(preview: InstallPreview): readonly string[] {
+  return [
+    ...section("harnesses", preview.harnesses.map((harness) => [harness])),
+    ...section("artifacts", artifactRows(preview.artifacts)),
+    ...section("pruned", removalRows(preview.pruned)),
+    ...section("files", [
+      [LOCK_FILENAME, preview.lockChanged ? "changed" : "unchanged"],
+      [GITIGNORE_FILENAME, preview.gitignoreChanged ? "changed" : "unchanged"],
+    ]),
   ];
 }
 
 export const installHandler: CommandHandler = async (ctx) => {
-  rejectUnimplemented(ctx);
+  const options = optionsOf(ctx);
+  const projectDir = projectDirOf(ctx);
 
-  const mode = modeOverride(ctx);
-  const result = await installProject(projectDirOf(ctx), {
-    frozen: ctx.options.frozen === true,
-    offline: offlineRequested(ctx),
-    adopt: ctx.options.adopt === true,
-    ...(mode !== undefined && { mode }),
-  });
-
-  if (jsonRequested(ctx)) {
-    ctx.stdout(JSON.stringify(toJson(result), null, 2));
+  if (dryRunRequested(ctx)) {
+    const preview = await previewInstall(projectDir, options);
+    if (jsonRequested(ctx)) ctx.stdout(JSON.stringify(previewJson(preview), null, 2));
+    else printSections(previewText(preview), ctx.stdout);
     return ExitCode.Success;
   }
 
-  printSections(toText(result), ctx.stdout);
+  const result = await installProject(projectDir, options);
+
+  if (jsonRequested(ctx)) ctx.stdout(JSON.stringify(toJson(result), null, 2));
+  else printSections(toText(result), ctx.stdout);
   return ExitCode.Success;
 };

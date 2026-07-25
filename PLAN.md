@@ -690,7 +690,7 @@ runs the whole pipeline against a local fixture before any git, lock, or prune l
   **Done when:** Owned paths land in a delimited managed block that is rewritten in place
   across runs and never disturbs surrounding lines.
 
-- [ ] **A22 — `--dry-run`, `prune`, and `clean`.**
+- [x] **A22 — `--dry-run`, `prune`, and `clean`.**
   **Depends:** A21
   **Do:** The three remaining §6 commands over machinery A18 and A21 already built.
   `prune` is the install-time prune (A18) reached without materializing: it removes owned

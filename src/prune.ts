@@ -22,6 +22,12 @@
  * retryable rather than destructive: state still owns everything, so the next install prunes the
  * same set again. Ordering it last also means a failed `apply` leaves the previous install intact
  * instead of half-dismantled.
+ *
+ * Deciding what to remove is split from removing it (`planPrune` and `pruneArtifacts`), because three
+ * commands need the same answer for different reasons: `install` acts on it, `--dry-run` prints it,
+ * and `ambit prune` acts on it without materializing anything first (spec §6). One decision function
+ * is what keeps the three from disagreeing about what is stale — and `clean` is the same decision
+ * against an empty plan, which is why nothing here has a notion of "remove everything" of its own.
  */
 import { rm, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -31,6 +37,9 @@ import { configError } from "./errors.js";
 import { readJsonDocument, removeConfigKeys, serializeJsonDocument } from "./harness-config.js";
 import type { ArtifactKind, OwnedArtifact, State } from "./state.js";
 import { STATE_DIRNAME, STATE_FILENAME } from "./state.js";
+
+/** The empty key set a config file the plan does not mention stands in with. */
+const NO_KEYS: ReadonlySet<string> = new Set<string>();
 
 /** One thing pruning removed — the mirror of the state entry that authorized removing it. */
 export interface PrunedArtifact {
@@ -90,6 +99,77 @@ function splitManagedKey(key: string, file: string): readonly [section: string, 
 }
 
 /**
+ * What pruning a plan against prior state would remove, without touching disk.
+ *
+ * The whole question is answerable from state and the plan (rule 1), which is what lets `--dry-run`
+ * and `ambit prune` report the same set install would act on rather than a second opinion about it.
+ *
+ * Managed keys are validated here, before anything is deleted, so a state entry this build could not
+ * have written is exit 2 with the project untouched instead of after the first skill directory is
+ * already gone.
+ *
+ * @param plan every artifact the run writes; empty means "keep nothing", which is `clean`.
+ * @param prior the state from the last install — the only thing that authorizes a removal.
+ * @returns the removals, ordered by path and then by key, so two identical runs read identically.
+ * @throws {AmbitError} exit 2 for a managed key that names no section.
+ */
+export function planPrune(
+  plan: readonly PlannedArtifact[],
+  prior: State,
+): readonly PrunedArtifact[] {
+  const keptPaths = plannedPaths(plan);
+  const keptKeys = plannedKeys(plan);
+  const stale: PrunedArtifact[] = [];
+
+  // Sorted by path so the order removals happen in — and are reported in — is a function of the
+  // artifacts and not of however state came off disk.
+  for (const artifact of [...prior.artifacts].sort((a, b) => compare(a.path, b.path))) {
+    if (artifact.kind === "harness-config") {
+      const kept = keptKeys.get(artifact.path) ?? NO_KEYS;
+      const keys = [...(artifact.managedKeys ?? [])].sort(compare).filter((key) => !kept.has(key));
+      if (keys.length === 0) continue;
+      for (const key of keys) splitManagedKey(key, artifact.path);
+      stale.push({ path: artifact.path, kind: artifact.kind, managedKeys: keys });
+      continue;
+    }
+
+    if (keptPaths.has(artifact.path)) continue;
+    stale.push({ path: artifact.path, kind: artifact.kind });
+  }
+
+  return stale;
+}
+
+/**
+ * What state records once `pruned` is gone — the entries that survive, in their prior order.
+ *
+ * Install has no need for this: it writes the artifacts it just applied. A standalone `prune` has to
+ * subtract instead, and it subtracts the *planned* removals rather than the writes that happened, so
+ * a key state claimed in a file someone had already emptied by hand stops being claimed too.
+ */
+export function remainingArtifacts(
+  prior: State,
+  pruned: readonly PrunedArtifact[],
+): readonly OwnedArtifact[] {
+  const removed = new Map(pruned.map((artifact) => [artifact.path, artifact]));
+  const kept: OwnedArtifact[] = [];
+
+  for (const artifact of prior.artifacts) {
+    const gone = removed.get(artifact.path);
+    if (gone === undefined) {
+      kept.push(artifact);
+      continue;
+    }
+    if (artifact.kind !== "harness-config") continue;
+
+    const keys = (artifact.managedKeys ?? []).filter((key) => !(gone.managedKeys ?? []).includes(key));
+    if (keys.length > 0) kept.push({ ...artifact, managedKeys: keys });
+  }
+
+  return kept;
+}
+
+/**
  * Takes `stale` out of one co-owned config file.
  *
  * The document is re-read here rather than carried over from planning, because `apply` has already
@@ -104,15 +184,15 @@ function splitManagedKey(key: string, file: string): readonly [section: string, 
  */
 async function pruneConfigKeys(
   projectDir: string,
-  artifact: OwnedArtifact,
+  file: string,
   stale: readonly string[],
 ): Promise<PrunedArtifact | undefined> {
-  const target = path.join(projectDir, artifact.path);
-  let document = await readJsonDocument(target, artifact.path);
+  const target = path.join(projectDir, file);
+  let document = await readJsonDocument(target, file);
   const removed: string[] = [];
 
   for (const key of stale) {
-    const [section, name] = splitManagedKey(key, artifact.path);
+    const [section, name] = splitManagedKey(key, file);
     const next = removeConfigKeys(document, section, [name]);
     if (next === undefined) continue;
     document = next;
@@ -121,7 +201,7 @@ async function pruneConfigKeys(
 
   if (removed.length === 0) return undefined;
   await writeFile(target, serializeJsonDocument(document), "utf8");
-  return { path: artifact.path, kind: artifact.kind, managedKeys: removed };
+  return { path: file, kind: "harness-config", managedKeys: removed };
 }
 
 /**
@@ -134,10 +214,10 @@ async function pruneConfigKeys(
  * @param projectDir the project root, absolute.
  * @param plan every artifact this run writes.
  * @param prior the state from the last install — the only thing that authorizes a deletion.
- * @returns what was removed, ordered by path and then by key, so a report of two identical runs
- *   reads identically.
+ * @returns what was actually removed, ordered by path and then by key. It is a subset of
+ *   `planPrune`'s answer: a key already absent from its file is a removal with nothing left to do.
  * @throws {AmbitError} exit 2 for a co-owned config file that cannot be parsed, or a managed key
- *   state records in a form this build cannot act on. Nothing has been deleted yet in either case;
+ *   state records in a form this build cannot act on. Nothing has been deleted in either case;
  *   state is still intact, so the next install prunes the same set again.
  */
 export async function pruneArtifacts(
@@ -145,29 +225,19 @@ export async function pruneArtifacts(
   plan: readonly PlannedArtifact[],
   prior: State,
 ): Promise<readonly PrunedArtifact[]> {
-  const keptPaths = plannedPaths(plan);
-  const keptKeys = plannedKeys(plan);
   const pruned: PrunedArtifact[] = [];
 
-  // Sorted by path so the order deletions happen in — and are reported in — is a function of the
-  // artifacts and not of however state came off disk.
-  const owned = [...prior.artifacts].sort((a, b) => compare(a.path, b.path));
-
-  for (const artifact of owned) {
+  for (const artifact of planPrune(plan, prior)) {
     if (artifact.kind === "harness-config") {
-      const kept = keptKeys.get(artifact.path) ?? new Set<string>();
-      const stale = [...(artifact.managedKeys ?? [])].sort(compare).filter((key) => !kept.has(key));
-      if (stale.length === 0) continue;
-      const removed = await pruneConfigKeys(projectDir, artifact, stale);
+      const removed = await pruneConfigKeys(projectDir, artifact.path, artifact.managedKeys ?? []);
       if (removed !== undefined) pruned.push(removed);
       continue;
     }
 
-    if (keptPaths.has(artifact.path)) continue;
     // `force` because an artifact someone already deleted is a prune that has nothing left to do,
     // not a failure; `recursive` removes the directory, and unlinks a symlink without following it.
     await rm(path.join(projectDir, artifact.path), { recursive: true, force: true });
-    pruned.push({ path: artifact.path, kind: artifact.kind });
+    pruned.push(artifact);
   }
 
   return pruned;

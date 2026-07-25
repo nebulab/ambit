@@ -840,12 +840,93 @@ describe("ambit install failures", () => {
     expect(result.stderr).toContain("not a valid ambit state file");
   });
 
-  it("reports `--dry-run` as unimplemented instead of ignoring it", async () => {
+});
+
+/**
+ * `install --dry-run` (spec §5, §6): the plan, printed.
+ *
+ * "Touches nothing" is asserted as the whole project rather than as the absence of the skills
+ * directory, because a preview that wrote the lock, or state, or a `.gitignore` block would satisfy
+ * the narrower claim. And the artifact rows are compared against the ones the real install goes on to
+ * print: a dry run whose output is a different rendering of the same plan is a second implementation,
+ * which is exactly what the `plan`/`apply` split exists to prevent.
+ */
+describe("ambit install --dry-run", () => {
+  /** The two sections a preview adds after the ones install itself prints. */
+  const EXTRA_SECTIONS = (lock: string, gitignore: string): string =>
+    ["pruned (0)", "  (none)", "", "files (2)", `  ${LOCK_FILENAME}  ${lock}`, `  ${GITIGNORE_FILENAME}  ${gitignore}`].join(
+      "\n",
+    );
+
+  it("writes nothing at all", async () => {
+    const result = await cli("install", "--dry-run");
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+
+    // The config is the only file the project had, and the only one it still has.
+    expect(Object.keys(await snapshot())).toEqual(["ambit.yml"]);
+    expect(await pathExists(SKILLS_DIR)).toBe(false);
+  });
+
+  it("prints the rows the install goes on to print, plus what only a preview can say", async () => {
+    const preview = await cli("install", "--dry-run");
+
+    const installed = await cli("install");
+    expect(installed.code, installed.stderr).toBe(ExitCode.Success);
+
+    expect(preview.stdout).toBe(`${installed.stdout}\n\n${EXTRA_SECTIONS("changed", "changed")}`);
+  });
+
+  it("reports both derived files as unchanged once the project is installed", async () => {
+    await cli("install");
+
     const result = await cli("install", "--dry-run");
 
-    expect(result.code).toBe(ExitCode.Internal);
-    expect(result.stderr).toContain("`--dry-run` is not implemented yet");
-    expect(await pathExists(SKILLS_DIR)).toBe(false);
+    expect(result.stdout).toContain(EXTRA_SECTIONS("unchanged", "unchanged"));
+  });
+
+  it("reports what the install would remove, and removes none of it", async () => {
+    await cli("install");
+    await writeProfile(["core"]);
+    const before = await snapshot();
+
+    const result = await cli("install", "--dry-run", "--json");
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+
+    expect(JSON.parse(result.stdout)).toEqual({
+      artifacts: [{ kind: "skill-dir", mode: "link", path: `${SKILLS_DIR}/${CORE_SKILL}` }],
+      gitignoreChanged: true,
+      harnesses: ["claude"],
+      lockChanged: true,
+      pruned: [
+        { kind: "skill-dir", path: `${SKILLS_DIR}/${FRONTEND_SKILL}` },
+        { kind: "skill-dir", path: `${SKILLS_DIR}/${ENGINEERING_SKILL}` },
+        { kind: "harness-config", managedKeys: [`mcpServers.${SCOPED_MCP}`], path: MCP_FILE },
+      ],
+      skills: [CORE_SKILL],
+    });
+    expect(await snapshot()).toEqual(before);
+    expect(await installedSkills()).toEqual([CORE_SKILL, FRONTEND_SKILL, ENGINEERING_SKILL]);
+  });
+
+  it("refuses an unowned target rather than previewing an install that would stop", async () => {
+    const target = path.join(projectDir, SKILLS_DIR, CORE_SKILL);
+    await mkdir(target, { recursive: true });
+    await writeFile(path.join(target, "SKILL.md"), "---\nname: hand-written\n---\n", "utf8");
+
+    const result = await cli("install", "--dry-run");
+
+    expect(result.code).toBe(ExitCode.Config);
+    expect(result.stderr).toContain("refusing to overwrite unowned path");
+  });
+
+  it("still refuses a stale lock under `--frozen`, since refusing writes nothing", async () => {
+    await cli("install");
+    await writeProfile(["core"]);
+
+    const result = await cli("install", "--dry-run", "--frozen");
+
+    expect(result.code).toBe(ExitCode.Drift);
+    expect(result.stderr).toContain(`${LOCK_FILENAME} is out of date`);
   });
 });
 

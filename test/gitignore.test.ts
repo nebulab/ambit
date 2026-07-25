@@ -15,6 +15,7 @@ import {
   BLOCK_BEGIN,
   BLOCK_END,
   gitignoreEntries,
+  removeGitignoreText,
   updateGitignoreText,
 } from "../src/gitignore.js";
 import type { OwnedArtifact } from "../src/state.js";
@@ -196,6 +197,48 @@ describe("rewriting a block that is already there", () => {
       BLOCK_END,
       "",
     ]);
+  });
+});
+
+/**
+ * Removing the block — what `clean` needs (spec §6).
+ *
+ * The claim is the inverse of writing it: install then clean must give a file back exactly as it was,
+ * so every case here compares against the *input* to `updateGitignoreText` rather than against a
+ * hand-written expectation of what removal should leave.
+ */
+describe("removing the block", () => {
+  it("gives a file that had lines of its own back byte for byte", () => {
+    const before = "node_modules/\ndist/\n";
+
+    expect(removeGitignoreText(updateGitignoreText(before, ENTRIES))).toBe(before);
+  });
+
+  it("reports an empty file when the block was the whole of it, so the caller deletes it", () => {
+    expect(removeGitignoreText(updateGitignoreText(undefined, ENTRIES))).toBe("");
+  });
+
+  it("leaves the lines below the block where they were", () => {
+    const surrounded = `${updateGitignoreText("node_modules/\n", ENTRIES) ?? ""}\n# mine\ncoverage/\n`;
+
+    expect(lines(removeGitignoreText(surrounded))).toEqual([
+      "node_modules/",
+      "",
+      "# mine",
+      "coverage/",
+      "",
+    ]);
+  });
+
+  it("reports no change for a file that holds no block", () => {
+    expect(removeGitignoreText("node_modules/\n")).toBeUndefined();
+    expect(removeGitignoreText(undefined)).toBeUndefined();
+  });
+
+  it("exits 2 rather than guessing at an unterminated block", () => {
+    const orphaned = `dist/\n${BLOCK_BEGIN}\n.ambit/\ncoverage/\n`;
+
+    expect(rejection(() => removeGitignoreText(orphaned)).message).toContain("unterminated ambit block");
   });
 });
 
