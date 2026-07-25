@@ -770,7 +770,7 @@ mutation ends by re-validating.
   `function.engineering.frontend` and rewrites both declarers; comments in `scopes.yml`
   survive; `validate` passes after each.
 
-- [ ] **B05 — Skill commands.**
+- [x] **B05 — Skill commands.**
   **Depends:** B04
   **Do:** `catalog skill new|rm|mv`. `new` writes the directory and a `SKILL.md` whose
   frontmatter `name` matches its path. `mv` moves the directory, rewrites `name`, and rewrites

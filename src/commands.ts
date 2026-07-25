@@ -307,6 +307,36 @@ export function catalogDirOf(ctx: CommandContext): string {
   return typeof given === "string" ? path.resolve(ctx.cwd, given) : ctx.cwd;
 }
 
+/**
+ * A positional argument Commander has already required.
+ *
+ * @param index its position, from zero.
+ * @param usage how the command is invoked, for the message nobody should see.
+ * @throws {AmbitError} exit 1 — unreachable through the CLI, and a clearer failure than `undefined`
+ *   reaching a mutation if a caller ever wires a handler up by hand.
+ */
+export function positional(ctx: CommandContext, index: number, usage: string): string {
+  const value = ctx.args[index];
+  if (value !== undefined) return value;
+
+  throw new AmbitError(ExitCode.Internal, `\`${usage}\` was given too few arguments`, [
+    `argument ${index + 1} is missing`,
+    `run \`${usage}\``,
+  ]);
+}
+
+/**
+ * The values of a {@link repeatable} flag, in argv order.
+ *
+ * `undefined` when the flag never appeared, which is deliberately not the same as an empty list: a
+ * handler can tell "no entries asked for" from "an empty list asked for".
+ */
+export function optionList(ctx: CommandContext, name: string): readonly string[] | undefined {
+  const given = ctx.options[name];
+  if (!Array.isArray(given)) return undefined;
+  return given.filter((value): value is string => typeof value === "string");
+}
+
 /** Whether `--json` was requested. */
 export function jsonRequested(ctx: CommandContext): boolean {
   return ctx.options.json === true;

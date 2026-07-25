@@ -50,7 +50,7 @@ export {
   scaffoldCatalog,
 } from "./catalog-init.js";
 export type { CatalogInitOptions, CatalogInitResult } from "./catalog-init.js";
-export { addScope, removeScope, renameScope } from "./catalog-scope.js";
+export { addScope, assertRegisteredScopes, removeScope, renameScope } from "./catalog-scope.js";
 export type {
   ScopeAddResult,
   ScopeEdit,
@@ -58,6 +58,17 @@ export type {
   ScopeRename,
   ScopeRenameResult,
 } from "./catalog-scope.js";
+export { newSkill, removeSkill, renameSkill } from "./catalog-skill.js";
+export type {
+  SkillAnnotations,
+  SkillEdit,
+  SkillNewOptions,
+  SkillNewResult,
+  SkillRemoveResult,
+  SkillRename,
+  SkillRenameResult,
+  SkillSummary,
+} from "./catalog-skill.js";
 export { cleanProject, pruneProject } from "./clean.js";
 export type { CleanOptions, CleanResult, PruneOptions, PruneResult } from "./clean.js";
 export {
@@ -66,6 +77,8 @@ export {
   dryRunRequested,
   jsonRequested,
   offlineRequested,
+  optionList,
+  positional,
   projectDirOf,
   sourceContextOf,
 } from "./commands.js";
@@ -110,16 +123,24 @@ export type {
   DoctorReport,
   DoctorSeverity,
 } from "./doctor.js";
-export { changeKindOf, diffLines, diffSection } from "./diff.js";
+export { changeKindOf, diffLines, diffSection, treeChangeSummary } from "./diff.js";
 export type { ChangeKind } from "./diff.js";
 export {
   CatalogDocument,
   applyCatalogEdit,
   catalogFilePath,
   mcpDocumentPath,
+  skillDirectoryPath,
   skillDocumentPath,
 } from "./editor.js";
-export type { CatalogChange, EditOptions, EditResult, EditedFile } from "./editor.js";
+export type {
+  CatalogChange,
+  CatalogFileChange,
+  CatalogTreeChange,
+  EditOptions,
+  EditResult,
+  EditedFile,
+} from "./editor.js";
 export {
   CACHE_DIRNAME,
   REPOS_DIRNAME,

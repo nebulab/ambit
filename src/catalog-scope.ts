@@ -169,13 +169,32 @@ async function readCatalog(root: string): Promise<Catalog> {
 }
 
 /**
+ * Rejects any of `scopes` the registry does not hold, naming the nearest one it does.
+ *
+ * Exported because every command that *declares* a scope owes the same refusal — `catalog skill new`,
+ * and after it `mcp new` and `annotate`. The editor would refuse those writes anyway, since a declared
+ * scope nothing registers is a validation problem, but the refusal it raises carries no suggestion; this
+ * is what makes a typo answerable rather than merely fatal.
+ *
+ * Reports the first offender in the order given, so a caller that sorts gets a refusal that depends on
+ * the names alone.
+ *
+ * @throws {AmbitError} exit 3, before anything is opened for writing.
+ */
+export function assertRegisteredScopes(catalog: Catalog, scopes: readonly string[]): void {
+  const registered = new Set(catalog.scopes.map((definition) => definition.name));
+  for (const scope of scopes) {
+    if (!registered.has(scope)) throw unknownScope(scope, catalog.scopes);
+  }
+}
+
+/**
  * Rejects a scope the registry does not hold, naming the nearest one it does.
  *
  * @throws {AmbitError} exit 3, before anything is opened for writing.
  */
 function assertRegistered(catalog: Catalog, scope: string): void {
-  if (catalog.scopes.some((candidate) => candidate.name === scope)) return;
-  throw unknownScope(scope, catalog.scopes);
+  assertRegisteredScopes(catalog, [scope]);
 }
 
 /** Only the documents an edit actually changed: an untouched one is not part of the edit. */

@@ -557,9 +557,6 @@ describe("ambit catalog as a command group", () => {
   const UNBUILT: readonly (readonly [name: string, argv: readonly string[]])[] = [
     ["catalog tree", ["tree"]],
     ["catalog audit", ["audit"]],
-    ["catalog skill new", ["skill", "new", "jane.use-notes"]],
-    ["catalog skill rm", ["skill", "rm", "jane.use-notes"]],
-    ["catalog skill mv", ["skill", "mv", "jane.use-notes", "jane.use-memos"]],
     ["catalog mcp new", ["mcp", "new", "notes", "--stdio", "notes-mcp"]],
     ["catalog mcp rm", ["mcp", "rm", "notes"]],
     ["catalog annotate", ["annotate", "jane.use-notes", "--add-scope", "core"]],

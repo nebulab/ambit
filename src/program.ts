@@ -9,6 +9,11 @@ import {
   catalogScopeRemoveHandler,
   catalogScopeRenameHandler,
 } from "./handlers/catalog-scope.js";
+import {
+  catalogSkillNewHandler,
+  catalogSkillRemoveHandler,
+  catalogSkillRenameHandler,
+} from "./handlers/catalog-skill.js";
 import { catalogHandler } from "./handlers/catalog.js";
 import { cleanHandler } from "./handlers/clean.js";
 import { doctorHandler } from "./handlers/doctor.js";
@@ -37,6 +42,9 @@ export const HANDLERS: CommandHandlers = {
   "catalog scope add": catalogScopeAddHandler,
   "catalog scope mv": catalogScopeRenameHandler,
   "catalog scope rm": catalogScopeRemoveHandler,
+  "catalog skill mv": catalogSkillRenameHandler,
+  "catalog skill new": catalogSkillNewHandler,
+  "catalog skill rm": catalogSkillRemoveHandler,
   clean: cleanHandler,
   doctor: doctorHandler,
   init: initHandler,

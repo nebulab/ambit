@@ -30,7 +30,7 @@
 import { stat } from "node:fs/promises";
 
 import { MCPS_DIRNAME, SCOPES_FILENAME, SKILLS_DIRNAME, SKILL_FILENAME } from "./catalog.js";
-import type { CatalogChange, EditOptions, EditedFile } from "./editor.js";
+import type { CatalogFileChange, EditOptions, EditedFile } from "./editor.js";
 import { applyCatalogEdit, catalogFilePath } from "./editor.js";
 import { configError } from "./errors.js";
 import type { ScaffoldBlock } from "./scaffold.js";
@@ -183,7 +183,7 @@ and touches nothing.
  * Pure and byte-stable — nothing about the target directory reaches the contents, so two runs into two
  * differently named directories produce identical trees.
  */
-export function scaffoldCatalog(): readonly CatalogChange[] {
+export function scaffoldCatalog(): readonly CatalogFileChange[] {
   const files: Readonly<Record<string, string>> = {
     [CATALOG_WORKFLOW_FILENAME]: renderScaffold(WORKFLOW_BLOCKS),
     [CATALOG_README_FILENAME]: README,
@@ -242,7 +242,7 @@ export async function initCatalog(
   }
 
   const kept: string[] = [];
-  const changes: CatalogChange[] = [];
+  const changes: CatalogFileChange[] = [];
   for (const change of scaffoldCatalog()) {
     if (await exists(catalogFilePath(root, change.file))) kept.push(change.file);
     else changes.push(change);

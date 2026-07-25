@@ -228,7 +228,7 @@ describe("the catalog editor: writing", () => {
 
     const result = await applyCatalogEdit(catalogDir, [document.change()]);
 
-    expect(result).toEqual({ changes: [], written: false });
+    expect(result).toEqual({ changes: [], trees: [], written: false });
     expect((await stat(path.join(catalogDir, "scopes.yml"))).mtimeMs).toBe(past.getTime());
   });
 

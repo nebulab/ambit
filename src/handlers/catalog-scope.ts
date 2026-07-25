@@ -18,9 +18,9 @@ import { SCOPES_FILENAME } from "../catalog.js";
 import type { ScopeEdit } from "../catalog-scope.js";
 import { addScope, removeScope, renameScope } from "../catalog-scope.js";
 import type { CommandContext, CommandHandler } from "../commands.js";
-import { catalogDirOf, dryRunRequested, jsonRequested } from "../commands.js";
+import { catalogDirOf, dryRunRequested, jsonRequested, positional } from "../commands.js";
 import { diffSection } from "../diff.js";
-import { AmbitError, ExitCode, at, configError } from "../errors.js";
+import { ExitCode, at, configError } from "../errors.js";
 import { printSections, section } from "../output.js";
 
 /** The first section's title: past tense for a run that happened, conditional for a preview. */
@@ -43,22 +43,6 @@ const RENAME_NEXT_STEP =
 
 /** What separates the two halves of a rename row. The same arrow a requirement cycle prints. */
 const ARROW = "→";
-
-/**
- * A positional Commander has already required.
- *
- * @throws {AmbitError} exit 1 — unreachable through the CLI, and a clearer failure than `undefined`
- *   reaching the editor if a caller ever wires a handler up by hand.
- */
-function positional(ctx: CommandContext, index: number, usage: string): string {
-  const value = ctx.args[index];
-  if (value !== undefined) return value;
-
-  throw new AmbitError(ExitCode.Internal, `\`${usage}\` was given too few arguments`, [
-    `argument ${index + 1} is missing`,
-    `run \`${usage}\``,
-  ]);
-}
 
 /**
  * `--description`, which `add` requires.

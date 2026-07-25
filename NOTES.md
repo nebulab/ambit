@@ -3,10 +3,10 @@
 Rewritten by each Ralph iteration for the next one. Short, current, and only what would cost
 real time to rediscover — see `PROMPT.md` §6.
 
-Last iteration: **B04 — Scope registry commands** (the tip of `main`). `catalog scope add|rm|mv` in
-`src/catalog-scope.ts` + `src/handlers/catalog-scope.ts`, the editor's one new capability
-(`renameKeys`), and the subtree rule now shared with resolution. Next task is **B05 — Skill commands**,
-whose `Depends: B04` is now checked. (A30 also depends on A25, but B05 is topmost.)
+Last iteration: **B05 — Skill commands** (the tip of `main`). `catalog skill new|rm|mv` in
+`src/catalog-skill.ts` + `src/handlers/catalog-skill.ts`, and the editor's one new capability:
+**directory operations** (`CatalogTreeChange`). Next task is **B06 — MCP entity commands**, whose
+`Depends: B05` is now checked. (A30 also depends on A25, but B06 is topmost.)
 
 ## Constraints later tasks inherit
 
@@ -63,6 +63,19 @@ whose `Depends: B04` is now checked. (A30 also depends on A25, but B05 is topmos
   registered nowhere is exit 0 here (and still exit 3 from `resolve`, which a test asserts both
   halves of) — this is the command someone reads *to fix that typo*. Such a scope appears in no row,
   since the registry is the subject.
+- **The editor moves and removes *directories* too, and that is a second change shape, not sugar.**
+  `CatalogChange` is now a union: `CatalogFileChange { file, text }` (what it always was) and
+  `CatalogTreeChange { directory, to }`, where `to: null` removes. A tree travels by **`rename`**, so a
+  skill's `references/logo.png` survives a `mv` — reading it as a `string` to write it back would corrupt
+  it, which is the whole reason the shape exists. `EditResult` therefore gained **`trees`**, and
+  `diffSection(title, changes, trees?)` renders a tree as a header-only block (`treeChangeSummary` is the
+  one wording for "removed"/"moved to x/", shared with the command's own report).
+  Three consequences worth knowing: the overlay describes a tree by the files **parsing reads** only
+  (`SKILL.md`, `*.yml`, `*.yaml`) and a **file change on the same path wins**, which is how a caller
+  restates a moved skill's `name`; a file change aimed at a path a move is about to create takes the
+  **source's** bytes as its `before`, so the preview reads as a one-line edit instead of a whole new file;
+  and after a move or a removal the editor **prunes the emptied ancestor directories**, stopping at depth
+  one so `skills/` and `mcps/` — the catalog's shape — always survive.
 - **`src/editor.ts` is the whole of authoring's write path, and B03–B07 are its callers.** Two halves:
   `CatalogDocument.open(root, file)` reads one document and gives back setters
   (`setString(path, value)`, `setStringList(path, values)`, `remove(path)`, `has(path)`, `text()`,
@@ -118,6 +131,28 @@ whose `Depends: B04` is now checked. (A30 also depends on A25, but B05 is topmos
   scope, and a rename onto a registered name are all **3** (§6 lists "unknown scope" and "name conflict"
   under 3); a missing/blank `--description` and an empty name segment are **2**. `mv <old> <old>` and any
   no-op are exit 0 writing nothing.
+- **`src/catalog-skill.ts` is the whole of `catalog skill`, and a skill's identity is its *path*.**
+  `new` writes **one file** (the directories exist because it is written inside them), with the
+  frontmatter through `emitYaml` — sorted keys, quoting, and **lists sorted and deduplicated**, so argv
+  order is not information — and a Markdown body below it. A key it was given nothing for is left out
+  entirely (absent and empty mean the same, §3.2). `rm` deletes the **directory**; `mv` moves it and the
+  name follows from the new path, with the moved document's `name` and every `requires` naming the old
+  name rewritten **in the same edit**. Exit codes: an invalid name is **2**; an existing name, an unknown
+  skill, a still-required skill and a nested skill are all **3**.
+- **Neither `rm` nor `mv` will touch a skill directory that holds another skill** (`skills/a/b/SKILL.md`
+  plus `skills/a/b/c/SKILL.md` is legal). Moving one would rename a skill nobody named and removing one
+  would delete it, so both are refused naming what is in the way. That refusal is what lets the editor
+  assume a moved tree carries at most the one `SKILL.md` its caller restates.
+- **`assertRegisteredScopes(catalog, scopes)` is exported from `src/catalog-scope.ts`** and is how every
+  command that *declares* a scope refuses an unregistered one — **B06's `mcp new` and B07's `annotate`
+  should call it**. The editor would refuse those writes anyway (a declared scope nothing registers is a
+  validation problem), but `refusedByValidation` quotes only each problem's **message**, not its detail,
+  so the "did you mean" is lost; the pre-check is what makes a typo answerable. `--requires` deliberately
+  has **no** such pre-check — validation's own message already names an unresolvable requirement and
+  there is no better advice to add.
+- **`positional(ctx, index, usage)` and `optionList(ctx, name)` now live in `src/commands.ts`**
+  (`positional` moved out of `src/handlers/catalog-scope.ts`, which imports it back). `optionList` reads a
+  `repeatable()` flag: `undefined` when never given, `readonly string[]` otherwise. B06 and B07 want both.
 - **An authoring handler's heading follows `--dry-run`, not `written`** (`src/handlers/catalog-scope.ts`),
   unlike `catalog init`'s: a mutation that had nothing to do is a no-op, not a preview, so a second
   `scope add` prints `registered (1)` with `files (0)`. Every scope command prints exactly two sections —
@@ -365,9 +400,11 @@ whose `Depends: B04` is now checked. (A30 also depends on A25, but B05 is topmos
   `apply` and after pruning. **The lock records no mode.**
 - **`emitYaml` in `src/yaml.ts` is the only sanctioned way to write YAML ambit owns the shape of**
   (spec §3.0): sorted keys at every depth, double quotes when quoting is needed, no anchors/aliases,
-  core schema 1.2. The lock and both scaffolds go through it (via `renderScaffold`), and **a whole file
-  B05/B06 scaffolds should too**. Editing a file someone else wrote is the other case — see the editor
-  below.
+  core schema 1.2. The lock and both scaffolds go through it (via `renderScaffold`), as does a new
+  `SKILL.md`'s frontmatter, and **so should the whole file B06 writes**. Editing a file someone else
+  wrote is the other case — see the editor below. `renderScaffold` is for a file whose prose is
+  *comments*; a new skill's prose is its Markdown body instead, since the frontmatter is a block other
+  tools parse.
 - **Top-level lock keys are sorted, so the file reads `catalogs, mcps, skills, version`.** Empty
   sections stay as `mcps: {}` rather than vanishing.
 - **A source-declared skill's lock `catalog:` is its `source` as written** (`path:../extra`, a git URL),
@@ -380,9 +417,9 @@ whose `Depends: B04` is now checked. (A30 also depends on A25, but B05 is topmos
   about the config entry, not the directory, so a catalog parsed straight off disk
   (`validate --catalog`) has none.
 - **`--frozen`, `--adopt`, `--copy`, `--link`, `--dry-run`, `status --check` and `validate --catalog`
-  are implemented, as are `catalog dump`, `catalog init` and `catalog scope add|rm|mv`.** The unbuilt
-  surface is the rest of the `catalog` authoring group (B05–B09), declared in `COMMAND_SPECS` and
-  reporting itself unimplemented until each task lands.
+  are implemented, as are `catalog dump`, `catalog init`, `catalog scope add|rm|mv` and
+  `catalog skill new|rm|mv`.** The unbuilt surface is the rest of the `catalog` authoring group
+  (B06–B09), declared in `COMMAND_SPECS` and reporting itself unimplemented until each task lands.
 - **Every source resolves through `src/sources.ts`** (§3.1 grammar) returning
   `ResolvedSource = { root, commit? }`. `loadCatalogs`, `mergeConfigEntities`, `loadSourceSkill` and
   `resolveCatalogRoot` take a `SourceContext` (`{ projectDir, env }`); `env` is where the cache location
@@ -431,9 +468,10 @@ whose `Depends: B04` is now checked. (A30 also depends on A25, but B05 is topmos
 
 ## Deliberate omissions, and who owns them
 
-- **The editor writes and removes *files*, not directories.** `skill rm` has to delete a whole skill
-  directory (a skill may carry `references/`), and `skill mv` has to move one — **B05 owns that**, and
-  should extend `CatalogChange` rather than reaching for `rm` on its own.
+- **Nothing removes a catalog's top-level directories**, `skills/` and `mcps/` included, even when the
+  last thing inside one goes away — see the editor's ancestor pruning. Nobody owns changing that.
+- **`skill new` writes no scope registration and `skill rm` removes none.** A skill declaring a scope
+  nothing registers is refused, not fixed; the registry is `catalog scope`'s.
 - **`mcpDocumentPath` always says `.yml`**, so editing an entity someone wrote as `mcps/x.yaml` would
   create a second file for the same name — which parsing then rejects (§3.3), so the mutation fails exit 3
   with nothing written rather than corrupting anything. `catalog scope mv` already depends on this when it
@@ -443,7 +481,7 @@ whose `Depends: B04` is now checked. (A30 also depends on A25, but B05 is topmos
   tells the reader to edit each file; the flag that would do it for them is **B07's**
   `annotate --remove-scope`. The refusal deliberately does not name that command yet.
 - **`catalog init` scaffolds no example skill and no example MCP entity**, so a fresh catalog installs
-  nothing: `catalog skill new` (B05) is the next step and the command's own output says so. It also runs
+  nothing: `catalog skill new` is the next step and the command's own output says so. It also runs
   no `git init` and writes no `.gitignore` — a catalog has nothing generated to ignore, and the directory
   is usually already a repo. Nobody owns changing either.
 - Nothing prunes the cache, and nothing locks it against a concurrent ambit (`loadCatalogs` is
@@ -482,9 +520,19 @@ whose `Depends: B04` is now checked. (A30 also depends on A25, but B05 is topmos
   are restated in the test rather than imported, so the emitted-shape claim is independent of the source.
 - **`test/diff.test.ts` asserts the renderer's exact lines**, elision marker and context width included.
   Changing `CONTEXT_LINES` or the tie-break rewrites several of its cases; that is the point.
-- **Each B0x task deletes its own row from `test/catalog.test.ts`'s `UNBUILT` table** (B04 removed the
-  three `catalog scope` rows). Leaving the row behind fails the "exits 1 from every unbuilt subcommand"
+- **Each B0x task deletes its own row from `test/catalog.test.ts`'s `UNBUILT` table** (B05 removed the
+  three `catalog skill` rows). Leaving the row behind fails the "exits 1 from every unbuilt subcommand"
   case, which is the intended alarm.
+- **`test/catalog-skill.test.ts` asserts what happened to *paths*, not only to bytes.** Its `snapshot()`
+  is files-with-bytes and its `directories()` is the directory list, and both are load-bearing: the
+  "writes one SKILL.md and nothing else" case asserts the whole file list, and two cases assert that an
+  emptied namespace directory is gone while `skills/` is not. One case writes a **non-UTF-8** file into a
+  skill and compares the buffer after a `mv` — that is the claim the tree machinery exists for, and it
+  fails the moment anything reads a skill's assets as text. Its `halves()` splits a `SKILL.md` so the
+  frontmatter can be compared against `emitYaml` of restated values (the `catalog init` trick) while the
+  body's prose stays free to change.
+- **`test/editor.test.ts`'s no-op case does a whole-object `toEqual` on `EditResult`**, so it now names
+  `trees: []`; a further field on that type means editing it again.
 - **`test/catalog-scope.test.ts` asserts whole files against `FIXTURE_CATALOG_FILES`' own text**, and its
   `mv` case names each expected file separately *on purpose*: two fixture skill bodies mention
   `function.engineering` in prose, so a blanket `replaceAll` over the fixture would pass against an edit

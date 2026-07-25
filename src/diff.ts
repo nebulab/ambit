@@ -13,7 +13,7 @@
  * renderer does guarantee is determinism: the operations are the longest-common-subsequence of the two
  * line lists with removals ordered before additions at every tie, so one edit renders one way.
  */
-import type { EditedFile } from "./editor.js";
+import type { CatalogTreeChange, EditedFile } from "./editor.js";
 
 /** Unchanged lines kept either side of a change, so a reader can find it in the file. */
 const CONTEXT_LINES = 3;
@@ -37,6 +37,17 @@ interface Operation {
 export function changeKindOf(change: EditedFile): ChangeKind {
   if (change.before === undefined) return "created";
   return change.text === null ? "removed" : "updated";
+}
+
+/**
+ * What happened to a directory, in one phrase.
+ *
+ * Exported because a command's own report says the same thing about the same operation, and two
+ * wordings for one move is exactly the drift this module exists to prevent. The trailing `/` is what
+ * tells a reader the path is a directory rather than an oddly named file.
+ */
+export function treeChangeSummary(tree: CatalogTreeChange): string {
+  return tree.to === null ? "removed" : `moved to ${tree.to}/`;
 }
 
 /**
@@ -149,20 +160,35 @@ function fileBlock(change: EditedFile): readonly string[] {
 }
 
 /**
+ * One directory's block: a header and nothing else.
+ *
+ * A move changes no bytes and a removal's bytes are not worth reprinting, so there is no body to show —
+ * what a reader needs from a destructive preview is the path, and the diff of any document inside it
+ * that the same edit rewrites comes from {@link fileBlock}.
+ */
+function treeBlock(tree: CatalogTreeChange): readonly string[] {
+  return [`${tree.directory}/ (${treeChangeSummary(tree)})`];
+}
+
+/**
  * An edit as a titled, counted diff section, in the shape every other command's output sections take
  * (`section` in `src/output.ts`) so a preview reads like the rest of the tool.
  *
  * @param title the section's heading, conventionally `diff`.
- * @param changes the edit's changes, in the path order {@link applyCatalogEdit} returns them in.
+ * @param changes the edit's file changes, in the path order {@link applyCatalogEdit} returns them in.
+ * @param trees the directories it moves or removes, listed first: a reader has to see that a whole tree
+ *   is going before reading a diff of one file inside it.
  */
 export function diffSection(
   title: string,
   changes: readonly EditedFile[],
+  trees: readonly CatalogTreeChange[] = [],
 ): readonly string[] {
+  const blocks = [...trees.map(treeBlock), ...changes.map(fileBlock)];
   const body =
-    changes.length === 0
+    blocks.length === 0
       ? ["(none)"]
-      : changes.flatMap((change, index) => [...(index === 0 ? [] : [""]), ...fileBlock(change)]);
+      : blocks.flatMap((block, index) => [...(index === 0 ? [] : [""]), ...block]);
 
-  return [`${title} (${changes.length})`, ...body.map((line) => `  ${line}`.trimEnd()), ""];
+  return [`${title} (${blocks.length})`, ...body.map((line) => `  ${line}`.trimEnd()), ""];
 }
