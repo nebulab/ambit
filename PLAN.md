@@ -820,7 +820,7 @@ mutation ends by re-validating.
 
 ### Shipping
 
-- [ ] **A30 — Subcommand exit-code inheritance.**
+- [x] **A30 — Subcommand exit-code inheritance.**
   **Depends:** A25
   **Do:** A late-discovered defect, found while building A20. A subcommand registered with
   `addCommand` inherits neither `exitOverride` nor `configureOutput`, so a Commander-level

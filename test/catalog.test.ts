@@ -5,10 +5,9 @@
  * Every case runs against the fixture catalog, mutated in place for the malformed ones, so the
  * subject is the same tree the rest of the suite resolves against.
  */
-import { cp, mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import type { Command } from "commander";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { buildFixtureCatalog } from "../scripts/fixture-catalog.js";
@@ -17,7 +16,7 @@ import { loadCatalogs, mergeCatalogs, parseCatalogDirectory } from "../src/catal
 import type { CommandHandlers } from "../src/commands.js";
 import { loadProjectConfig } from "../src/config.js";
 import { AmbitError, ExitCode } from "../src/errors.js";
-import { HANDLERS, buildProgram, run } from "../src/program.js";
+import { HANDLERS, run } from "../src/program.js";
 import type { SourceContext } from "../src/sources.js";
 
 const CATALOG_NAME = "company";
@@ -563,22 +562,14 @@ describe("ambit catalog as a command group", () => {
   const SUBCOMMANDS = ["dump", "init", "tree", "audit", "scope", "skill", "mcp", "annotate"];
 
   /**
-   * One command out of the built program, so help text can be read without running `--help` — which
-   * goes through Commander's own exit path, and so out of the process, until A30 lands.
+   * A command's usage, read by running `--help` through the CLI. That is only testable in-process
+   * because a subcommand now inherits `exitOverride` and `configureOutput` (A30); before that it took
+   * the worker with it, and the help text had to be read off the built `Command` instead.
    */
-  function command(...words: readonly string[]): Command {
-    const program = buildProgram(
-      { cwd: root, stdout: () => {}, stderr: () => {} },
-      HANDLERS,
-      () => {},
-    );
-    let found: Command = program;
-    for (const word of words) {
-      const child = found.commands.find((candidate) => candidate.name() === word);
-      if (!child) throw new Error(`the program declares no \`${words.join(" ")}\``);
-      found = child;
-    }
-    return found;
+  async function usage(...words: readonly string[]): Promise<string> {
+    const result = await invoke([...words, "--help"]);
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+    return result.stdout;
   }
 
   it("dumps the merged catalog under both `catalog` and `catalog dump`", async () => {
@@ -598,20 +589,20 @@ describe("ambit catalog as a command group", () => {
     expect(JSON.parse(dump.stdout)).toMatchObject({ catalogs: [CATALOG_NAME] });
   });
 
-  it("lists every authoring subcommand in `ambit catalog --help`", () => {
-    const help = command("catalog").helpInformation();
+  it("lists every authoring subcommand in `ambit catalog --help`", async () => {
+    const help = await usage("catalog");
 
     for (const name of SUBCOMMANDS) expect(help).toContain(`\n  ${name} `);
   });
 
-  it("gives an authoring command `--catalog <dir>`, and `dump` `--project <dir>`", () => {
+  it("gives an authoring command `--catalog <dir>`, and `dump` `--project <dir>`", async () => {
     // The two directories are different subjects, not the same one under two names: a catalog has no
     // `ambit.yml` to read (spec §6).
-    const init = command("catalog", "init").helpInformation();
+    const init = await usage("catalog", "init");
     expect(init).toContain("--catalog <dir>");
     expect(init).not.toContain("--project");
 
-    expect(command("catalog", "dump").helpInformation()).toContain("--project <dir>");
+    expect(await usage("catalog", "dump")).toContain("--project <dir>");
   });
 
   it("prints its usage for a group that has no default action", async () => {
@@ -634,6 +625,65 @@ describe("ambit catalog as a command group", () => {
     expect(result.code, result.stderr).toBe(ExitCode.Internal);
     expect(result.stderr).toContain(`command "catalog tree" is not implemented yet`);
     expect(result.stdout).toBe("");
+  });
+});
+
+/**
+ * Spec §6's exit-code contract, asserted on the commands furthest from the program: a *Commander*-level
+ * usage error — an unknown flag, a missing argument — has to leave through `run()` as a code and print
+ * through ambit's own output, exactly as one of ambit's own errors does.
+ *
+ * A subcommand added with `addCommand` inherits neither of the two settings that make that true, so
+ * before A30 every case here wrote to the real stderr and called `process.exit`, taking the test worker
+ * with it. That is why they are asserted two levels down rather than only for a top-level command:
+ * `catalog scope add` is the depth nothing can reach by inheriting from the program alone.
+ */
+describe("usage errors below the top level", () => {
+  const NESTED = ["catalog", "scope", "add"];
+
+  it("returns an exit code for an unknown flag on a nested subcommand", async () => {
+    const before = await readFile(path.join(catalogDir, "scopes.yml"), "utf8");
+    const result = await invoke([
+      ...NESTED,
+      "person.jane",
+      "--descriptoin",
+      "Jane's own things",
+      "--catalog",
+      catalogDir,
+    ]);
+
+    expect(result.code).toBe(ExitCode.Config);
+    expect(result.stderr).toContain("error: unknown option '--descriptoin'");
+    // Commander's suggestion is half of what makes the message useful, and it reaches the reader only
+    // through ambit's own writer.
+    expect(result.stderr).toContain("--description");
+    expect(result.stdout).toBe("");
+    // Refused before the handler ran, so the mutation it named did not happen.
+    expect(await readFile(path.join(catalogDir, "scopes.yml"), "utf8")).toBe(before);
+  });
+
+  it("returns an exit code for a missing argument on a nested subcommand", async () => {
+    const result = await invoke([...NESTED, "--description", "Jane's own things"]);
+
+    expect(result.code).toBe(ExitCode.Config);
+    expect(result.stderr).toContain("error: missing required argument 'name'");
+    expect(result.stdout).toBe("");
+  });
+
+  it("returns an exit code for an unknown flag on a top-level command", async () => {
+    const result = await invoke(["scopes", "--nope"]);
+
+    expect(result.code).toBe(ExitCode.Config);
+    expect(result.stderr).toContain("error: unknown option '--nope'");
+    expect(result.stdout).toBe("");
+  });
+
+  it("prints a nested subcommand's usage on `--help`, at exit 0", async () => {
+    const result = await invoke([...NESTED, "--help"]);
+
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+    expect(result.stdout).toContain("Usage: ambit catalog scope add");
+    expect(result.stderr).toBe("");
   });
 });
 

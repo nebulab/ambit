@@ -66,6 +66,29 @@ export const HANDLERS: CommandHandlers = {
   why: whyHandler,
 };
 
+/**
+ * Copies the program's settings down the whole command tree.
+ *
+ * `Command.addCommand` — unlike `.command()`, which ambit cannot use because every command is built
+ * from a spec — copies nothing from its parent, so a subcommand keeps Commander's own defaults for
+ * both of the settings that decide how a usage error leaves the process: it writes to the real
+ * `process.stderr` and then calls `process.exit`. That bypasses spec §6's exit-code contract on every
+ * subcommand (and takes the test worker with it). Copying `configureOutput` and `exitOverride` down
+ * is what makes an unknown flag on `ambit catalog scope add` print through ambit's own output and
+ * travel out of {@link run} as a code.
+ *
+ * Runs after the tree is assembled, and top-down, so a group and its children end up with the same
+ * settings. It copies wholesale, and the program's value wins: the three settings `buildCommand` also
+ * touches — `--help`, positional options, and the disabled implicit `help` command — already say the
+ * same thing there, but a per-command setting added later has to be applied *after* this or it is lost.
+ */
+function inheritSettings(parent: Command): void {
+  for (const child of parent.commands) {
+    child.copyInheritedSettings(parent);
+    inheritSettings(child);
+  }
+}
+
 export function buildProgram(io: Io, handlers: CommandHandlers, onExit: (code: ExitCode) => void): Command {
   const program = new Command()
     .name("ambit")
@@ -87,6 +110,7 @@ export function buildProgram(io: Io, handlers: CommandHandlers, onExit: (code: E
   for (const spec of COMMAND_SPECS) {
     program.addCommand(buildCommand(spec, handlers, io, onExit));
   }
+  inheritSettings(program);
 
   return program;
 }

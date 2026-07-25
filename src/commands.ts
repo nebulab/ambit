@@ -119,9 +119,9 @@ const CATALOG_SUBCOMMANDS: readonly CommandSpec[] = [
         args: [["<name>", "scope name"]],
         subject: "catalog",
         mutating: true,
-        // Mandatory in behaviour but not through Commander's `.makeOptionMandatory()`: a subcommand
-        // added with `addCommand` inherits neither `exitOverride` nor `configureOutput` (A30), so
-        // Commander's own refusal would leave the process instead of travelling out as an exit code.
+        // Mandatory in behaviour but not through Commander's `.makeOptionMandatory()`: the handler
+        // refuses it instead, in spec §6's message shape, which names `scopes.yml` and says what to
+        // pass — see `src/handlers/catalog-scope.ts`.
         options: [new Option("--description <text>", "what the scope means")],
       },
       {
@@ -254,11 +254,11 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
     options: [
       new Option("--frozen", "fail if resolution would change ambit.lock"),
       new Option("--adopt", "take ownership of existing unowned artifacts"),
-      // Mutually exclusive, but deliberately not through Commander's `.conflicts()`: a subcommand
-      // added with `addCommand` inherits neither `exitOverride` nor `configureOutput`, so
-      // Commander's own refusal would leave the process rather than travel out as an exit code. The
-      // handler refuses them instead, in spec §6's message shape.
-      new Option("--copy", "copy local-source skills instead of symlinking"),
+      // Mutually exclusive: one copies every skill and the other symlinks every skill, so there is
+      // no run that means both. Commander enforces it, which it can only do now that a subcommand
+      // inherits `exitOverride` and `configureOutput` (`inheritSettings` in `src/program.ts`) and its
+      // refusal therefore travels out of `run()` as exit 2 instead of leaving the process.
+      new Option("--copy", "copy local-source skills instead of symlinking").conflicts("link"),
       new Option("--link", "symlink skills instead of copying"),
     ],
   },

@@ -9,10 +9,10 @@
  * nothing is not a preview but a no-op — re-running `add` reports the scope as registered and no files
  * changed, which is the honest answer and would read as a lie under "would register".
  *
- * `add`'s `--description` is required *here* rather than by Commander's `.makeOptionMandatory()`: a
- * subcommand added with `addCommand` inherits neither `exitOverride` nor `configureOutput` (the defect
- * A30 owns), so Commander's own refusal would leave the process instead of travelling out as an exit
- * code.
+ * `add`'s `--description` is required *here* rather than by Commander's `.makeOptionMandatory()`.
+ * Commander's refusal now travels out as an exit code like any other (A30), so the reason is no longer
+ * the defect but the message: spec §6 asks an error to name the offending file and give one concrete
+ * next step, and `error: required option '--description <text>' not specified` does neither.
  */
 import { SCOPES_FILENAME } from "../catalog.js";
 import type { ScopeEdit } from "../catalog-scope.js";

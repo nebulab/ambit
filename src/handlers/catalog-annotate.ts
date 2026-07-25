@@ -8,10 +8,8 @@
  *
  * Two refusals live here rather than in `catalog-annotate.ts`, because both are about argv rather than
  * about the catalog: an invocation that asks for no change at all, and one that adds and removes the same
- * entry. They are enforced in the handler rather than by Commander for the reason every other authoring
- * command gives — a subcommand added with `addCommand` inherits neither `exitOverride` nor
- * `configureOutput` (the defect A30 owns), so Commander's own refusal would leave the process instead of
- * travelling out as an exit code.
+ * entry. Neither is expressible to Commander in the first place — both are about which *values* two
+ * repeatable flags collected, not about which flags appeared — so the handler is where they belong.
  *
  * Both of them name a *directory* rather than a file, deliberately: neither has read the catalog yet, so
  * neither can know which §3.3 extension an entity carries, and a message that guessed `.yml` would send

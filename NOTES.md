@@ -3,11 +3,11 @@
 Rewritten by each Ralph iteration for the next one. Short, current, and only what would cost
 real time to rediscover — see `PROMPT.md` §6.
 
-Last iteration: **B09 — `ambit catalog audit`** (the tip of `main`). `src/catalog-audit.ts` +
-`src/handlers/catalog-audit.ts` and `test/catalog-audit.test.ts`; no new golden file.
-**The whole spec §6 CLI surface is now implemented**, and the Catalog-authoring section is done.
-Next task is **A30 — subcommand exit-code inheritance**, whose `Depends: A25` has long been checked;
-after it, A31, then A26–A29 (Shipping).
+Last iteration: **A30 — subcommand exit-code inheritance** (the tip of `main`). `inheritSettings` in
+`src/program.ts` copies the program's settings down the whole command tree, so a Commander-level usage
+error anywhere below the root now travels out of `run()` as an exit code instead of calling
+`process.exit`. **The whole spec §6 CLI surface is implemented** and both authoring sections are done.
+Next task is **A31 — error message accuracy** (`Depends: A30`, now checked), then A26–A29 (Shipping).
 
 ## Constraints later tasks inherit
 
@@ -30,6 +30,21 @@ after it, A31, then A26–A29 (Shipping).
   Without it Commander gives a flag to whichever command up the chain declares it, so
   `ambit catalog dump --json` leaves `--json` with the group and `dump` never sees it. Removing either
   one silently breaks every flag typed after a subcommand name.
+- **`inheritSettings(program)` in `src/program.ts` copies the program's settings down the whole tree,
+  and every command below the root depends on it.** `Command.addCommand` — unlike `.command()`, which
+  ambit cannot use because each command is built from a spec — copies nothing, so without it a
+  subcommand keeps Commander's defaults: a usage error writes to the real `process.stderr` and calls
+  `process.exit`, bypassing spec §6's exit-code contract and killing the vitest worker. It must stay
+  **after** the `addCommand` loop and stay **recursive** (a group's children are added inside
+  `buildCommand`, before the program exists). It copies wholesale, so a per-command setting it also
+  copies — `--help`, `enablePositionalOptions`, `showHelpAfterError` — is **overwritten by the
+  program's**; those three already agree, but a future per-command setting must be applied after the
+  copy or it will be lost. Consequences worth knowing: `--help` on any subcommand now returns from
+  `run()` at exit 0 with the usage on **stdout** (so it is testable in-process), a Commander usage
+  error is exit **2** (`CommanderError` → `ExitCode.Config` in `run`), and every subcommand's error now
+  ends with the program's `(run \`ambit --help\` for usage)` hint. A `.makeOptionMandatory()` or
+  `.conflicts()` on an authoring flag is therefore now *possible*; whether to move one there is a
+  message question, not a mechanism one — see `--description` below.
 - **A group with no `defaultSubcommand` (`scope`, `skill`, `mcp`) carries no global flags and prints
   its own help at exit 0** (`acts` in `buildCommand`). No flags because a group that declares one its
   children also declare is a group that eats it; help-not-error because bare `ambit` behaves the same
@@ -414,12 +429,10 @@ after it, A31, then A26–A29 (Shipping).
   that never reaches exit 6.
 - **Editing a linked skill edits the catalog, and that is never drift.** Content drift is only a
   question about a copy.
-- **`--copy`/`--link` mutual exclusion is enforced in `installHandler`, not by Commander's
-  `.conflicts()`.** The reason is the defect **A30** now owns: a subcommand added with `addCommand`
-  inherits neither `exitOverride` nor `configureOutput`, so *any* Commander-level usage error in a
-  subcommand (a bad `--flag`, a missing argument) writes to the real stderr and calls `process.exit`
-  instead of travelling out of `run()` as an exit code. A30 moves the check to `.conflicts()` once
-  `copyInheritedSettings` is in place.
+- **`--copy`/`--link` mutual exclusion is Commander's, through `.conflicts("link")` on `--copy`**
+  (`src/commands.ts`), so the refusal is `error: option '--copy' cannot be used with option '--link'`
+  either way round and arrives before `installHandler` runs. `modeOverride` therefore no longer
+  refuses anything and `install.ts` imports no `AmbitError`.
 - **`src/status.ts`'s `projectStatus(projectDir, { offline })` plans through the adapters exactly as
   install does** and then compares, writing nothing. Every row is one artifact and one `ArtifactState`
   (`missing | modified | ok | stale | unowned`), so the whole report answers one question: would
@@ -550,6 +563,17 @@ after it, A31, then A26–A29 (Shipping).
 
 ## Deliberate omissions, and who owns them
 
+- **Every *other* flag rule A30 unblocked stays in its handler**, and only `install`'s
+  `--copy`/`--link` moved onto Commander (that is all A30's Done-when named). `catalog scope add`'s
+  required `--description`, `mcp new`'s "exactly one transport" and every transport-flag refusal, and
+  `annotate`'s add-and-remove contradiction are all still handler checks — deliberately, because each
+  message names a file and gives a next step where Commander's would say
+  `error: required option '--description <text>' not specified` and nothing else. Nobody owns moving
+  them, and their tests pin the current wording.
+- **A Commander usage error ends with the program's `(run \`ambit --help\` for usage)`**, even when the
+  error was in `catalog scope add`, because `showHelpAfterError` is one of the settings inherited
+  wholesale. Accurate but coarse; a per-command hint would mean re-applying the setting after the copy
+  with the command's full name. Nobody owns it.
 - **Nothing removes a catalog's top-level directories**, `skills/` and `mcps/` included, even when the
   last thing inside one goes away — see the editor's ancestor pruning. Nobody owns changing that.
 - **`skill new` writes no scope registration and `skill rm` removes none.** A skill declaring a scope
@@ -665,20 +689,22 @@ after it, A31, then A26–A29 (Shipping).
   that rewrote the body — the exact bug rule 2 forbids. One assertion pins that prose explicitly. Its
   `refused()` helper snapshots the whole tree around every rejection, so a refusal that half-wrote
   something fails there rather than in a later case.
-- **A Commander-level error in a subcommand still exits the process (A30), and that shapes both the
-  authoring commands and their tests.** Two consequences: (1) declare no `.makeOptionMandatory()` and
-  no `.conflicts()` on an authoring flag — B04's "`add` requires a description" and B06's "exactly one
-  transport" must be enforced *in the handler*, in spec §6's message shape, as `installHandler` does
-  for `--copy`/`--link`; (2) **every test invocation must supply all declared positionals**, or the run
-  takes the vitest worker with it instead of returning an exit code. **This is A30, the next task**, and
-  its Done-when also moves `install`'s `--copy`/`--link` check onto Commander's `.conflicts()`; the
-  authoring flags above can follow only once `copyInheritedSettings` is in place.
-- **`ambit catalog --help` is asserted by reading `helpInformation()` off `buildProgram`** (the
-  `command(...)` helper in `test/catalog.test.ts`), never by running `--help` through `run()` — for the
-  same reason. It works fine from a real shell; it just cannot be tested in-process until A30.
+- **`test/catalog.test.ts`'s `describe("usage errors below the top level")` is the guard on
+  `inheritSettings`**, and it is asserted two levels down (`catalog scope add`) on purpose: a top-level
+  command could pass by accident. Four cases — an unknown flag (with Commander's own "did you mean"),
+  a missing positional, an unknown flag on a top-level command, and `--help` — plus the byte check that
+  the refused mutation left `scopes.yml` alone. Delete `inheritSettings` and all four fail by taking the
+  worker down rather than by reporting, which is the shape of the failure to expect.
+- **A test may now omit a declared positional or misspell a flag and still get an exit code back.**
+  Before A30 that killed the vitest worker; the old discipline ("every invocation supplies all
+  positionals") is no longer load-bearing, though nothing depends on breaking it either.
+- **`ambit catalog --help` and each subcommand's usage are read by running `--help` through `run()`**
+  (the `usage(...)` helper in `test/catalog.test.ts`), which is what A30 made possible; the
+  `helpInformation()`-off-`buildProgram` workaround is gone, and `buildProgram` is no longer imported
+  there.
 - **`test/catalog.test.ts`'s `cli()` appends `--project`, which an authoring command does not accept.**
-  Use `invoke(argv)` for anything under `catalog` other than `dump`, or Commander will reject the flag
-  and exit the worker.
+  Use `invoke(argv)` for anything under `catalog` other than `dump`, or Commander will reject the flag —
+  now as exit 2 rather than by exiting the worker.
 - **Two tests pin that `ambit catalog` and `ambit catalog dump` emit identical stdout**, text and
   `--json`. They are the guard on the group's default action, so a change to either path must keep
   going through `catalogHandler`.

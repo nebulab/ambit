@@ -493,11 +493,18 @@ describe("how a skill's source reaches its target", () => {
   });
 
   it("refuses `--copy` and `--link` together rather than picking one", async () => {
-    const result = await cli("install", "--copy", "--link");
+    // Declared as conflicting options (A30), so the refusal is Commander's and arrives before the
+    // handler — which is why nothing is installed, either way round.
+    for (const flags of [
+      ["--copy", "--link"],
+      ["--link", "--copy"],
+    ]) {
+      const result = await cli("install", ...flags);
 
-    expect(result.code).toBe(ExitCode.Config);
-    expect(result.stderr).toContain("`--copy` and `--link` contradict each other");
-    expect(await pathExists(SKILLS_DIR)).toBe(false);
+      expect(result.code).toBe(ExitCode.Config);
+      expect(result.stderr).toContain("option '--copy' cannot be used with option '--link'");
+      expect(await pathExists(SKILLS_DIR)).toBe(false);
+    }
   });
 
   it("unlinks a pruned skill without following the link into the catalog", async () => {

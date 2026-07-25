@@ -12,7 +12,7 @@
  */
 import type { CommandContext, CommandHandler } from "../commands.js";
 import { dryRunRequested, jsonRequested, offlineRequested, projectDirOf } from "../commands.js";
-import { AmbitError, ExitCode } from "../errors.js";
+import { ExitCode } from "../errors.js";
 import { GITIGNORE_FILENAME } from "../gitignore.js";
 import type { InstallOptions, InstallPreview, InstallResult } from "../install.js";
 import { installProject, previewInstall } from "../install.js";
@@ -27,20 +27,12 @@ import { artifactJson, artifactRows, removalRows } from "./artifacts.js";
  * Undefined — neither flag — is the mode that follows each skill's source, which is not the same as
  * either flag's value: it is the absence of an override.
  *
- * @throws {AmbitError} exit 2 for both flags at once. Picking one would be picking for the caller,
- *   and the two say opposite things about every skill in the bundle.
+ * The two together never reach here: they are declared as conflicting options (`src/commands.ts`), so
+ * Commander refuses the invocation with exit 2 before any handler runs.
  */
 function modeOverride(ctx: CommandContext): ArtifactMode | undefined {
-  const copy = ctx.options.copy === true;
-  const link = ctx.options.link === true;
-  if (copy && link) {
-    throw new AmbitError(ExitCode.Config, "`--copy` and `--link` contradict each other", [
-      "one copies every skill and the other symlinks every skill",
-      "pass whichever one you meant, or neither to let each skill follow its source",
-    ]);
-  }
-  if (copy) return "copy";
-  if (link) return "link";
+  if (ctx.options.copy === true) return "copy";
+  if (ctx.options.link === true) return "link";
   return undefined;
 }
 

@@ -7,10 +7,10 @@
  *
  * What is particular to this handler is the transport, and all of it lives here. `--stdio`/`--http` are
  * argv syntax, so turning them into the one {@link McpTransport} §3.3 allows is the boundary's job — and
- * it is enforced *here* rather than by Commander's `.conflicts()` because a subcommand added with
- * `addCommand` inherits neither `exitOverride` nor `configureOutput` (the defect A30 owns), so
- * Commander's own refusal would leave the process instead of travelling out as an exit code. Below this
- * line the transport is a type that cannot name zero or two kinds.
+ * it is enforced *here* rather than by Commander's `.conflicts()` for the message: an error has to name
+ * the offending file and the supported kinds (spec §6), which `error: option '--http <url>' cannot be
+ * used with option '--stdio <command>'` does not, and Commander can say nothing at all about *neither*
+ * flag. Below this line the transport is a type that cannot name zero or two kinds.
  *
  * Every flag that belongs to the other kind is refused rather than ignored: `--header` with `--stdio`
  * would otherwise be typed, accepted, and silently dropped, which is the one outcome worse than an
