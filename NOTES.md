@@ -3,33 +3,60 @@
 Rewritten by each Ralph iteration for the next one. Short, current, and only what would cost
 real time to rediscover — see `PROMPT.md` §6.
 
-Last iteration: **A17 — ownership enforcement** (the tip of `main`). Next task is
-**A18 — pruning**, whose `Depends: A17` is now checked.
+Last iteration: **A18 — pruning** (the tip of `main`). Next task is **A19 — idempotence and
+`status`**, whose `Depends: A18` is now checked.
 
 ## Constraints later tasks inherit
 
+- **`src/prune.ts`'s `pruneArtifacts(projectDir, plan, prior)` answers only from `.ambit/state.json`.**
+  It never walks `.claude/skills` looking for strangers, which is what makes "leaves unowned files
+  alone" true by construction. Called once from `installProject` with **every adapter's plan flattened
+  together** (same reason `authorizePlan` is), **after the last `apply` and before the lock and state
+  writes**: a prune that throws is retryable because state still owns what it was about to remove, and
+  a failed `apply` leaves the previous install standing instead of half-dismantled. `InstallResult`
+  gained `pruned: readonly PrunedArtifact[]`, sorted by path.
+- **Pruning removes managed keys, never the config file.** A bundle with no MCPs plans no `.mcp.json`
+  artifact at all, so the stale keys can only come from prior state — and what is left behind is
+  `{"mcpServers": {}}` plus every foreign key, because ambit owns keys in that file and not the
+  document (spec §3.6). **Nor does it remove the directories that held pruned skills**: an empty
+  `.claude/skills` survives, since `.claude/` is the harness's. **A22's `clean` has to decide
+  deliberately** whether "leaves the project identical to before the first install" reaches the empty
+  section and those directories.
+- **`removeConfigKeys` (in `src/harness-config.ts`) returns `undefined` when the document held none of
+  the keys**, and pruning skips the write entirely in that case. That is what keeps a run with nothing
+  to prune byte-identical (**A19 relies on it**) and what stops pruning from recreating a `.mcp.json`
+  someone deleted by hand.
+- **A state entry's `managedKeys` are split at the *first* dot** (`mcpServers.acme.internal` is one
+  server named `acme.internal`), and a key naming no section at all is exit 2 `cannot prune "<key>"
+  from <file>` rather than a silently un-prunable artifact.
+- **Install's output says nothing about pruning.** Deliberate: A18's "Done when" is about disk,
+  `.mcp.json`, and state, and both existing exact-stdout and `--json` assertions in
+  `test/install.test.ts` are exhaustive. **A19's `status` and A22's `--dry-run` are the reporting
+  surfaces** — and `--dry-run` needs a *plan-only* form of pruning, because `pruneConfigKeys`
+  currently re-reads the config file after `apply` has merged this run's keys into it.
+- **The standalone `ambit prune` command is still declared-but-unimplemented, and no task in §8 owns
+  it.** A18's "Done when" covered install-time pruning only; A22 owns `clean`. Worth raising — the
+  handler would now be a thin caller of `pruneArtifacts` over a fresh plan.
 - **`src/ownership.ts`'s `authorizePlan(plan, prior, { adopt })` is the safety core**, called once from
-  `installProject` with **every adapter's plan flattened together**, before any adapter applies — that
-  is why install now plans all adapters up front instead of `plan`-then-`apply` per adapter. It
-  returns the `State` `apply` must act with: `prior`, plus an owned entry per target `--adopt` just
-  took over. **That is the whole of `--adopt` for skill dirs** — an adopted path looks owned, so
-  `applySkillDir` replaces it rather than copying on top of it. **A22's `clean` and `prune` should
-  route their own "may I touch this?" questions through this module** rather than re-deriving
-  ownership; **A20's symlink mode inherits the `lstat` check**, which is deliberately `lstat` so a
-  dangling symlink still counts as something ambit did not create.
+  `installProject` before any adapter applies. It returns the `State` `apply` must act with: `prior`,
+  plus an owned entry per target `--adopt` just took over. **That is the whole of `--adopt` for skill
+  dirs** — an adopted path looks owned, so `applySkillDir` replaces it rather than copying on top of
+  it. Pruning is handed `prior` rather than that state, since anything just adopted is in the plan
+  anyway. **A20's symlink mode inherits the `lstat` check**, which is deliberately `lstat` so a
+  dangling symlink still counts as something ambit did not create; `rm(..., { recursive: true, force:
+  true })` in `prune.ts` unlinks a symlink without following it, so A20 needs no prune branch.
 - **Ownership granularity follows the artifact kind.** `skill-dir` is owned as a path; `harness-config`
   is checked **per key** (`sectionKeys` in `src/harness-config.ts` × prior `managedKeys`), so a
   `.mcp.json` full of hand-added servers is a normal input and only a colliding server *name* is a
-  conflict. Adoption of a key needs no bookkeeping: `apply` writes managed keys unconditionally.
+  conflict.
 - **Refusal is on the first conflict, in plan order** (skills sorted, then the config file), not a
   list of every conflict — `--adopt` clears all of them at once, and multi-problem reporting is
   A23's. The two messages are exit 2 and read
   `refusing to overwrite unowned path` / `unowned key`; the path one is byte-for-byte spec §6's
   example, so **do not reword it without changing the spec**.
-- **A crash mid-`apply` now costs a `--adopt`.** State is written last (§5 rule 4), so artifacts from
+- **A crash mid-`apply` still costs a `--adopt`.** State is written last (§5 rule 4), so artifacts from
   a failed run are present-but-unowned and the next plain `install` refuses them. That is the
   intended reading of the safety core; **A24's `doctor` is what should explain it**.
-
 - **Shadowing is *not* a `SelectionReason`.** `MergedCatalog` gained
   `shadowing: { skills, mcps }` — name-keyed maps of `Shadowing = { name, catalog, shadows[] }`,
   `shadows` in config order — and `formatShadowing` renders spec §6's
@@ -37,32 +64,31 @@ Last iteration: **A17 — ownership enforcement** (the tip of `main`). Next task
   the two answer different questions, every item has a reason while at most a few are shadowed, and
   folding them would cost a shadowed item its reason in `--explain` **and** in `ambit why`'s chain.
   So `formatReason` is still an exhaustive three-arm `switch` and **`ambit.lock`'s `reason:` is
-  untouched** (the lock already carries `catalog:`, so a shadow reason there would restate one key
-  and drop another). Reverse this only with a reason, and expect the byte-exact lock tests to move.
+  untouched**. Reverse this only with a reason, and expect the byte-exact lock tests to move.
 - **`--explain` is the only surface that reports shadowing so far.** Text gets a **fourth** cell
   (empty where nothing is shadowed, so the reason column pads uniformly), `--json` gets
-  `shadows: [catalog…]` — structured, since the record already names the winner. **`ambit why` and
-  `catalog dump` deliberately do not report it** (spec §4.5 names `--explain` and `validate`), so
-  **A23's `validate` is the other half** and `catalog --json`'s golden assertion stayed untouched.
+  `shadows: [catalog…]`. **`ambit why` and `catalog dump` deliberately do not report it** (spec §4.5
+  names `--explain` and `validate`), so **A23's `validate` is the other half** and `catalog --json`'s
+  golden assertion stayed untouched.
 - **A config `skills`/`mcps` declaration colliding with a catalog is still exit 3, not precedence**
   (spec §3.1 calls both surfaces "not defined in any catalog"); catalog-vs-catalog is the only place
   first-wins applies. `mergeCatalogs`'s doc says so; `ambit why`'s "not in the bundle" error relies
   on it.
-- **`mergeCatalogs` now throws** (exit 3) when two catalogs describe one scope differently; identical
+- **`mergeCatalogs` throws** (exit 3) when two catalogs describe one scope differently; identical
   descriptions merge silently. It is the first non-total function in the merge path — anything that
   calls it on catalogs it did not validate should expect an `AmbitError`.
 - **`install` writes `ambit.lock`, and the lock is *not* an owned artifact.** It is absent from
   `.ambit/state.json`, from install's output, and from every `PlannedArtifact` — a record of the
-  resolution, not something ambit materialized. So **A18's pruning must not touch it**, **A21's
-  gitignore block must not list it** (spec §3.5: teams commit it), and **A22's `clean` has to decide
-  deliberately** whether "leaves the project identical to before the first install" reaches a file
-  ambit does not own. Nothing else reads it: `--frozen` compares *bytes*, so there is no lock parser
-  and A19's `status` should not add one without a reason.
+  resolution, not something ambit materialized. So **pruning cannot see it** (it works from state),
+  **A21's gitignore block must not list it** (spec §3.5: teams commit it), and **A22's `clean` has to
+  decide deliberately** whether "leaves the project identical to before the first install" reaches a
+  file ambit does not own. Nothing else reads it: `--frozen` compares *bytes*, so there is no lock
+  parser and A19's `status` should not add one without a reason.
 - **`src/lock.ts` owns the whole lock.** `buildLock(loaded, bundle)` is pure and takes the
   **unmerged** `readonly Catalog[]` (every configured catalog, contributing or not), `serializeLock`
   renders it, `assertLockCurrent` is `--frozen`. `installProject(projectDir, { frozen })` serializes
   once and compares **before** anything is applied, so a stale-lock CI run leaves the project
-  untouched; the write happens after `apply`, beside `writeState`, for the §5.4 reason.
+  untouched; the write happens after `apply` and after pruning, beside `writeState`, for the §5.4 reason.
 - **`emitYaml` in `src/yaml.ts` is the only sanctioned way to write YAML** (spec §3.0): sorted keys at
   every depth, double quotes when quoting is needed, no anchors/aliases, no wrapping and no block
   scalars, core schema 1.2 to match the parser. **A25's `init` scaffold and B02's editor emit through
@@ -135,20 +161,18 @@ Last iteration: **A17 — ownership enforcement** (the tip of `main`). Next task
 - **`assertScopesRegistered`** runs first inside `resolveBundle`. Suggestions: exact Levenshtein,
   threshold `max(2, floor(len/3))`, ties by the registry's sorted order. **Explicit skill names and
   `ambit why` arguments get no suggestion.**
-- **`.mcp.json` is co-owned, so ambit owns keys and not the file.** `src/harness-config.ts` replaces
-  only `mcpServers.<name>`. **A18's pruning removes managed keys, not the file** — and must work from
-  `prior` state, since a bundle with no MCPs plans no artifact at all.
 - `${VAR}` in http `headers` is interpolated at install (spec §5); an unset variable leaves its
   placeholder rather than emptying the value, and **A24's `doctor` reports it**. The entity's `env`
   list is deliberately not written into `.mcp.json`.
 - **`ProjectPaths` carries `env`**, supplied by `installProject`, so `claudeAdapter.plan` stays pure.
 
+- **`applySkillDir` still treats an *unowned* target as a merge rather than a delete**, a case install
+  never reaches (ownership refused or adopted it first). Deliberate: `apply` called directly, with a
+  state that claims nothing, must not be able to destroy a stranger's directory. Deletion lives in
+  `prune.ts`, which only ever acts on paths state names.
+
 ## Deliberate omissions, and who owns them
 
-- `apply` removes a target only when `prior` state already owns it, and nothing prunes `.mcp.json`
-  keys or drops artifacts the new bundle no longer has — all of that is **A18**. `applySkillDir`
-  keeps the unowned case a *merge* rather than a delete on purpose, so calling `apply` directly with
-  an empty state can never destroy a stranger's directory.
 - Nothing prunes the cache, and nothing locks it against a concurrent ambit (`loadCatalogs` is
   sequential for that reason). No task owns cache GC; raise it if it matters.
 - No `.gitignore` handling at all — **A21**. `.mcp.json` and `ambit.lock` are committed, so only
@@ -162,13 +186,17 @@ Last iteration: **A17 — ownership enforcement** (the tip of `main`). Next task
   repo, whose commit SHA is fixed by pinned dates and `GIT_CONFIG_GLOBAL=/dev/null`. A test needing a
   *rejected* source must pick one no fetch can be attempted for — a bare relative path like
   `../catalog` is unrecognized (`path:` is the prefix), whereas `acme/skills` resolves to a GitHub URL.
+- `test/install.test.ts`'s **`describe("pruning")`** narrows a profile between two installs and then
+  asserts *both* directions every time: what is gone, and what is still there. Two of its cases are
+  the ones that make the block mean something — a hand-added `.mcp.json` server surviving a prune that
+  empties the section, and a hand-written skill directory beside ambit's surviving. Its
+  managed-key error case has to keep owning `mcpServers.scoped` in the state it writes, or ownership
+  enforcement refuses the install before pruning is ever reached.
 - `test/catalog.test.ts` owns the **second-catalog fixture**: `writeShadowingCatalog(name, coreDesc?)`
   writes a catalog under `<root>/<name>` that collides with the fixture on the `core` scope, the core
   skill, and the `scoped` server, and `writeCatalogOrder(extra, scopes)` writes the multi-catalog
   `ambit.yml`. Its `core` and `function.engineering` descriptions must stay byte-identical to
-  `scripts/fixture-catalog.ts`'s or every multi-catalog test fails with the §4.4 conflict. Kept out of
-  the shared fixture on purpose: a catalog whose point is to collide has no business in the tree every
-  golden profile resolves.
+  `scripts/fixture-catalog.ts`'s or every multi-catalog test fails with the §4.4 conflict.
 - `test/git-source.test.ts`'s `--offline` block proves "no fetch" **by leaving the remote in place**:
   a cold-cache offline run must fail even though the repository is right there. Two of its tests
   instead delete `fixture.repo` to prove the cache alone answered. Keep both directions — either one
@@ -190,10 +218,9 @@ Last iteration: **A17 — ownership enforcement** (the tip of `main`). Next task
   single catalog; multi-catalog configs come from `test/catalog.test.ts`.
 - `test/install.test.ts`'s **`describe("ownership")`** asserts what is still on disk after every
   refusal, not just the exit code — an unowned dir byte-identical, and no skills, no `.mcp.json`, no
-  `ambit.lock`, no state file. That last part is what pins the check to being *pre*-apply; a version
-  that refused per-artifact mid-write would pass the exit-code half alone. Same block proves adoption
-  **replaces** (a stray file in the adopted directory must be gone afterwards).
-- Because the check reads `.mcp.json` before anything is written, a **malformed `.mcp.json` now fails
+  `ambit.lock`, no state file. That last part is what pins the check to being *pre*-apply. Same block
+  proves adoption **replaces** (a stray file in the adopted directory must be gone afterwards).
+- Because the check reads `.mcp.json` before anything is written, a **malformed `.mcp.json` fails
   before any skill lands**; the two parse-failure tests assert only that the file is unchanged, which
   holds either way.
 - `test/install.test.ts`'s default profile is `[core, function.engineering]`, which selects the

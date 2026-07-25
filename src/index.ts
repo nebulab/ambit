@@ -76,6 +76,7 @@ export {
   managedKey,
   mergeConfigSection,
   readJsonDocument,
+  removeConfigKeys,
   sectionKeys,
   serializeJsonDocument,
 } from "./harness-config.js";
@@ -99,6 +100,8 @@ export { authorizePlan } from "./ownership.js";
 export type { OwnershipOptions } from "./ownership.js";
 export { buildProgram, run } from "./program.js";
 export type { Io } from "./program.js";
+export { pruneArtifacts } from "./prune.js";
+export type { PrunedArtifact } from "./prune.js";
 export {
   MCP_REQUIREMENT_PREFIX,
   assertScopesRegistered,

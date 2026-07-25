@@ -670,7 +670,7 @@ runs the whole pipeline against a local fixture before any git, lock, or prune l
   **Done when:** An unowned file at a target path exits 2 and is left byte-identical;
   `--adopt` takes ownership explicitly.
 
-- [ ] **A18 — Pruning.**
+- [x] **A18 — Pruning.**
   **Depends:** A17
   **Done when:** Install A then install B removes A-only skills and MCP entries from disk,
   `.mcp.json`, and state, while leaving unowned files alone.

@@ -117,8 +117,9 @@ function planSkill(skill: MergedSkill, project: ProjectPaths): PlannedSkillDir {
  * The `.mcp.json` artifact, or nothing when the bundle selected no servers.
  *
  * A bundle with no MCPs plans no artifact at all rather than an empty section, so a project that
- * never uses servers does not acquire a `.mcp.json` it did not ask for. Removing servers a
- * previous install wrote is pruning's job (A18), not this one's.
+ * never uses servers does not acquire a `.mcp.json` it did not ask for. Servers a previous install
+ * wrote are `prune.ts`'s to remove, which is why it works from state rather than from this plan:
+ * there is no artifact here to carry the news that a file's last managed key is gone.
  */
 function planMcpConfig(
   mcps: readonly MergedMcp[],

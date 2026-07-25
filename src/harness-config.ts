@@ -106,6 +106,39 @@ export function mergeConfigSection(
 }
 
 /**
+ * Removes `keys` from `document[section]`, leaving every other key — and everything else in that
+ * section — exactly where it was.
+ *
+ * @returns the new document, or `undefined` when it already held none of them, so a caller can skip
+ *   the write rather than rewriting a file it has nothing to change. That is what keeps an install
+ *   with nothing to prune byte-identical (spec §7), and what stops pruning from recreating a file
+ *   someone deleted by hand.
+ *
+ * The section survives emptying out: ambit owns keys inside this file and not the file itself
+ * (spec §3.6), so removing the last managed server leaves `{}` behind rather than deleting a
+ * document a person may also be writing into. A section holding something other than an object
+ * holds no keys to remove, which is the same reading `sectionKeys` takes.
+ */
+export function removeConfigKeys(
+  document: JsonObject,
+  section: string,
+  keys: readonly string[],
+): JsonObject | undefined {
+  const existing = document[section];
+  if (!isRecord(existing)) return undefined;
+
+  const present = keys.filter((key) => Object.hasOwn(existing, key));
+  if (present.length === 0) return undefined;
+
+  const kept: Record<string, unknown> = { ...existing };
+  for (const key of present) delete kept[key];
+
+  // Spreading the document keeps `section` in the position it already had, so pruning one server
+  // does not reorder a file someone else also maintains.
+  return { ...document, [section]: kept };
+}
+
+/**
  * The keys currently in `document[section]` — what ownership enforcement compares a plan against
  * (spec §5).
  *

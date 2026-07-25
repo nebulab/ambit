@@ -13,7 +13,9 @@
  * Every adapter is asked to plan before any of them applies, so ownership can be checked against the
  * complete set of targets while the project is still untouched (spec §5, `ownership.ts`).
  *
- * Pruning (A18) is not here yet, so this build adds and overwrites but never removes.
+ * Pruning comes after the last adapter and before the two record-keeping writes (spec §5 rule 3), so
+ * a prune that fails is retryable — state still owns what it was about to remove — and a failed
+ * `apply` leaves the previous install standing rather than half-dismantled.
  *
  * The environment is captured here rather than inside an adapter, because `${VAR}` interpolation in
  * MCP headers (spec §5) is the one thing materialization reads outside its arguments, and an
@@ -27,6 +29,8 @@ import { configError } from "./errors.js";
 import type { Lock } from "./lock.js";
 import { assertLockCurrent, buildLock, serializeLock, writeLockText } from "./lock.js";
 import { authorizePlan } from "./ownership.js";
+import type { PrunedArtifact } from "./prune.js";
+import { pruneArtifacts } from "./prune.js";
 import type { Bundle } from "./resolve.js";
 import { resolveBundle } from "./resolve.js";
 import type { SourceContext } from "./sources.js";
@@ -54,6 +58,8 @@ export interface InstallResult {
   readonly harnesses: readonly string[];
   /** Everything now owned, in the order the adapters wrote it. */
   readonly artifacts: readonly AppliedArtifact[];
+  /** What the previous install owned and this one does not, removed by path (spec §5 rule 3). */
+  readonly pruned: readonly PrunedArtifact[];
   /** What was written to `ambit.lock` (spec §3.5). */
   readonly lock: Lock;
 }
@@ -120,19 +126,20 @@ export async function installProject(
   // Plan everything first: the ownership check has to see every target before the first write, or a
   // project whose second skill collides is left with its first one already installed.
   const plans = adapters.map((adapter) => ({ adapter, plan: adapter.plan(bundle, project) }));
-  const owner = await authorizePlan(
-    plans.flatMap(({ plan }) => plan),
-    prior,
-    { adopt: options.adopt === true },
-  );
+  const planned = plans.flatMap(({ plan }) => plan);
+  const owner = await authorizePlan(planned, prior, { adopt: options.adopt === true });
 
   const artifacts: AppliedArtifact[] = [];
   for (const { adapter, plan } of plans) {
     artifacts.push(...(await adapter.apply(plan, owner)));
   }
 
+  // Against `prior` rather than `owner`: what `--adopt` just took over is by definition in the plan,
+  // so the two agree here, and pruning should be answerable from what the last install recorded.
+  const pruned = await pruneArtifacts(projectDir, planned, prior);
+
   await writeLockText(projectDir, lockText);
   await writeState(projectDir, { version: STATE_VERSION, harnesses, artifacts });
 
-  return { bundle, harnesses, artifacts, lock };
+  return { bundle, harnesses, artifacts, pruned, lock };
 }

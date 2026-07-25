@@ -23,7 +23,14 @@ import { run } from "../src/program.js";
 import type { Bundle } from "../src/resolve.js";
 import { resolveBundle } from "../src/resolve.js";
 import type { SourceContext } from "../src/sources.js";
-import { EMPTY_STATE, STATE_DIRNAME, STATE_FILENAME, parseState, readState } from "../src/state.js";
+import {
+  EMPTY_STATE,
+  STATE_DIRNAME,
+  STATE_FILENAME,
+  parseState,
+  readState,
+  serializeState,
+} from "../src/state.js";
 
 const CATALOG_NAME = "company";
 const SKILLS_DIR = ".claude/skills";
@@ -737,6 +744,185 @@ describe("ownership", () => {
     expect(result.code, result.stderr).toBe(ExitCode.Success);
     expect(await readStateFile()).toBe(state);
     expect(await readMcpFile()).toBe(servers);
+  });
+});
+
+/**
+ * Spec §5 rule 3, and §7's pruning case: install bundle A, install bundle B, and what only A held
+ * is gone from disk, from `.mcp.json`, and from state — while anything ambit does not own stays
+ * exactly where it was.
+ */
+describe("pruning", () => {
+  /** A profile holding both servers, so narrowing to `WIDE` leaves one of them stale. */
+  const BOTH_SERVERS = ["function.engineering", "project.acme"];
+  const PROJECT_SKILL = "acme.projects.use-acme-brief";
+  const HANDMADE_SKILL = "hand-written";
+
+  /** A skill directory beside ambit's that no state claims. */
+  async function writeForeignSkillDir(): Promise<void> {
+    const target = path.join(projectDir, SKILLS_DIR, HANDMADE_SKILL);
+    await mkdir(target, { recursive: true });
+    await writeFile(path.join(target, "SKILL.md"), `---\nname: ${HANDMADE_SKILL}\n---\n`, "utf8");
+  }
+
+  it("removes the skill directories the new bundle no longer selects", async () => {
+    expect((await cli("install")).code).toBe(ExitCode.Success);
+    await writeProfile(["core"]);
+
+    const result = await cli("install");
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+
+    expect(await installedSkills()).toEqual([CORE_SKILL]);
+    expect(await tree(SKILLS_DIR)).toEqual([`${CORE_SKILL}/SKILL.md`]);
+  });
+
+  it("stops claiming what it removed", async () => {
+    await cli("install");
+    await writeProfile(["core"]);
+
+    await cli("install");
+
+    expect(parseState(await readStateFile(), STATE_FILENAME).artifacts).toEqual([
+      { path: `${SKILLS_DIR}/${CORE_SKILL}`, kind: "skill-dir", mode: "copy" },
+    ]);
+  });
+
+  it("reports what it removed, by path", async () => {
+    await installProject(projectDir);
+    await writeProfile(["core"]);
+
+    const result = await installProject(projectDir);
+
+    expect(result.pruned).toEqual([
+      { path: `${SKILLS_DIR}/${FRONTEND_SKILL}`, kind: "skill-dir" },
+      { path: `${SKILLS_DIR}/${ENGINEERING_SKILL}`, kind: "skill-dir" },
+      { path: MCP_FILE, kind: "harness-config", managedKeys: [`mcpServers.${SCOPED_MCP}`] },
+    ]);
+  });
+
+  it("removes only the server keys the new bundle dropped", async () => {
+    await writeProfile(BOTH_SERVERS);
+    await cli("install");
+    await writeProfile(["function.engineering"]);
+
+    const result = await cli("install");
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+
+    // `scoped` still matches by scope; `fixture` only ever arrived through the project skill's
+    // `requires`, which this profile no longer selects.
+    expect(Object.keys((await readMcpConfig()).mcpServers as object)).toEqual([SCOPED_MCP]);
+    expect(parseState(await readStateFile(), STATE_FILENAME).artifacts).toEqual([
+      { path: `${SKILLS_DIR}/${FRONTEND_SKILL}`, kind: "skill-dir", mode: "copy" },
+      { path: `${SKILLS_DIR}/${ENGINEERING_SKILL}`, kind: "skill-dir", mode: "copy" },
+      { path: MCP_FILE, kind: "harness-config", managedKeys: [`mcpServers.${SCOPED_MCP}`] },
+    ]);
+  });
+
+  it("empties the servers section rather than deleting a file it co-owns", async () => {
+    await cli("install");
+    await writeProfile(["core"]);
+
+    await cli("install");
+
+    // A bundle with no servers plans no `.mcp.json` artifact at all, so this can only come from
+    // state — and the file stays, because ambit owns keys in it and not the document (spec §3.6).
+    expect(await readMcpConfig()).toEqual({ mcpServers: {} });
+    expect(
+      parseState(await readStateFile(), STATE_FILENAME).artifacts.map((artifact) => artifact.path),
+    ).not.toContain(MCP_FILE);
+  });
+
+  it("leaves a hand-added server and every foreign key untouched", async () => {
+    const handmade = { command: "node", args: ["./scripts/local-mcp.js"] };
+    await writeFile(
+      path.join(projectDir, MCP_FILE),
+      `${JSON.stringify({ mcpServers: { handmade }, extra: { kept: true } }, null, 2)}\n`,
+      "utf8",
+    );
+    await cli("install");
+    await writeProfile(["core"]);
+
+    const result = await cli("install");
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+
+    expect(await readMcpConfig()).toEqual({ mcpServers: { handmade }, extra: { kept: true } });
+  });
+
+  it("leaves a skill directory no state claims alone", async () => {
+    await cli("install");
+    await writeForeignSkillDir();
+    await writeProfile(["core"]);
+
+    await cli("install");
+
+    expect(await installedSkills()).toEqual([CORE_SKILL, HANDMADE_SKILL]);
+    expect(await tree(SKILLS_DIR)).toContain(`${HANDMADE_SKILL}/SKILL.md`);
+  });
+
+  it("removes an explicitly declared skill once the declaration goes", async () => {
+    await writeProfile([], undefined, ["skills:", `  - ${PROJECT_SKILL}`]);
+    await cli("install");
+    // The project skill requires the core skill and `mcp.fixture`, so dropping it drops all three.
+    expect(await installedSkills()).toEqual([CORE_SKILL, PROJECT_SKILL]);
+    await writeProfile([]);
+
+    const result = await cli("install");
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+
+    expect(await installedSkills()).toEqual([]);
+    expect(await readMcpConfig()).toEqual({ mcpServers: {} });
+    expect(parseState(await readStateFile(), STATE_FILENAME).artifacts).toEqual([]);
+  });
+
+  it("changes nothing when the bundle is unchanged", async () => {
+    await writeProfile(BOTH_SERVERS);
+    await cli("install");
+    const servers = await readMcpFile();
+    const state = await readStateFile();
+
+    const result = await installProject(projectDir);
+
+    expect(result.pruned).toEqual([]);
+    expect(await readMcpFile()).toBe(servers);
+    expect(await readStateFile()).toBe(state);
+  });
+
+  it("succeeds when what it owned is already gone", async () => {
+    await cli("install");
+    await rm(path.join(projectDir, SKILLS_DIR, ENGINEERING_SKILL), { recursive: true });
+    await rm(path.join(projectDir, MCP_FILE));
+    await writeProfile(["core"]);
+
+    const result = await cli("install");
+
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+    expect(await installedSkills()).toEqual([CORE_SKILL]);
+    // Pruning a key from a file someone deleted must not put the file back.
+    expect(await pathExists(MCP_FILE)).toBe(false);
+  });
+
+  it("exits 2 rather than guessing at a managed key that names no section", async () => {
+    await cli("install");
+    // A key ambit still owns, so ownership enforcement passes and pruning is what has to deal with
+    // the second one — which no build of ambit could have written.
+    const state = parseState(await readStateFile(), STATE_FILENAME);
+    await writeFile(
+      path.join(projectDir, STATE_DIRNAME, STATE_FILENAME),
+      serializeState({
+        ...state,
+        artifacts: state.artifacts.map((artifact) =>
+          artifact.kind === "harness-config"
+            ? { ...artifact, managedKeys: [`mcpServers.${SCOPED_MCP}`, SCOPED_MCP] }
+            : artifact,
+        ),
+      }),
+      "utf8",
+    );
+
+    const result = await cli("install");
+
+    expect(result.code).toBe(ExitCode.Config);
+    expect(result.stderr).toContain(`cannot prune "${SCOPED_MCP}" from ${MCP_FILE}`);
   });
 });
 
