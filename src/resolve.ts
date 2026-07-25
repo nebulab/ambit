@@ -11,9 +11,11 @@
  * load-bearing, so it lives here rather than in any adapter.
  *
  * Nothing else is implicit: no scope is reserved, and a project selects exactly the scopes it
- * lists, expanded downward. What scope selection finds is then closed over `requires`, so a
- * skill can carry its dependencies into a bundle that would never have selected them. Explicit
- * `skills`/`mcps` entries from config are a later slice.
+ * lists, expanded downward. Alongside that, a project may name skills and servers outright
+ * (spec §4.8) — those are selected whatever their scopes, since asking for something by name is
+ * already the decision that scopes exist to make. Everything selected either way is then closed
+ * over `requires`, so a skill can carry its dependencies into a bundle that would never have
+ * selected them.
  */
 import type { MergedCatalog, MergedMcp, MergedSkill, ScopeDefinition } from "./catalog.js";
 import { MCPS_DIRNAME, SCOPES_FILENAME, SKILL_FILENAME } from "./catalog.js";
@@ -305,6 +307,53 @@ function selectedByScope(selecting: ReadonlySet<string>, declared: readonly stri
   return declared.some((scope) => selecting.has(scope));
 }
 
+/** The names a config selects outright, by kind. */
+interface ExplicitNames {
+  readonly skills: ReadonlySet<string>;
+  readonly mcps: ReadonlySet<string>;
+}
+
+/**
+ * The error for a `skills` entry naming a skill nothing provides (spec §4.8).
+ *
+ * Checked rather than trusted, because the failure mode is silent in the worst way: a misspelled
+ * name that selects nothing leaves a bundle missing the one thing the config went out of its way
+ * to ask for.
+ */
+function unknownExplicitSkill(name: string, config: ProjectConfig): AmbitError {
+  return resolutionError(
+    `unknown skill "${name}" ${at(config.origin.file, config.origin.skillLines.get(name))}`,
+    [
+      "`skills` lists it, but no catalog provides a skill with that name",
+      "correct the name, configure the catalog that has it, or give the entry its own `source`",
+    ],
+  );
+}
+
+/**
+ * The skills and servers config names outright (spec §4.8), whatever scopes they declare.
+ *
+ * A `skills` entry carrying its own `source`, and every inline `mcps` entry, were folded into
+ * `merged` before resolution (see `mergeConfigEntities`), so both `skills` forms resolve by name
+ * here and neither needs a case of its own.
+ *
+ * @throws {AmbitError} exit 3 for a name nothing provides.
+ */
+function explicitNames(config: ProjectConfig, merged: MergedCatalog): ExplicitNames {
+  const provided = new Set(merged.skills.map((skill) => skill.name));
+
+  // Sorted, so which of several unknown names is reported first depends on the names alone rather
+  // than on the order the config happens to list them in.
+  for (const name of sortedUnique(config.skills.map((request) => request.name))) {
+    if (!provided.has(name)) throw unknownExplicitSkill(name, config);
+  }
+
+  return {
+    skills: new Set(config.skills.map((request) => request.name)),
+    mcps: new Set(config.mcps.map((entity) => entity.name)),
+  };
+}
+
 /**
  * Computes the bundle for a project.
  *
@@ -314,17 +363,26 @@ function selectedByScope(selecting: ReadonlySet<string>, declared: readonly stri
  * `env` is unioned over the closed selection, not the scope-selected one (spec §4.10): a server
  * pulled in by `requires` needs its credentials as much as one selected by scope.
  *
- * @throws {AmbitError} exit 3 for a held scope the merged registry does not know, a requirement no
- *   catalog provides, or a `requires` cycle.
+ * @param merged the catalogs, with the project's own declarations already folded in — a `skills`
+ *   entry carrying a `source`, and inline `mcps` — as `mergeConfigEntities` does.
+ * @throws {AmbitError} exit 3 for a held scope the merged registry does not know, an explicit skill
+ *   nothing provides, a requirement no catalog provides, or a `requires` cycle.
  */
 export function resolveBundle(config: ProjectConfig, merged: MergedCatalog): Bundle {
   assertScopesRegistered(config, merged.scopes);
 
   const selecting = expandHeldScopes(config.scopes, merged.scopes);
+  const explicit = explicitNames(config, merged);
 
+  // Both seed lists stay in name order, being filters of the merged catalog, so how something was
+  // selected cannot change where it lands in the bundle.
   const { skills, mcps } = closeOverRequires(
-    merged.skills.filter((skill) => selectedByScope(selecting, skill.scopes)),
-    merged.mcps.filter((mcp) => selectedByScope(selecting, mcp.scopes)),
+    merged.skills.filter(
+      (skill) => explicit.skills.has(skill.name) || selectedByScope(selecting, skill.scopes),
+    ),
+    merged.mcps.filter(
+      (mcp) => explicit.mcps.has(mcp.name) || selectedByScope(selecting, mcp.scopes),
+    ),
     merged,
   );
 

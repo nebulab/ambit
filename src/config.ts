@@ -8,11 +8,11 @@
 import { stat } from "node:fs/promises";
 import path from "node:path";
 
-import { configError } from "./errors.js";
+import { at, configError } from "./errors.js";
 import type { McpEntity } from "./mcp.js";
 import { parseMcpEntity } from "./mcp.js";
-import type { PositionedString, YamlMapping } from "./yaml.js";
-import { parseYamlMapping, readYamlMapping } from "./yaml.js";
+import type { PositionedString } from "./yaml.js";
+import { YamlMapping, parseYamlMapping, readYamlMapping } from "./yaml.js";
 
 /** The only config version this build understands. */
 export const CONFIG_VERSION = 1;
@@ -67,6 +67,10 @@ export interface ConfigOrigin {
   readonly file: string;
   /** 1-based line each held scope was written on, keyed by scope. */
   readonly scopeLines: ReadonlyMap<string, number>;
+  /** 1-based line each `skills` entry was written on, keyed by skill name. */
+  readonly skillLines: ReadonlyMap<string, number>;
+  /** 1-based line each `mcps` entry was written on, keyed by server name. */
+  readonly mcpLines: ReadonlyMap<string, number>;
 }
 
 /** A parsed, validated `ambit.yml`. */
@@ -85,23 +89,50 @@ export interface ProjectConfig {
   readonly mcps: readonly McpEntity[];
 }
 
-function parseCatalogs(root: YamlMapping): readonly CatalogRef[] {
-  const entries = root.optionalMappingList("catalogs") ?? [];
-  const catalogs: CatalogRef[] = [];
-  const lines = new Map<string, number | undefined>();
+/**
+ * Records the names one config list has used, rejecting a repeat and naming both lines.
+ *
+ * Every list in `ambit.yml` is keyed by `name`, and every later stage looks each name up exactly
+ * once — so a repeat is never a merge, always a mistake, and refusing it here is what lets
+ * resolution treat the lists as maps.
+ *
+ * @param subject how the list's entries are named in the message.
+ * @param advice the concrete next step (spec §6).
+ * @returns a function that throws on the second use of a name.
+ */
+function nameTracker(
+  file: string,
+  subject: string,
+  advice: string,
+): (name: string, line: number | undefined) => void {
+  const seen = new Map<string, number | undefined>();
 
-  for (const entry of entries) {
-    entry.rejectUnknownKeys(CATALOG_KEYS);
-    const name = entry.requireString("name");
-
-    if (lines.has(name)) {
-      const first = lines.get(name);
-      throw entry.keyError("name", `duplicate catalog name "${name}"`, [
+  return (name, line) => {
+    if (seen.has(name)) {
+      const first = seen.get(name);
+      throw configError(`duplicate ${subject} "${name}" ${at(file, line)}`, [
         first === undefined ? "already declared earlier" : `first declared on line ${first}`,
-        "give each catalog a distinct name",
+        advice,
       ]);
     }
-    lines.set(name, entry.lineOf("name"));
+    seen.set(name, line);
+  };
+}
+
+/** A parsed config list, with the line each entry was written on for the errors raised later. */
+interface Positioned<T> {
+  readonly entries: readonly T[];
+  readonly lines: ReadonlyMap<string, number>;
+}
+
+function parseCatalogs(root: YamlMapping): readonly CatalogRef[] {
+  const track = nameTracker(root.file, "catalog name", "give each catalog a distinct name");
+  const catalogs: CatalogRef[] = [];
+
+  for (const entry of root.optionalMappingList("catalogs") ?? []) {
+    entry.rejectUnknownKeys(CATALOG_KEYS);
+    const name = entry.requireString("name");
+    track(name, entry.lineOf("name"));
 
     const ref = entry.optionalString("ref");
     catalogs.push({
@@ -114,23 +145,52 @@ function parseCatalogs(root: YamlMapping): readonly CatalogRef[] {
   return catalogs;
 }
 
-function parseSkills(root: YamlMapping): readonly SkillRequest[] {
-  const entries = root.optionalEntryList("skills") ?? [];
+function parseSourceSkill(entry: YamlMapping): SourceSkillRequest {
+  entry.rejectUnknownKeys(SKILL_KEYS);
+  const ref = entry.optionalString("ref");
+  const within = entry.optionalString("path");
+  return {
+    kind: "source",
+    name: entry.requireString("name"),
+    source: entry.requireString("source"),
+    ...(ref !== undefined && { ref }),
+    ...(within !== undefined && { path: within }),
+  };
+}
 
-  return entries.map((entry): SkillRequest => {
-    if (typeof entry === "string") return { kind: "catalog", name: entry };
+function parseSkills(root: YamlMapping): Positioned<SkillRequest> {
+  const track = nameTracker(root.file, "skills entry", "list each skill once");
+  const entries: SkillRequest[] = [];
+  const lines = new Map<string, number>();
 
-    entry.rejectUnknownKeys(SKILL_KEYS);
-    const ref = entry.optionalString("ref");
-    const within = entry.optionalString("path");
-    return {
-      kind: "source",
-      name: entry.requireString("name"),
-      source: entry.requireString("source"),
-      ...(ref !== undefined && { ref }),
-      ...(within !== undefined && { path: within }),
-    };
-  });
+  const add = (request: SkillRequest, line: number | undefined): void => {
+    track(request.name, line);
+    if (line !== undefined) lines.set(request.name, line);
+    entries.push(request);
+  };
+
+  for (const entry of root.optionalEntryList("skills") ?? []) {
+    if (entry instanceof YamlMapping) add(parseSourceSkill(entry), entry.lineOf("name"));
+    else add({ kind: "catalog", name: entry.value }, entry.line);
+  }
+
+  return { entries, lines };
+}
+
+function parseMcps(root: YamlMapping): Positioned<McpEntity> {
+  const track = nameTracker(root.file, "mcps entry", "define each server once");
+  const entries: McpEntity[] = [];
+  const lines = new Map<string, number>();
+
+  for (const entry of root.optionalMappingList("mcps") ?? []) {
+    const entity = parseMcpEntity(entry);
+    const line = entry.lineOf("name");
+    track(entity.name, line);
+    if (line !== undefined) lines.set(entity.name, line);
+    entries.push(entity);
+  }
+
+  return { entries, lines };
 }
 
 /**
@@ -159,16 +219,28 @@ function fromMapping(root: YamlMapping): ProjectConfig {
     ]);
   }
 
+  // Read in the order §3.1 lists the keys, rather than left to the return statement's evaluation
+  // order: a config with two problems should report the earlier key's, not whichever key the
+  // object literal happens to mention first.
+  const harnesses = root.optionalStringList("harnesses") ?? DEFAULT_HARNESSES;
   const scopes = root.optionalPositionedStringList("scopes") ?? [];
+  const catalogs = parseCatalogs(root);
+  const skills = parseSkills(root);
+  const mcps = parseMcps(root);
 
   return {
     version,
-    origin: { file: root.file, scopeLines: scopeLines(scopes) },
-    harnesses: root.optionalStringList("harnesses") ?? DEFAULT_HARNESSES,
+    origin: {
+      file: root.file,
+      scopeLines: scopeLines(scopes),
+      skillLines: skills.lines,
+      mcpLines: mcps.lines,
+    },
+    harnesses,
     scopes: scopes.map((entry) => entry.value),
-    catalogs: parseCatalogs(root),
-    skills: parseSkills(root),
-    mcps: (root.optionalMappingList("mcps") ?? []).map(parseMcpEntity),
+    catalogs,
+    skills: skills.entries,
+    mcps: mcps.entries,
   };
 }
 

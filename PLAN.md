@@ -628,7 +628,7 @@ runs the whole pipeline against a local fixture before any git, lock, or prune l
   the requires-only server, with both transport kinds mapped correctly; a hand-added server
   in the file survives untouched; a `transport` with zero or two kind keys exits 2.
 
-- [ ] **A11 — Explicit skills and inline MCPs.**
+- [x] **A11 — Explicit skills and inline MCPs.**
   **Depends:** A10
   **Done when:** Both `skills` forms — a bare name resolved from a catalog, and a mapping
   carrying its own `source` — appear in the bundle regardless of scope, as do inline `mcps`

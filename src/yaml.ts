@@ -230,13 +230,20 @@ export class YamlMapping {
   /**
    * A sequence whose items are each a string or a mapping — the shape `ambit.yml`'s `skills`
    * uses, where a bare name is shorthand for the full mapping (spec §3.1).
+   *
+   * The string form carries its line for the same reason
+   * {@link YamlMapping.optionalPositionedStringList} does: an explicit skill no catalog provides
+   * (spec §4.8) is rejected long after this parse, and spec §6 still expects its error to name the
+   * line the name was written on.
    */
-  optionalEntryList(key: string): readonly (string | YamlMapping)[] | undefined {
+  optionalEntryList(key: string): readonly (PositionedString | YamlMapping)[] | undefined {
     const items = this.sequence(key, "a sequence of strings or mappings");
     if (items === undefined) return undefined;
     return items.map((item, index) => {
       if (isMap(item)) return new YamlMapping(item, this.source, `${this.label(key)}[${index}]`);
-      return this.readItemString(item, key, index, "a string or a mapping");
+      const value = this.readItemString(item, key, index, "a string or a mapping");
+      const line = this.source.lineOf(item) ?? this.lineOf(key);
+      return { value, ...(line !== undefined && { line }) };
     });
   }
 

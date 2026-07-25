@@ -14,7 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildFixtureCatalog } from "../scripts/fixture-catalog.js";
 import type { PlannedSkillDir } from "../src/adapter.js";
 import { claudeAdapter } from "../src/adapters/claude.js";
-import { loadCatalogs, mergeCatalogs } from "../src/catalog.js";
+import { loadCatalogs, mergeCatalogs, mergeConfigEntities } from "../src/catalog.js";
 import { loadProjectConfig } from "../src/config.js";
 import { ExitCode } from "../src/errors.js";
 import { installProject } from "../src/install.js";
@@ -42,10 +42,15 @@ let root: string;
 let catalogDir: string;
 let projectDir: string;
 
-/** Points the project at the fixture catalog and gives it `scopes`. */
+/**
+ * Points the project at the fixture catalog and gives it `scopes`.
+ *
+ * @param extra further top-level config lines, `skills` and `mcps` blocks among them.
+ */
 async function writeProfile(
   scopes: readonly string[],
   harnesses?: readonly string[],
+  extra: readonly string[] = [],
 ): Promise<void> {
   const list = scopes.length === 0 ? "[]" : `\n${scopes.map((scope) => `  - ${scope}`).join("\n")}`;
   const harnessLine =
@@ -57,7 +62,7 @@ ${harnessLine}catalogs:
   - name: ${CATALOG_NAME}
     source: path:../catalog
 scopes: ${list}
-`,
+${extra.map((line) => `${line}\n`).join("")}`,
     "utf8",
   );
 }
@@ -154,7 +159,8 @@ afterEach(async () => {
 /** The bundle the project's current profile resolves to. */
 async function bundleFor(): Promise<Bundle> {
   const config = await loadProjectConfig(projectDir);
-  return resolveBundle(config, mergeCatalogs(await loadCatalogs(config, projectDir)));
+  const catalogs = mergeCatalogs(await loadCatalogs(config, projectDir));
+  return resolveBundle(config, await mergeConfigEntities(catalogs, config, projectDir));
 }
 
 describe("the Claude adapter's plan", () => {
@@ -475,6 +481,41 @@ describe(".mcp.json", () => {
     expect(result.code).toBe(ExitCode.Config);
     expect(result.stderr).toContain(`"mcpServers" in ${MCP_FILE} is not a JSON object`);
     expect(await readMcpFile()).toBe('{"mcpServers": []}\n');
+  });
+});
+
+/**
+ * Spec §4.8 end to end: what a project names outright is materialized like anything else, and the
+ * `source` form does not need a catalog behind it.
+ */
+describe("explicitly declared skills and servers", () => {
+  const READWISE = "readwise-cli";
+
+  it("installs a skill from its own source and an inline server, holding no scopes", async () => {
+    const source = path.join(root, "extra", "skills", READWISE);
+    await mkdir(source, { recursive: true });
+    await writeFile(path.join(source, "SKILL.md"), `---\nname: ${READWISE}\n---\n\n# readwise\n`, "utf8");
+
+    await writeProfile([], undefined, [
+      "skills:",
+      `  - name: ${READWISE}`,
+      "    source: path:../extra",
+      "mcps:",
+      "  - name: custom",
+      "    transport:",
+      "      stdio:",
+      "        command: custom-mcp",
+    ]);
+
+    const result = await cli("install");
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+
+    expect(await installedSkills()).toEqual([READWISE]);
+    expect(await readMcpConfig()).toEqual({ mcpServers: { custom: { command: "custom-mcp" } } });
+    expect(parseState(await readStateFile(), STATE_FILENAME).artifacts).toEqual([
+      { path: `${SKILLS_DIR}/${READWISE}`, kind: "skill-dir", mode: "copy" },
+      { path: MCP_FILE, kind: "harness-config", managedKeys: ["mcpServers.custom"] },
+    ]);
   });
 });
 

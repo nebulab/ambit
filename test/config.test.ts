@@ -81,6 +81,14 @@ describe("project config", () => {
           ["function.engineering", 6],
           ["project.vision-group", 7],
         ]),
+        skillLines: new Map([
+          ["acme.marketing.use-luma", 18],
+          ["readwise-cli", 19],
+        ]),
+        mcpLines: new Map([
+          ["custom", 24],
+          ["remote", 30],
+        ]),
       },
       harnesses: ["claude"],
       scopes: ["core", "function.engineering", "project.vision-group"],
@@ -121,7 +129,12 @@ describe("project config", () => {
   it("defaults everything but the version", () => {
     expect(parseProjectConfig("version: 1\n", FILE)).toEqual({
       version: 1,
-      origin: { file: FILE, scopeLines: new Map() },
+      origin: {
+        file: FILE,
+        scopeLines: new Map(),
+        skillLines: new Map(),
+        mcpLines: new Map(),
+      },
       harnesses: DEFAULT_HARNESSES,
       scopes: [],
       catalogs: [],
@@ -141,7 +154,38 @@ describe("project config", () => {
         ["core", 3],
         ["function.sales", 4],
       ]),
+      skillLines: new Map(),
+      mcpLines: new Map(),
     });
+  });
+
+  it("records the line each `skills` and `mcps` entry was written on", () => {
+    // The same reason scopes carry theirs: an explicit skill no catalog provides (spec §4.8) is
+    // rejected long after this parse, and the error still has to name the line.
+    const config = parseProjectConfig(
+      [
+        "version: 1",
+        "skills:",
+        "  - acme.one",
+        "  - name: two",
+        "    source: path:../two",
+        "mcps:",
+        "  - name: three",
+        "    transport:",
+        "      stdio:",
+        "        command: three-mcp",
+        "",
+      ].join("\n"),
+      FILE,
+    );
+
+    expect(config.origin.skillLines).toEqual(
+      new Map([
+        ["acme.one", 3],
+        ["two", 4],
+      ]),
+    );
+    expect(config.origin.mcpLines).toEqual(new Map([["three", 7]]));
   });
 
   it("keeps the first line of a scope listed twice", () => {
@@ -221,6 +265,36 @@ describe("project config", () => {
       expect(
         rejection("version: 1\ncatalogs:\n  - name: c\n    source: a/b\n    branch: main\n").format(),
       ).toContain('unknown key "catalogs[0].branch"');
+    });
+
+    it("rejects two `skills` entries naming the same skill, naming both lines", () => {
+      // Resolution looks each name up once, so a repeat is never a merge — and a bare name beside
+      // a mapping for the same name is two answers to which source provides it.
+      const error = rejection("version: 1\nskills:\n  - a.b\n  - name: a.b\n    source: path:../a\n");
+
+      expect(error.format()).toContain(`duplicate skills entry "a.b" (${FILE} line 4)`);
+      expect(error.format()).toContain("first declared on line 3");
+    });
+
+    it("rejects two `mcps` entries defining the same server", () => {
+      const error = rejection(
+        [
+          "version: 1",
+          "mcps:",
+          "  - name: x",
+          "    transport:",
+          "      stdio:",
+          "        command: one",
+          "  - name: x",
+          "    transport:",
+          "      stdio:",
+          "        command: two",
+          "",
+        ].join("\n"),
+      );
+
+      expect(error.format()).toContain(`duplicate mcps entry "x" (${FILE} line 7)`);
+      expect(error.format()).toContain("define each server once");
     });
 
     it("rejects an unknown key inside a skill entry", () => {

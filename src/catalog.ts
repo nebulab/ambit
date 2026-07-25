@@ -13,12 +13,16 @@
  *
  * This module reads from a directory. Fetching a catalog from git into that directory comes
  * later; until then only `path:` sources resolve.
+ *
+ * A project can also declare a skill or a server itself (spec §3.1), and those are folded into the
+ * same merged namespace here rather than handled beside it — see {@link mergeConfigEntities} — so
+ * resolution has exactly one place to look a name up.
  */
 import { readdir, stat } from "node:fs/promises";
 import path from "node:path";
 
-import type { CatalogRef, ProjectConfig } from "./config.js";
-import { AmbitError, configError } from "./errors.js";
+import type { CatalogRef, ConfigOrigin, ProjectConfig, SourceSkillRequest } from "./config.js";
+import { AmbitError, at, configError, resolutionError } from "./errors.js";
 import type { McpEntity } from "./mcp.js";
 import { parseMcpEntity } from "./mcp.js";
 import type { YamlMapping } from "./yaml.js";
@@ -136,39 +140,67 @@ async function sortedEntries(dir: string): Promise<readonly { name: string; dire
 }
 
 /**
- * Resolves a catalog's `source` to a directory on disk.
+ * Resolves a `source` to a directory on disk.
  *
+ * Shared by catalogs and by `skills` entries carrying their own source (spec §3.1), because the
+ * source formats are the same set for both and there is nothing catalog-specific about resolving
+ * one — only about what is read from the result.
+ *
+ * @param subject how the thing being resolved is named in errors: `catalog "company"`.
+ * @param where the `(file line N)` suffix the config entry sits at.
  * @param projectDir what a relative `path:` source is relative to.
  * @throws {AmbitError} exit 2 for a source this build cannot resolve, or a missing directory.
  */
-export async function resolveCatalogRoot(
-  catalog: CatalogRef,
+async function resolveSourceRoot(
+  subject: string,
+  source: string,
+  where: string,
   projectDir: string,
 ): Promise<string> {
-  if (!catalog.source.startsWith(PATH_SOURCE_PREFIX)) {
-    throw configError(`cannot resolve catalog "${catalog.name}" (ambit.yml)`, [
-      `\`${catalog.source}\` is not a local path, and this build fetches nothing`,
+  if (!source.startsWith(PATH_SOURCE_PREFIX)) {
+    throw configError(`cannot resolve ${subject} ${where}`, [
+      `\`${source}\` is not a local path, and this build fetches nothing`,
       "point `source` at a directory with `path:./dir`",
     ]);
   }
 
-  const within = catalog.source.slice(PATH_SOURCE_PREFIX.length);
+  const within = source.slice(PATH_SOURCE_PREFIX.length);
   if (within.trim() === "") {
-    throw configError(`catalog "${catalog.name}" has an empty path source (ambit.yml)`, [
-      `\`${catalog.source}\` names no directory`,
+    throw configError(`${subject} has an empty path source ${where}`, [
+      `\`${source}\` names no directory`,
       "write the directory after the prefix, as `path:./dir`",
     ]);
   }
 
   const root = path.resolve(projectDir, within);
   if (!(await isDirectory(root))) {
-    throw configError(`catalog "${catalog.name}" is not a directory (ambit.yml)`, [
+    throw configError(`${subject} is not a directory ${where}`, [
       `${root} does not exist, or is not a directory`,
       "correct `source`, or create the directory",
     ]);
   }
 
   return root;
+}
+
+/**
+ * Resolves a catalog's `source` to a directory on disk.
+ *
+ * @param projectDir what a relative `path:` source is relative to.
+ * @param file how the config file is named in errors.
+ * @throws {AmbitError} exit 2 for a source this build cannot resolve, or a missing directory.
+ */
+export async function resolveCatalogRoot(
+  catalog: CatalogRef,
+  projectDir: string,
+  file: string,
+): Promise<string> {
+  return resolveSourceRoot(
+    `catalog "${catalog.name}"`,
+    catalog.source,
+    at(file, undefined),
+    projectDir,
+  );
 }
 
 /** Parses `scopes.yml`. Descriptions are required: they are the picker's labels, not decoration. */
@@ -210,6 +242,22 @@ async function findSkillDirectories(root: string): Promise<readonly string[]> {
   return found;
 }
 
+/**
+ * What ambit reads off a skill's frontmatter once its name is settled (spec §3.2).
+ *
+ * Unknown keys are deliberately allowed, unlike everywhere else: this frontmatter is the harness's,
+ * and ambit only adds keys to it.
+ */
+function skillAnnotations(mapping: YamlMapping): Omit<CatalogSkill, "name" | "path"> {
+  const description = mapping.optionalString("description");
+  return {
+    ...(description !== undefined && { description }),
+    scopes: mapping.optionalStringList("scopes") ?? [],
+    requires: mapping.optionalStringList("requires") ?? [],
+    env: mapping.optionalStringList("env") ?? [],
+  };
+}
+
 async function parseSkill(root: string, relative: string): Promise<CatalogSkill> {
   const file = `${SKILLS_DIRNAME}/${relative}/${SKILL_FILENAME}`;
 
@@ -222,8 +270,6 @@ async function parseSkill(root: string, relative: string): Promise<CatalogSkill>
 
   const mapping = await readFrontmatterMapping(path.join(root, file), file);
 
-  // Unknown keys are deliberately allowed here, unlike everywhere else: this frontmatter is the
-  // harness's, and ambit only adds keys to it (spec §3.2).
   const name = mapping.requireString("name");
   const derived = skillNameFromPath(relative);
   if (name !== derived) {
@@ -233,15 +279,7 @@ async function parseSkill(root: string, relative: string): Promise<CatalogSkill>
     ]);
   }
 
-  const description = mapping.optionalString("description");
-  return {
-    name,
-    path: `${SKILLS_DIRNAME}/${relative}`,
-    ...(description !== undefined && { description }),
-    scopes: mapping.optionalStringList("scopes") ?? [],
-    requires: mapping.optionalStringList("requires") ?? [],
-    env: mapping.optionalStringList("env") ?? [],
-  };
+  return { name, path: `${SKILLS_DIRNAME}/${relative}`, ...skillAnnotations(mapping) };
 }
 
 /** MCP entity stems under `mcps/`, each with the one file that defines it. */
@@ -285,15 +323,14 @@ async function parseMcpFile(root: string, stem: string, file: string): Promise<M
 }
 
 /**
- * Adds the catalog an error came from, so a message about `skills/a/b/SKILL.md` says which of
- * several catalogs holds that path. Prepended, keeping the concrete next step last (spec §6).
+ * Adds where an error came from, so a message about `skills/a/b/SKILL.md` says which of several
+ * sources holds that path. Prepended, keeping the concrete next step last (spec §6).
+ *
+ * @param subject the source as errors name it: `catalog "company"`.
  */
-function inCatalog(name: string, root: string, error: unknown): unknown {
+function inSource(subject: string, root: string, error: unknown): unknown {
   if (!(error instanceof AmbitError)) return error;
-  return new AmbitError(error.code, error.message, [
-    `in catalog "${name}" (${root})`,
-    ...error.detail,
-  ]);
+  return new AmbitError(error.code, error.message, [`in ${subject} (${root})`, ...error.detail]);
 }
 
 /**
@@ -332,7 +369,7 @@ export async function parseCatalogDirectory(
 
     return { name, source, root, scopes, skills: byName(skills), mcps: byName(mcps) };
   } catch (error) {
-    throw inCatalog(name, root, error);
+    throw inSource(`catalog "${name}"`, root, error);
   }
 }
 
@@ -348,10 +385,150 @@ export async function loadCatalogs(
 ): Promise<readonly Catalog[]> {
   const catalogs: Catalog[] = [];
   for (const ref of config.catalogs) {
-    const root = await resolveCatalogRoot(ref, projectDir);
+    const root = await resolveCatalogRoot(ref, projectDir, config.origin.file);
     catalogs.push(await parseCatalogDirectory(ref.name, ref.source, root));
   }
   return catalogs;
+}
+
+/** Where a skill sits inside a source that follows the catalog convention (spec §2). */
+function skillPathFromName(name: string): string {
+  return `${SKILLS_DIRNAME}/${name.replaceAll(".", "/")}`;
+}
+
+/**
+ * Loads one skill declared with its own `source` rather than through a catalog (spec §3.1).
+ *
+ * A source need not be a catalog: only the one skill directory is read, nothing expects a
+ * `scopes.yml`, and `path` may point anywhere inside it. What the skill declares still counts —
+ * `requires` is closed over as usual — so an explicit entry can carry dependencies with it.
+ *
+ * The config's `name` is authoritative, since it is what resolution, `requires`, and the installed
+ * directory all use; a frontmatter `name` that disagrees is an error for the same reason a catalog
+ * skill's must match its path.
+ *
+ * @param origin where the config's `skills` entry was written, so errors can cite the line.
+ * @throws {AmbitError} exit 2 for a source this build cannot resolve, a skill directory that is not
+ *   there, malformed frontmatter, or a `name` that disagrees with the config's.
+ */
+export async function loadSourceSkill(
+  request: SourceSkillRequest,
+  projectDir: string,
+  origin: ConfigOrigin,
+): Promise<MergedSkill> {
+  const subject = `skill "${request.name}"`;
+  const where = at(origin.file, origin.skillLines.get(request.name));
+  const root = await resolveSourceRoot(subject, request.source, where, projectDir);
+
+  const directory = request.path ?? skillPathFromName(request.name);
+  const file = `${directory}/${SKILL_FILENAME}`;
+
+  if (!(await isFile(path.join(root, file)))) {
+    throw configError(`${subject} is not in its source ${where}`, [
+      `${root} has no ${file}`,
+      request.path === undefined
+        ? "add `path:` naming the skill's directory within the source"
+        : "correct `path`, or point `source` at the directory that holds it",
+    ]);
+  }
+
+  try {
+    const mapping = await readFrontmatterMapping(path.join(root, file), file);
+    const declared = mapping.requireString("name");
+    if (declared !== request.name) {
+      throw mapping.keyError(
+        "name",
+        `skill name "${declared}" does not match the name it is declared under`,
+        [`${origin.file} lists it as "${request.name}"`, "correct one of the two so they agree"],
+      );
+    }
+
+    return {
+      name: request.name,
+      path: directory,
+      ...skillAnnotations(mapping),
+      // No catalog provided it, so the column that would name one names the source instead: with
+      // `path` it locates the skill, and it is how the config refers to it.
+      catalog: request.source,
+      catalogRoot: root,
+    };
+  } catch (error) {
+    throw inSource(`skill source "${request.source}"`, root, error);
+  }
+}
+
+/**
+ * The error for a config declaration a catalog already provides (spec §4.5, §6).
+ *
+ * Spec §3.1 describes both surfaces as being for things no catalog defines, so a collision means
+ * one of the two declarations is a mistake — and which one ambit cannot know, so it refuses rather
+ * than letting either quietly win.
+ */
+function declarationConflict(
+  kind: string,
+  name: string,
+  provider: string,
+  where: string,
+  advice: string,
+): AmbitError {
+  return resolutionError(`${kind} "${name}" is also provided by catalog "${provider}" ${where}`, [
+    `catalog "${provider}" already defines "${name}", and a name means one thing`,
+    advice,
+  ]);
+}
+
+/**
+ * Folds a project's own declarations into the merged catalog: `skills` entries carrying their own
+ * `source`, and inline `mcps` (spec §3.1, §4.8).
+ *
+ * They join the same namespace rather than sitting beside it, so resolution has exactly one place
+ * to look a name up — which also lets a catalog skill's `requires` reach a server the project
+ * defined inline.
+ *
+ * @param projectDir what a relative `path:` source is relative to.
+ * @throws {AmbitError} exit 2 for a skill source that cannot be read; exit 3 for a name a catalog
+ *   already provides.
+ */
+export async function mergeConfigEntities(
+  merged: MergedCatalog,
+  config: ProjectConfig,
+  projectDir: string,
+): Promise<MergedCatalog> {
+  const skills = [...merged.skills];
+  const mcps = [...merged.mcps];
+
+  for (const request of config.skills) {
+    if (request.kind !== "source") continue;
+    const shadowed = merged.skills.find((skill) => skill.name === request.name);
+    if (shadowed !== undefined) {
+      throw declarationConflict(
+        "skill",
+        request.name,
+        shadowed.catalog,
+        at(config.origin.file, config.origin.skillLines.get(request.name)),
+        "drop `source` to take the catalog's copy, or rename one of the two",
+      );
+    }
+    skills.push(await loadSourceSkill(request, projectDir, config.origin));
+  }
+
+  for (const entity of config.mcps) {
+    const shadowed = merged.mcps.find((mcp) => mcp.name === entity.name);
+    if (shadowed !== undefined) {
+      throw declarationConflict(
+        "MCP server",
+        entity.name,
+        shadowed.catalog,
+        at(config.origin.file, config.origin.mcpLines.get(entity.name)),
+        "remove the `mcps` entry to take the catalog's, or rename one of the two",
+      );
+    }
+    // Defined in the config itself, so that is what the origin column says: it is where a reader
+    // goes to change it, and it carries no path of its own.
+    mcps.push({ ...entity, catalog: config.origin.file });
+  }
+
+  return { ...merged, skills: byName(skills), mcps: byName(mcps) };
 }
 
 /**

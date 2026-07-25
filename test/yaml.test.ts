@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { AmbitError, ExitCode } from "../src/errors.js";
 import {
+  YamlMapping,
   parseFrontmatterMapping,
   parseYamlMapping,
   readFrontmatterMapping,
@@ -251,12 +252,11 @@ describe("YAML loader", () => {
       expect(error.format()).toContain(`"catalogs[0]" must be a mapping (${FILE} line 2)`);
     });
 
-    it("reads a list of strings or mappings", () => {
+    it("reads a list of strings or mappings, positioning the bare names", () => {
       const entries = load("skills:\n  - acme.one\n  - name: two\n").optionalEntryList("skills");
 
-      expect(typeof entries?.[0]).toBe("string");
-      expect(entries?.[0]).toBe("acme.one");
-      expect(typeof entries?.[1]).toBe("object");
+      expect(entries?.[0]).toEqual({ value: "acme.one", line: 2 });
+      expect(entries?.[1]).toBeInstanceOf(YamlMapping);
     });
 
     it("rejects an entry that is neither a string nor a mapping", () => {

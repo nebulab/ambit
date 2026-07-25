@@ -3,63 +3,77 @@
 Rewritten by each Ralph iteration for the next one. Short, current, and only what would cost
 real time to rediscover — see `PROMPT.md` §6.
 
-Last iteration: **A10 — MCP selection and `.mcp.json`** (the tip of `main`).
+Last iteration: **A11 — Explicit skills and inline MCPs** (the tip of `main`).
 
 ## Constraints later tasks inherit
 
-- **`PlannedArtifact` is now a union**: `PlannedSkillDir | PlannedHarnessConfig`. Anything reading
-  `artifact.mode` or `artifact.source` must narrow on `kind` first. `claudeAdapter.plan` emits the
-  skill dirs (sorted) followed by at most one `.mcp.json` artifact, and `applyPlan` switches on
-  `kind`.
-- **`ProjectPaths` gained `env`** (`Readonly<Record<string, string | undefined>>`). `installProject`
-  passes `process.env` once, so `plan` stays a pure function of its arguments and a test can pin
-  `${VAR}` interpolation without touching the real environment. Every `claudeAdapter.plan` call site
-  must supply it.
-- **`.mcp.json` is co-owned, so ambit owns keys and not the file.** `src/harness-config.ts` reads the
-  document, replaces only `mcpServers.<name>`, and writes everything else back with existing keys in
-  their original position (new ones appended in entry order). **A17's ownership check must be
-  per-key for `harness-config`** — an unowned `.mcp.json` is a normal input, not a conflict — and
-  **A18's pruning removes managed keys from the section, not the file.**
-- A bundle with no MCPs plans **no** `.mcp.json` artifact at all, so a project that uses no servers
-  never acquires the file. A18 therefore cannot rely on the artifact being planned to know it must
-  prune: it has to work from `prior` state.
-- `${VAR}` in http `headers` is interpolated at install (spec §5). A variable that is not set leaves
-  its placeholder in the file rather than emptying the value; **A24's `doctor` is what reports it**.
-  Nothing warns today, because `apply` has no io channel.
-- Server shape written for the harness: stdio → `command` (+ `args` when non-empty, no `type`);
-  http → `type: "http"`, `url`, `headers` (sorted by name, omitted when empty). The entity's `env`
-  list is a declaration for `doctor` and is deliberately **not** written into `.mcp.json`.
-- **`closeOverRequires(skills, mcps, merged): Selection`** in `src/resolve.ts` is the only place
-  `requires` is walked. It takes the roots as arguments so **A11** can add explicit `skills`/`mcps`
-  entries to the seed lists instead of teaching the walk about config. Its result lists are
-  `merged.*.filter(...)`, so they stay in name order — `resolve --json` golden files depend on it.
-- Only skills carry `requires` (spec §3.3 gives MCP entities no such key), so the graph is
-  skill → skill with MCP entities as leaves. `mcp.`-prefixed targets resolve against MCP names with
-  the prefix stripped; everything else against skill names.
-- Cycle detection inside `closeOverRequires` **throws on the first cycle it meets**; **A23's
-  `validate` needs a multi-problem variant**, as it does for unknown scopes.
+- **The resolve/install pipeline is now three steps, and both call sites must run all three**
+  (`src/install.ts`, `src/handlers/resolve.ts`):
+  `mergeCatalogs(await loadCatalogs(...))` → `await mergeConfigEntities(catalogs, config, projectDir)`
+  → `resolveBundle(config, merged)`. `mergeConfigEntities` (in `src/catalog.ts`) folds the project's
+  own declarations — `skills` entries carrying a `source`, and inline `mcps` — into the merged
+  namespace, so `resolveBundle` looks *every* name up in one place and `requires` can reach an
+  inline server. **`resolveBundle` is documented as requiring that**: call it on a bare
+  `mergeCatalogs` result and an inline MCP silently drops out. `ambit catalog` deliberately does
+  *not* fold them in — it dumps catalogs, and its golden JSON stays catalog-only.
+- **`MergedSkill.catalog` is now "where it came from", not always a catalog name.** A source-form
+  skill carries its `source` as written (`path:../extra`) and its within-source `path`; an inline MCP
+  carries the config filename (`ambit.yml`). Both are machine-independent, so `resolve --json` stays
+  golden-able. **A15's shadowing report and A14's lock must decide what these look like** — the lock's
+  `skills.<name>.catalog` (spec §3.5) has no real catalog to name for a source skill.
+- **`ProjectConfig.origin` gained `skillLines` and `mcpLines`** (same shape as `scopeLines`, keyed by
+  name). Whole-object `toEqual` assertions on `ProjectConfig`/`ConfigOrigin` live in
+  `test/config.test.ts` and `test/resolve.test.ts`'s `held()` helper — both must be updated whenever
+  the type gains a field.
+- **Duplicate names inside one config list are exit 2 at parse time**, via `nameTracker` in
+  `src/config.ts` (`catalog name`, `skills entry`, `mcps entry`). Later lists should use it too.
+- **A config declaration colliding with a catalog is exit 3, not an override** — a source-form skill
+  or inline MCP whose name a catalog already provides. Rationale: spec §3.1 calls both surfaces
+  "not defined in any catalog", so a collision is a mistake and ambit will not guess which side.
+  **A15's shadowing work should not quietly turn this into precedence.**
+- `resolveCatalogRoot` now takes the config filename as its third argument, and shares
+  `resolveSourceRoot` with skill sources; `loadSourceSkill` reads exactly one `SKILL.md` from a
+  directory that need not be a catalog (no `scopes.yml` expected), with `path` overriding the
+  name→path convention and allowed to point outside `skills/`. Non-`path:` sources fail the same way
+  catalogs do until **A13**.
+- `YamlMapping.optionalEntryList` now yields `PositionedString | YamlMapping` (was `string | …`), so
+  config.ts narrows with `entry instanceof YamlMapping`.
+- **`closeOverRequires(skills, mcps, merged)`** is still the only place `requires` is walked; its
+  seed lists now come from `explicit.has(name) || selectedByScope(...)` filters over `merged`, so
+  everything stays in name order. Cycle detection **throws on the first cycle**; **A23 still needs a
+  multi-problem variant**, as it does for unknown scopes and dangling `requires`.
 - `resolve` hard-validates the **closure only** (spec §4 validation split): a skill nothing selects
   may carry a dangling `requires` and resolution still exits 0. A23 is what rejects it catalog-wide.
-- **`ProjectConfig` carries `origin: ConfigOrigin { file, scopeLines }`.** Later post-parse errors —
-  A11's unresolvable explicit skill, A15's conflicting descriptions — should extend `ConfigOrigin`
-  the same way (`skillLines`, …) rather than re-reading the document.
-- **`at(file, line)` lives in `src/errors.ts`** (degrades to `(file)`). Errors about a *catalog* file
-  cite the catalog-relative path (`skills/…/SKILL.md`); errors about a project file cite the
-  project-relative one (`.mcp.json`), since absolute roots are machine-specific.
-- **`assertScopesRegistered(config, registered)`** runs first inside `resolveBundle`, so `install` is
-  guarded too. Suggestion policy: exact Levenshtein, threshold `max(2, floor(len/3))`, ties broken by
-  the registry's sorted order. Holding an unregistered *parent* is an unknown scope.
+- **`at(file, line)` lives in `src/errors.ts`** (degrades to `(file)`). Errors about a file inside a
+  catalog or a skill source cite the source-relative path (`skills/…/SKILL.md`) and get a prepended
+  `in catalog "x" (root)` / `in skill source "path:../extra" (root)` line from `inSource`.
+- **`assertScopesRegistered(config, registered)`** runs first inside `resolveBundle`, before the
+  explicit-entry check, so an unknown scope is reported ahead of an unknown skill. Suggestion policy:
+  exact Levenshtein, threshold `max(2, floor(len/3))`, ties broken by the registry's sorted order.
+  **Explicit skill names get no suggestion** — `nearestScope` still takes `ScopeDefinition[]`; A12 or
+  A23 can generalize it if wanted.
 - **`MergedSkill.catalogRoot` (absolute) must stay out of every output surface.**
 - **`Bundle.scopes` reports the held scopes as configured, not the expansion.** A12's
-  `--explain`/`why` must derive the chain from `config.scopes` plus the registry, and the
-  `required-by` edges from each skill's `requires`.
+  `--explain`/`why` must derive the chain from `config.scopes` plus the registry, the `required-by`
+  edges from each skill's `requires`, and `explicit` from `config.skills`/`config.mcps`.
+- **`.mcp.json` is co-owned, so ambit owns keys and not the file.** `src/harness-config.ts` replaces
+  only `mcpServers.<name>` and writes everything else back in place. **A17's ownership check must be
+  per-key for `harness-config`**, and **A18's pruning removes managed keys, not the file.** A bundle
+  with no MCPs plans no artifact at all, so A18 must work from `prior` state.
+- `${VAR}` in http `headers` is interpolated at install (spec §5); an unset variable leaves its
+  placeholder rather than emptying the value, and **A24's `doctor` is what reports it**.
+- Server shape written for the harness: stdio → `command` (+ `args` when non-empty, no `type`);
+  http → `type: "http"`, `url`, `headers` (sorted, omitted when empty). The entity's `env` list is a
+  declaration for `doctor` and is deliberately **not** written into `.mcp.json`.
+- **`ProjectPaths` carries `env`**, passed once by `installProject` from `process.env`, so
+  `claudeAdapter.plan` stays pure. Every `plan` call site must supply it.
 
 ## Deliberate omissions, and who owns them
 
-- `apply` removes a target only when `prior` state already owns it; nothing removes managed keys from
-  `.mcp.json` yet. Refusing unowned targets and `--adopt` are **A17**; pruning is **A18**.
-- No `.gitignore` handling at all — **A21**. `.mcp.json` is a committed file, so only `.ambit/` and
-  copied skills belong in that block.
+- `apply` removes a target only when `prior` state already owns it; nothing prunes `.mcp.json` keys.
+  Refusing unowned targets and `--adopt` are **A17**; pruning is **A18**.
+- No `.gitignore` handling at all — **A21**. `.mcp.json` is committed, so only `.ambit/` and copied
+  skills belong in that block.
 - Unimplemented flags throw exit 1 "not implemented yet" from an `UNIMPLEMENTED` map in
   `src/handlers/install.ts` (`--dry-run`, `--frozen`, `--adopt`, `--copy`, `--link`) and from the
   handler itself for `resolve --explain`. **When your task implements one, delete its entry from that
@@ -68,8 +82,12 @@ Last iteration: **A10 — MCP selection and `.mcp.json`** (the tip of `main`).
 ## Traps
 
 - `test/resolve.test.ts` pins `resolve --json` for six scope profiles against
-  `test/golden/resolve/*.json`. One selection change touches several at once; regenerate with
-  `UPDATE_GOLDEN=1 npm test` and read the whole diff.
+  `test/golden/resolve/*.json`. None of them use explicit entries, so A11 left them untouched; one
+  selection change touches several at once, so regenerate with `UPDATE_GOLDEN=1 npm test` and read
+  the whole diff.
+- `writeProfile` in `test/resolve.test.ts` takes `(scopes, extra?)` and in `test/install.test.ts`
+  `(scopes, harnesses?, extra?)`; `extra` lines are appended **after** the scopes list so the
+  `FIRST_SCOPE_LINE = 6` / `FIRST_EXTRA_LINE = 6` line math in the error assertions holds.
 - `test/install.test.ts`'s default profile is `[core, function.engineering]`, which selects the
   `scoped` http server — so it writes `.mcp.json` too. Its state, `--json`, and padded-text
   assertions all list four artifacts; adding a fifth shifts the column widths.
@@ -78,9 +96,7 @@ Last iteration: **A10 — MCP selection and `.mcp.json`** (the tip of `main`).
   discipline.
 - The fixture catalog must stay cycle-free and dangling-free: `validate` (A23) will be run against
   it, and every golden profile resolves it. Tests that need extra catalog shapes write them into the
-  per-test copy (`writeSkill` in `test/resolve.test.ts`, `writeCatalogFile` in
+  per-test copy (`writeSkill`/`writeSourceSkill` in `test/resolve.test.ts`, `writeCatalogFile` in
   `test/install.test.ts`) rather than into `scripts/fixture-catalog.ts`.
 - The text output of `resolve`, `catalog`, and `install` is asserted with exact column padding, built
   by `src/output.ts`.
-- Whole-object `toEqual` assertions on `ProjectConfig` in `test/config.test.ts` must be updated
-  whenever the config type gains a field.

@@ -15,7 +15,7 @@
  */
 import type { AppliedArtifact, HarnessAdapter, ProjectPaths } from "./adapter.js";
 import { CLAUDE_HARNESS, claudeAdapter } from "./adapters/claude.js";
-import { loadCatalogs, mergeCatalogs } from "./catalog.js";
+import { loadCatalogs, mergeCatalogs, mergeConfigEntities } from "./catalog.js";
 import { loadProjectConfig } from "./config.js";
 import { configError } from "./errors.js";
 import type { Bundle } from "./resolve.js";
@@ -70,7 +70,8 @@ export async function installProject(projectDir: string): Promise<InstallResult>
   const harnesses = [...new Set(config.harnesses)].sort(compare);
   const adapters = adaptersFor(harnesses);
 
-  const bundle = resolveBundle(config, mergeCatalogs(await loadCatalogs(config, projectDir)));
+  const catalogs = mergeCatalogs(await loadCatalogs(config, projectDir));
+  const bundle = resolveBundle(config, await mergeConfigEntities(catalogs, config, projectDir));
   const prior = await readState(projectDir);
   // `process.env` is read once, here, so every adapter interpolates against the same environment
   // and nothing deeper down reaches for ambient state of its own.

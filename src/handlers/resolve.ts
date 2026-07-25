@@ -6,7 +6,7 @@
  * fetched catalog can supply, so the lock later becomes a serialization of this rather than a
  * second, differently-shaped view.
  */
-import { loadCatalogs, mergeCatalogs } from "../catalog.js";
+import { loadCatalogs, mergeCatalogs, mergeConfigEntities } from "../catalog.js";
 import type { CommandHandler } from "../commands.js";
 import { jsonRequested, projectDirOf } from "../commands.js";
 import { loadProjectConfig } from "../config.js";
@@ -47,7 +47,8 @@ export const resolveHandler: CommandHandler = async (ctx) => {
 
   const projectDir = projectDirOf(ctx);
   const config = await loadProjectConfig(projectDir);
-  const bundle = resolveBundle(config, mergeCatalogs(await loadCatalogs(config, projectDir)));
+  const catalogs = mergeCatalogs(await loadCatalogs(config, projectDir));
+  const bundle = resolveBundle(config, await mergeConfigEntities(catalogs, config, projectDir));
 
   if (jsonRequested(ctx)) {
     ctx.stdout(JSON.stringify(toJson(bundle), null, 2));
