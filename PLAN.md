@@ -780,7 +780,7 @@ mutation ends by re-validating.
   dangling `requires`; `rm` of a required skill exits 3 naming the requirer; the authored tree
   is still `skills/<namespace>/<name>/SKILL.md` and nothing else; `validate` passes after each.
 
-- [ ] **B06 — MCP entity commands.**
+- [x] **B06 — MCP entity commands.**
   **Depends:** B05
   **Do:** `catalog mcp new|rm`, exactly one transport per `new`, `--env` repeatable. `rm`
   refuses while a skill requires `mcp.<name>`.

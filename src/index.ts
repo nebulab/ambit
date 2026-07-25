@@ -17,6 +17,7 @@ export {
 } from "./adapters/claude.js";
 export {
   MCPS_DIRNAME,
+  MCP_EXTENSIONS,
   SCOPES_FILENAME,
   SKILLS_DIRNAME,
   SKILL_FILENAME,
@@ -50,6 +51,14 @@ export {
   scaffoldCatalog,
 } from "./catalog-init.js";
 export type { CatalogInitOptions, CatalogInitResult } from "./catalog-init.js";
+export { mcpDocumentFile, mcpTarget, newMcp, removeMcp } from "./catalog-mcp.js";
+export type {
+  McpEdit,
+  McpNewOptions,
+  McpNewResult,
+  McpRemoveResult,
+  McpSummary,
+} from "./catalog-mcp.js";
 export { addScope, assertRegisteredScopes, removeScope, renameScope } from "./catalog-scope.js";
 export type {
   ScopeAddResult,

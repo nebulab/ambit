@@ -3,10 +3,10 @@
 Rewritten by each Ralph iteration for the next one. Short, current, and only what would cost
 real time to rediscover — see `PROMPT.md` §6.
 
-Last iteration: **B05 — Skill commands** (the tip of `main`). `catalog skill new|rm|mv` in
-`src/catalog-skill.ts` + `src/handlers/catalog-skill.ts`, and the editor's one new capability:
-**directory operations** (`CatalogTreeChange`). Next task is **B06 — MCP entity commands**, whose
-`Depends: B05` is now checked. (A30 also depends on A25, but B06 is topmost.)
+Last iteration: **B06 — MCP entity commands** (the tip of `main`). `catalog mcp new|rm` in
+`src/catalog-mcp.ts` + `src/handlers/catalog-mcp.ts`; no change to the editor, which already did
+everything they needed. Next task is **B07 — `ambit catalog annotate`**, whose `Depends: B06` is now
+checked. (A30 also depends on A25, but B07 is topmost.)
 
 ## Constraints later tasks inherit
 
@@ -139,17 +139,35 @@ Last iteration: **B05 — Skill commands** (the tip of `main`). `catalog skill n
   name follows from the new path, with the moved document's `name` and every `requires` naming the old
   name rewritten **in the same edit**. Exit codes: an invalid name is **2**; an existing name, an unknown
   skill, a still-required skill and a nested skill are all **3**.
+- **`src/catalog-mcp.ts` is the whole of `catalog mcp`, and an entity is one file whose stem is its
+  name.** `new` writes the *whole* file through `emitYaml` (ambit owns every byte of a document it
+  creates), and **"exactly one transport" is a type, not a check**: `newMcp` takes an `McpTransport`, so
+  the discriminator §3.3 insists on cannot be ambiguous below the handler. `rm` removes **the file the
+  author wrote** — `mcpDocumentFile(root, name)` picks the extension that is actually on disk, since
+  removing the `.yml` a name *would* take is a silent no-op against a catalog spelling it `.yaml`. Exit
+  codes: an invalid name and every transport-flag problem are **2**; an existing name, an unknown server
+  and a still-required one are **3**.
+- **`--env` is sorted and deduplicated; `--arg` is not.** A set of env vars carries no order, and a
+  program's positional arguments are nothing but order. `--header k=v` splits at the **first** `=`, and a
+  repeated key is refused rather than overwritten.
+- **A flag belonging to the transport kind that was not named is exit 2, not ignored** (`--header` with
+  `--stdio`, `--arg` with `--http`), as is an empty `--stdio`/`--http` value. The stance is that a flag
+  someone typed which would be written nowhere is worse than an error. Every transport refusal names
+  `supported kinds: http, stdio` from `MCP_TRANSPORT_KINDS`, so it cannot drift from what parsing says.
+- **`MCP_EXTENSIONS` is now exported from `src/catalog.ts`**, so the authoring side and the parser agree
+  about which extensions define an entity.
 - **Neither `rm` nor `mv` will touch a skill directory that holds another skill** (`skills/a/b/SKILL.md`
   plus `skills/a/b/c/SKILL.md` is legal). Moving one would rename a skill nobody named and removing one
   would delete it, so both are refused naming what is in the way. That refusal is what lets the editor
   assume a moved tree carries at most the one `SKILL.md` its caller restates.
 - **`assertRegisteredScopes(catalog, scopes)` is exported from `src/catalog-scope.ts`** and is how every
-  command that *declares* a scope refuses an unregistered one — **B06's `mcp new` and B07's `annotate`
-  should call it**. The editor would refuse those writes anyway (a declared scope nothing registers is a
-  validation problem), but `refusedByValidation` quotes only each problem's **message**, not its detail,
-  so the "did you mean" is lost; the pre-check is what makes a typo answerable. `--requires` deliberately
-  has **no** such pre-check — validation's own message already names an unresolvable requirement and
-  there is no better advice to add.
+  command that *declares* a scope refuses an unregistered one — **B07's `annotate` should call it**; it is
+  now the only caller left besides `skill new`. (B06 does not: the surface spec §6 gives `mcp new` has no
+  `--scope`, so it declares none.) The editor would refuse such a write anyway (a declared scope nothing
+  registers is a validation problem), but `refusedByValidation` quotes only each problem's **message**,
+  not its detail, so the "did you mean" is lost; the pre-check is what makes a typo answerable.
+  `--requires` deliberately has **no** such pre-check — validation's own message already names an
+  unresolvable requirement and there is no better advice to add.
 - **`positional(ctx, index, usage)` and `optionList(ctx, name)` now live in `src/commands.ts`**
   (`positional` moved out of `src/handlers/catalog-scope.ts`, which imports it back). `optionList` reads a
   `repeatable()` flag: `undefined` when never given, `readonly string[]` otherwise. B06 and B07 want both.
@@ -417,9 +435,10 @@ Last iteration: **B05 — Skill commands** (the tip of `main`). `catalog skill n
   about the config entry, not the directory, so a catalog parsed straight off disk
   (`validate --catalog`) has none.
 - **`--frozen`, `--adopt`, `--copy`, `--link`, `--dry-run`, `status --check` and `validate --catalog`
-  are implemented, as are `catalog dump`, `catalog init`, `catalog scope add|rm|mv` and
-  `catalog skill new|rm|mv`.** The unbuilt surface is the rest of the `catalog` authoring group
-  (B06–B09), declared in `COMMAND_SPECS` and reporting itself unimplemented until each task lands.
+  are implemented, as are `catalog dump`, `catalog init`, `catalog scope add|rm|mv`,
+  `catalog skill new|rm|mv` and `catalog mcp new|rm`.** The unbuilt surface is the rest of the `catalog`
+  authoring group (`annotate`, `tree`, `audit` — B07–B09), declared in `COMMAND_SPECS` and reporting
+  itself unimplemented until each task lands.
 - **Every source resolves through `src/sources.ts`** (§3.1 grammar) returning
   `ResolvedSource = { root, commit? }`. `loadCatalogs`, `mergeConfigEntities`, `loadSourceSkill` and
   `resolveCatalogRoot` take a `SourceContext` (`{ projectDir, env }`); `env` is where the cache location
@@ -472,11 +491,20 @@ Last iteration: **B05 — Skill commands** (the tip of `main`). `catalog skill n
   last thing inside one goes away — see the editor's ancestor pruning. Nobody owns changing that.
 - **`skill new` writes no scope registration and `skill rm` removes none.** A skill declaring a scope
   nothing registers is refused, not fixed; the registry is `catalog scope`'s.
-- **`mcpDocumentPath` always says `.yml`**, so editing an entity someone wrote as `mcps/x.yaml` would
-  create a second file for the same name — which parsing then rejects (§3.3), so the mutation fails exit 3
-  with nothing written rather than corrupting anything. `catalog scope mv` already depends on this when it
-  rewrites a server's `scopes`. Nothing carries an `McpEntity`'s own filename; **B07 needs one** if it
-  wants to support `.yaml`.
+- **`mcp new` declares no scopes**, because the surface spec §6 gives it has no `--scope`: what it writes
+  is reachable only through a skill's `requires` until someone gives it a `scopes` entry, and the
+  command's closing line says exactly that. **B07's `annotate --add-scope` is how a server gets one**, and
+  when it lands that line should probably name it. `mcp rm` closes with **nothing**, deliberately: no
+  project's `ambit.yml` can name a catalog's server (§3.1's `mcps` declares one rather than selecting
+  one), so there is nothing for its author to update.
+- **`mcpDocumentPath` (editor) always says `.yml`**, so a command that *edits* an entity someone wrote as
+  `mcps/x.yaml` must go through **`mcpDocumentFile(root, name)`** (`src/catalog-mcp.ts`) instead —
+  **B07's `annotate` needs it**. `catalog scope mv` still uses `mcpDocumentPath` when it rewrites a
+  server's `scopes`, so a `.yaml` entity makes that command fail exit 3 with nothing written (it would
+  write a second file for one name, which parsing rejects) rather than corrupt anything. Fixing that is
+  nobody's task yet; it is one call site.
+- **Removing an entity file prunes no directory.** `pruneEmptyAncestors` runs for tree changes only, so a
+  catalog whose last server was removed keeps an empty `mcps/` — which is its shape, not its contents.
 - **Nothing removes a scope from a declarer.** `scope rm` refuses while anything declares the scope and
   tells the reader to edit each file; the flag that would do it for them is **B07's**
   `annotate --remove-scope`. The refusal deliberately does not name that command yet.
@@ -520,9 +548,14 @@ Last iteration: **B05 — Skill commands** (the tip of `main`). `catalog skill n
   are restated in the test rather than imported, so the emitted-shape claim is independent of the source.
 - **`test/diff.test.ts` asserts the renderer's exact lines**, elision marker and context width included.
   Changing `CONTEXT_LINES` or the tie-break rewrites several of its cases; that is the point.
-- **Each B0x task deletes its own row from `test/catalog.test.ts`'s `UNBUILT` table** (B05 removed the
-  three `catalog skill` rows). Leaving the row behind fails the "exits 1 from every unbuilt subcommand"
-  case, which is the intended alarm.
+- **Each B0x task deletes its own row from `test/catalog.test.ts`'s `UNBUILT` table** (B06 removed the
+  two `catalog mcp` rows; three rows are left). Leaving the row behind fails the "exits 1 from every
+  unbuilt subcommand" case, which is the intended alarm.
+- **`test/catalog-mcp.test.ts` restates the values it expects emitted** rather than importing them, so the
+  "the whole file is `emitYaml` of these values" claim is independent of the source — the `catalog init`
+  trick. Two cases are load-bearing beyond their assertions: one renames a fixture entity to `.yaml`
+  before `rm` (the claim `mcpDocumentFile` exists for), and one asserts `--arg` order survives while
+  `--env` is sorted, which is the only place that asymmetry is pinned.
 - **`test/catalog-skill.test.ts` asserts what happened to *paths*, not only to bytes.** Its `snapshot()`
   is files-with-bytes and its `directories()` is the directory list, and both are load-bearing: the
   "writes one SKILL.md and nothing else" case asserts the whole file list, and two cases assert that an

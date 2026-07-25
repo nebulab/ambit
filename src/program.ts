@@ -4,6 +4,7 @@ import type { CommandContext, CommandHandlers } from "./commands.js";
 import { COMMAND_SPECS, buildCommand } from "./commands.js";
 import { AmbitError, ExitCode } from "./errors.js";
 import { catalogInitHandler } from "./handlers/catalog-init.js";
+import { catalogMcpNewHandler, catalogMcpRemoveHandler } from "./handlers/catalog-mcp.js";
 import {
   catalogScopeAddHandler,
   catalogScopeRemoveHandler,
@@ -39,6 +40,8 @@ export type Io = Pick<CommandContext, "cwd" | "stdout" | "stderr">;
 export const HANDLERS: CommandHandlers = {
   "catalog dump": catalogHandler,
   "catalog init": catalogInitHandler,
+  "catalog mcp new": catalogMcpNewHandler,
+  "catalog mcp rm": catalogMcpRemoveHandler,
   "catalog scope add": catalogScopeAddHandler,
   "catalog scope mv": catalogScopeRenameHandler,
   "catalog scope rm": catalogScopeRemoveHandler,

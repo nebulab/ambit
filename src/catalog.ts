@@ -48,8 +48,13 @@ export const MCPS_DIRNAME = "mcps";
 /** The file whose presence makes a directory a skill. */
 export const SKILL_FILENAME = "SKILL.md";
 
-/** MCP entity extensions, in preference order. One stem carrying both is an error. */
-const MCP_EXTENSIONS: readonly string[] = [".yml", ".yaml"];
+/**
+ * MCP entity extensions, in preference order. One stem carrying both is an error.
+ *
+ * Exported because an authoring command that edits an existing entity has to find the file the
+ * author actually wrote, not the one ambit would have written (see `mcpDocumentFile`).
+ */
+export const MCP_EXTENSIONS: readonly string[] = [".yml", ".yaml"];
 
 const SCOPES_KEYS = ["scopes"] as const;
 const SCOPE_KEYS = ["description"] as const;
