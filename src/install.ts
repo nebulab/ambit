@@ -1,13 +1,17 @@
 /**
  * Installation (spec §4–§5): resolve a project, then hand the bundle to each harness adapter.
  *
- * The order is load → resolve → plan → apply → write state, and the state write coming last is a
- * safety property, not an implementation detail: a crash mid-apply leaves artifacts unowned but
- * present, which `doctor` can report, whereas recording ownership first would leave state
- * claiming files that were never written.
+ * The order is load → resolve → plan → apply → write lock → write state, and the two record-keeping
+ * writes coming last is a safety property, not an implementation detail: a crash mid-apply leaves
+ * artifacts unowned but present, which `doctor` can report, whereas recording ownership first would
+ * leave state claiming files that were never written. The lock is written on the same terms — it
+ * says what *was* installed, so it must not claim a resolution that failed to materialize.
  *
- * The lock (A14), pruning (A18), and ownership enforcement (A17) are not here yet, so this build
- * adds and overwrites but never removes.
+ * `--frozen` is checked before any of that (spec §6). A CI run whose committed lock is stale has to
+ * leave the project exactly as it found it, so the comparison happens while nothing has been touched.
+ *
+ * Pruning (A18) and ownership enforcement (A17) are not here yet, so this build adds and overwrites
+ * but never removes.
  *
  * The environment is captured here rather than inside an adapter, because `${VAR}` interpolation in
  * MCP headers (spec §5) is the one thing materialization reads outside its arguments, and an
@@ -18,6 +22,8 @@ import { CLAUDE_HARNESS, claudeAdapter } from "./adapters/claude.js";
 import { loadCatalogs, mergeCatalogs, mergeConfigEntities } from "./catalog.js";
 import { loadProjectConfig } from "./config.js";
 import { configError } from "./errors.js";
+import type { Lock } from "./lock.js";
+import { assertLockCurrent, buildLock, serializeLock, writeLockText } from "./lock.js";
 import type { Bundle } from "./resolve.js";
 import { resolveBundle } from "./resolve.js";
 import type { SourceContext } from "./sources.js";
@@ -28,6 +34,12 @@ export const ADAPTERS: Readonly<Record<string, HarnessAdapter>> = {
   [CLAUDE_HARNESS]: claudeAdapter,
 };
 
+/** How an install was asked to behave. */
+export interface InstallOptions {
+  /** Fail rather than write when resolution would change the lock (spec §6). */
+  readonly frozen?: boolean;
+}
+
 /** What an install did, for the command to report. */
 export interface InstallResult {
   readonly bundle: Bundle;
@@ -35,6 +47,8 @@ export interface InstallResult {
   readonly harnesses: readonly string[];
   /** Everything now owned, in the order the adapters wrote it. */
   readonly artifacts: readonly AppliedArtifact[];
+  /** What was written to `ambit.lock` (spec §3.5). */
+  readonly lock: Lock;
 }
 
 function compare(a: string, b: string): number {
@@ -64,9 +78,14 @@ function adaptersFor(harnesses: readonly string[]): readonly HarnessAdapter[] {
  * Resolves the project and materializes the bundle.
  *
  * @param projectDir the project root, absolute.
- * @throws {AmbitError} exit 2 for a malformed config or catalog, or an unknown harness.
+ * @param options `--frozen` and, later, the rest of `install`'s flags.
+ * @throws {AmbitError} exit 2 for a malformed config or catalog, or an unknown harness; exit 5 under
+ *   `--frozen` when the committed lock is not what resolution produces.
  */
-export async function installProject(projectDir: string): Promise<InstallResult> {
+export async function installProject(
+  projectDir: string,
+  options: InstallOptions = {},
+): Promise<InstallResult> {
   const config = await loadProjectConfig(projectDir);
   const harnesses = [...new Set(config.harnesses)].sort(compare);
   const adapters = adaptersFor(harnesses);
@@ -76,8 +95,16 @@ export async function installProject(projectDir: string): Promise<InstallResult>
   // state of its own.
   const context: SourceContext = { projectDir, env: process.env };
 
-  const catalogs = mergeCatalogs(await loadCatalogs(config, context));
+  const loaded = await loadCatalogs(config, context);
+  const catalogs = mergeCatalogs(loaded);
   const bundle = resolveBundle(config, await mergeConfigEntities(catalogs, config, context));
+
+  // Serialized up front so `--frozen` compares the same bytes the run would go on to write, rather
+  // than a second rendering that could differ from it.
+  const lock = buildLock(loaded, bundle);
+  const lockText = serializeLock(lock);
+  if (options.frozen === true) await assertLockCurrent(projectDir, lockText);
+
   const prior = await readState(projectDir);
   const project: ProjectPaths = { root: projectDir, env: process.env };
 
@@ -86,7 +113,8 @@ export async function installProject(projectDir: string): Promise<InstallResult>
     artifacts.push(...(await adapter.apply(adapter.plan(bundle, project), prior)));
   }
 
+  await writeLockText(projectDir, lockText);
   await writeState(projectDir, { version: STATE_VERSION, harnesses, artifacts });
 
-  return { bundle, harnesses, artifacts };
+  return { bundle, harnesses, artifacts, lock };
 }

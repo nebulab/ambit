@@ -71,7 +71,18 @@ export {
 } from "./harness-config.js";
 export type { ConfigEntry, JsonObject } from "./harness-config.js";
 export { ADAPTERS, installProject } from "./install.js";
-export type { InstallResult } from "./install.js";
+export type { InstallOptions, InstallResult } from "./install.js";
+export {
+  LOCK_FILENAME,
+  LOCK_VERSION,
+  assertLockCurrent,
+  buildLock,
+  lockFilePath,
+  readLockText,
+  serializeLock,
+  writeLockText,
+} from "./lock.js";
+export type { Lock, LockCatalog, LockMcp, LockSkill } from "./lock.js";
 export { MCP_TRANSPORT_KINDS, parseMcpEntity } from "./mcp.js";
 export type { HttpTransport, McpEntity, McpTransport, StdioTransport } from "./mcp.js";
 export { buildProgram, run } from "./program.js";
@@ -122,6 +133,7 @@ export type { ArtifactKind, ArtifactMode, OwnedArtifact, State } from "./state.j
 export { VERSION } from "./version.js";
 export {
   YamlMapping,
+  emitYaml,
   parseFrontmatterMapping,
   parseYamlMapping,
   readFrontmatterMapping,

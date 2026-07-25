@@ -568,7 +568,7 @@ describe("ambit install failures", () => {
     expect(result.stderr).toContain("not a valid ambit state file");
   });
 
-  for (const flag of ["--dry-run", "--frozen", "--adopt", "--copy", "--link"]) {
+  for (const flag of ["--dry-run", "--adopt", "--copy", "--link"]) {
     it(`reports \`${flag}\` as unimplemented instead of ignoring it`, async () => {
       const result = await cli("install", flag);
 

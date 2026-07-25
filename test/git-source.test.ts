@@ -4,7 +4,9 @@
  *
  * The claim under test is that a git source is not a second kind of catalog. The same fixture,
  * installed once from a repository and once from a directory, must leave byte-identical projects
- * behind — anything else means fetching quietly changed what a project gets.
+ * behind — anything else means fetching quietly changed what a project gets. The two files that
+ * record *where* it came from are the deliberate exception, and are named in
+ * {@link PER_SOURCE_FILES}.
  *
  * The second claim is about the cache: a resolve that the cache can already answer must not touch
  * the remote. That is asserted the only way it can be believed — by deleting the remote between the
@@ -21,7 +23,10 @@ import { loadCatalogs } from "../src/catalog.js";
 import { loadProjectConfig } from "../src/config.js";
 import { ExitCode } from "../src/errors.js";
 import { REPOS_DIRNAME, SOURCES_DIRNAME, cacheRoot, gitCacheKey } from "../src/git.js";
+import { LOCK_FILENAME } from "../src/lock.js";
 import { run } from "../src/program.js";
+import type { YamlMapping } from "../src/yaml.js";
+import { parseYamlMapping } from "../src/yaml.js";
 
 const CATALOG_NAME = "company";
 const CORE_SKILL = "acme.commons.use-company-context";
@@ -82,18 +87,21 @@ async function cli(
 }
 
 /**
- * Every file ambit left in a project, keyed by relative path and carrying its contents.
- *
- * `ambit.yml` is excluded because it is the one file that must differ: naming a different source is
- * the whole experiment.
+ * Files whose contents must differ between the two projects, and so cannot take part in the
+ * comparison: `ambit.yml` names a different source, which is the whole experiment, and `ambit.lock`
+ * records that source and the commit behind it (spec §3.5) — a git source has one and a directory
+ * has none, so a lock that matched would mean the lock was not doing its job.
  */
+const PER_SOURCE_FILES: ReadonlySet<string> = new Set(["ambit.yml", "ambit.lock"]);
+
+/** Every file ambit left in a project, keyed by relative path and carrying its contents. */
 async function installed(dir: string): Promise<Record<string, string>> {
   const found: Record<string, string> = {};
 
   const walk = async (current: string, relative: string): Promise<void> => {
     for (const entry of await readdir(current, { withFileTypes: true })) {
       const within = relative === "" ? entry.name : `${relative}/${entry.name}`;
-      if (within === "ambit.yml") continue;
+      if (PER_SOURCE_FILES.has(within)) continue;
       if (entry.isDirectory()) await walk(path.join(current, entry.name), within);
       else found[within] = await readFile(path.join(current, entry.name), "utf8");
     }
@@ -257,6 +265,70 @@ skills:
     expect(Object.keys(await installed(gitProject))).toContain(
       `${SKILLS_DIR}/${CORE_SKILL}/SKILL.md`,
     );
+  });
+});
+
+/**
+ * The commit half of spec §3.5, which only a git source can exercise: a `path:` catalog has no
+ * revision to pin, so this is the only place the lock's `commit` fields can be shown to be real.
+ */
+describe("the lock a git source writes", () => {
+  /** The lock as ambit's own parser reads it, which also proves what was emitted is loadable. */
+  async function lock(dir: string): Promise<YamlMapping> {
+    return parseYamlMapping(await readFile(path.join(dir, LOCK_FILENAME), "utf8"), LOCK_FILENAME);
+  }
+
+  it("pins the catalog to the commit its ref resolved to, keeping the ref it was asked for", async () => {
+    await writeProject(gitProject, fixture.url, fixture.tag);
+
+    const result = await cli(gitProject, "install");
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+
+    const entry = (await lock(gitProject)).requireMapping("catalogs").requireMapping(CATALOG_NAME);
+    expect(entry.requireString("source")).toBe(fixture.url);
+    expect(entry.requireString("ref")).toBe(fixture.tag);
+    expect(entry.requireString("commit")).toBe(fixture.commit);
+  });
+
+  it("pins every skill it installed to that same commit", async () => {
+    await cli(gitProject, "install");
+
+    const entry = (await lock(gitProject)).requireMapping("skills").requireMapping(CORE_SKILL);
+    expect(entry.requireString("catalog")).toBe(CATALOG_NAME);
+    expect(entry.requireString("commit")).toBe(fixture.commit);
+  });
+
+  it("pins a skill carrying its own source, which has no catalog entry to inherit from", async () => {
+    await writeFile(
+      path.join(gitProject, "ambit.yml"),
+      `version: 1
+scopes: []
+skills:
+  - name: ${CORE_SKILL}
+    source: ${fixture.url}
+    ref: "${fixture.tag}"
+`,
+      "utf8",
+    );
+
+    const result = await cli(gitProject, "install");
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+
+    const document = await lock(gitProject);
+    expect(document.requireMapping("catalogs").keys()).toEqual([]);
+    const entry = document.requireMapping("skills").requireMapping(CORE_SKILL);
+    // No catalog provided it, so the column that would name one names the source, exactly as
+    // `resolve --json` reports it.
+    expect(entry.requireString("catalog")).toBe(fixture.url);
+    expect(entry.requireString("commit")).toBe(fixture.commit);
+  });
+
+  it("leaves the commit out for a catalog read from a directory", async () => {
+    await cli(pathProject, "install");
+
+    const entry = (await lock(pathProject)).requireMapping("catalogs").requireMapping(CATALOG_NAME);
+    expect(entry.optionalString("commit")).toBeUndefined();
+    expect(entry.requireString("source")).toBe("path:../catalog");
   });
 });
 

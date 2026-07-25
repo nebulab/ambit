@@ -647,7 +647,7 @@ runs the whole pipeline against a local fixture before any git, lock, or prune l
   **Done when:** A fixture served from a local bare repo installs identically to the
   path-source version; a second run hits the cache without fetching.
 
-- [ ] **A14 — `ambit.lock`.**
+- [x] **A14 — `ambit.lock`.**
   **Depends:** A13
   **Done when:** Install writes a sorted, timestamp-free YAML lock with no anchors or
   aliases; the same inputs produce a byte-identical file; a commit SHA that looks numeric

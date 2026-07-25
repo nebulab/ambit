@@ -76,6 +76,12 @@ export interface Catalog {
   readonly name: string;
   /** The `source` it was resolved from, as written in config. */
   readonly source: string;
+  /**
+   * The `ref` its config entry asked for, as written. Absent when the entry named none, which
+   * means the source's default branch. Carried alongside `commit` because the lock records both
+   * (spec §3.5): the commit says what was installed, the ref says what will be resolved next time.
+   */
+  readonly ref?: string;
   /** Absolute path to the catalog root on disk. */
   readonly root: string;
   /**
@@ -94,6 +100,14 @@ export interface Catalog {
 /** A skill in the merged view, tagged with the catalog it came from. */
 export interface MergedSkill extends CatalogSkill {
   readonly catalog: string;
+  /**
+   * The commit the skill's bytes came from, when its source has one: a catalog skill inherits its
+   * catalog's, and a `source` skill carries its own. Absent for a `path:` source.
+   *
+   * Recorded per skill rather than left to the catalog entry alone because a `source` skill has no
+   * catalog entry to inherit from, and pinning it is the whole point of the lock (spec §3.5).
+   */
+  readonly commit?: string;
   /**
    * Absolute path to that catalog's root on disk, so materialization can find the skill without
    * looking the catalog up again. Deliberately absent from every output surface: it is
@@ -362,9 +376,18 @@ export async function loadCatalogs(
   context: SourceContext,
 ): Promise<readonly Catalog[]> {
   const catalogs: Catalog[] = [];
-  for (const ref of config.catalogs) {
-    const resolved = await resolveCatalogRoot(ref, context, config.origin.file);
-    catalogs.push(await parseCatalogDirectory(ref.name, ref.source, resolved.root, resolved.commit));
+  for (const entry of config.catalogs) {
+    const resolved = await resolveCatalogRoot(entry, context, config.origin.file);
+    const parsed = await parseCatalogDirectory(
+      entry.name,
+      entry.source,
+      resolved.root,
+      resolved.commit,
+    );
+    // `ref` is a fact about the config entry, not about the directory that was parsed, so it is
+    // attached here rather than threaded through parsing — which also keeps a catalog parsed
+    // straight off disk (`ambit validate --catalog`) from having to invent one.
+    catalogs.push({ ...parsed, ...(entry.ref !== undefined && { ref: entry.ref }) });
   }
   return catalogs;
 }
@@ -402,7 +425,7 @@ export async function loadSourceSkill(
     subject,
     where,
   };
-  const { root } = await resolveSource(source, context);
+  const { root, commit } = await resolveSource(source, context);
 
   const directory = request.path ?? skillPathFromName(request.name);
   const file = `${directory}/${SKILL_FILENAME}`;
@@ -434,6 +457,7 @@ export async function loadSourceSkill(
       // No catalog provided it, so the column that would name one names the source instead: with
       // `path` it locates the skill, and it is how the config refers to it.
       catalog: request.source,
+      ...(commit !== undefined && { commit }),
       catalogRoot: root,
     };
   } catch (error) {
@@ -532,7 +556,12 @@ export function mergeCatalogs(catalogs: readonly Catalog[]): MergedCatalog {
     }
     for (const skill of catalog.skills) {
       if (!skills.has(skill.name)) {
-        skills.set(skill.name, { ...skill, catalog: catalog.name, catalogRoot: catalog.root });
+        skills.set(skill.name, {
+          ...skill,
+          catalog: catalog.name,
+          ...(catalog.commit !== undefined && { commit: catalog.commit }),
+          catalogRoot: catalog.root,
+        });
       }
     }
     for (const mcp of catalog.mcps) {

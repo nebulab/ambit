@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AmbitError, ExitCode } from "../src/errors.js";
 import {
   YamlMapping,
+  emitYaml,
   parseFrontmatterMapping,
   parseYamlMapping,
   readFrontmatterMapping,
@@ -399,5 +400,58 @@ describe("YAML loader", () => {
         message: "cannot read absent.yml",
       });
     });
+  });
+});
+
+/**
+ * The emit half of §3.0. The rules are about *bytes*, not about meaning, because the two artifacts
+ * that use them — `ambit.lock` and the `init` scaffold — are diffed and compared as text. So each
+ * test asserts the exact output rather than that it re-parses.
+ */
+describe("YAML emitter", () => {
+  it("sorts keys at every depth, whatever order they were built in", () => {
+    expect(emitYaml({ version: 1, catalogs: { personal: { source: "b" }, company: { source: "a" } } })).toBe(
+      ["catalogs:", "  company:", "    source: a", "  personal:", "    source: b", "version: 1", ""].join("\n"),
+    );
+  });
+
+  it("quotes a string a core-schema parser would otherwise read as a number", () => {
+    // The trap §3.0 names: an all-digit commit SHA, and a ref like `1e5`. Both must come back as
+    // the strings they went in as, or the lock pins a different commit than the one installed.
+    const text = emitYaml({ commit: "1234567", ref: "1e5", count: 12 });
+
+    expect(text).toBe('commit: "1234567"\ncount: 12\nref: "1e5"\n');
+    const parsed = load(text);
+    expect(parsed.requireString("commit")).toBe("1234567");
+    expect(parsed.requireString("ref")).toBe("1e5");
+    expect(parsed.requireInteger("count")).toBe(12);
+  });
+
+  it("writes no anchor for two entries that happen to hold equal values", () => {
+    const shared = { catalog: "company" };
+
+    expect(emitYaml({ a: shared, b: shared })).toBe(
+      "a:\n  catalog: company\nb:\n  catalog: company\n",
+    );
+  });
+
+  it("keeps a long value on its own line rather than wrapping it", () => {
+    const url = `https://example.invalid/${"a".repeat(200)}`;
+
+    expect(emitYaml({ url })).toBe(`url: ${url}\n`);
+  });
+
+  it("escapes an awkward value inline rather than reaching for a block scalar", () => {
+    expect(emitYaml({ description: "two\nlines" })).toBe('description: "two\\nlines"\n');
+  });
+
+  it("emits an empty mapping rather than dropping the key", () => {
+    expect(emitYaml({ mcps: {}, version: 1 })).toBe("mcps: {}\nversion: 1\n");
+  });
+
+  it("is byte-stable across calls", () => {
+    const document = { skills: { "acme.b": { path: "b" }, "acme.a": { path: "a" } }, version: 1 };
+
+    expect(emitYaml(document)).toBe(emitYaml(document));
   });
 });

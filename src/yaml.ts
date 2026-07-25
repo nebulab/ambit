@@ -9,12 +9,23 @@
  * Reading returns a {@link YamlMapping}, a positioned view over the document rather than a
  * plain object. Keeping the nodes around is what lets every downstream error name the line it
  * came from, which spec §6 requires of every message.
+ *
+ * Writing goes through {@link emitYaml}, in this module rather than beside whatever generates a
+ * document, so the emit half of §3.0 is enforced once too — and so what ambit writes is
+ * guaranteed readable by what ambit reads.
  */
 import { readFile } from "node:fs/promises";
 
 import matter from "gray-matter";
-import type { Pair, YAMLMap } from "yaml";
-import { LineCounter, isMap, isScalar, isSeq, parseDocument, visit } from "yaml";
+import type {
+  CreateNodeOptions,
+  DocumentOptions,
+  Pair,
+  SchemaOptions,
+  ToStringOptions,
+  YAMLMap,
+} from "yaml";
+import { LineCounter, isMap, isScalar, isSeq, parseDocument, stringify, visit } from "yaml";
 
 import type { AmbitError } from "./errors.js";
 import { at, configError } from "./errors.js";
@@ -602,4 +613,44 @@ export async function readYamlMapping(path: string, file = path): Promise<YamlMa
  */
 export async function readFrontmatterMapping(path: string, file = path): Promise<YamlMapping> {
   return parseFrontmatterMapping(await readText(path, file), file);
+}
+
+/**
+ * How ambit writes YAML (spec §3.0). Every option here answers a rule, so none of them is a
+ * preference:
+ *
+ * - `sortMapEntries` makes the byte order a function of the keys rather than of whichever order a
+ *   generator happened to build its object in — the property that lets a lock be diffed at all.
+ * - `singleQuote: false` makes quoting consistent, so a value that needs quotes always gets the
+ *   same ones and a diff never shows a changed quote style as a change.
+ * - `blockQuote: false` and `lineWidth: 0` between them forbid every form of rewrapping: a long
+ *   value stays on its line, and an awkward one is escaped inside double quotes rather than
+ *   turned into a block scalar whose indentation carries meaning.
+ * - `aliasDuplicateObjects: false` forbids anchors and aliases, so two entries that happen to
+ *   hold equal values stay two entries instead of one and a back-reference.
+ * - `schema`/`version` match {@link parseYamlMapping}'s, which is what makes the two halves
+ *   agree about when a string needs quoting: an emitter on a laxer schema would leave `1e5`
+ *   bare for a parser that reads it as a float.
+ */
+const EMIT_OPTIONS: DocumentOptions & SchemaOptions & CreateNodeOptions & ToStringOptions = {
+  schema: "core",
+  version: "1.2",
+  sortMapEntries: true,
+  singleQuote: false,
+  blockQuote: false,
+  lineWidth: 0,
+  aliasDuplicateObjects: false,
+};
+
+/**
+ * Renders a document as the bytes ambit writes: keys sorted at every depth, strings that would
+ * otherwise coerce double-quoted, no anchors, no aliases, no rewrapping, and a trailing newline.
+ *
+ * Byte-stable by construction: the output is a function of the values alone, so the same inputs
+ * produce the same file and a lock that has not changed shows as no diff.
+ *
+ * @param document the value to emit, conventionally a plain object.
+ */
+export function emitYaml(document: unknown): string {
+  return stringify(document, EMIT_OPTIONS);
 }

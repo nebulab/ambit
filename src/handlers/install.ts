@@ -1,12 +1,13 @@
 /**
- * `ambit install` — resolve, materialize, record ownership (spec §6).
+ * `ambit install` — resolve, write the lock, materialize, record ownership (spec §6).
  *
- * This build writes skills and nothing else. The flags that would imply the parts still missing
- * report themselves unimplemented rather than being accepted and ignored: `install --frozen`
- * silently succeeding would tell CI a lock is current when no lock exists.
+ * The flags that would imply the parts still missing report themselves unimplemented rather than
+ * being accepted and ignored: `install --copy` silently succeeding would tell a reader that link
+ * mode exists to be overridden.
  *
  * Output names artifacts by their project-relative path, so it is comparable between machines and
- * says exactly what a reader can go and look at.
+ * says exactly what a reader can go and look at. The lock is not among them: it is a record of the
+ * resolution rather than an owned artifact, so nothing prunes it and it is not ambit's to delete.
  */
 import type { AppliedArtifact } from "../adapter.js";
 import type { CommandContext, CommandHandler } from "../commands.js";
@@ -22,7 +23,6 @@ const NO_MODE = "-";
 /** Declared flags with no behaviour yet, and what each is waiting on. */
 const UNIMPLEMENTED: readonly (readonly [key: string, flag: string, reason: string])[] = [
   ["dryRun", "--dry-run", "printing a plan instead of applying it is not wired up yet"],
-  ["frozen", "--frozen", "it compares resolution against ambit.lock, which this build never writes"],
   ["adopt", "--adopt", "it takes ownership of unowned artifacts, which this build never refuses"],
   ["copy", "--copy", "every skill is copied on this build, so there is nothing to override"],
   ["link", "--link", "symlinking local sources is not implemented yet"],
@@ -72,7 +72,7 @@ function toText(result: InstallResult): readonly string[] {
 export const installHandler: CommandHandler = async (ctx) => {
   rejectUnimplemented(ctx);
 
-  const result = await installProject(projectDirOf(ctx));
+  const result = await installProject(projectDirOf(ctx), { frozen: ctx.options.frozen === true });
 
   if (jsonRequested(ctx)) {
     ctx.stdout(JSON.stringify(toJson(result), null, 2));
