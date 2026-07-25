@@ -17,7 +17,7 @@ import type { Pair, YAMLMap } from "yaml";
 import { LineCounter, isMap, isScalar, isSeq, parseDocument, visit } from "yaml";
 
 import type { AmbitError } from "./errors.js";
-import { configError } from "./errors.js";
+import { at, configError } from "./errors.js";
 
 /**
  * The tags the YAML 1.2 core schema resolves. A node carrying anything else is using a custom
@@ -33,11 +33,6 @@ const CORE_TAGS: ReadonlySet<string> = new Set([
   "tag:yaml.org,2002:seq",
   "tag:yaml.org,2002:str",
 ]);
-
-/** The `(file line N)` suffix every message carries, degrading to `(file)` without a position. */
-function at(file: string, line: number | undefined): string {
-  return line === undefined ? `(${file})` : `(${file} line ${line})`;
-}
 
 function rangeOf(node: unknown): [number, number] | undefined {
   if (typeof node !== "object" || node === null || !("range" in node)) return undefined;
@@ -96,6 +91,13 @@ class YamlSource {
     const slice = this.text.slice(range[0], range[1]).trim();
     return slice === "" ? undefined : slice;
   }
+}
+
+/** One string from a sequence, with where it was written. */
+export interface PositionedString {
+  readonly value: string;
+  /** 1-based, absent when the document positioned neither the item nor its key. */
+  readonly line?: number;
 }
 
 /**
@@ -184,9 +186,25 @@ export class YamlMapping {
 
   /** A sequence of strings. An empty sequence is allowed and means exactly that. */
   optionalStringList(key: string): readonly string[] | undefined {
+    return this.optionalPositionedStringList(key)?.map((entry) => entry.value);
+  }
+
+  /**
+   * The same sequence, each item paired with the line it was written on.
+   *
+   * A rule enforced after parsing — a held scope the catalog's registry does not know, say
+   * (spec §4.6) — has no YAML node left to point at, and spec §6 still expects its error to
+   * name a line. Carrying the positions forward is cheaper and less fragile than reparsing the
+   * document to find them again.
+   */
+  optionalPositionedStringList(key: string): readonly PositionedString[] | undefined {
     const items = this.sequence(key, "a sequence of strings");
     if (items === undefined) return undefined;
-    return items.map((item, index) => this.readItemString(item, key, index));
+    return items.map((item, index) => {
+      const value = this.readItemString(item, key, index);
+      const line = this.source.lineOf(item) ?? this.lineOf(key);
+      return { value, ...(line !== undefined && { line }) };
+    });
   }
 
   requireMapping(key: string): YamlMapping {

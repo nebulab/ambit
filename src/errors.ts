@@ -44,6 +44,18 @@ export class AmbitError extends Error {
   }
 }
 
+/**
+ * The `(file line N)` suffix a message carries, degrading to `(file)` when nothing positioned
+ * the value.
+ *
+ * Spec §6 requires every error to name the offending file, and the line is what makes it
+ * actionable — so the two are rendered in one place rather than per call site, including for
+ * errors raised long after the document was parsed.
+ */
+export function at(file: string, line: number | undefined): string {
+  return line === undefined ? `(${file})` : `(${file} line ${line})`;
+}
+
 export function configError(message: string, detail?: readonly string[]): AmbitError {
   return new AmbitError(ExitCode.Config, message, detail);
 }

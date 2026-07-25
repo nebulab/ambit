@@ -551,7 +551,7 @@ runs the whole pipeline against a local fixture before any git, lock, or prune l
   `[function.engineering.frontend]` selects the frontend skill but **not** general
   engineering — and not core either, since nothing is implicit. Both directions tested.
 
-- [ ] **A08 — Unknown-scope detection.**
+- [x] **A08 — Unknown-scope detection.**
   **Depends:** A07
   **Done when:** A held scope absent from the registry exits 3, names it, and suggests the
   nearest registered scope.

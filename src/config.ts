@@ -11,7 +11,7 @@ import path from "node:path";
 import { configError } from "./errors.js";
 import type { McpEntity } from "./mcp.js";
 import { parseMcpEntity } from "./mcp.js";
-import type { YamlMapping } from "./yaml.js";
+import type { PositionedString, YamlMapping } from "./yaml.js";
 import { parseYamlMapping, readYamlMapping } from "./yaml.js";
 
 /** The only config version this build understands. */
@@ -54,9 +54,26 @@ export interface SourceSkillRequest {
 /** An entry of `skills`: a bare name, or a mapping carrying its own source. */
 export type SkillRequest = CatalogSkillRequest | SourceSkillRequest;
 
+/**
+ * Where the config came from, and where inside it the values live that a later stage judges.
+ *
+ * Resolution runs long after parsing, so an error about a held scope has no YAML node left to
+ * point at — yet spec §6 still requires it to name the file and the line. This carries just
+ * enough of the document's positions for that, keeping {@link ProjectConfig} itself a plain
+ * object with no parser state hanging off it.
+ */
+export interface ConfigOrigin {
+  /** How the config file is named in messages — `ambit.yml` or `ambit.yaml`, project-relative. */
+  readonly file: string;
+  /** 1-based line each held scope was written on, keyed by scope. */
+  readonly scopeLines: ReadonlyMap<string, number>;
+}
+
 /** A parsed, validated `ambit.yml`. */
 export interface ProjectConfig {
   readonly version: number;
+  /** Positions for the errors raised after parsing (spec §6). */
+  readonly origin: ConfigOrigin;
   readonly harnesses: readonly string[];
   /** Held scopes, exactly as listed — nothing is added implicitly (spec §2). */
   readonly scopes: readonly string[];
@@ -116,6 +133,20 @@ function parseSkills(root: YamlMapping): readonly SkillRequest[] {
   });
 }
 
+/**
+ * Where each held scope was written.
+ *
+ * A scope listed twice keeps the first line: that is the one a reader scanning downward finds,
+ * and duplicates are harmless to resolution, which deduplicates them.
+ */
+function scopeLines(scopes: readonly PositionedString[]): ReadonlyMap<string, number> {
+  const lines = new Map<string, number>();
+  for (const entry of scopes) {
+    if (entry.line !== undefined && !lines.has(entry.value)) lines.set(entry.value, entry.line);
+  }
+  return lines;
+}
+
 /** Validates a config mapping, whatever it was read from. */
 function fromMapping(root: YamlMapping): ProjectConfig {
   root.rejectUnknownKeys(CONFIG_KEYS);
@@ -128,10 +159,13 @@ function fromMapping(root: YamlMapping): ProjectConfig {
     ]);
   }
 
+  const scopes = root.optionalPositionedStringList("scopes") ?? [];
+
   return {
     version,
+    origin: { file: root.file, scopeLines: scopeLines(scopes) },
     harnesses: root.optionalStringList("harnesses") ?? DEFAULT_HARNESSES,
-    scopes: root.optionalStringList("scopes") ?? [],
+    scopes: scopes.map((entry) => entry.value),
     catalogs: parseCatalogs(root),
     skills: parseSkills(root),
     mcps: (root.optionalMappingList("mcps") ?? []).map(parseMcpEntity),

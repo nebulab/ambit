@@ -64,6 +64,20 @@ describe("YAML loader", () => {
     expect(load("scopes: []\n").optionalStringList("scopes")).toEqual([]);
   });
 
+  it("pairs each sequence item with its own line, block style and flow style alike", () => {
+    // A rule enforced after parsing has no node left to point at, so the position has to come
+    // out of the document with the value (spec §6).
+    expect(
+      load("scopes:\n  - core\n  - function.engineering\n").optionalPositionedStringList("scopes"),
+    ).toEqual([
+      { value: "core", line: 2 },
+      { value: "function.engineering", line: 3 },
+    ]);
+    expect(load("version: 1\nscopes: [core]\n").optionalPositionedStringList("scopes")).toEqual([
+      { value: "core", line: 2 },
+    ]);
+  });
+
   it("rejects a duplicate key, naming both lines", () => {
     const error = rejection(() => load("version: 1\nscopes:\n  - core\nscopes:\n  - other\n"));
 

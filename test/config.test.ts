@@ -74,6 +74,14 @@ describe("project config", () => {
   it("parses the spec's own example into a typed object", () => {
     expect(parseProjectConfig(FULL_CONFIG, FILE)).toEqual({
       version: 1,
+      origin: {
+        file: FILE,
+        scopeLines: new Map([
+          ["core", 5],
+          ["function.engineering", 6],
+          ["project.vision-group", 7],
+        ]),
+      },
       harnesses: ["claude"],
       scopes: ["core", "function.engineering", "project.vision-group"],
       catalogs: [
@@ -113,12 +121,33 @@ describe("project config", () => {
   it("defaults everything but the version", () => {
     expect(parseProjectConfig("version: 1\n", FILE)).toEqual({
       version: 1,
+      origin: { file: FILE, scopeLines: new Map() },
       harnesses: DEFAULT_HARNESSES,
       scopes: [],
       catalogs: [],
       skills: [],
       mcps: [],
     });
+  });
+
+  it("records the line each held scope was written on", () => {
+    // Resolution rejects an unregistered scope long after this parse, and spec §6 still expects
+    // the error to name the line, so the positions have to survive parsing.
+    const config = parseProjectConfig("version: 1\nscopes:\n  - core\n  - function.sales\n", FILE);
+
+    expect(config.origin).toEqual({
+      file: FILE,
+      scopeLines: new Map([
+        ["core", 3],
+        ["function.sales", 4],
+      ]),
+    });
+  });
+
+  it("keeps the first line of a scope listed twice", () => {
+    const config = parseProjectConfig("version: 1\nscopes:\n  - core\n  - core\n", FILE);
+
+    expect(config.origin.scopeLines.get("core")).toBe(3);
   });
 
   it("keeps held scopes exactly as listed, adding nothing", () => {
