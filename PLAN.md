@@ -622,7 +622,7 @@ runs the whole pipeline against a local fixture before any git, lock, or prune l
   `mcp.fixture` despite neither matching by scope; a cycle fixture exits 3 printing the full
   path.
 
-- [ ] **A10 — MCP selection and `.mcp.json`.**
+- [x] **A10 — MCP selection and `.mcp.json`.**
   **Depends:** A09
   **Done when:** After install, `.mcp.json` contains exactly the scope-matched server plus
   the requires-only server, with both transport kinds mapped correctly; a hand-added server

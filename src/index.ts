@@ -3,10 +3,17 @@ export type {
   AppliedArtifact,
   HarnessAdapter,
   PlannedArtifact,
+  PlannedHarnessConfig,
   PlannedSkillDir,
   ProjectPaths,
 } from "./adapter.js";
-export { CLAUDE_HARNESS, CLAUDE_SKILLS_DIR, claudeAdapter } from "./adapters/claude.js";
+export {
+  CLAUDE_HARNESS,
+  CLAUDE_MCP_FILE,
+  CLAUDE_MCP_SECTION,
+  CLAUDE_SKILLS_DIR,
+  claudeAdapter,
+} from "./adapters/claude.js";
 export {
   MCPS_DIRNAME,
   SCOPES_FILENAME,
@@ -44,6 +51,14 @@ export type {
   SkillRequest,
   SourceSkillRequest,
 } from "./config.js";
+export {
+  EMPTY_DOCUMENT,
+  managedKey,
+  mergeConfigSection,
+  readJsonDocument,
+  serializeJsonDocument,
+} from "./harness-config.js";
+export type { ConfigEntry, JsonObject } from "./harness-config.js";
 export { ADAPTERS, installProject } from "./install.js";
 export type { InstallResult } from "./install.js";
 export { MCP_TRANSPORT_KINDS, parseMcpEntity } from "./mcp.js";

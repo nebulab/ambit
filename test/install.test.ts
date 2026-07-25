@@ -9,24 +9,34 @@
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { buildFixtureCatalog } from "../scripts/fixture-catalog.js";
+import type { PlannedSkillDir } from "../src/adapter.js";
 import { claudeAdapter } from "../src/adapters/claude.js";
 import { loadCatalogs, mergeCatalogs } from "../src/catalog.js";
 import { loadProjectConfig } from "../src/config.js";
 import { ExitCode } from "../src/errors.js";
 import { installProject } from "../src/install.js";
 import { run } from "../src/program.js";
+import type { Bundle } from "../src/resolve.js";
 import { resolveBundle } from "../src/resolve.js";
 import { EMPTY_STATE, STATE_DIRNAME, STATE_FILENAME, parseState, readState } from "../src/state.js";
 
 const CATALOG_NAME = "company";
 const SKILLS_DIR = ".claude/skills";
+const MCP_FILE = ".mcp.json";
 
 const CORE_SKILL = "acme.commons.use-company-context";
 const ENGINEERING_SKILL = "acme.engineering.use-code-review";
 const FRONTEND_SKILL = "acme.engineering.frontend.use-design-tokens";
+
+/** The fixture's scope-matched http server, and the one only `requires` reaches. */
+const SCOPED_MCP = "scoped";
+const FIXTURE_MCP = "fixture";
+
+/** The variable the scoped server interpolates into its `Authorization` header. */
+const SCOPED_KEY_VAR = "SCOPED_API_KEY";
 
 let root: string;
 let catalogDir: string;
@@ -99,6 +109,20 @@ async function readStateFile(): Promise<string> {
   return readFile(path.join(projectDir, STATE_DIRNAME, STATE_FILENAME), "utf8");
 }
 
+async function readMcpFile(): Promise<string> {
+  return readFile(path.join(projectDir, MCP_FILE), "utf8");
+}
+
+/** `.mcp.json` as a document, so a test can assert both its contents and its key order. */
+async function readMcpConfig(): Promise<Record<string, unknown>> {
+  return JSON.parse(await readMcpFile()) as Record<string, unknown>;
+}
+
+/** Writes a file into the per-test copy of the catalog. */
+async function writeCatalogFile(relative: string, contents: string): Promise<void> {
+  await writeFile(path.join(catalogDir, relative), contents, "utf8");
+}
+
 async function pathExists(target: string): Promise<boolean> {
   try {
     await stat(path.join(projectDir, target));
@@ -114,39 +138,58 @@ beforeEach(async () => {
   projectDir = path.join(root, "project");
   await buildFixtureCatalog(catalogDir);
   await mkdir(projectDir, { recursive: true });
-  // `function.engineering` also selects its nested frontend child, so this profile is three skills.
+  // `function.engineering` also selects its nested frontend child, so this profile is three
+  // skills — and the `scoped` MCP server, which declares that same scope.
   await writeProfile(["core", "function.engineering"]);
+  // What lands in `.mcp.json` depends on the environment (spec §5), so every test pins it rather
+  // than inheriting whatever the developer's shell exports.
+  vi.stubEnv(SCOPED_KEY_VAR, undefined);
 });
 
 afterEach(async () => {
+  vi.unstubAllEnvs();
   await rm(root, { recursive: true, force: true });
 });
 
-describe("the Claude adapter's plan", () => {
-  it("targets one directory per bundle skill, and touches nothing", async () => {
-    const config = await loadProjectConfig(projectDir);
-    const bundle = resolveBundle(config, mergeCatalogs(await loadCatalogs(config, projectDir)));
+/** The bundle the project's current profile resolves to. */
+async function bundleFor(): Promise<Bundle> {
+  const config = await loadProjectConfig(projectDir);
+  return resolveBundle(config, mergeCatalogs(await loadCatalogs(config, projectDir)));
+}
 
-    const plan = claudeAdapter.plan(bundle, { root: projectDir });
+describe("the Claude adapter's plan", () => {
+  it("targets one directory per bundle skill and one config file, and touches nothing", async () => {
+    const plan = claudeAdapter.plan(await bundleFor(), { root: projectDir, env: {} });
 
     expect(plan.map((artifact) => artifact.path)).toEqual([
       `${SKILLS_DIR}/${CORE_SKILL}`,
       `${SKILLS_DIR}/${FRONTEND_SKILL}`,
       `${SKILLS_DIR}/${ENGINEERING_SKILL}`,
+      MCP_FILE,
     ]);
-    expect(plan.map((artifact) => artifact.mode)).toEqual(["copy", "copy", "copy"]);
-    expect(plan[0]?.source).toBe(
+
+    const skills = plan.filter((artifact): artifact is PlannedSkillDir => artifact.kind === "skill-dir");
+    expect(skills.map((artifact) => artifact.mode)).toEqual(["copy", "copy", "copy"]);
+    expect(skills[0]?.source).toBe(
       path.join(catalogDir, "skills/acme/commons/use-company-context"),
     );
     expect(await pathExists(SKILLS_DIR)).toBe(false);
+    expect(await pathExists(MCP_FILE)).toBe(false);
   });
 
   it("is pure: planning twice yields the same paths", async () => {
-    const config = await loadProjectConfig(projectDir);
-    const bundle = resolveBundle(config, mergeCatalogs(await loadCatalogs(config, projectDir)));
-    const project = { root: projectDir };
+    const bundle = await bundleFor();
+    const project = { root: projectDir, env: {} };
 
     expect(claudeAdapter.plan(bundle, project)).toEqual(claudeAdapter.plan(bundle, project));
+  });
+
+  it("plans no config file for a bundle with no servers", async () => {
+    await writeProfile(["core"]);
+
+    const plan = claudeAdapter.plan(await bundleFor(), { root: projectDir, env: {} });
+
+    expect(plan.map((artifact) => artifact.kind)).toEqual(["skill-dir"]);
   });
 });
 
@@ -194,7 +237,7 @@ describe("ambit install", () => {
     expect(parseState(await readStateFile(), STATE_FILENAME).artifacts).toEqual([]);
   });
 
-  it("records every skill directory as an owned artifact", async () => {
+  it("records every skill directory and every managed config key as owned", async () => {
     await cli("install");
 
     const state = parseState(await readStateFile(), STATE_FILENAME);
@@ -205,6 +248,7 @@ describe("ambit install", () => {
         { path: `${SKILLS_DIR}/${CORE_SKILL}`, kind: "skill-dir", mode: "copy" },
         { path: `${SKILLS_DIR}/${FRONTEND_SKILL}`, kind: "skill-dir", mode: "copy" },
         { path: `${SKILLS_DIR}/${ENGINEERING_SKILL}`, kind: "skill-dir", mode: "copy" },
+        { path: MCP_FILE, kind: "harness-config", managedKeys: [`mcpServers.${SCOPED_MCP}`] },
       ],
     });
   });
@@ -243,17 +287,19 @@ describe("ambit install", () => {
   it("lists what it wrote", async () => {
     const result = await cli("install");
 
-    // The path column is padded out to the longest one, so the kinds line up down the section.
+    // Both columns but the last are padded out to their longest cell, so the kinds line up down
+    // the section and the config file's missing mode reads as a gap rather than a shifted row.
     const width = `${SKILLS_DIR}/${FRONTEND_SKILL}`.length;
     expect(result.stdout).toBe(
       [
         "harnesses (1)",
         "  claude",
         "",
-        "artifacts (3)",
-        `  ${`${SKILLS_DIR}/${CORE_SKILL}`.padEnd(width)}  skill-dir  copy`,
-        `  ${SKILLS_DIR}/${FRONTEND_SKILL}  skill-dir  copy`,
-        `  ${`${SKILLS_DIR}/${ENGINEERING_SKILL}`.padEnd(width)}  skill-dir  copy`,
+        "artifacts (4)",
+        `  ${`${SKILLS_DIR}/${CORE_SKILL}`.padEnd(width)}  skill-dir       copy`,
+        `  ${SKILLS_DIR}/${FRONTEND_SKILL}  skill-dir       copy`,
+        `  ${`${SKILLS_DIR}/${ENGINEERING_SKILL}`.padEnd(width)}  skill-dir       copy`,
+        `  ${MCP_FILE.padEnd(width)}  harness-config  -`,
       ].join("\n"),
     );
   });
@@ -266,6 +312,7 @@ describe("ambit install", () => {
         { kind: "skill-dir", mode: "copy", path: `${SKILLS_DIR}/${CORE_SKILL}` },
         { kind: "skill-dir", mode: "copy", path: `${SKILLS_DIR}/${FRONTEND_SKILL}` },
         { kind: "skill-dir", mode: "copy", path: `${SKILLS_DIR}/${ENGINEERING_SKILL}` },
+        { kind: "harness-config", managedKeys: [`mcpServers.${SCOPED_MCP}`], path: MCP_FILE },
       ],
       harnesses: ["claude"],
       skills: [CORE_SKILL, FRONTEND_SKILL, ENGINEERING_SKILL],
@@ -285,7 +332,169 @@ describe("ambit install", () => {
   });
 });
 
+describe(".mcp.json", () => {
+  /** The scoped server matches this profile by scope; `fixture` only arrives via `requires`. */
+  const BOTH_SERVERS = ["function.engineering", "project.acme"];
+
+  const SCOPED_SERVER = {
+    type: "http",
+    url: "https://mcp.invalid/fixture",
+    headers: { Authorization: `Bearer \${${SCOPED_KEY_VAR}}` },
+  };
+
+  const FIXTURE_SERVER = { command: "npx", args: ["-y", "@acme/fixture-mcp"] };
+
+  it("holds exactly the scope-matched server and the requires-only one", async () => {
+    await writeProfile(BOTH_SERVERS);
+
+    const result = await cli("install");
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+
+    // Both transport kinds at once: `fixture` is stdio, `scoped` is http.
+    expect(await readMcpConfig()).toEqual({
+      mcpServers: { [FIXTURE_MCP]: FIXTURE_SERVER, [SCOPED_MCP]: SCOPED_SERVER },
+    });
+  });
+
+  it("writes no file at all when the bundle selects no server", async () => {
+    await writeProfile(["core"]);
+
+    const result = await cli("install");
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+    expect(await pathExists(MCP_FILE)).toBe(false);
+  });
+
+  it("interpolates `${VAR}` in a header from the environment", async () => {
+    vi.stubEnv(SCOPED_KEY_VAR, "s3cret");
+
+    await cli("install");
+
+    expect(await readMcpConfig()).toEqual({
+      mcpServers: {
+        [SCOPED_MCP]: { ...SCOPED_SERVER, headers: { Authorization: "Bearer s3cret" } },
+      },
+    });
+  });
+
+  it("leaves a placeholder in place when its variable is unset, rather than emptying it", async () => {
+    await cli("install");
+
+    expect(await readMcpFile()).toContain(`Bearer \${${SCOPED_KEY_VAR}}`);
+  });
+
+  it("omits `args` and `headers` a server does not declare", async () => {
+    await writeCatalogFile(
+      "mcps/plain.yml",
+      "name: plain\nscopes: [core]\n\ntransport:\n  stdio:\n    command: plain-mcp\n",
+    );
+    await writeCatalogFile(
+      "mcps/bare.yml",
+      "name: bare\nscopes: [core]\n\ntransport:\n  http:\n    url: https://bare.invalid/mcp\n",
+    );
+    await writeProfile(["core"]);
+
+    await cli("install");
+
+    expect(await readMcpConfig()).toEqual({
+      mcpServers: {
+        bare: { type: "http", url: "https://bare.invalid/mcp" },
+        plain: { command: "plain-mcp" },
+      },
+    });
+  });
+
+  it("leaves a hand-added server and every foreign key untouched", async () => {
+    const handmade = { command: "node", args: ["./scripts/local-mcp.js"] };
+    await writeFile(
+      path.join(projectDir, MCP_FILE),
+      `${JSON.stringify({ mcpServers: { handmade }, extra: { kept: true } }, null, 2)}\n`,
+      "utf8",
+    );
+    await writeProfile(BOTH_SERVERS);
+
+    const result = await cli("install");
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+
+    const document = await readMcpConfig();
+    expect(document).toEqual({
+      mcpServers: { handmade, [FIXTURE_MCP]: FIXTURE_SERVER, [SCOPED_MCP]: SCOPED_SERVER },
+      extra: { kept: true },
+    });
+    // Keys already in the file keep their position; ambit's are appended.
+    expect(Object.keys(document)).toEqual(["mcpServers", "extra"]);
+    expect(Object.keys(document.mcpServers as object)).toEqual([
+      "handmade",
+      FIXTURE_MCP,
+      SCOPED_MCP,
+    ]);
+  });
+
+  it("records only the keys it wrote as owned", async () => {
+    await writeFile(
+      path.join(projectDir, MCP_FILE),
+      `${JSON.stringify({ mcpServers: { handmade: { command: "node" } } }, null, 2)}\n`,
+      "utf8",
+    );
+    await writeProfile(BOTH_SERVERS);
+
+    await cli("install");
+
+    const state = parseState(await readStateFile(), STATE_FILENAME);
+    expect(state.artifacts.find((artifact) => artifact.path === MCP_FILE)).toEqual({
+      path: MCP_FILE,
+      kind: "harness-config",
+      managedKeys: [`mcpServers.${FIXTURE_MCP}`, `mcpServers.${SCOPED_MCP}`],
+    });
+  });
+
+  it("is byte-identical on a second install", async () => {
+    await writeProfile(BOTH_SERVERS);
+    await cli("install");
+    const first = await readMcpFile();
+
+    await cli("install");
+
+    expect(await readMcpFile()).toBe(first);
+  });
+
+  it("exits 2 rather than overwriting a file it cannot parse", async () => {
+    await writeFile(path.join(projectDir, MCP_FILE), "{ not json\n", "utf8");
+
+    const result = await cli("install");
+
+    expect(result.code).toBe(ExitCode.Config);
+    expect(result.stderr).toContain(`${MCP_FILE} is not valid JSON`);
+    expect(await readMcpFile()).toBe("{ not json\n");
+  });
+
+  it("exits 2 when the servers section is not an object", async () => {
+    await writeFile(path.join(projectDir, MCP_FILE), '{"mcpServers": []}\n', "utf8");
+
+    const result = await cli("install");
+
+    expect(result.code).toBe(ExitCode.Config);
+    expect(result.stderr).toContain(`"mcpServers" in ${MCP_FILE} is not a JSON object`);
+    expect(await readMcpFile()).toBe('{"mcpServers": []}\n');
+  });
+});
+
 describe("ambit install failures", () => {
+  for (const [label, transport] of [
+    ["no kind", "transport: {}"],
+    ["two kinds", "transport:\n  stdio:\n    command: npx\n  http:\n    url: https://x.invalid"],
+  ] as const) {
+    it(`exits 2 for an MCP entity whose transport names ${label}`, async () => {
+      await writeCatalogFile("mcps/broken.yml", `name: broken\n${transport}\n`);
+
+      const result = await cli("install");
+
+      expect(result.code).toBe(ExitCode.Config);
+      expect(result.stderr).toContain("supported kinds: http, stdio");
+      expect(await pathExists(MCP_FILE)).toBe(false);
+      expect(await pathExists(SKILLS_DIR)).toBe(false);
+    });
+  }
+
   it("exits 2 for a harness with no adapter", async () => {
     await writeProfile(["core"], ["cursor"]);
 

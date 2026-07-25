@@ -8,6 +8,10 @@
  *
  * The lock (A14), pruning (A18), and ownership enforcement (A17) are not here yet, so this build
  * adds and overwrites but never removes.
+ *
+ * The environment is captured here rather than inside an adapter, because `${VAR}` interpolation in
+ * MCP headers (spec §5) is the one thing materialization reads outside its arguments, and an
+ * adapter's `plan` has to stay a pure function of what it is given.
  */
 import type { AppliedArtifact, HarnessAdapter, ProjectPaths } from "./adapter.js";
 import { CLAUDE_HARNESS, claudeAdapter } from "./adapters/claude.js";
@@ -68,7 +72,9 @@ export async function installProject(projectDir: string): Promise<InstallResult>
 
   const bundle = resolveBundle(config, mergeCatalogs(await loadCatalogs(config, projectDir)));
   const prior = await readState(projectDir);
-  const project: ProjectPaths = { root: projectDir };
+  // `process.env` is read once, here, so every adapter interpolates against the same environment
+  // and nothing deeper down reaches for ambient state of its own.
+  const project: ProjectPaths = { root: projectDir, env: process.env };
 
   const artifacts: AppliedArtifact[] = [];
   for (const adapter of adapters) {

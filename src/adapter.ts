@@ -10,6 +10,7 @@
  * the only form that survives the project being moved — and its absolute `target`, so `apply`
  * writes exactly what `plan` decided and never re-derives a location.
  */
+import type { ConfigEntry } from "./harness-config.js";
 import type { Bundle } from "./resolve.js";
 import type { ArtifactMode, OwnedArtifact, State } from "./state.js";
 
@@ -17,6 +18,12 @@ import type { ArtifactMode, OwnedArtifact, State } from "./state.js";
 export interface ProjectPaths {
   /** The project root, absolute. Every artifact path is relative to it. */
   readonly root: string;
+  /**
+   * The environment `${VAR}` placeholders interpolate from (spec §5). Passed in rather than read
+   * from `process.env` inside an adapter, so `plan` stays a function of its arguments alone and a
+   * test can pin what lands in a config file without touching the real environment.
+   */
+  readonly env: Readonly<Record<string, string | undefined>>;
 }
 
 /** A skill directory to materialize. */
@@ -34,8 +41,28 @@ export interface PlannedSkillDir {
   readonly name: string;
 }
 
-/** Everything an adapter can be asked to write. MCP config joins this later. */
-export type PlannedArtifact = PlannedSkillDir;
+/**
+ * A section of a harness's own config file to write, `.mcp.json` being the only one in v1.
+ *
+ * Unlike a skill directory the target is not ambit's to replace: the file may hold entries a
+ * person added by hand, so `apply` merges into it and ownership is recorded per key (spec §5).
+ */
+export interface PlannedHarnessConfig {
+  readonly kind: "harness-config";
+  /** Project-relative, `/`-separated. */
+  readonly path: string;
+  /** Absolute target. */
+  readonly target: string;
+  /** The top-level object within the file ambit writes into. */
+  readonly section: string;
+  /** What ambit puts there, sorted by key. */
+  readonly entries: readonly ConfigEntry[];
+  /** `<section>.<key>` for each entry — what state records as owned (spec §3.6). */
+  readonly managedKeys: readonly string[];
+}
+
+/** Everything an adapter can be asked to write. */
+export type PlannedArtifact = PlannedSkillDir | PlannedHarnessConfig;
 
 /** What `apply` reports back, and what goes into state verbatim. */
 export type AppliedArtifact = OwnedArtifact;
