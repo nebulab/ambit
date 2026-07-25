@@ -171,6 +171,43 @@ describe("the catalog editor: round-tripping", () => {
     );
   });
 
+  it("renames a set of keys in place, through a name one of them still holds", async () => {
+    // Renaming a scope's subtree passes through a state where two entries share a name, so every pair has
+    // to be located before any of them is touched — and each keeps its position and its comment, which
+    // `remove` plus `setString` could not do.
+    await write(
+      "scopes.yml",
+      [
+        "scopes:",
+        "  # Everyone.",
+        "  core:",
+        "    description: The floor",
+        "  a:",
+        "    description: A",
+        "  a.b:",
+        "    description: B",
+        "",
+      ].join("\n"),
+    );
+    const document = await CatalogDocument.open(catalogDir, "scopes.yml");
+
+    document.renameKeys(["scopes"], new Map([["a", "a.b"], ["a.b", "a.b.b"], ["absent", "x"]]));
+
+    expect(document.text()).toBe(
+      [
+        "scopes:",
+        "  # Everyone.",
+        "  core:",
+        "    description: The floor",
+        "  a.b:",
+        "    description: A",
+        "  a.b.b:",
+        "    description: B",
+        "",
+      ].join("\n"),
+    );
+  });
+
   it("creates the mappings a nested key needs, and reads back what it wrote", async () => {
     const document = await CatalogDocument.open(catalogDir, "scopes.yml");
 

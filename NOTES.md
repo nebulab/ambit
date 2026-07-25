@@ -3,11 +3,10 @@
 Rewritten by each Ralph iteration for the next one. Short, current, and only what would cost
 real time to rediscover — see `PROMPT.md` §6.
 
-Last iteration: **B03 — `ambit catalog init`** (the tip of `main`). The first authoring command, and so
-the first caller of the B02 editor: `src/catalog-init.ts` + `src/handlers/catalog-init.ts`, plus the two
-pieces B01/B02 deferred to it — `catalogDirOf(ctx)` and the diff renderer (`src/diff.ts`). Next task is
-**B04 — Scope registry commands**, whose `Depends: B03` is now checked. (A30 also depends on A25, but
-B04 is topmost.)
+Last iteration: **B04 — Scope registry commands** (the tip of `main`). `catalog scope add|rm|mv` in
+`src/catalog-scope.ts` + `src/handlers/catalog-scope.ts`, the editor's one new capability
+(`renameKeys`), and the subtree rule now shared with resolution. Next task is **B05 — Skill commands**,
+whose `Depends: B04` is now checked. (A30 also depends on A25, but B05 is topmost.)
 
 ## Constraints later tasks inherit
 
@@ -96,6 +95,34 @@ B04 is topmost.)
   one broken file while another is still broken.
 - **An edit that changes no bytes writes nothing at all**, so re-running a mutation leaves even the
   mtime alone (asserted). `applyCatalogEdit` therefore skips validation entirely in that case.
+- **`EditableYaml.renameKeys(path, renames)` / `CatalogDocument.renameKeys` is how a key changes name**,
+  and it takes the whole set at once. It mutates the key scalar, so the entry keeps its position, its
+  value, and the comment above it (which `remove` + `setString` would both lose); a set because a rename
+  can pass through a name another entry still holds (`a` → `a.b` while `a.b` → `a.b.b`), so every pair is
+  located before any is touched. Missing keys are ignored. `test/editor.test.ts` pins both halves.
+- **`SCOPE_SEPARATOR` and `inSubtree` are exported from `src/resolve.ts`** because `catalog scope mv`
+  renames exactly the scopes a held one would reach. If a rename and an expansion could disagree about
+  what "beneath" means, a rename would silently change what holding a scope selects — so there is one
+  answer, in one place.
+- **`src/catalog-scope.ts` is the whole of `catalog scope`, and the three verbs are deliberately not
+  symmetric.** `add` is **declarative**: it makes the registry say what it was asked whether or not the
+  entry existed, so re-running it writes nothing and re-running it with new words is the only way to
+  correct a description (nothing else edits one — **worth a second opinion**, since the alternative is to
+  refuse an existing name). `rm` unregisters **one entry, never a descendant** (nothing requires a scope's
+  parent to be registered — `person.jane` with no `person`), and refuses (exit 3) while any skill or server
+  declares it, naming **every** declarer with its file. `mv` renames the scope **and its whole registered
+  subtree**, rewriting every declarer of any renamed scope **in the same edit** — which is what makes the
+  result validate through the overlay. A new entry lands at the end of the mapping, so a registry ambit
+  appends to is no longer sorted; deliberate, since sorting would move entries the author placed.
+- **Exit codes there follow spec §6's table, not the editor's habits:** an unknown scope, a still-declared
+  scope, and a rename onto a registered name are all **3** (§6 lists "unknown scope" and "name conflict"
+  under 3); a missing/blank `--description` and an empty name segment are **2**. `mv <old> <old>` and any
+  no-op are exit 0 writing nothing.
+- **An authoring handler's heading follows `--dry-run`, not `written`** (`src/handlers/catalog-scope.ts`),
+  unlike `catalog init`'s: a mutation that had nothing to do is a no-op, not a preview, so a second
+  `scope add` prints `registered (1)` with `files (0)`. Every scope command prints exactly two sections —
+  what the registry now holds, then `files` (or the `diff` under `--dry-run`) — and `mv` adds a closing
+  line telling the reader to update each project's `ambit.yml`, since a catalog command edits none.
 - **`src/diff.ts` is the only diff renderer, and every authoring `--dry-run` prints through it.**
   `diffSection(title, changes)` takes `applyCatalogEdit`'s `EditedFile[]` straight and returns a counted
   section in `src/output.ts`'s shape; `diffLines(before, after)` is the body. It is an exact LCS with
@@ -353,9 +380,9 @@ B04 is topmost.)
   about the config entry, not the directory, so a catalog parsed straight off disk
   (`validate --catalog`) has none.
 - **`--frozen`, `--adopt`, `--copy`, `--link`, `--dry-run`, `status --check` and `validate --catalog`
-  are implemented, as are `catalog dump` and `catalog init`.** The unbuilt surface is the rest of the
-  `catalog` authoring group (B04–B09), declared in `COMMAND_SPECS` and reporting itself unimplemented
-  until each task lands.
+  are implemented, as are `catalog dump`, `catalog init` and `catalog scope add|rm|mv`.** The unbuilt
+  surface is the rest of the `catalog` authoring group (B05–B09), declared in `COMMAND_SPECS` and
+  reporting itself unimplemented until each task lands.
 - **Every source resolves through `src/sources.ts`** (§3.1 grammar) returning
   `ResolvedSource = { root, commit? }`. `loadCatalogs`, `mergeConfigEntities`, `loadSourceSkill` and
   `resolveCatalogRoot` take a `SourceContext` (`{ projectDir, env }`); `env` is where the cache location
@@ -407,12 +434,14 @@ B04 is topmost.)
 - **The editor writes and removes *files*, not directories.** `skill rm` has to delete a whole skill
   directory (a skill may carry `references/`), and `skill mv` has to move one — **B05 owns that**, and
   should extend `CatalogChange` rather than reaching for `rm` on its own.
-- **Nothing renames a key in place.** `scope mv` wants `scopes.<old>` → `<new>` keeping that entry's
-  position and comment; the editor can only `setString` the new one and `remove` the old, which appends
-  and leaves any comment above the old entry dangling. **B04 owns whether that is good enough.**
-- **`mcpDocumentPath` always says `.yml`**, so annotating an entity someone wrote as `mcps/x.yaml`
-  would create a second file for the same name — which parsing then rejects (§3.3). Nothing carries an
-  `McpEntity`'s own filename; **B07 needs one** if it wants to support `.yaml`.
+- **`mcpDocumentPath` always says `.yml`**, so editing an entity someone wrote as `mcps/x.yaml` would
+  create a second file for the same name — which parsing then rejects (§3.3), so the mutation fails exit 3
+  with nothing written rather than corrupting anything. `catalog scope mv` already depends on this when it
+  rewrites a server's `scopes`. Nothing carries an `McpEntity`'s own filename; **B07 needs one** if it
+  wants to support `.yaml`.
+- **Nothing removes a scope from a declarer.** `scope rm` refuses while anything declares the scope and
+  tells the reader to edit each file; the flag that would do it for them is **B07's**
+  `annotate --remove-scope`. The refusal deliberately does not name that command yet.
 - **`catalog init` scaffolds no example skill and no example MCP entity**, so a fresh catalog installs
   nothing: `catalog skill new` (B05) is the next step and the command's own output says so. It also runs
   no `git init` and writes no `.gitignore` — a catalog has nothing generated to ignore, and the directory
@@ -453,9 +482,15 @@ B04 is topmost.)
   are restated in the test rather than imported, so the emitted-shape claim is independent of the source.
 - **`test/diff.test.ts` asserts the renderer's exact lines**, elision marker and context width included.
   Changing `CONTEXT_LINES` or the tie-break rewrites several of its cases; that is the point.
-- **Each B0x task deletes its own row from `test/catalog.test.ts`'s `UNBUILT` table** (B03 removed
-  `catalog init`). Leaving the row behind fails the "exits 1 from every unbuilt subcommand" case, which
-  is the intended alarm.
+- **Each B0x task deletes its own row from `test/catalog.test.ts`'s `UNBUILT` table** (B04 removed the
+  three `catalog scope` rows). Leaving the row behind fails the "exits 1 from every unbuilt subcommand"
+  case, which is the intended alarm.
+- **`test/catalog-scope.test.ts` asserts whole files against `FIXTURE_CATALOG_FILES`' own text**, and its
+  `mv` case names each expected file separately *on purpose*: two fixture skill bodies mention
+  `function.engineering` in prose, so a blanket `replaceAll` over the fixture would pass against an edit
+  that rewrote the body — the exact bug rule 2 forbids. One assertion pins that prose explicitly. Its
+  `refused()` helper snapshots the whole tree around every rejection, so a refusal that half-wrote
+  something fails there rather than in a later case.
 - **A Commander-level error in a subcommand still exits the process (A30), and that shapes both the
   authoring commands and their tests.** Two consequences: (1) declare no `.makeOptionMandatory()` and
   no `.conflicts()` on an authoring flag — B04's "`add` requires a description" and B06's "exactly one

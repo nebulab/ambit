@@ -26,8 +26,13 @@ import { MCPS_DIRNAME, SCOPES_FILENAME, SKILL_FILENAME } from "./catalog.js";
 import type { ProjectConfig } from "./config.js";
 import { AmbitError, ExitCode, at, resolutionError } from "./errors.js";
 
-/** What separates a scope from its children (spec §2). */
-const SCOPE_SEPARATOR = ".";
+/**
+ * What separates a scope from its children (spec §2).
+ *
+ * Exported because authoring reads it too: renaming a scope renames its subtree, so `catalog scope mv`
+ * has to cut a name apart exactly where expansion joins one.
+ */
+export const SCOPE_SEPARATOR = ".";
 
 /**
  * What marks a `requires` entry as naming an MCP entity rather than a skill (spec §3.2).
@@ -109,8 +114,11 @@ function sortedUnique(values: readonly string[]): readonly string[] {
  * The separator is part of the test on purpose. A bare prefix check would let
  * `function.engineering` swallow the unrelated sibling `function.engineering-legacy`, which reads
  * as a hierarchy to string comparison and to nobody else.
+ *
+ * Exported for `catalog scope mv`, which renames exactly the scopes a held one would reach: the two
+ * answers have to be the same answer, or a rename would change what holding the scope selects.
  */
-function inSubtree(held: string, candidate: string): boolean {
+export function inSubtree(held: string, candidate: string): boolean {
   return candidate === held || candidate.startsWith(`${held}${SCOPE_SEPARATOR}`);
 }
 

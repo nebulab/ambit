@@ -760,7 +760,7 @@ mutation ends by re-validating.
   worth catching, while an otherwise-occupied directory (a README, a `.git`) is fine, since a
   catalog is normally initialized inside a repo that already exists.
 
-- [ ] **B04 — Scope registry commands.**
+- [x] **B04 — Scope registry commands.**
   **Depends:** B03
   **Do:** `catalog scope add|rm|mv`. `add` requires a description. `rm` refuses while anything
   still declares the scope. `mv` renames the scope **and every descendant**, rewriting every

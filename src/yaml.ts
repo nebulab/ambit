@@ -30,6 +30,7 @@ import type {
   Node,
   Pair,
   ParseOptions,
+  Scalar,
   SchemaOptions,
   ToStringOptions,
   YAMLMap,
@@ -849,6 +850,34 @@ export class EditableYaml {
   /** Removes `path`, if it is there. */
   remove(path: readonly string[]): void {
     this.document.deleteIn(path);
+  }
+
+  /**
+   * Renames keys of the mapping at `path`, leaving everything else about each entry alone.
+   *
+   * What changes is the key node itself, so the entry keeps its position in the mapping, its value, and
+   * every comment written above or beside it. Removing the old key and setting the new one — the only
+   * other way to express this — would move the entry to the end and take the comment above it with it,
+   * which is exactly the reformatting authoring rule 2 forbids.
+   *
+   * A whole set at once, deliberately: renaming a scope together with its descendants passes through
+   * states where two entries share a name (`a` → `a.b` while `a.b` → `a.b.b`), so every pair is located
+   * before any of them is touched. Keys the mapping does not hold are ignored, and a key's quoting style
+   * is the author's and is kept — a new name that could not be written plain is quoted regardless
+   * (spec §3.0).
+   */
+  renameKeys(path: readonly string[], renames: ReadonlyMap<string, string>): void {
+    const mapping = this.document.getIn(path, true);
+    if (!isMap(mapping)) return;
+
+    const renamed: { readonly key: Scalar<unknown>; readonly to: string }[] = [];
+    for (const item of mapping.items) {
+      if (!isScalar(item.key) || typeof item.key.value !== "string") continue;
+      const to = renames.get(item.key.value);
+      if (to !== undefined) renamed.push({ key: item.key, to });
+    }
+
+    for (const { key, to } of renamed) key.value = to;
   }
 
   /**

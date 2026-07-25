@@ -188,6 +188,16 @@ export class CatalogDocument {
     this.edit.remove(path);
   }
 
+  /**
+   * Renames keys of the mapping at `path`, keeping each entry where it was, comments included.
+   *
+   * The whole set is given at once because a rename can pass through a name another entry still holds;
+   * see {@link EditableYaml.renameKeys}. Keys the mapping does not hold are ignored.
+   */
+  renameKeys(path: readonly string[], renames: ReadonlyMap<string, string>): void {
+    this.edit.renameKeys(path, renames);
+  }
+
   /** The bytes the document would be written with. Byte-identical to what was read until an edit. */
   text(): string {
     return this.edit.text();

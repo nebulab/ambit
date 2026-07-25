@@ -50,6 +50,14 @@ export {
   scaffoldCatalog,
 } from "./catalog-init.js";
 export type { CatalogInitOptions, CatalogInitResult } from "./catalog-init.js";
+export { addScope, removeScope, renameScope } from "./catalog-scope.js";
+export type {
+  ScopeAddResult,
+  ScopeEdit,
+  ScopeRemoveResult,
+  ScopeRename,
+  ScopeRenameResult,
+} from "./catalog-scope.js";
 export { cleanProject, pruneProject } from "./clean.js";
 export type { CleanOptions, CleanResult, PruneOptions, PruneResult } from "./clean.js";
 export {
@@ -174,11 +182,13 @@ export { planPrune, pruneArtifacts, remainingArtifacts } from "./prune.js";
 export type { PrunedArtifact } from "./prune.js";
 export {
   MCP_REQUIREMENT_PREFIX,
+  SCOPE_SEPARATOR,
   assertScopesRegistered,
   closeOverRequires,
   cycleError,
   explainSelection,
   formatReason,
+  inSubtree,
   isSelected,
   missingRequirement,
   reasonOf,
