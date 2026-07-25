@@ -414,6 +414,15 @@ ambit prune                    remove owned artifacts not in the current bundle
 ambit clean                    remove everything ambit owns
 ambit validate [--catalog DIR] full-catalog validation, for CI
 ambit doctor                   env vars, drift, ownership
+
+ambit catalog dump [--json]    dump the merged catalog (what `ambit catalog` does)
+ambit catalog new <dir>        scaffold a catalog repo
+ambit catalog tree [--json]    the scope tree, and what each scope selects
+ambit catalog audit [--check]  find dead scopes and unreachable items
+ambit catalog scope add|rm|mv  maintain scopes.yml
+ambit catalog skill new|rm|mv  maintain a skill directory
+ambit catalog mcp new|rm       maintain an MCP entity
+ambit catalog annotate <name>  change a skill or MCP's scopes, requires, or env
 ```
 
 **Global flags:** `--project <dir>` (default cwd), `--json`, `--offline`, `--quiet`,
@@ -455,6 +464,54 @@ error: refusing to overwrite unowned path
        move it aside, or run `ambit install --adopt` to take ownership
 ```
 
+### Catalog authoring
+
+The commands above serve someone *consuming* a catalog. These serve someone *maintaining* one.
+The split matters because the two act on different directories: consumer commands take
+`--project <dir>` and read `ambit.yml`; authoring commands take **`--catalog <dir>` (default
+cwd)** and read the catalog root. A catalog is not a project and has no `ambit.yml`.
+
+`catalog` becomes a command group whose **default action is `dump`**, so `ambit catalog` and
+`ambit catalog --json` keep behaving exactly as they do today.
+
+```
+ambit catalog scope add <name> --description <text>
+ambit catalog scope rm <name>
+ambit catalog scope mv <old> <new>
+
+ambit catalog skill new <name> [--description <text>] [--scope <s>…]
+                               [--requires <r>…] [--env <v>…]
+ambit catalog skill rm <name>
+ambit catalog skill mv <old> <new>
+
+ambit catalog mcp new <name> (--stdio <command> [--arg <a>…] | --http <url> [--header <k=v>…])
+                             [--env <v>…]
+ambit catalog mcp rm <name>
+
+ambit catalog annotate <name> [--add-scope <s>…]     [--remove-scope <s>…]
+                              [--add-requires <r>…]  [--remove-requires <r>…]
+                              [--add-env <v>…]       [--remove-env <v>…]
+```
+
+List-valued flags are repeatable rather than comma-separated: a scope name can contain a comma
+far more easily than an argv entry can.
+
+**Rules every authoring command obeys.** These are what make editing a catalog as deterministic
+as resolving one:
+
+1. **Never break the plain skills repo.** Authored output stays readable by any tool that
+   derives a name from a path (§1). Same hard requirement, now enforced on ambit's own writes.
+2. **Surgical edits.** Changing an annotation preserves comments, unknown keys, the order of
+   keys ambit did not touch, and the markdown body **byte-for-byte**. A catalog is
+   hand-maintained; a tool that reformats it on every edit is a tool nobody runs twice.
+3. **Emit per §3.0** where ambit owns the shape: sorted keys, quoting for strings that could
+   otherwise coerce, no anchors or aliases, byte-stable across runs.
+4. **Validate before writing, not after.** Every mutation runs the `validate` checks against
+   the *result* and refuses to write if they fail — exit 3, every file left byte-identical. A
+   mutation cannot leave a catalog broken.
+5. **Atomic writes**, and never a path outside the catalog root — exit 2, naming the path.
+6. **`--dry-run`** prints the diff it would write and touches nothing.
+
 ---
 
 ## 7. Testing
@@ -477,6 +534,9 @@ no test touches the network.
   file is unmodified.
 - **Compatibility:** a fixture catalog must remain installable by `npx @sentry/dotagents`.
   This is a real test, not a claim — it is the guarantee most likely to rot.
+- **Authoring round-trip:** every mutation's output re-parses; a no-op edit is byte-identical,
+  comments, unknown frontmatter keys, and skill bodies included; and a mutation refused by
+  validation leaves every file untouched.
 
 ---
 
@@ -655,14 +715,107 @@ runs the whole pipeline against a local fixture before any git, lock, or prune l
   data a consuming tool needs — and `init` scaffolds a commented, valid `ambit.yml` whose
   `scopes` list includes `core` with a comment explaining that nothing is implicit.
 
+### Catalog authoring
+
+The consumer side is complete by here; this section gives the maintainer side the same
+determinism. It lands before Shipping so the README and CI cover the whole surface, and so the
+compatibility test gets to run against a catalog ambit itself authored. Every command edits
+files other tools also read, so the editor lands before anything that uses it, and every
+mutation ends by re-validating.
+
+- [ ] **B01 — Authoring surface and `catalog dump`.**
+  **Depends:** A25
+  **Do:** Make `catalog` a command group with `dump` as its default action, and declare the
+  whole authoring surface — `--catalog <dir>` included — in the one place `COMMAND_SPECS`
+  already declares the rest. Unbuilt subcommands report as unimplemented.
+  **Done when:** `ambit catalog` and `ambit catalog dump` emit byte-identical output with the
+  existing golden files untouched; `ambit catalog --help` lists every authoring subcommand;
+  each unbuilt one exits 1 naming itself.
+
+- [ ] **B02 — The catalog editor.**
+  **Depends:** B01
+  **Slice:** every later mutation is a caller of this.
+  **Do:** One module all writes go through: load `scopes.yml`, `SKILL.md` frontmatter, or
+  `mcps/*.yml`, change only the keys asked for, re-emit preserving everything else. Atomic
+  writes, and refuse any target outside the catalog root.
+  **Done when:** A no-op round-trip of every fixture file is byte-identical, comments included;
+  adding a scope to a `SKILL.md` carrying `allowed-tools` and a comment leaves both, the key
+  order, and the body untouched; a target outside the root exits 2 with nothing written; a
+  write refused by validation leaves the file byte-identical.
+
+- [ ] **B03 — `ambit catalog new`.**
+  **Depends:** B02
+  **Do:** Scaffold a catalog: `scopes.yml` registering `core` with a comment, `skills/` and
+  `mcps/`, a README carrying the descendants-only rule and the sibling-vs-child guidance from
+  §2, and a CI workflow running `ambit validate --catalog .`.
+  **Done when:** The scaffold parses, `ambit validate` exits 0 against it, a non-empty target is
+  refused with exit 2 and nothing written, and two runs into fresh directories produce
+  byte-identical trees.
+
+- [ ] **B04 — Scope registry commands.**
+  **Depends:** B03
+  **Do:** `catalog scope add|rm|mv`. `add` requires a description. `rm` refuses while anything
+  still declares the scope. `mv` renames the scope **and every descendant**, rewriting every
+  skill and MCP that declares any of them.
+  **Done when:** `add` emits a byte-stable registry and re-running it is a no-op; `rm` of a
+  declared scope exits 3 naming every declarer; `mv function.engineering` also renames
+  `function.engineering.frontend` and rewrites both declarers; comments in `scopes.yml`
+  survive; `validate` passes after each.
+
+- [ ] **B05 — Skill commands.**
+  **Depends:** B04
+  **Do:** `catalog skill new|rm|mv`. `new` writes the directory and a `SKILL.md` whose
+  frontmatter `name` matches its path. `mv` moves the directory, rewrites `name`, and rewrites
+  every `requires` that pointed at the old name. `rm` refuses while another skill requires it.
+  **Done when:** A created skill parses with name↔path agreement and appears in `catalog dump`;
+  an unregistered `--scope` exits 3 suggesting the nearest registered one; `mv` leaves no
+  dangling `requires`; `rm` of a required skill exits 3 naming the requirer; the authored tree
+  is still `skills/<namespace>/<name>/SKILL.md` and nothing else; `validate` passes after each.
+
+- [ ] **B06 — MCP entity commands.**
+  **Depends:** B05
+  **Do:** `catalog mcp new|rm`, exactly one transport per `new`, `--env` repeatable. `rm`
+  refuses while a skill requires `mcp.<name>`.
+  **Done when:** Both transport kinds round-trip through the §3.3 parser with filename↔`name`
+  agreement; giving neither or both transport flags exits 2 naming the supported kinds; `rm` of
+  a required server exits 3 naming the requirer; `validate` passes after each.
+
+- [ ] **B07 — `ambit catalog annotate`.**
+  **Depends:** B06
+  **Do:** Add and remove `scopes`, `requires`, and `env` entries on an existing skill or MCP,
+  through the B02 editor.
+  **Done when:** Lists emerge sorted and deduplicated; unknown frontmatter keys, comments, and
+  the body survive; removing the last entry leaves an empty list, not a null; an unregistered
+  scope or an unresolvable `requires` target exits 3 with nothing written; annotating twice is
+  idempotent.
+
+- [ ] **B08 — `ambit catalog tree`.**
+  **Depends:** B07
+  **Do:** Render the registry as a tree, each scope showing what it selects directly and what it
+  selects by descent — the view that makes the §2 nest-vs-sibling decision visible before it is
+  expensive to change.
+  **Done when:** The fixture renders its nesting; direct and inherited counts are distinguished;
+  a registered scope nothing declares shows as empty; `--json` is byte-stable and golden-filed.
+
+- [ ] **B09 — `ambit catalog audit`.**
+  **Depends:** B08
+  **Do:** Report what no single file shows: registered scopes nothing declares, skills and MCPs
+  reachable by neither scope nor `requires`, and MCPs no scope selects and no skill requires.
+  Build the audit fixture with the authoring commands themselves, so the test doubles as a
+  round-trip over B03–B07.
+  **Done when:** Each class is reported against a fixture holding one of each; `--json` is
+  stable; exit 0 by default, and `--check` exits 6 when anything was found.
+
 ### Shipping
 
 - [ ] **A26 — dotagents compatibility test.**
-  **Depends:** A25
+  **Depends:** B09
   **Slice:** the compatibility promise becomes executable.
   **Done when:** A test installs the fixture catalog with `npx @sentry/dotagents` and
-  asserts it succeeds, proving ambit's annotations don't break other tools. Runs in CI, and
-  is allowed to be the one test that needs network.
+  asserts it succeeds, proving ambit's annotations don't break other tools; the same test
+  passes against a catalog produced by `catalog new` plus `catalog skill new`, so ambit's own
+  authored output is covered by the promise and not just the hand-written fixture. Runs in CI,
+  and is allowed to be the one test that needs network.
 
 - [ ] **A27 — Determinism suite.**
   **Depends:** A26
@@ -671,9 +824,9 @@ runs the whole pipeline against a local fixture before any git, lock, or prune l
 
 - [ ] **A28 — README.**
   **Depends:** A27
-  **Done when:** Covers the concepts, both file formats, the full CLI, and — prominently —
-  the descendants-only rule with the sibling-vs-child modeling guidance from §2, since
-  that's the thing catalog authors get wrong.
+  **Done when:** Covers the concepts, both file formats, the full CLI — consumer and authoring
+  commands alike — and, prominently, the descendants-only rule with the sibling-vs-child
+  modeling guidance from §2, since that's the thing catalog authors get wrong.
 
 - [ ] **A29 — CI and npm publish.**
   **Depends:** A28
@@ -689,7 +842,10 @@ runs the whole pipeline against a local fixture before any git, lock, or prune l
 - Any interactive prompting. ambit reads config and acts. Interviewing a human is a
   consuming tool's job.
 - Version ranges or semver solving. Catalogs pin to a git ref; that's the whole model.
-- Publishing or authoring skills.
+- Publishing a catalog — releasing it, versioning it, hosting it. The authoring commands (§6)
+  edit a catalog in place; getting it onto a git host is git's job.
+- Writing a skill's *content*. ambit scaffolds the file and maintains its annotations; what the
+  instructions say is the author's judgement — exactly what ambit refuses to make.
 
 ## 10. How a consuming tool uses ambit
 
