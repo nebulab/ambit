@@ -26,6 +26,7 @@
 import path from "node:path";
 
 import type {
+  CatalogOverlay,
   CatalogParseOptions,
   MergedCatalog,
   MergedMcp,
@@ -405,16 +406,21 @@ export async function validateProject(context: SourceContext): Promise<Validatio
  * @param root the catalog root, absolute. Its basename names the catalog in problems; the name and
  *   the synthesized `source` appear nowhere in the report, which is what keeps the output free of
  *   machine paths.
+ * @param overlay files an in-flight edit would write, read instead of what is on disk. This is how an
+ *   authoring mutation checks its own result before writing it (spec §6 authoring rule 4).
  * @throws {AmbitError} exit 2 if the directory is not a catalog, or does not parse.
  */
-export async function validateCatalogDirectory(root: string): Promise<ValidationReport> {
+export async function validateCatalogDirectory(
+  root: string,
+  overlay?: CatalogOverlay,
+): Promise<ValidationReport> {
   const parsed: ValidationProblem[] = [];
   const catalog = await parseCatalogDirectory(
     path.basename(root),
     `path:${root}`,
     root,
     undefined,
-    collector(parsed),
+    { ...collector(parsed), ...(overlay !== undefined && { overlay }) },
   );
 
   return validateCatalog(mergeCatalogs([catalog]), { parsed });

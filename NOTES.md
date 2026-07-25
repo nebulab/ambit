@@ -3,10 +3,10 @@
 Rewritten by each Ralph iteration for the next one. Short, current, and only what would cost
 real time to rediscover — see `PROMPT.md` §6.
 
-Last iteration: **B01 — Authoring surface and `catalog dump`** (the tip of `main`). The whole
-catalog-authoring surface is now declared and dispatched; nothing under it but `dump` has behaviour.
-Next task is **B02 — The catalog editor**, whose `Depends: B01` is now checked. (A30 also depends on
-A25, but B02 is topmost.)
+Last iteration: **B02 — The catalog editor** (the tip of `main`). `src/editor.ts` is the module every
+authoring write goes through; it has no command yet, so nothing user-facing changed. Next task is
+**B03 — `ambit catalog init`**, whose `Depends: B02` is now checked. (A30 also depends on A25, but
+B03 is topmost.)
 
 ## Constraints later tasks inherit
 
@@ -61,6 +61,38 @@ A25, but B02 is topmost.)
   halves of) — this is the command someone reads *to fix that typo*. Such a scope appears in no row,
   since the registry is the subject.
 
+- **`src/editor.ts` is the whole of authoring's write path, and B03–B07 are its callers.** Two halves:
+  `CatalogDocument.open(root, file)` reads one document and gives back setters
+  (`setString(path, value)`, `setStringList(path, values)`, `remove(path)`, `has(path)`, `text()`,
+  `changed`, `change()`); `applyCatalogEdit(root, changes, { dryRun })` takes a list of
+  `{ file, text }` — `text: null` removes the file — and does the four things every rule 5/4/6 promise
+  needs. **Do not write into a catalog any other way**, and do not add a second validate-then-write.
+- **Comments survive because the parsed node tree is what gets re-emitted.** `EditableYaml` in
+  `src/yaml.ts` keeps the `yaml` `Document` and `toString()`s it under `EDIT_OPTIONS`, which is
+  `EMIT_OPTIONS` minus `sortMapEntries` (sorting would reorder keys ambit never touched) plus
+  **`flowCollectionPadding: false`** (without it `scopes: [core]` comes back `[ core ]` and every no-op
+  round trip is a diff). A key ambit *adds* lands at the end in block layout — what `emitYaml` would
+  write; an existing list keeps its own flow/block layout and its comment. `test/editor.test.ts` pins a
+  byte-identical round trip of every fixture document.
+- **Bytes the parser does not preserve are carried as bytes, not re-derived.** `splitFrontmatter` (now
+  the single frontmatter locator, used by both `parseFrontmatterMapping` and the editor) cuts a
+  `SKILL.md` into `open` + `block` + `close`, which concatenate back exactly — so the delimiters, the
+  Markdown body, and blank lines above and below the block are untouched by construction. A whole YAML
+  file is split the same way. `parseChecked(text, file, lineOffset)` is why a frontmatter error still
+  cites the line of the *file*.
+- **Validate-before-write reads through an overlay, not through disk.** `CatalogParseOptions.overlay`
+  (a `ReadonlyMap<string, string | null>` keyed by catalog-relative path) makes
+  `parseCatalogDirectory` — and so `validateCatalogDirectory(root, overlay)` — parse an edit's pending
+  bytes, including files it creates (they appear in directory listings) and removes. Every catalog read
+  now goes through the `CatalogFiles` class in `src/catalog.ts`; a new read must too, or it will not see
+  a pending edit. This is what lets one edit span files that are only valid together — registering a
+  scope and declaring it in the same run — and a test pins that.
+- **The editor validates the *whole* result, so any pre-existing problem in a catalog blocks every
+  mutation** (exit 3, nothing written). That is spec §6 rule 4 read literally. **Worth a second
+  opinion:** the alternative is to refuse only problems the edit introduces, which would let someone fix
+  one broken file while another is still broken.
+- **An edit that changes no bytes writes nothing at all**, so re-running a mutation leaves even the
+  mtime alone (asserted). `applyCatalogEdit` therefore skips validation entirely in that case.
 - **`src/doctor.ts` is the whole of `doctor`, and it runs one resolution.** `diagnoseProject` calls
   `planInstall` (bundle, artifacts, prior state, lock bytes) and then `statusOfPlan` — newly exported
   from `src/status.ts` — so `doctor` and `status` cannot disagree about an artifact and `doctor` and
@@ -273,10 +305,10 @@ A25, but B02 is topmost.)
   `readonly Catalog[]`, `serializeLock` renders it, `assertLockCurrent` is `--frozen`. The lock is
   serialized once in `planInstall` and compared before anything is applied; the write happens after
   `apply` and after pruning. **The lock records no mode.**
-- **`emitYaml` in `src/yaml.ts` is the only sanctioned way to write YAML** (spec §3.0): sorted keys at
-  every depth, double quotes when quoting is needed, no anchors/aliases, core schema 1.2. The lock and
-  the `init` scaffold both go through it, and **B02's editor must too** — except that B02 must
-  *preserve* formatting, so it cannot use `emitYaml` on a hand-written file, only on shapes ambit owns.
+- **`emitYaml` in `src/yaml.ts` is the only sanctioned way to write YAML ambit owns the shape of**
+  (spec §3.0): sorted keys at every depth, double quotes when quoting is needed, no anchors/aliases,
+  core schema 1.2. The lock and the `init` scaffold both go through it, and **a whole file B03/B05/B06
+  scaffolds should too**. Editing a file someone else wrote is the other case — see the editor below.
 - **Top-level lock keys are sorted, so the file reads `catalogs, mcps, skills, version`.** Empty
   sections stay as `mcps: {}` rather than vanishing.
 - **A source-declared skill's lock `catalog:` is its `source` as written** (`path:../extra`, a git URL),
@@ -339,6 +371,19 @@ A25, but B02 is topmost.)
 
 ## Deliberate omissions, and who owns them
 
+- **The editor renders no diff.** `applyCatalogEdit` returns each change with the bytes the file holds
+  now (`before`, absent when it creates the file), which is everything a diff needs — but rule 6's
+  "prints the diff it would write" has no renderer yet. **B03 is the first `--dry-run` caller and should
+  add one beside the editor**, not inside each command.
+- **The editor writes and removes *files*, not directories.** `skill rm` has to delete a whole skill
+  directory (a skill may carry `references/`), and `skill mv` has to move one — **B05 owns that**, and
+  should extend `CatalogChange` rather than reaching for `rm` on its own.
+- **Nothing renames a key in place.** `scope mv` wants `scopes.<old>` → `<new>` keeping that entry's
+  position and comment; the editor can only `setString` the new one and `remove` the old, which appends
+  and leaves any comment above the old entry dangling. **B04 owns whether that is good enough.**
+- **`mcpDocumentPath` always says `.yml`**, so annotating an entity someone wrote as `mcps/x.yaml`
+  would create a second file for the same name — which parsing then rejects (§3.3). Nothing carries an
+  `McpEntity`'s own filename; **B07 needs one** if it wants to support `.yaml`.
 - Nothing prunes the cache, and nothing locks it against a concurrent ambit (`loadCatalogs` is
   sequential for that reason). No task owns cache GC; raise it if it matters.
 - **`prune` leaves `ambit.lock` stale**, and `doctor`'s `lock` check is the only thing that says so;
@@ -361,6 +406,14 @@ A25, but B02 is topmost.)
 
 ## Traps
 
+- **`test/editor.test.ts` asserts whole files, deliberately.** Its round-trip case loops over every
+  entry of `FIXTURE_CATALOG_FILES` bar the marker, so adding a fixture file adds a case for free — and a
+  fixture written in a style the editor cannot re-emit (a block scalar, an anchor) will fail there
+  first. Its annotated-skill fixture (`ANNOTATED_SKILL`) carries `allowed-tools`, a comment above it, a
+  flow list, a block list, and a body precisely because those are the five things rule 2 protects.
+- **The editor's refusal messages are pinned byte-for-byte** in that file, including
+  `refusing to write outside the catalog: "<path>"` and
+  `refusing to write: the result would not validate`. Reword one and update the test in the same commit.
 - **A Commander-level error in a subcommand still exits the process (A30), and that shapes both the
   authoring commands and their tests.** Two consequences: (1) declare no `.makeOptionMandatory()` and
   no `.conflicts()` on an authoring flag — B04's "`add` requires a description" and B06's "exactly one

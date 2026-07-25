@@ -737,7 +737,7 @@ mutation ends by re-validating.
   existing golden files untouched; `ambit catalog --help` lists every authoring subcommand;
   each unbuilt one exits 1 naming itself.
 
-- [ ] **B02 — The catalog editor.**
+- [x] **B02 — The catalog editor.**
   **Depends:** B01
   **Slice:** every later mutation is a caller of this.
   **Do:** One module all writes go through: load `scopes.yml`, `SKILL.md` frontmatter, or

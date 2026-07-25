@@ -31,6 +31,7 @@ export {
 } from "./catalog.js";
 export type {
   Catalog,
+  CatalogOverlay,
   CatalogParseOptions,
   CatalogSkill,
   MergedCatalog,
@@ -91,6 +92,14 @@ export type {
   DoctorReport,
   DoctorSeverity,
 } from "./doctor.js";
+export {
+  CatalogDocument,
+  applyCatalogEdit,
+  catalogFilePath,
+  mcpDocumentPath,
+  skillDocumentPath,
+} from "./editor.js";
+export type { CatalogChange, EditOptions, EditResult, EditedFile } from "./editor.js";
 export {
   CACHE_DIRNAME,
   REPOS_DIRNAME,
@@ -218,11 +227,13 @@ export type {
 } from "./validate.js";
 export { VERSION } from "./version.js";
 export {
+  EditableYaml,
   YamlMapping,
   emitYaml,
   parseFrontmatterMapping,
   parseYamlMapping,
   readFrontmatterMapping,
   readYamlMapping,
+  splitFrontmatter,
 } from "./yaml.js";
-export type { PositionedString } from "./yaml.js";
+export type { FrontmatterSplit, PositionedString } from "./yaml.js";

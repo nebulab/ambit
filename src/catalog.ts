@@ -29,7 +29,12 @@ import { parseMcpEntity } from "./mcp.js";
 import type { ResolvedSource, SourceContext, SourceRequest } from "./sources.js";
 import { resolveSource } from "./sources.js";
 import type { YamlMapping } from "./yaml.js";
-import { readFrontmatterMapping, readYamlMapping } from "./yaml.js";
+import {
+  parseFrontmatterMapping,
+  parseYamlMapping,
+  readFrontmatterMapping,
+  readYamlMapping,
+} from "./yaml.js";
 
 /** The catalog's scope registry (spec §3.4). */
 export const SCOPES_FILENAME = "scopes.yml";
@@ -67,7 +72,22 @@ export interface CatalogParseOptions {
    * and there is no useful report to build on top of that.
    */
   readonly collect?: (problem: AmbitError) => void;
+  /** Files to read instead of what is on disk — see {@link CatalogOverlay}. */
+  readonly overlay?: CatalogOverlay;
 }
+
+/**
+ * Files an in-flight edit would write, keyed by catalog-relative `/`-separated path: the text to parse
+ * instead of what is on disk, or `null` for a file the edit removes.
+ *
+ * This is how an authoring mutation validates its own *result* before writing it (spec §6 authoring
+ * rule 4). The alternative — write, validate, undo — leaves a window in which the catalog on disk is
+ * broken, which is the one thing rule 4 exists to prevent.
+ */
+export type CatalogOverlay = ReadonlyMap<string, string | null>;
+
+/** Nothing pending: what every read path outside an edit parses through. */
+const NO_OVERLAY: CatalogOverlay = new Map();
 
 /** One registered scope. The description is the picker label a consuming tool renders. */
 export interface ScopeDefinition {
@@ -206,12 +226,94 @@ async function isFile(target: string): Promise<boolean> {
   }
 }
 
+/** One entry of a catalog directory, as parsing sees it. */
+interface CatalogEntry {
+  readonly name: string;
+  readonly directory: boolean;
+}
+
+function byEntryName(entries: readonly CatalogEntry[]): readonly CatalogEntry[] {
+  return [...entries].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+}
+
 /** Directory entries in name order, so a catalog parses identically whatever the filesystem says. */
-async function sortedEntries(dir: string): Promise<readonly { name: string; directory: boolean }[]> {
+async function sortedEntries(dir: string): Promise<readonly CatalogEntry[]> {
   const entries = await readdir(dir, { withFileTypes: true });
-  return entries
-    .map((entry) => ({ name: entry.name, directory: entry.isDirectory() }))
-    .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  return byEntryName(entries.map((entry) => ({ name: entry.name, directory: entry.isDirectory() })));
+}
+
+/**
+ * A catalog's files, read through an edit's pending contents where it has any.
+ *
+ * Every read parsing does goes through here, so an authoring command validating its own result sees
+ * exactly what the next `ambit validate` would see — including files the edit creates, which are in no
+ * directory listing yet, and files it removes, which are still in one.
+ */
+class CatalogFiles {
+  constructor(
+    private readonly root: string,
+    private readonly overlay: CatalogOverlay,
+  ) {}
+
+  private absolute(relative: string): string {
+    return path.join(this.root, relative);
+  }
+
+  async isFile(relative: string): Promise<boolean> {
+    const pending = this.overlay.get(relative);
+    if (pending !== undefined) return pending !== null;
+    return isFile(this.absolute(relative));
+  }
+
+  /** Whether a directory holds anything: on disk, or only in the edit. */
+  async isDirectory(relative: string): Promise<boolean> {
+    if (await isDirectory(this.absolute(relative))) return true;
+    const prefix = `${relative}/`;
+    return [...this.overlay].some(([file, text]) => text !== null && file.startsWith(prefix));
+  }
+
+  /** The entries of a directory, in name order, with the edit's additions and removals applied. */
+  async entries(relative: string): Promise<readonly CatalogEntry[]> {
+    const found = new Map<string, boolean>();
+    if (await isDirectory(this.absolute(relative))) {
+      for (const entry of await sortedEntries(this.absolute(relative))) {
+        found.set(entry.name, entry.directory);
+      }
+    }
+
+    const prefix = relative === "" ? "" : `${relative}/`;
+    for (const [file, text] of this.overlay) {
+      if (!file.startsWith(prefix)) continue;
+      const rest = file.slice(prefix.length);
+      const slash = rest.indexOf("/");
+      if (slash === -1) {
+        if (text === null) found.delete(rest);
+        else found.set(rest, false);
+      } else if (text !== null) {
+        found.set(rest.slice(0, slash), true);
+      }
+      // A removal deeper down leaves the directories above it listed: the walk simply finds no
+      // `SKILL.md` inside, which is the same answer as an emptied directory on disk.
+    }
+
+    return byEntryName([...found].map(([name, directory]) => ({ name, directory })));
+  }
+
+  /** Parses a YAML file under the §3.0 rules. */
+  async mapping(relative: string): Promise<YamlMapping> {
+    const pending = this.overlay.get(relative);
+    return typeof pending === "string"
+      ? parseYamlMapping(pending, relative)
+      : readYamlMapping(this.absolute(relative), relative);
+  }
+
+  /** Parses a Markdown file's frontmatter block under the §3.0 rules. */
+  async frontmatter(relative: string): Promise<YamlMapping> {
+    const pending = this.overlay.get(relative);
+    return typeof pending === "string"
+      ? parseFrontmatterMapping(pending, relative)
+      : readFrontmatterMapping(this.absolute(relative), relative);
+  }
 }
 
 /**
@@ -258,22 +360,23 @@ export function skillNameFromPath(relative: string): string {
 }
 
 /** Every skill directory under `skills/`, relative to it and `/`-separated. */
-async function findSkillDirectories(root: string): Promise<readonly string[]> {
-  const skillsDir = path.join(root, SKILLS_DIRNAME);
-  if (!(await isDirectory(skillsDir))) return [];
+async function findSkillDirectories(files: CatalogFiles): Promise<readonly string[]> {
+  if (!(await files.isDirectory(SKILLS_DIRNAME))) return [];
 
   const found: string[] = [];
-  const walk = async (dir: string, relative: string): Promise<void> => {
-    for (const entry of await sortedEntries(dir)) {
+  const walk = async (relative: string): Promise<void> => {
+    for (const entry of await files.entries(
+      relative === "" ? SKILLS_DIRNAME : `${SKILLS_DIRNAME}/${relative}`,
+    )) {
       if (entry.directory) {
-        await walk(path.join(dir, entry.name), relative === "" ? entry.name : `${relative}/${entry.name}`);
+        await walk(relative === "" ? entry.name : `${relative}/${entry.name}`);
       } else if (entry.name === SKILL_FILENAME) {
         found.push(relative);
       }
     }
   };
 
-  await walk(skillsDir, "");
+  await walk("");
   return found;
 }
 
@@ -300,7 +403,7 @@ function skillAnnotations(mapping: YamlMapping): Omit<CatalogSkill, "name" | "pa
  *   path's name is used, rather than thrown — see {@link CatalogParseOptions}.
  */
 async function parseSkill(
-  root: string,
+  files: CatalogFiles,
   relative: string,
   collect?: (problem: AmbitError) => void,
 ): Promise<CatalogSkill> {
@@ -313,7 +416,7 @@ async function parseSkill(
     ]);
   }
 
-  const mapping = await readFrontmatterMapping(path.join(root, file), file);
+  const mapping = await files.frontmatter(file);
 
   const name = mapping.requireString("name");
   const derived = skillNameFromPath(relative);
@@ -332,12 +435,13 @@ async function parseSkill(
 }
 
 /** MCP entity stems under `mcps/`, each with the one file that defines it. */
-async function findMcpFiles(root: string): Promise<readonly { stem: string; file: string }[]> {
-  const mcpsDir = path.join(root, MCPS_DIRNAME);
-  if (!(await isDirectory(mcpsDir))) return [];
+async function findMcpFiles(
+  files: CatalogFiles,
+): Promise<readonly { stem: string; file: string }[]> {
+  if (!(await files.isDirectory(MCPS_DIRNAME))) return [];
 
   const byStem = new Map<string, string[]>();
-  for (const entry of await sortedEntries(mcpsDir)) {
+  for (const entry of await files.entries(MCPS_DIRNAME)) {
     if (entry.directory) continue;
     const extension = MCP_EXTENSIONS.find((candidate) => entry.name.endsWith(candidate));
     if (extension === undefined) continue;
@@ -357,8 +461,12 @@ async function findMcpFiles(root: string): Promise<readonly { stem: string; file
   });
 }
 
-async function parseMcpFile(root: string, stem: string, file: string): Promise<McpEntity> {
-  const mapping = await readYamlMapping(path.join(root, file), file);
+async function parseMcpFile(
+  files: CatalogFiles,
+  stem: string,
+  file: string,
+): Promise<McpEntity> {
+  const mapping = await files.mapping(file);
   const entity = parseMcpEntity(mapping);
 
   if (entity.name !== stem) {
@@ -403,8 +511,8 @@ function fromCatalog(name: string, problem: AmbitError): AmbitError {
  * @param name the catalog's name, as errors report it.
  * @param source the `source` it was resolved from.
  * @param commit the commit the directory holds, for a git source.
- * @param options a collector for the one problem parsing can continue past — see
- *   {@link CatalogParseOptions}.
+ * @param options a collector for the one problem parsing can continue past, and an edit's pending
+ *   files to read through — see {@link CatalogParseOptions}.
  * @throws {AmbitError} exit 2 for a missing registry, a malformed file, or a name that
  *   disagrees with its path.
  */
@@ -418,26 +526,26 @@ export async function parseCatalogDirectory(
   const collect = options.collect;
   const collectFromCatalog =
     collect === undefined ? undefined : (problem: AmbitError) => collect(fromCatalog(name, problem));
+  const files = new CatalogFiles(root, options.overlay ?? NO_OVERLAY);
 
   try {
-    const registryPath = path.join(root, SCOPES_FILENAME);
-    if (!(await isFile(registryPath))) {
+    if (!(await files.isFile(SCOPES_FILENAME))) {
       throw configError(`${SCOPES_FILENAME} is missing`, [
         "a catalog must register every scope its skills and MCPs declare",
         `add ${SCOPES_FILENAME} at the catalog root`,
       ]);
     }
 
-    const scopes = parseScopeRegistry(await readYamlMapping(registryPath, SCOPES_FILENAME));
+    const scopes = parseScopeRegistry(await files.mapping(SCOPES_FILENAME));
 
     const skills: CatalogSkill[] = [];
-    for (const relative of await findSkillDirectories(root)) {
-      skills.push(await parseSkill(root, relative, collectFromCatalog));
+    for (const relative of await findSkillDirectories(files)) {
+      skills.push(await parseSkill(files, relative, collectFromCatalog));
     }
 
     const mcps: McpEntity[] = [];
-    for (const { stem, file } of await findMcpFiles(root)) {
-      mcps.push(await parseMcpFile(root, stem, file));
+    for (const { stem, file } of await findMcpFiles(files)) {
+      mcps.push(await parseMcpFile(files, stem, file));
     }
 
     return {

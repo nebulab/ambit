@@ -13,14 +13,23 @@
  * Writing goes through {@link emitYaml}, in this module rather than beside whatever generates a
  * document, so the emit half of §3.0 is enforced once too — and so what ambit writes is
  * guaranteed readable by what ambit reads.
+ *
+ * *Editing* a document ambit did not write is a third thing, and {@link EditableYaml} is it: the
+ * parsed node tree is kept and re-emitted, rather than a plain object being emitted afresh, because
+ * an authoring command must leave comments, unknown keys, key order, and formatting byte-for-byte
+ * intact (spec §6 authoring rule 2). Nothing outside this module touches the `yaml` package, so the
+ * three halves cannot drift apart.
  */
 import { readFile } from "node:fs/promises";
 
 import matter from "gray-matter";
 import type {
   CreateNodeOptions,
+  Document,
   DocumentOptions,
+  Node,
   Pair,
+  ParseOptions,
   SchemaOptions,
   ToStringOptions,
   YAMLMap,
@@ -84,12 +93,18 @@ class YamlSource {
     readonly file: string,
     private readonly text: string,
     private readonly counter: LineCounter,
+    /**
+     * Lines of the containing file that sit above the parsed text — the `---` delimiter of a
+     * frontmatter block, and any blank lines under it. A reader told "line 4" must be able to go to
+     * line 4 of the file named, and what was parsed is only part of that file.
+     */
+    private readonly lineOffset = 0,
   ) {}
 
-  /** The 1-based line `node` starts on. */
+  /** The 1-based line `node` starts on, counted in the containing file. */
   lineOf(node: unknown): number | undefined {
     const range = rangeOf(node);
-    return range === undefined ? undefined : this.counter.linePos(range[0]).line;
+    return range === undefined ? undefined : this.counter.linePos(range[0]).line + this.lineOffset;
   }
 
   /**
@@ -475,6 +490,56 @@ function structuralProblem(source: YamlSource, root: unknown): AmbitError | unde
   return problems[0];
 }
 
+/** How every ambit document is parsed (spec §3.0). Shared, so no caller can loosen a rule. */
+const PARSE_OPTIONS: DocumentOptions & ParseOptions & SchemaOptions = {
+  schema: "core",
+  version: "1.2",
+  // Duplicates are found by `structuralProblem` instead, so the error can name both lines — yaml's
+  // own DUPLICATE_KEY error reports only the second.
+  uniqueKeys: false,
+};
+
+/** A document that has passed every §3.0 rule, with its mapping root and its line index. */
+interface CheckedDocument {
+  readonly document: Document.Parsed;
+  readonly root: YAMLMap<unknown, unknown>;
+  readonly source: YamlSource;
+}
+
+/**
+ * Parses `text` and enforces every §3.0 rule on it, keeping the document rather than reducing it to
+ * a value — which is what lets one caller read positions off it and another re-emit it unchanged.
+ *
+ * @param lineOffset lines of the containing file above `text`, for a frontmatter block.
+ * @throws {AmbitError} exit 2, naming the offending file, identifier, and line.
+ */
+function parseChecked(text: string, file: string, lineOffset = 0): CheckedDocument {
+  const counter = new LineCounter();
+  const document = parseDocument(text, { ...PARSE_OPTIONS, lineCounter: counter });
+  const source = new YamlSource(file, text, counter, lineOffset);
+
+  const failure = document.errors[0];
+  if (failure) throw syntaxError(source, failure);
+
+  const problem = structuralProblem(source, document);
+  if (problem) throw problem;
+
+  if (document.contents === null) {
+    throw configError(`${file} is empty`, [
+      "expected a YAML mapping",
+      "add the keys this format requires",
+    ]);
+  }
+  if (!isMap(document.contents)) {
+    throw configError(`root is not a mapping ${at(file, source.lineOf(document.contents))}`, [
+      `found ${describe(document.contents)} at the document root`,
+      "write the document as `key: value` pairs",
+    ]);
+  }
+
+  return { document, root: document.contents, source };
+}
+
 /**
  * Parses `text` as a YAML mapping under every §3.0 rule.
  *
@@ -483,37 +548,8 @@ function structuralProblem(source: YamlSource, root: unknown): AmbitError | unde
  * @throws {AmbitError} exit 2, naming the offending file, identifier, and line.
  */
 export function parseYamlMapping(text: string, file: string): YamlMapping {
-  const counter = new LineCounter();
-  const doc = parseDocument(text, {
-    schema: "core",
-    version: "1.2",
-    // Duplicates are found below instead, so the error can name both lines — yaml's own
-    // DUPLICATE_KEY error reports only the second.
-    uniqueKeys: false,
-    lineCounter: counter,
-  });
-  const source = new YamlSource(file, text, counter);
-
-  const failure = doc.errors[0];
-  if (failure) throw syntaxError(source, failure);
-
-  const problem = structuralProblem(source, doc);
-  if (problem) throw problem;
-
-  if (doc.contents === null) {
-    throw configError(`${file} is empty`, [
-      "expected a YAML mapping",
-      "add the keys this format requires",
-    ]);
-  }
-  if (!isMap(doc.contents)) {
-    throw configError(`root is not a mapping ${at(file, source.lineOf(doc.contents))}`, [
-      `found ${describe(doc.contents)} at the document root`,
-      "write the document as `key: value` pairs",
-    ]);
-  }
-
-  return new YamlMapping(doc.contents, source, "");
+  const checked = parseChecked(text, file);
+  return new YamlMapping(checked.root, checked.source, "");
 }
 
 /**
@@ -532,19 +568,39 @@ const FRONTMATTER_LANGUAGE = "yaml";
 type ParsedFrontmatter = matter.GrayMatterFile<string> & { readonly isEmpty?: boolean };
 
 /**
- * Parses the frontmatter block of a Markdown document — `SKILL.md`'s, in practice — under the
- * same §3.0 rules as a standalone YAML file.
+ * A Markdown document cut into its frontmatter block and the bytes around it.
  *
- * Reported lines are lines of the whole document rather than of the extracted block, because a
- * reader told "line 4" must be able to go to line 4 of the file named. That comes for free:
- * gray-matter's `matter` keeps the newline that follows the opening delimiter, so the block
- * arrives already offset by the one line the delimiter occupies.
+ * The three pieces concatenate back to the document exactly, which is what lets an edit rewrite the
+ * block and leave the body byte-for-byte alone (spec §6 authoring rule 2). `block` carries no
+ * surrounding blank lines, because the parser does not preserve those on re-emit and they therefore
+ * have to survive as bytes rather than as parsed structure.
+ */
+export interface FrontmatterSplit {
+  /** The opening delimiter, its language tag if any, and every blank line under it. */
+  readonly open: string;
+  /** The YAML block itself. */
+  readonly block: string;
+  /** The block's trailing blank lines, the closing delimiter, and the whole Markdown body. */
+  readonly close: string;
+}
+
+/** How many lines `text` occupies above whatever follows it. */
+function lineCount(text: string): number {
+  return text.split("\n").length - 1;
+}
+
+/**
+ * Finds the frontmatter block of a Markdown document — `SKILL.md`'s, in practice.
+ *
+ * gray-matter locates the block and nothing else does, so reading and editing cannot disagree about
+ * where it ends. Its own parsing is neutralized ({@link NO_PARSE}); what it reports is the raw block,
+ * which then goes through ambit's §3.0 rules.
  *
  * @param text the whole document, frontmatter included.
  * @param file how it is named in error messages.
- * @throws {AmbitError} exit 2 if there is no frontmatter, or it violates a §3.0 rule.
+ * @throws {AmbitError} exit 2 if there is no frontmatter block, or it is empty, or it is not YAML.
  */
-export function parseFrontmatterMapping(text: string, file: string): YamlMapping {
+export function splitFrontmatter(text: string, file: string): FrontmatterSplit {
   const missing = configError(`${file} has no frontmatter block`, [
     "expected the document to open with a `---` delimited YAML block",
     "add one, starting on the first line",
@@ -581,7 +637,37 @@ export function parseFrontmatterMapping(text: string, file: string): YamlMapping
     ]);
   }
 
-  return parseYamlMapping(document.matter, file);
+  // The raw block sits between the opening delimiter and the newline that begins the closing one, so
+  // the two ends of the document are simply what remains around it. Located by search rather than by
+  // arithmetic over the delimiter's length, which also keeps a leading byte-order mark — stripped by
+  // gray-matter, still present in `text` — on the `open` side where it belongs.
+  const raw = document.matter;
+  const blockStart = text.indexOf(raw);
+  const leading = /^\n*/.exec(raw)?.[0] ?? "";
+  const trailing = /\n*$/.exec(raw.slice(leading.length))?.[0] ?? "";
+
+  return {
+    open: text.slice(0, blockStart) + leading,
+    block: raw.slice(leading.length, raw.length - trailing.length),
+    close: trailing + text.slice(blockStart + raw.length),
+  };
+}
+
+/**
+ * Parses the frontmatter block of a Markdown document — `SKILL.md`'s, in practice — under the
+ * same §3.0 rules as a standalone YAML file.
+ *
+ * Reported lines are lines of the whole document rather than of the extracted block, because a
+ * reader told "line 4" must be able to go to line 4 of the file named.
+ *
+ * @param text the whole document, frontmatter included.
+ * @param file how it is named in error messages.
+ * @throws {AmbitError} exit 2 if there is no frontmatter, or it violates a §3.0 rule.
+ */
+export function parseFrontmatterMapping(text: string, file: string): YamlMapping {
+  const split = splitFrontmatter(text, file);
+  const checked = parseChecked(split.block, file, lineCount(split.open));
+  return new YamlMapping(checked.root, checked.source, "");
 }
 
 async function readText(target: string, file: string): Promise<string> {
@@ -653,4 +739,128 @@ const EMIT_OPTIONS: DocumentOptions & SchemaOptions & CreateNodeOptions & ToStri
  */
 export function emitYaml(document: unknown): string {
   return stringify(document, EMIT_OPTIONS);
+}
+
+/**
+ * How ambit re-emits a document it did not write (spec §6 authoring rule 2). It shares
+ * {@link EMIT_OPTIONS}' quoting and no-rewrapping rules — the bytes ambit adds are still §3.0 bytes —
+ * and differs in exactly two ways, both load-bearing:
+ *
+ * - **No `sortMapEntries`.** Sorting would reorder keys ambit never touched, which is the reformatting
+ *   an authoring command must not do. Keys keep the order the author wrote them in, and a key ambit
+ *   adds lands at the end.
+ * - **`flowCollectionPadding: false`**, so `scopes: [core]` does not come back as `scopes: [ core ]`.
+ *   Without it, a no-op round trip of a hand-written flow sequence is a diff.
+ */
+const EDIT_OPTIONS: ToStringOptions = {
+  singleQuote: false,
+  blockQuote: false,
+  lineWidth: 0,
+  flowCollectionPadding: false,
+};
+
+/**
+ * A parsed document open for editing.
+ *
+ * The node tree is what is kept and re-emitted, so everything ambit was not asked to change survives
+ * byte-for-byte: comments, unknown keys, key order, quoting style, and whether a sequence was written
+ * flow or block (spec §6 authoring rule 2). Re-emitting from a plain object would silently reformat a
+ * hand-maintained catalog, which is the one thing an authoring tool must never do.
+ *
+ * The bytes outside the parsed region — a `SKILL.md`'s delimiters and Markdown body, and the blank
+ * lines a parser does not preserve — are carried as strings and concatenated back on, rather than
+ * reconstructed.
+ */
+export class EditableYaml {
+  private readonly document: Document.Parsed;
+  private readonly open: string;
+  private readonly close: string;
+
+  /** @param open bytes before the parsed block; `close` those after it. */
+  private constructor(document: Document.Parsed, open: string, close: string) {
+    this.document = document;
+    this.open = open;
+    this.close = close;
+  }
+
+  /**
+   * Opens a whole YAML file for editing — `scopes.yml`, `mcps/<name>.yml`.
+   *
+   * @throws {AmbitError} exit 2 if the document violates a §3.0 rule.
+   */
+  static yaml(text: string, file: string): EditableYaml {
+    const leading = /^\n*/.exec(text)?.[0] ?? "";
+    const body = text.slice(leading.length);
+    const trailing = /\n*$/.exec(body)?.[0] ?? "";
+    const block = body.slice(0, body.length - trailing.length);
+
+    return new EditableYaml(parseChecked(block, file, lineCount(leading)).document, leading, trailing);
+  }
+
+  /**
+   * Opens the frontmatter block of a Markdown document for editing, leaving the body alone.
+   *
+   * @throws {AmbitError} exit 2 if there is no frontmatter block, or it violates a §3.0 rule.
+   */
+  static frontmatter(text: string, file: string): EditableYaml {
+    const split = splitFrontmatter(text, file);
+    const checked = parseChecked(split.block, file, lineCount(split.open));
+    return new EditableYaml(checked.document, split.open, split.close);
+  }
+
+  /** Whether `path` — a key, or a path of keys into nested mappings — is present. */
+  has(path: readonly string[]): boolean {
+    return this.document.hasIn(path);
+  }
+
+  /**
+   * Sets `path` to a string, creating any mapping along the way that is not there yet.
+   *
+   * The value is emitted under §3.0's quoting rules, so a description that reads as a number arrives
+   * back as the string it was given.
+   */
+  setString(path: readonly string[], value: string): void {
+    this.document.setIn(path, this.document.createNode(value));
+  }
+
+  /**
+   * Sets `path` to a sequence of strings, in the order given.
+   *
+   * An existing sequence's layout is kept — flow stays flow, block stays block — along with any
+   * comment written on it, because the author chose both. A key that was not there yet is written the
+   * way {@link emitYaml} would write it, as a block sequence. An empty list is emitted as `[]` rather
+   * than left null, since "declares none" and "declares nothing" are different claims (spec §3.2).
+   */
+  setStringList(path: readonly string[], values: readonly string[]): void {
+    const node: Node = this.document.createNode([...values]);
+    const existing = this.document.getIn(path, true);
+
+    if (isSeq(existing) && isSeq(node)) {
+      // Only when the author's node says: an unset `flow` already means the block layout a fresh node
+      // takes, and assigning the absence back would be a write of `undefined`.
+      if (existing.flow !== undefined) node.flow = existing.flow;
+      if (existing.comment !== undefined) node.comment = existing.comment;
+      if (existing.commentBefore !== undefined) node.commentBefore = existing.commentBefore;
+    }
+
+    this.document.setIn(path, node);
+  }
+
+  /** Removes `path`, if it is there. */
+  remove(path: readonly string[]): void {
+    this.document.deleteIn(path);
+  }
+
+  /**
+   * The whole file's bytes, as they would be written.
+   *
+   * Byte-identical to what was parsed when nothing was changed — the property every authoring
+   * command's no-op round trip rests on.
+   */
+  text(): string {
+    // `toString` always ends the document with a newline; the one that belongs to the file is already
+    // in `close`, kept as bytes so a trailing blank line survives.
+    const emitted = this.document.toString(EDIT_OPTIONS).replace(/\n$/, "");
+    return `${this.open}${emitted}${this.close}`;
+  }
 }
