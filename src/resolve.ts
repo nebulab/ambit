@@ -11,16 +11,27 @@
  * load-bearing, so it lives here rather than in any adapter.
  *
  * Nothing else is implicit: no scope is reserved, and a project selects exactly the scopes it
- * lists, expanded downward. The `requires` closure and explicit `skills`/`mcps` entries are
- * later slices.
+ * lists, expanded downward. What scope selection finds is then closed over `requires`, so a
+ * skill can carry its dependencies into a bundle that would never have selected them. Explicit
+ * `skills`/`mcps` entries from config are a later slice.
  */
 import type { MergedCatalog, MergedMcp, MergedSkill, ScopeDefinition } from "./catalog.js";
-import { SCOPES_FILENAME } from "./catalog.js";
+import { MCPS_DIRNAME, SCOPES_FILENAME, SKILL_FILENAME } from "./catalog.js";
 import type { ProjectConfig } from "./config.js";
+import type { AmbitError } from "./errors.js";
 import { at, resolutionError } from "./errors.js";
 
 /** What separates a scope from its children (spec §2). */
 const SCOPE_SEPARATOR = ".";
+
+/** What marks a `requires` entry as naming an MCP entity rather than a skill (spec §3.2). */
+const MCP_REQUIREMENT_PREFIX = "mcp.";
+
+/** A set of catalog items under consideration, each list sorted by name. */
+export interface Selection {
+  readonly skills: readonly MergedSkill[];
+  readonly mcps: readonly MergedMcp[];
+}
 
 /** The resolved set of skills and MCP servers for a project. */
 export interface Bundle {
@@ -172,6 +183,118 @@ export function assertScopesRegistered(
   }
 }
 
+/** Where a skill's `requires` list is written, so an error about one can name a file (spec §6). */
+function skillFile(skill: MergedSkill): string {
+  return `${skill.path}/${SKILL_FILENAME}`;
+}
+
+/**
+ * The error for a `requires` entry no catalog can satisfy (spec §4.9).
+ *
+ * Both halves of the edge are named — the requirer and the target — because either could be the
+ * mistake: a skill may have been renamed, or the requirement misspelled.
+ */
+function missingRequirement(requirer: MergedSkill, requirement: string): AmbitError {
+  const isMcp = requirement.startsWith(MCP_REQUIREMENT_PREFIX);
+  const target = isMcp ? requirement.slice(MCP_REQUIREMENT_PREFIX.length) : requirement;
+
+  return resolutionError(`unresolvable requirement "${requirement}" (${skillFile(requirer)})`, [
+    isMcp
+      ? `${requirer.name} requires an MCP entity named "${target}", which no catalog provides`
+      : `${requirer.name} requires a skill named "${target}", which no catalog provides`,
+    isMcp
+      ? `add it under ${MCPS_DIRNAME}/ in a catalog, or remove the \`requires\` entry`
+      : "add it to a catalog, or remove the `requires` entry",
+  ]);
+}
+
+/**
+ * The error for a `requires` cycle (spec §4.9), printing the whole path rather than the mere fact
+ * of one — the offending edge is only obvious once a reader can see the loop closing.
+ *
+ * @param cycle the skill names around the loop, opening and closing on the same name.
+ */
+function cycleError(cycle: readonly string[], head: MergedSkill): AmbitError {
+  return resolutionError("requirement cycle", [
+    cycle.join(" → "),
+    `each step is a \`requires\` entry, the first in ${skillFile(head)}`,
+    "break the cycle by removing one `requires` edge",
+  ]);
+}
+
+/**
+ * Closes a selection over `requires` until fixpoint (spec §4.9): every skill a selected skill
+ * requires, and every MCP entity one names with an `mcp.` prefix, joins the selection — whether or
+ * not its own scopes would ever have selected it.
+ *
+ * That is the point of the mechanism. A skill that is useless without a company-context skill and
+ * a server declares so once, and every profile that reaches it gets a working bundle instead of a
+ * plausible-looking broken one.
+ *
+ * Only skills carry `requires` (spec §3.3 gives MCP entities no such key), so the graph walked
+ * here is skill → skill, with MCP entities as leaves.
+ *
+ * @param skills the roots — what scope selection found, sorted by name.
+ * @param mcps MCP entities already selected by their own scopes.
+ * @param merged what requirements resolve against.
+ * @throws {AmbitError} exit 3 for a requirement no catalog provides, or a cycle.
+ */
+export function closeOverRequires(
+  skills: readonly MergedSkill[],
+  mcps: readonly MergedMcp[],
+  merged: MergedCatalog,
+): Selection {
+  const skillsByName = new Map(merged.skills.map((skill) => [skill.name, skill]));
+  const mcpsByName = new Map(merged.mcps.map((mcp) => [mcp.name, mcp]));
+
+  const chosenSkills = new Set<string>();
+  const chosenMcps = new Set(mcps.map((mcp) => mcp.name));
+
+  // The two colours a depth-first walk needs to tell a cycle from a diamond: `path` is the chain
+  // currently being followed, in order, so meeting something already on it yields the cycle
+  // itself; `closed` is what has been followed to completion, and revisiting that is just a
+  // requirement two skills share.
+  const path: string[] = [];
+  const closed = new Set<string>();
+
+  const follow = (skill: MergedSkill): void => {
+    if (closed.has(skill.name)) return;
+
+    const opened = path.indexOf(skill.name);
+    if (opened !== -1) throw cycleError([...path.slice(opened), skill.name], skill);
+
+    path.push(skill.name);
+    chosenSkills.add(skill.name);
+
+    // Sorted and deduplicated, so which of several problems in one `requires` list is reported
+    // does not depend on the order its author happened to write them in.
+    for (const requirement of sortedUnique(skill.requires)) {
+      if (requirement.startsWith(MCP_REQUIREMENT_PREFIX)) {
+        const required = mcpsByName.get(requirement.slice(MCP_REQUIREMENT_PREFIX.length));
+        if (required === undefined) throw missingRequirement(skill, requirement);
+        chosenMcps.add(required.name);
+        continue;
+      }
+
+      const required = skillsByName.get(requirement);
+      if (required === undefined) throw missingRequirement(skill, requirement);
+      follow(required);
+    }
+
+    path.pop();
+    closed.add(skill.name);
+  };
+
+  for (const skill of skills) follow(skill);
+
+  // Filtering the merged lists rather than collecting during the walk keeps the result in name
+  // order, whatever order the closure happened to discover things in.
+  return {
+    skills: merged.skills.filter((skill) => chosenSkills.has(skill.name)),
+    mcps: merged.mcps.filter((mcp) => chosenMcps.has(mcp.name)),
+  };
+}
+
 /**
  * Whether a declared scope list is selected by the expanded held scopes.
  *
@@ -188,15 +311,22 @@ function selectedByScope(selecting: ReadonlySet<string>, declared: readonly stri
  * Selection order comes from the merged catalog, which is already sorted by name, so filtering
  * preserves it and no collection is iterated in filesystem order.
  *
- * @throws {AmbitError} exit 3 for a held scope the merged registry does not know.
+ * `env` is unioned over the closed selection, not the scope-selected one (spec §4.10): a server
+ * pulled in by `requires` needs its credentials as much as one selected by scope.
+ *
+ * @throws {AmbitError} exit 3 for a held scope the merged registry does not know, a requirement no
+ *   catalog provides, or a `requires` cycle.
  */
 export function resolveBundle(config: ProjectConfig, merged: MergedCatalog): Bundle {
   assertScopesRegistered(config, merged.scopes);
 
   const selecting = expandHeldScopes(config.scopes, merged.scopes);
 
-  const skills = merged.skills.filter((skill) => selectedByScope(selecting, skill.scopes));
-  const mcps = merged.mcps.filter((mcp) => selectedByScope(selecting, mcp.scopes));
+  const { skills, mcps } = closeOverRequires(
+    merged.skills.filter((skill) => selectedByScope(selecting, skill.scopes)),
+    merged.mcps.filter((mcp) => selectedByScope(selecting, mcp.scopes)),
+    merged,
+  );
 
   return {
     scopes: sortedUnique(config.scopes),

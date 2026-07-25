@@ -616,7 +616,7 @@ runs the whole pipeline against a local fixture before any git, lock, or prune l
   **Done when:** A held scope absent from the registry exits 3, names it, and suggests the
   nearest registered scope.
 
-- [ ] **A09 — `requires` closure and cycles.**
+- [x] **A09 — `requires` closure and cycles.**
   **Depends:** A08
   **Done when:** Selecting the acme skill pulls in its required core skill and
   `mcp.fixture` despite neither matching by scope; a cycle fixture exits 3 printing the full

@@ -1,10 +1,20 @@
 {
-  "env": [],
-  "mcps": {},
+  "env": [
+    "FIXTURE_API_KEY"
+  ],
+  "mcps": {
+    "fixture": {
+      "catalog": "company"
+    }
+  },
   "scopes": [
     "project.acme"
   ],
   "skills": {
+    "acme.commons.use-company-context": {
+      "catalog": "company",
+      "path": "skills/acme/commons/use-company-context"
+    },
     "acme.projects.use-acme-brief": {
       "catalog": "company",
       "path": "skills/acme/projects/use-acme-brief"

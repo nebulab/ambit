@@ -40,7 +40,7 @@ export const resolveHandler: CommandHandler = async (ctx) => {
   // Rather than print an unannotated bundle and let it read as "nothing to explain".
   if (ctx.options.explain === true) {
     throw new AmbitError(ExitCode.Internal, "`--explain` is not implemented yet", [
-      "selection reasons arrive with the `requires` closure",
+      "selection reasons arrive with `ambit why`",
       "run `ambit resolve` without it",
     ]);
   }

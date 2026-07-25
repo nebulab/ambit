@@ -17,7 +17,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { buildFixtureCatalog } from "../scripts/fixture-catalog.js";
-import { loadCatalogs, mergeCatalogs } from "../src/catalog.js";
+import { loadCatalogs, mergeCatalogs, skillNameFromPath } from "../src/catalog.js";
 import type { ProjectConfig } from "../src/config.js";
 import { loadProjectConfig } from "../src/config.js";
 import { AmbitError, ExitCode } from "../src/errors.js";
@@ -63,6 +63,25 @@ catalogs:
     source: path:../catalog
 scopes: ${list}
 `,
+    "utf8",
+  );
+}
+
+/**
+ * Adds a skill to the fixture catalog, its name derived from its path per §2.
+ *
+ * The `requires` graphs under test — a chain, a diamond, a cycle — cannot live in the shared
+ * fixture: a cycle there would fail every other profile, and `validate` (A23) is meant to reject
+ * exactly that catalog. So each shape is written into the copy this test owns.
+ */
+async function writeSkill(relative: string, annotations: readonly string[]): Promise<void> {
+  const target = path.join(catalogDir, "skills", relative, "SKILL.md");
+  await mkdir(path.dirname(target), { recursive: true });
+  await writeFile(
+    target,
+    ["---", `name: ${skillNameFromPath(relative)}`, ...annotations, "---", "", "# fixture", ""].join(
+      "\n",
+    ),
     "utf8",
   );
 }
@@ -278,14 +297,6 @@ describe("selection by scope", () => {
     expect(empty).toEqual({ scopes: [], skills: [], mcps: [], env: [] });
   });
 
-  it("closes over nothing: a required skill and MCP stay out", async () => {
-    // acme.projects.use-acme-brief requires the core skill and mcp.fixture; the closure is A09.
-    const project = await bundle(["project.acme"]);
-
-    expect(project.skills.map((skill) => skill.name)).toEqual([PROJECT_SKILL]);
-    expect(project.mcps).toEqual([]);
-  });
-
   it("selects an MCP server by its own scopes", async () => {
     expect((await bundle(["function.engineering"])).mcps.map((mcp) => mcp.name)).toEqual(["scoped"]);
     expect((await bundle(["core"])).mcps).toEqual([]);
@@ -303,6 +314,163 @@ describe("selection by scope", () => {
     const repeated = await bundle(["function.engineering", "core", "function.engineering"]);
 
     expect(repeated.scopes).toEqual(["core", "function.engineering"]);
+  });
+});
+
+/**
+ * Spec §4.9: the closure is what makes a skill's dependencies travel with it. The fixture's
+ * project skill is the case the spec cares about — it requires a skill and a server that no held
+ * scope of its own would ever select — and the graph shapes around it (chain, diamond, cycle) are
+ * written into the catalog per test.
+ */
+describe("the requires closure", () => {
+  it("pulls in a required skill and MCP server that match by no held scope", async () => {
+    const project = await bundle(["project.acme"]);
+
+    expect(project.skills.map((skill) => skill.name)).toEqual([CORE_SKILL, PROJECT_SKILL]);
+    expect(project.mcps.map((mcp) => mcp.name)).toEqual(["fixture"]);
+  });
+
+  it("unions env over what the closure added, not only what scope selected", async () => {
+    // FIXTURE_API_KEY belongs to the server only `requires` can reach, so a bundle that lists the
+    // server without its credential would send `doctor` looking at the wrong thing.
+    expect((await bundle(["project.acme"])).env).toEqual(["FIXTURE_API_KEY"]);
+  });
+
+  it("follows a requirement of a requirement, to fixpoint", async () => {
+    await writeSkill("acme/chain/use-a", ["scopes: [core]", "requires: [acme.chain.use-b]"]);
+    await writeSkill("acme/chain/use-b", ["requires: [acme.chain.use-c]"]);
+    await writeSkill("acme/chain/use-c", []);
+
+    expect((await bundle(["core"])).skills.map((skill) => skill.name)).toEqual([
+      "acme.chain.use-a",
+      "acme.chain.use-b",
+      "acme.chain.use-c",
+      CORE_SKILL,
+    ]);
+  });
+
+  it("treats a requirement two skills share as a diamond, not a cycle", async () => {
+    await writeSkill("acme/diamond/use-left", [
+      "scopes: [core]",
+      "requires: [acme.diamond.use-shared]",
+    ]);
+    await writeSkill("acme/diamond/use-right", [
+      "scopes: [core]",
+      "requires: [acme.diamond.use-shared]",
+    ]);
+    await writeSkill("acme/diamond/use-shared", []);
+
+    const resolved = await bundle(["core"]);
+
+    expect(
+      resolved.skills.map((skill) => skill.name).filter((name) => name.startsWith("acme.diamond.")),
+    ).toEqual(["acme.diamond.use-left", "acme.diamond.use-right", "acme.diamond.use-shared"]);
+  });
+
+  it("selects a required skill exactly once, however many skills require it", async () => {
+    await writeSkill("acme/twice/use-left", ["scopes: [core]", "requires: [mcp.fixture]"]);
+    await writeSkill("acme/twice/use-right", ["scopes: [core]", "requires: [mcp.fixture]"]);
+
+    expect((await bundle(["core"])).mcps.map((mcp) => mcp.name)).toEqual(["fixture"]);
+  });
+
+  it("leaves a broken skill nobody selected alone, so one bad entry blocks no one", async () => {
+    // Spec §4's validation split: `resolve` hard-validates the selected closure only. This skill
+    // declares no scope, so nothing reaches it and its dangling requirement is `validate`'s
+    // business (A23), not this bundle's.
+    await writeSkill("acme/broken/use-unselected", ["requires: [acme.absent.use-nothing]"]);
+
+    const result = await cli("resolve");
+
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+  });
+});
+
+describe("unresolvable requirements", () => {
+  it("exits 3 naming the requirer, the missing skill, and the file the edge is in", async () => {
+    await writeSkill("acme/broken/use-dangling", [
+      "scopes: [core]",
+      "requires: [acme.absent.use-nothing]",
+    ]);
+
+    const result = await cli("resolve");
+
+    expect(result.code).toBe(ExitCode.Resolution);
+    expect(result.stderr).toContain(
+      'unresolvable requirement "acme.absent.use-nothing" (skills/acme/broken/use-dangling/SKILL.md)',
+    );
+    expect(result.stderr).toContain(
+      'acme.broken.use-dangling requires a skill named "acme.absent.use-nothing"',
+    );
+  });
+
+  it("names the MCP entity, not the prefixed requirement, for an `mcp.` target", async () => {
+    await writeSkill("acme/broken/use-dangling-mcp", ["scopes: [core]", "requires: [mcp.absent]"]);
+
+    const result = await cli("resolve");
+
+    expect(result.code).toBe(ExitCode.Resolution);
+    expect(result.stderr).toContain('unresolvable requirement "mcp.absent"');
+    expect(result.stderr).toContain('requires an MCP entity named "absent"');
+    expect(result.stderr).toContain("mcps/");
+  });
+});
+
+describe("requirement cycles", () => {
+  it("exits 3 printing the whole path, not just the fact of a cycle", async () => {
+    await writeSkill("acme/cycle/use-a", ["scopes: [core]", "requires: [acme.cycle.use-b]"]);
+    await writeSkill("acme/cycle/use-b", ["requires: [acme.cycle.use-c]"]);
+    await writeSkill("acme/cycle/use-c", ["requires: [acme.cycle.use-a]"]);
+
+    const result = await cli("resolve");
+
+    expect(result.code).toBe(ExitCode.Resolution);
+    expect(result.stderr).toContain("requirement cycle");
+    expect(result.stderr).toContain(
+      "acme.cycle.use-a → acme.cycle.use-b → acme.cycle.use-c → acme.cycle.use-a",
+    );
+    expect(result.stderr).toContain("skills/acme/cycle/use-a/SKILL.md");
+    expect(result.stderr).toContain("break the cycle by removing one `requires` edge");
+  });
+
+  it("reports a skill that requires itself as the one-step cycle it is", async () => {
+    await writeSkill("acme/cycle/use-self", ["scopes: [core]", "requires: [acme.cycle.use-self]"]);
+
+    const result = await cli("resolve");
+
+    expect(result.code).toBe(ExitCode.Resolution);
+    expect(result.stderr).toContain("acme.cycle.use-self → acme.cycle.use-self");
+  });
+
+  it("reports a cycle reached only through a requirement, not just one held directly", async () => {
+    await writeSkill("acme/cycle/use-entry", ["scopes: [core]", "requires: [acme.cycle.use-b]"]);
+    await writeSkill("acme/cycle/use-b", ["requires: [acme.cycle.use-c]"]);
+    await writeSkill("acme/cycle/use-c", ["requires: [acme.cycle.use-b]"]);
+
+    const result = await cli("resolve");
+
+    expect(result.code).toBe(ExitCode.Resolution);
+    expect(result.stderr).toContain("acme.cycle.use-b → acme.cycle.use-c → acme.cycle.use-b");
+  });
+
+  it("names the same cycle whatever order a `requires` list is written in", async () => {
+    await writeSkill("acme/cycle/use-a", [
+      "scopes: [core]",
+      "requires: [acme.cycle.use-b, acme.cycle.use-c]",
+    ]);
+    await writeSkill("acme/cycle/use-b", ["requires: [acme.cycle.use-a]"]);
+    await writeSkill("acme/cycle/use-c", ["requires: [acme.cycle.use-a]"]);
+    const first = await cli("resolve");
+
+    await writeSkill("acme/cycle/use-a", [
+      "scopes: [core]",
+      "requires: [acme.cycle.use-c, acme.cycle.use-b]",
+    ]);
+    const second = await cli("resolve");
+
+    expect(first.stderr).toContain("acme.cycle.use-a → acme.cycle.use-b → acme.cycle.use-a");
+    expect(second.stderr).toBe(first.stderr);
   });
 });
 
