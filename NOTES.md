@@ -3,13 +3,13 @@
 Rewritten by each Ralph iteration for the next one. Short, current, and only what would cost
 real time to rediscover — see `PROMPT.md` §6.
 
-Last iteration: **A32 — entity filenames through the merged view** (the tip of `main`), the residue A31
-left: an MCP entity now carries the file it was parsed from (`CatalogMcp.file` → `MergedMcp.file`), so
-`validate` cites a `.yaml` entity as `.yaml` and an inline one as `ambit.yml`; and `skill rm`'s and
-`mcp rm`'s "is still required" refusals now name `annotate --remove-requires` instead of a hand-edit.
-**The whole spec §6 CLI surface is implemented**, both authoring sections are done, and every
-behavioural task is closed. Next task is **A26 — dotagents compatibility test** (`Depends: B09`,
-checked), then A27–A29 (Shipping) — A26 is the one test allowed to reach the network.
+Last iteration: **A26 — dotagents compatibility test** (the tip of `main`). `test/dotagents.test.ts`
+runs the real `npx @sentry/dotagents install` against two catalogs — the hand-written fixture and one
+authored by `catalog init` + `catalog skill new` — so spec §1's compatibility promise is now
+executable. **No source file changed**; this was a test-only task. Next task is
+**A27 — determinism suite** (`Depends: A26`), then A28 (README) and A29 (CI and npm publish).
+**A29 must not set `AMBIT_SKIP_NETWORK_TESTS` in CI**, and GitHub Actions sets `CI=true` on its own,
+which is exactly what makes the compatibility test mandatory there rather than skippable.
 
 ## Constraints later tasks inherit
 
@@ -617,6 +617,11 @@ checked), then A27–A29 (Shipping) — A26 is the one test allowed to reach the
   must stay for a name nothing has parsed (`mcp new`).
 - **Removing an entity file prunes no directory.** `pruneEmptyAncestors` runs for tree changes only, so a
   catalog whose last server was removed keeps an empty `mcps/` — which is its shape, not its contents.
+- **The compatibility test claims nothing about MCP servers, and cannot.** dotagents declares servers in
+  its own `agents.toml` (`[[mcp]]`), never from a source repo, so a catalog's `mcps/` is invisible to it
+  — being *ignored* is the whole promise there, and the test asserts exactly that (no `mcps/` entity
+  becomes a skill). Nobody owns extending compatibility to a second consumer (skills.sh); the same
+  helper would take a different package name.
 - **Every `rm` refusal's next step now names the command that does the work**, not a hand-edit: both
   "is still required" lines read `clear it from each with \`ambit catalog annotate <skill>
   --remove-requires <name>\`` — with `mcp.` on the requirement and never on the requirer, since only a
@@ -749,10 +754,37 @@ checked), then A27–A29 (Shipping) — A26 is the one test allowed to reach the
 - **Two tests pin that `ambit catalog` and `ambit catalog dump` emit identical stdout**, text and
   `--json`. They are the guard on the group's default action, so a change to either path must keep
   going through `catalogHandler`.
-- **Nothing may reach the network (spec §7).** Git tests use `buildFixtureGitCatalog`'s local bare repo,
-  whose commit SHA is fixed by pinned dates and `GIT_CONFIG_GLOBAL=/dev/null`. A test needing a
-  *rejected* source must pick one no fetch can be attempted for — a bare relative path like
-  `../catalog` is unrecognized (`path:` is the prefix), whereas `acme/skills` resolves to a GitHub URL.
+- **Nothing may reach the network (spec §7) except `test/dotagents.test.ts`.** Git tests use
+  `buildFixtureGitCatalog`'s local bare repo, whose commit SHA is fixed by pinned dates and
+  `GIT_CONFIG_GLOBAL=/dev/null`. A test needing a *rejected* source must pick one no fetch can be
+  attempted for — a bare relative path like `../catalog` is unrecognized (`path:` is the prefix),
+  whereas `acme/skills` resolves to a GitHub URL. **Do not add a second networked test**; spec §7
+  exempts exactly one, and A26's whole design is about keeping that exception narrow.
+- **`test/dotagents.test.ts` is the one networked test, and its offline behaviour is the design, not a
+  convenience.** It spawns `npx --yes @sentry/dotagents install` against a project whose `agents.toml`
+  holds a single wildcard entry, and asserts dotagents installs **exactly the skills
+  `parseCatalogDirectory` finds, under exactly the names ambit derives from the paths, with every
+  `SKILL.md` byte-identical** — asserting against ambit's own answer rather than a hand-written list is
+  what makes `scopes.yml`, `mcps/` and the extra frontmatter keys provably ignored rather than
+  assumed so. Five things there that a later task must not quietly undo:
+  - **The catalog lives *inside* the project** (`<project>/catalog`, `source = "path:./catalog"`),
+    because dotagents refuses a `path:` source resolving outside the project root. A sibling
+    directory fails with `resolves outside project root`, not with a compatibility problem.
+  - **The package is unpinned.** The promise is about the release people have; pinning would freeze the
+    guarantee spec §7 calls "the guarantee most likely to rot".
+  - **An unreachable registry is a skip outside CI and a thrown `beforeAll` inside it** (`CI` non-empty
+    ⇒ `REQUIRE_NETWORK`), so an offline developer gets one printed reason and two skipped cases while
+    CI gets a single labelled suite failure. `AMBIT_SKIP_NETWORK_TESTS=1` skips without probing at all.
+  - **Every child is bounded** — `timeout: CHILD_TIMEOUT_MS` on `execFile`, plus
+    `npm_config_fetch_retries=0` / `npm_config_fetch_timeout` *only outside CI*, so offline is a
+    ~1s skip while CI still retries a registry blip (which costs ~70s before it reports).
+  - **`DOTAGENTS_HOME`/`DOTAGENTS_STATE_DIR` point into an `mkdtemp` directory**, since dotagents
+    otherwise caches under `$HOME` and the test would change the machine. The project also carries a
+    `.gitignore` naming `agents.lock` and `.agents/.gitignore` purely to silence dotagents' warning.
+  - The authored case runs `catalog init` and `catalog skill new` **only** — `init` already registers
+    `core` (`CATALOG_INIT_SCOPE`), so no `scope add` is needed — and its second skill carries
+    `requires` and `env` on purpose: those keys are what another tool's frontmatter parser could choke
+    on. It writes no `mcps/*.yml`; the fixture case covers that half.
 - **Every test walker follows symlinks** — `tree`/`snapshot`/`installedSkills` in
   `test/install.test.ts`, `snapshot` in `test/status.test.ts` and `test/clean.test.ts`, `installed` in
   `test/git-source.test.ts`. A `readdir`-dirent walk reads a linked skill as a *file* and then fails with

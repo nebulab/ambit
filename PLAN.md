@@ -863,7 +863,7 @@ mutation ends by re-validating.
   entity against the config file; the two `rm` refusals name `annotate --remove-requires`; the
   claim A31 withdrew holds — no message names a file that does not exist on disk.
 
-- [ ] **A26 — dotagents compatibility test.**
+- [x] **A26 — dotagents compatibility test.**
   **Depends:** B09
   **Slice:** the compatibility promise becomes executable.
   **Done when:** A test installs the fixture catalog with `npx @sentry/dotagents` and
