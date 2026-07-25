@@ -3,19 +3,21 @@
 Rewritten by each Ralph iteration for the next one. Short, current, and only what would cost
 real time to rediscover — see `PROMPT.md` §6.
 
-Last iteration: **B08 — `ambit catalog tree`** (the tip of `main`). `src/catalog-tree.ts` +
-`src/handlers/catalog-tree.ts`, `test/catalog-tree.test.ts`, and a new golden at
-`test/golden/catalog-tree.json`. Next task is **B09 — `ambit catalog audit`**, whose `Depends: B08` is now
-checked. (A30 also depends on A25, but B09 is topmost, and B09 is the last authoring task.)
+Last iteration: **B09 — `ambit catalog audit`** (the tip of `main`). `src/catalog-audit.ts` +
+`src/handlers/catalog-audit.ts` and `test/catalog-audit.test.ts`; no new golden file.
+**The whole spec §6 CLI surface is now implemented**, and the Catalog-authoring section is done.
+Next task is **A30 — subcommand exit-code inheritance**, whose `Depends: A25` has long been checked;
+after it, A31, then A26–A29 (Shipping).
 
 ## Constraints later tasks inherit
 
 - **`catalog` is a command group whose default action is `dump`**, and **handlers are keyed by the
-  words a user types**: `"catalog dump"`, `"catalog init"`, `"catalog scope add"`. B09 adds one
-  entry to `HANDLERS` in `src/program.ts` under that key and nothing else in the wiring. A declared
-  command with no entry throws `notImplemented(<the whole invocation>)` — exit **1**, message
-  `command "catalog tree" is not implemented yet` — pinned by a test over the still-unbuilt commands,
-  whose `UNBUILT` table shrinks by one row per task.
+  words a user types**: `"catalog dump"`, `"catalog init"`, `"catalog scope add"`. Every command
+  `COMMAND_SPECS` declares now has an entry in `HANDLERS`; one added without a handler throws
+  `notImplemented(<the whole invocation>)` — exit **1**, message
+  `command "catalog tree" is not implemented yet`. That path is still pinned, now by a case that runs a
+  program built from `HANDLERS` minus one key (`test/catalog.test.ts`'s `invoke` takes an optional
+  handler map for exactly that), so a spec added ahead of its behaviour cannot silently succeed.
 - **`CommandSpec` gained `subject`, `subcommands` and `defaultSubcommand`, and `argument` became
   `args`** (a list, because `mv <old> <new>` needs two positionals; Commander takes one name per
   `.argument()` call).
@@ -217,7 +219,31 @@ checked. (A30 also depends on A25, but B09 is topmost, and B09 is the last autho
   the scope, `inherited` is what a registered descendant declares *minus* `direct` — so the two counts sum
   to what holding the scope brings in, and an item declaring both a scope and its child is counted once.
   **Nothing here follows `requires`**, so the fixture's `mcp.fixture` (declared by no scope) appears in no
-  row and in no golden entry; reporting that is B09's.
+  row and in no golden entry; `catalog audit` is what reports an item no scope reaches.
+- **`src/catalog-audit.ts` is the whole of `catalog audit`, and it is the report about a catalog's
+  *health* where `validate` is the report about its *validity*.** The split is load-bearing in both
+  directions: audit reports nothing about correctness (a dangling `requires` is an edge that reaches
+  nothing here, not a finding) and validate reports nothing about reachability, so neither duplicates
+  the other. Its own fixture — built by the authoring commands in `test/catalog-audit.test.ts` —
+  passes `ambit validate` with zero problems while the audit reports three findings, and that pair is
+  the claim. Three kinds in one declared order, which is also the report order:
+  `dead-scope`, `unreachable-skill`, `unreachable-mcp`. Two rules inside that must not be quietly
+  reversed. **Reachability is transitive**, closed over `requires` from what a *registered* scope
+  selects, so a skill required only by an unreachable skill is itself unreachable (a one-step rule
+  would call that pair fine). **A scope is dead only when its whole registered subtree selects
+  nothing** — the count comes from `buildScopeTree`, so audit and `tree` cannot disagree about what a
+  scope selects, and a registered parent nobody declares directly is not reported.
+- **`auditCatalog(catalog, { mcpFiles })` is pure and takes the entity filenames as data**, because
+  `McpEntity` carries none and a finding must name a file that is there (spec §6). The I/O wrapper
+  `auditCatalogDirectory(root)` fills the map from `mcpDocumentFile`, so a `.yaml` entity is cited as
+  `.yaml` — deliberately *not* the `.yml`-only shortcut `validate`'s `mcpFile` still takes, which is
+  A31's. Absent, the map falls back to `.yml`.
+- **`catalog audit` exits 0 however much it found; `--check` is what turns findings into exit 6**
+  (`ExitCode.Doctor`, whose comment now covers both callers). Plain audit is a report, and one that
+  broke a build by existing is one nobody adds to CI. The verdict helper is `isTidy(report)` and the
+  `--json` key is `tidy` — a fourth word beside `status`'s `clean`, `validate`'s `valid` and
+  `doctor`'s `healthy`, since `src/index.ts` re-exports all of them and two `isClean`s cannot coexist
+  there.
 - **`catalog tree --json` nests, where every other command's JSON is flat**, because the nesting is the
   answer: each entry carries `children` (a name-keyed map of the same shape), `description`, `direct`, and
   `inherited`, keys sorted as everywhere else. **Keys are full dotted names at every depth**, so one can be
@@ -474,11 +500,8 @@ checked. (A30 also depends on A25, but B09 is topmost, and B09 is the last autho
 - **`Catalog` carries `ref?`**, attached by `loadCatalogs` after `parseCatalogDirectory` returns — a fact
   about the config entry, not the directory, so a catalog parsed straight off disk
   (`validate --catalog`) has none.
-- **`--frozen`, `--adopt`, `--copy`, `--link`, `--dry-run`, `status --check` and `validate --catalog`
-  are implemented, as are `catalog dump`, `catalog init`, `catalog scope add|rm|mv`,
-  `catalog skill new|rm|mv`, `catalog mcp new|rm`, `catalog annotate` and `catalog tree`.** The unbuilt
-  surface is `catalog audit` (B09) alone, declared in `COMMAND_SPECS` — `--check` included — and reporting
-  itself unimplemented until that task lands.
+- **Every command and every flag spec §6 declares is implemented**, consumer and authoring alike, so
+  A28's README has the whole surface to document and nothing in `COMMAND_SPECS` is a placeholder.
 - **Every source resolves through `src/sources.ts`** (§3.1 grammar) returning
   `ResolvedSource = { root, commit? }`. `loadCatalogs`, `mergeConfigEntities`, `loadSourceSkill` and
   `resolveCatalogRoot` take a `SourceContext` (`{ projectDir, env }`); `env` is where the cache location
@@ -568,12 +591,15 @@ checked. (A30 also depends on A25, but B09 is topmost, and B09 is the last autho
 - **`ambit scopes` still says nothing about what a scope *selects*** — no counts, no item lists. That is
   `catalog tree`, which is per-catalog and takes `--catalog`; nothing merges the two views, and nobody owns
   doing so.
-- **Nothing validates a catalog's *reachability*** — a registered scope nothing declares, an item no
-  scope and no `requires` reaches. That is deliberately **B09's `catalog audit`**, not `validate`:
-  dead weight is a smell, not a broken catalog. `catalog tree` shows the *shape* only, so an empty scope
-  reads as `0 direct  0 inherited` there and is a *finding* only in `audit`; `buildScopeTree` is worth
-  reusing for the "registered scopes nothing declares" class, but not for the two item classes, which are
-  about `requires` and so outside the tree entirely.
+- **`validate` still says nothing about reachability and `audit` still says nothing about validity**,
+  and neither should learn the other's findings — see the audit bullet above. `catalog tree` shows the
+  *shape* only, so an empty scope reads as `0 direct  0 inherited` there and is a *finding* only in
+  `audit`.
+- **`catalog audit` judges one catalog directory, so it cannot see a project.** An item a project lists
+  explicitly in `skills`, or one an *other* catalog's skill requires, is reachable in that project and
+  still reported here — the honest answer for a catalog repo's own CI, and the reason the command takes
+  `--catalog` rather than `--project`. Nobody owns a merged-view audit. It also reports nothing about a
+  scope that is registered and *held nowhere*: no catalog can know that.
 
 ## Traps
 
@@ -591,10 +617,17 @@ checked. (A30 also depends on A25, but B09 is topmost, and B09 is the last autho
   are restated in the test rather than imported, so the emitted-shape claim is independent of the source.
 - **`test/diff.test.ts` asserts the renderer's exact lines**, elision marker and context width included.
   Changing `CONTEXT_LINES` or the tie-break rewrites several of its cases; that is the point.
-- **Each B0x task deletes its own row from `test/catalog.test.ts`'s `UNBUILT` table** (B08 removed the
-  `tree` row; `audit` is the last one). Leaving the row behind fails the "exits 1 from every unbuilt
-  subcommand" case, which is the intended alarm — and B09 empties the table, so keep the loop working over
-  zero rows rather than deleting the case.
+- **`test/catalog.test.ts`'s `UNBUILT` table is gone** — B09 built the last row. The guarantee it
+  carried lives on as one case that removes `"catalog tree"` from `HANDLERS` and asserts exit 1, so the
+  `notImplemented` path stays covered now that no real gap exists. Its `SUBCOMMANDS` list still pins
+  that `ambit catalog --help` names all eight subcommands.
+- **`test/catalog-audit.test.ts` builds its subject with the authoring commands** (`catalog init`,
+  `scope add`, `skill new`, `mcp new`, `annotate`), which makes it a round trip over B03–B07: a command
+  that stops writing something the parser reads back fails here too. Two cases are load-bearing beyond
+  their assertions — one asserts `ambit validate --catalog` is clean on the same catalog the audit
+  reports three findings against (the split), and one renames a fixture entity to `.yaml` before
+  auditing it (the claim `mcpFiles` exists for). The first case pins the whole text report
+  byte-for-byte, wording of all three next-step lines included.
 - **`test/catalog-tree.test.ts` pins the text report's exact column padding** and carries its own copy of
   `expectGolden` (`test/golden/catalog-tree.json`, regenerated by the same `UPDATE_GOLDEN=1 npm test` the
   resolve goldens use — read it, it is short). Its last case is the load-bearing one: it rebuilds the tree
@@ -637,8 +670,9 @@ checked. (A30 also depends on A25, but B09 is topmost, and B09 is the last autho
   no `.conflicts()` on an authoring flag — B04's "`add` requires a description" and B06's "exactly one
   transport" must be enforced *in the handler*, in spec §6's message shape, as `installHandler` does
   for `--copy`/`--link`; (2) **every test invocation must supply all declared positionals**, or the run
-  takes the vitest worker with it instead of returning an exit code. `test/catalog.test.ts`'s `UNBUILT`
-  table carries that padding on purpose.
+  takes the vitest worker with it instead of returning an exit code. **This is A30, the next task**, and
+  its Done-when also moves `install`'s `--copy`/`--link` check onto Commander's `.conflicts()`; the
+  authoring flags above can follow only once `copyInheritedSettings` is in place.
 - **`ambit catalog --help` is asserted by reading `helpInformation()` off `buildProgram`** (the
   `command(...)` helper in `test/catalog.test.ts`), never by running `--help` through `run()` — for the
   same reason. It works fine from a real shell; it just cannot be tested in-process until A30.
@@ -708,10 +742,12 @@ checked. (A30 also depends on A25, but B09 is topmost, and B09 is the last autho
   `drift` check stays quiet, while every other block sets both **before** installing. Set a var after
   the install and `.mcp.json` becomes `modified`. Its healthy case pins the whole five-row `checks`
   table plus both empty finding lists byte-for-byte, so a new check means editing `HEALTHY_REPORT`.
-- **The fixture catalog must stay cycle-free, dangling-free, and exactly 4 scopes / 4 skills / 2
-  mcps**: `test/validate.test.ts` asserts `ambit validate` against it reports byte-for-byte
-  `checked 4 scopes, 4 skills, 2 mcps` and `problems (0)`, and several of its cases add one item and
-  assert the count went up by one. Adding anything to `scripts/fixture-catalog.ts` means updating the
+- **The fixture catalog must stay cycle-free, dangling-free, reachable-in-full, and exactly 4 scopes /
+  4 skills / 2 mcps**: `test/validate.test.ts` asserts `ambit validate` against it reports byte-for-byte
+  `checked 4 scopes, 4 skills, 2 mcps` and `problems (0)`, `test/catalog-audit.test.ts` asserts
+  `audited 4 scopes, 4 skills, 2 mcps` and `findings (0)` — so a new fixture skill needs a registered
+  scope or a requirer, and a new fixture scope needs a declarer — and several of validate's cases add
+  one item and assert the count went up by one. Adding anything to `scripts/fixture-catalog.ts` means updating the
   three constants at the top of that file. Every golden profile resolves it too. Tests needing extra
   catalog shapes write them into the per-test copy
   rather than into `scripts/fixture-catalog.ts`. **Under link mode a test that edits an installed skill

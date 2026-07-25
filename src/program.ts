@@ -4,6 +4,7 @@ import type { CommandContext, CommandHandlers } from "./commands.js";
 import { COMMAND_SPECS, buildCommand } from "./commands.js";
 import { AmbitError, ExitCode } from "./errors.js";
 import { catalogAnnotateHandler } from "./handlers/catalog-annotate.js";
+import { catalogAuditHandler } from "./handlers/catalog-audit.js";
 import { catalogInitHandler } from "./handlers/catalog-init.js";
 import { catalogMcpNewHandler, catalogMcpRemoveHandler } from "./handlers/catalog-mcp.js";
 import {
@@ -33,14 +34,15 @@ import { VERSION } from "./version.js";
 export type Io = Pick<CommandContext, "cwd" | "stdout" | "stderr">;
 
 /**
- * Handlers wired up so far, keyed by the words a user types. Each task in the build fills in one
- * more; a declared command with no entry here reports itself unimplemented (exit 1).
+ * Handlers, keyed by the words a user types. Every command spec §6 declares now has one; a spec
+ * added without an entry here reports itself unimplemented (exit 1) rather than silently succeeding.
  *
  * `catalog dump` is the whole of `ambit catalog`: the group's default action dispatches to it, so
  * the two invocations cannot render the catalog differently.
  */
 export const HANDLERS: CommandHandlers = {
   "catalog annotate": catalogAnnotateHandler,
+  "catalog audit": catalogAuditHandler,
   "catalog dump": catalogHandler,
   "catalog init": catalogInitHandler,
   "catalog mcp new": catalogMcpNewHandler,

@@ -53,6 +53,19 @@ export type {
   AnnotationKey,
 } from "./catalog-annotate.js";
 export {
+  AUDIT_FINDING_KINDS,
+  auditCatalog,
+  auditCatalogDirectory,
+  isTidy,
+} from "./catalog-audit.js";
+export type {
+  AuditCounts,
+  AuditFinding,
+  AuditFindingKind,
+  AuditOptions,
+  AuditReport,
+} from "./catalog-audit.js";
+export {
   CATALOG_INIT_SCOPE,
   CATALOG_KEEP_FILENAME,
   CATALOG_README_FILENAME,

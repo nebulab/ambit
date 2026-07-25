@@ -809,7 +809,7 @@ mutation ends by re-validating.
   **Done when:** The fixture renders its nesting; direct and inherited counts are distinguished;
   a registered scope nothing declares shows as empty; `--json` is byte-stable and golden-filed.
 
-- [ ] **B09 — `ambit catalog audit`.**
+- [x] **B09 — `ambit catalog audit`.**
   **Depends:** B08
   **Do:** Report what no single file shows: registered scopes nothing declares, skills and MCPs
   reachable by neither scope nor `requires`, and MCPs no scope selects and no skill requires.

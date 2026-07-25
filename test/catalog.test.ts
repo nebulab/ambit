@@ -14,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildFixtureCatalog } from "../scripts/fixture-catalog.js";
 import type { MergedCatalog } from "../src/catalog.js";
 import { loadCatalogs, mergeCatalogs, parseCatalogDirectory } from "../src/catalog.js";
+import type { CommandHandlers } from "../src/commands.js";
 import { loadProjectConfig } from "../src/config.js";
 import { AmbitError, ExitCode } from "../src/errors.js";
 import { HANDLERS, buildProgram, run } from "../src/program.js";
@@ -156,15 +157,27 @@ interface CliResult {
   stderr: string;
 }
 
-/** Runs the CLI exactly as given, collecting stdout and stderr. */
-async function invoke(argv: readonly string[]): Promise<CliResult> {
+/**
+ * Runs the CLI exactly as given, collecting stdout and stderr.
+ *
+ * @param handlers the wiring to run against, defaulting to the real one. Given explicitly by the one
+ *   case that needs a command with no handler, now that every declared command has one.
+ */
+async function invoke(
+  argv: readonly string[],
+  handlers: CommandHandlers = HANDLERS,
+): Promise<CliResult> {
   const out: string[] = [];
   const err: string[] = [];
-  const code = await run(argv, {
-    cwd: root,
-    stdout: (line) => out.push(line),
-    stderr: (line) => err.push(line),
-  });
+  const code = await run(
+    argv,
+    {
+      cwd: root,
+      stdout: (line) => out.push(line),
+      stderr: (line) => err.push(line),
+    },
+    handlers,
+  );
   return { code, stdout: out.join("\n"), stderr: err.join("\n") };
 }
 
@@ -541,22 +554,13 @@ describe("ambit catalog", () => {
 /**
  * Spec §6, "Catalog authoring": `catalog` becomes a command group whose default action is `dump`, so
  * the consumer command keeps behaving exactly as it did while the maintainer commands hang off the
- * same word. Nothing but `dump` is built yet, so what is asserted here is the surface — which
- * commands exist, what each is called, which directory flag it takes, and what an unbuilt one does.
+ * same word. What is asserted here is the surface itself — which commands exist, what each is called,
+ * which directory flag it takes, and what one whose behaviour is not wired up does. Each command's
+ * own behaviour is its own suite's.
  */
 describe("ambit catalog as a command group", () => {
   /** Every subcommand of `catalog`, as spec §6 lists them. */
   const SUBCOMMANDS = ["dump", "init", "tree", "audit", "scope", "skill", "mcp", "annotate"];
-
-  /**
-   * The declared-but-unbuilt commands, each with enough argv to satisfy Commander's required
-   * positionals. That is not padding: a missing positional is a Commander-level error, and until A30
-   * a subcommand inherits neither `exitOverride` nor `configureOutput`, so such a run would exit the
-   * process instead of returning a code.
-   */
-  const UNBUILT: readonly (readonly [name: string, argv: readonly string[]])[] = [
-    ["catalog audit", ["audit"]],
-  ];
 
   /**
    * One command out of the built program, so help text can be read without running `--help` — which
@@ -618,14 +622,18 @@ describe("ambit catalog as a command group", () => {
     for (const verb of ["add", "rm", "mv"]) expect(result.stdout).toContain(`\n  ${verb} `);
   });
 
-  it("exits 1 from every unbuilt subcommand, naming the whole invocation", async () => {
-    for (const [name, argv] of UNBUILT) {
-      const result = await invoke(["catalog", ...argv, "--catalog", catalogDir]);
+  it("reports a subcommand with no handler as unimplemented, naming the whole invocation", async () => {
+    // Every command spec §6 declares is now built, so the guard is asserted against a program built
+    // with one handler removed rather than against a gap in the surface: this is what a later task
+    // adding a spec before its behaviour must see, instead of a command that silently succeeds.
+    const withoutTree = Object.fromEntries(
+      Object.entries(HANDLERS).filter(([key]) => key !== "catalog tree"),
+    );
+    const result = await invoke(["catalog", "tree", "--catalog", catalogDir], withoutTree);
 
-      expect(result.code, `${name}: ${result.stderr}`).toBe(ExitCode.Internal);
-      expect(result.stderr).toContain(`command "${name}" is not implemented yet`);
-      expect(result.stdout).toBe("");
-    }
+    expect(result.code, result.stderr).toBe(ExitCode.Internal);
+    expect(result.stderr).toContain(`command "catalog tree" is not implemented yet`);
+    expect(result.stdout).toBe("");
   });
 });
 
