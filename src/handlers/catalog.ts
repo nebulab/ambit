@@ -12,6 +12,7 @@ import { jsonRequested, projectDirOf } from "../commands.js";
 import { loadProjectConfig } from "../config.js";
 import { ExitCode } from "../errors.js";
 import type { McpTransport } from "../mcp.js";
+import { keyed, printSections, section } from "../output.js";
 
 /** Stands in for an empty scope list, which means "not selectable by scope" (spec §3.2). */
 const UNSCOPED = "-";
@@ -45,17 +46,6 @@ function mcpJson(mcp: MergedMcp): Readonly<Record<string, unknown>> {
   };
 }
 
-/** Keys in the order given, so the emitted JSON is byte-stable. */
-function keyed<T>(
-  items: readonly T[],
-  name: (item: T) => string,
-  value: (item: T) => unknown,
-): Readonly<Record<string, unknown>> {
-  const record: Record<string, unknown> = {};
-  for (const item of items) record[name(item)] = value(item);
-  return record;
-}
-
 function toJson(merged: MergedCatalog): Readonly<Record<string, unknown>> {
   return {
     catalogs: merged.catalogs,
@@ -65,23 +55,6 @@ function toJson(merged: MergedCatalog): Readonly<Record<string, unknown>> {
     })),
     skills: keyed(merged.skills, (skill) => skill.name, skillJson),
   };
-}
-
-/** Pads every column but the last, so the eye can run down a section. */
-function columns(rows: readonly (readonly string[])[]): readonly string[] {
-  const widths: number[] = [];
-  for (const row of rows) {
-    row.forEach((cell, index) => {
-      widths[index] = Math.max(widths[index] ?? 0, cell.length);
-    });
-  }
-
-  return rows.map((row) =>
-    row
-      .map((cell, index) => (index === row.length - 1 ? cell : cell.padEnd(widths[index] ?? 0)))
-      .join("  ")
-      .trimEnd(),
-  );
 }
 
 function scopeList(scopes: readonly string[]): string {
@@ -97,11 +70,6 @@ function transportSummary(transport: McpTransport): string {
   }
 }
 
-function section(title: string, count: number, rows: readonly (readonly string[])[]): readonly string[] {
-  const body = count === 0 ? ["(none)"] : columns(rows);
-  return [`${title} (${count})`, ...body.map((line) => `  ${line}`), ""];
-}
-
 function toText(catalogs: readonly Catalog[], merged: MergedCatalog): readonly string[] {
   const heading =
     catalogs.length === 0
@@ -112,17 +80,14 @@ function toText(catalogs: readonly Catalog[], merged: MergedCatalog): readonly s
     ...heading,
     ...section(
       "scopes",
-      merged.scopes.length,
       merged.scopes.map((scope: ScopeDefinition) => [scope.name, scope.description]),
     ),
     ...section(
       "skills",
-      merged.skills.length,
       merged.skills.map((skill) => [skill.name, skill.catalog, scopeList(skill.scopes)]),
     ),
     ...section(
       "mcps",
-      merged.mcps.length,
       merged.mcps.map((mcp) => [
         mcp.name,
         mcp.catalog,
@@ -144,8 +109,6 @@ export const catalogHandler: CommandHandler = async (ctx) => {
     return ExitCode.Success;
   }
 
-  // A trailing blank line closes the last section; drop it rather than print it.
-  const lines = toText(catalogs, merged);
-  for (const line of lines.slice(0, lines.length - 1)) ctx.stdout(line);
+  printSections(toText(catalogs, merged), ctx.stdout);
   return ExitCode.Success;
 };

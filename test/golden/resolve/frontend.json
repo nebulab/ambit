@@ -1,0 +1,15 @@
+{
+  "env": [
+    "ACME_FIGMA_TOKEN"
+  ],
+  "mcps": {},
+  "scopes": [
+    "function.engineering.frontend"
+  ],
+  "skills": {
+    "acme.engineering.frontend.use-design-tokens": {
+      "catalog": "company",
+      "path": "skills/acme/engineering/frontend/use-design-tokens"
+    }
+  }
+}

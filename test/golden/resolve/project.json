@@ -1,0 +1,13 @@
+{
+  "env": [],
+  "mcps": {},
+  "scopes": [
+    "project.acme"
+  ],
+  "skills": {
+    "acme.projects.use-acme-brief": {
+      "catalog": "company",
+      "path": "skills/acme/projects/use-acme-brief"
+    }
+  }
+}

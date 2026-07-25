@@ -4,6 +4,7 @@ import type { CommandContext, CommandHandlers } from "./commands.js";
 import { COMMAND_SPECS, buildCommand } from "./commands.js";
 import { AmbitError, ExitCode } from "./errors.js";
 import { catalogHandler } from "./handlers/catalog.js";
+import { resolveHandler } from "./handlers/resolve.js";
 import { VERSION } from "./version.js";
 
 export type Io = Pick<CommandContext, "cwd" | "stdout" | "stderr">;
@@ -11,6 +12,7 @@ export type Io = Pick<CommandContext, "cwd" | "stdout" | "stderr">;
 /** Handlers wired up so far. Each task in the build fills in one more. */
 export const HANDLERS: CommandHandlers = {
   catalog: catalogHandler,
+  resolve: resolveHandler,
 };
 
 export function buildProgram(io: Io, handlers: CommandHandlers, onExit: (code: ExitCode) => void): Command {

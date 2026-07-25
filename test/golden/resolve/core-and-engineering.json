@@ -1,0 +1,24 @@
+{
+  "env": [
+    "SCOPED_API_KEY"
+  ],
+  "mcps": {
+    "scoped": {
+      "catalog": "company"
+    }
+  },
+  "scopes": [
+    "core",
+    "function.engineering"
+  ],
+  "skills": {
+    "acme.commons.use-company-context": {
+      "catalog": "company",
+      "path": "skills/acme/commons/use-company-context"
+    },
+    "acme.engineering.use-code-review": {
+      "catalog": "company",
+      "path": "skills/acme/engineering/use-code-review"
+    }
+  }
+}

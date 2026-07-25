@@ -526,7 +526,7 @@ runs the whole pipeline against a local fixture before any git, lock, or prune l
   **Done when:** `ambit catalog --json` emits the full fixture catalog; a mismatched skill
   name exits 2.
 
-- [ ] **A05 — Resolve: exact scope match.**
+- [x] **A05 — Resolve: exact scope match.**
   **Depends:** A04
   **Do:** Exactly the scopes listed, exact matches only. No implicit scopes, no subtree, no
   closure.

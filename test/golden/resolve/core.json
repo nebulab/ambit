@@ -1,0 +1,13 @@
+{
+  "env": [],
+  "mcps": {},
+  "scopes": [
+    "core"
+  ],
+  "skills": {
+    "acme.commons.use-company-context": {
+      "catalog": "company",
+      "path": "skills/acme/commons/use-company-context"
+    }
+  }
+}
