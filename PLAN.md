@@ -877,7 +877,7 @@ mutation ends by re-validating.
   **Done when:** Tests prove resolve is byte-stable across repeated runs and across shuffled
   filesystem read order.
 
-- [ ] **A28 — README.**
+- [x] **A28 — README.**
   **Depends:** A27
   **Done when:** Covers the concepts, both file formats, the full CLI — consumer and authoring
   commands alike — and, prominently, the descendants-only rule with the sibling-vs-child

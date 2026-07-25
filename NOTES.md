@@ -3,12 +3,31 @@
 Rewritten by each Ralph iteration for the next one. Short, current, and only what would cost
 real time to rediscover — see `PROMPT.md` §6.
 
-Last iteration: **A27 — determinism suite** (the tip of `main`). `test/determinism.test.ts` is now the
-systematic version of spec §4: one table of every surface ambit prints, each run twice and then again
-with every directory listing permuted. **No source file changed** — the suite found no determinism
-defect; two test-only tasks in a row. Next task is **A28 — README** (`Depends: A27`), then A29 (CI and
-npm publish). **A29 must not set `AMBIT_SKIP_NETWORK_TESTS` in CI**, and GitHub Actions sets `CI=true`
-on its own, which is exactly what makes the compatibility test mandatory there rather than skippable.
+Last iteration: **A28 — README** (the tip of `main`). `README.md` now exists and is the only file that
+changed; **no source file, no test, and no golden moved**. Next — and last in §8 — is **A29 — CI and
+npm publish**.
+
+**What A29 needs to know:**
+
+- **Do not set `AMBIT_SKIP_NETWORK_TESTS` in CI.** GitHub Actions sets `CI=true` on its own, and that
+  is exactly what makes `test/dotagents.test.ts` mandatory there rather than skippable (a skip outside
+  CI, a thrown `beforeAll` inside it). A registry blip costs ~70s before it reports; that is deliberate.
+- **`package.json` is still `version: 0.0.0`, `files: ["dist"]`, `bin.ambit = ./dist/cli.js`, name
+  `@nebulab/ambit`, `prepublishOnly: npm run build`.** npm packs `README.md`, `LICENSE` and
+  `package.json` regardless of `files`, so the README ships without listing it — but **there is no
+  `LICENSE` file** even though `package.json` and the README both say MIT. Adding one is unowned.
+- **`ambit catalog init` scaffolds a workflow that runs `npx --yes @nebulab/ambit validate --catalog .`**
+  (`src/catalog-init.ts`), so the published package name is already baked into ambit's own output and
+  into `test/catalog-init.test.ts`. Nothing has ever resolved that name against the real registry;
+  A29's `npx @<org>/ambit@latest --version` check is the first thing that will.
+- **`--version` reads `package.json`'s `version` through `src/version.ts`** (a real import, inlined by
+  tsup), so bumping `package.json` is enough and there is no second place to edit.
+- **`README.md` quotes real command output verbatim** — `install`, `status`, `doctor`, `catalog tree`,
+  `catalog init`, `catalog audit`, `annotate --dry-run`, three error messages, `.mcp.json`,
+  `.gitignore`, `state.json`, `ambit.lock` — all captured by running the built CLI, not written from
+  the spec. Nothing pins them, so a task that changes a report's wording must grep the README too. It
+  also states as fact that `--quiet` and `--no-color` are accepted but currently no-ops (true: nothing
+  in `src/` reads either), and that spec §3.2's unnamespaced-frontmatter collision risk is a known bet.
 
 ## Constraints later tasks inherit
 
@@ -541,8 +560,9 @@ on its own, which is exactly what makes the compatibility test mandatory there r
 - **`Catalog` carries `ref?`**, attached by `loadCatalogs` after `parseCatalogDirectory` returns — a fact
   about the config entry, not the directory, so a catalog parsed straight off disk
   (`validate --catalog`) has none.
-- **Every command and every flag spec §6 declares is implemented**, consumer and authoring alike, so
-  A28's README has the whole surface to document and nothing in `COMMAND_SPECS` is a placeholder.
+- **Every command and every flag spec §6 declares is implemented**, consumer and authoring alike, and
+  nothing in `COMMAND_SPECS` is a placeholder. `README.md` documents that surface exhaustively, so a
+  new command or flag owes the README a row as well as a `SURFACES` entry.
 - **Every source resolves through `src/sources.ts`** (§3.1 grammar) returning
   `ResolvedSource = { root, commit? }`. `loadCatalogs`, `mergeConfigEntities`, `loadSourceSkill` and
   `resolveCatalogRoot` take a `SourceContext` (`{ projectDir, env }`); `env` is where the cache location
