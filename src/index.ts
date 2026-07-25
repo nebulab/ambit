@@ -55,6 +55,7 @@ export {
   CONFIG_FILENAMES,
   CONFIG_VERSION,
   DEFAULT_HARNESSES,
+  existingConfigFiles,
   findConfigFile,
   loadProjectConfig,
   parseProjectConfig,
@@ -115,6 +116,8 @@ export {
   serializeJsonDocument,
 } from "./harness-config.js";
 export type { ConfigEntry, JsonObject } from "./harness-config.js";
+export { INIT_FILENAME, INIT_SCOPE, initProject, scaffoldConfig } from "./init.js";
+export type { InitOptions, InitResult } from "./init.js";
 export { ADAPTERS, adaptersFor, installProject, planInstall, previewInstall } from "./install.js";
 export type {
   AdapterPlan,

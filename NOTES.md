@@ -3,10 +3,39 @@
 Rewritten by each Ralph iteration for the next one. Short, current, and only what would cost
 real time to rediscover — see `PROMPT.md` §6.
 
-Last iteration: **A24 — `ambit doctor`** (the tip of `main`). Next task is **A25 — `ambit scopes`
-and `ambit init`**, whose `Depends: A24` is now checked.
+Last iteration: **A25 — `ambit scopes` and `ambit init`** (the tip of `main`). The consumer side of
+the CLI is now complete: every command in `COMMAND_SPECS` has a handler. Next task is **B01 —
+Authoring surface and `catalog dump`**, whose `Depends: A25` is now checked. (A30 also depends on
+A25, but B01 is topmost.)
 
 ## Constraints later tasks inherit
+
+- **`src/init.ts` emits the scaffold, it does not template it.** Every value goes through `emitYaml`
+  and the blocks are laid out in **sorted-key order**, so stripping the comment lines from
+  `ambit.yml` leaves exactly `emitYaml({harnesses, scopes, version})` — `test/init.test.ts` pins that
+  equality rather than a golden copy of the prose, so the wording is free to change and the *shape*
+  is not. The commented-out `catalogs` example is emitted the same way and then prefixed, and it sits
+  in the sorted position its key would occupy, so uncommenting it leaves the file sorted (also
+  pinned). **B03's `catalog init` should scaffold the same way**; do not hand-write YAML text.
+- **The scaffold holds `core` and no catalog, so `ambit install` on a freshly `init`ed project is
+  exit 3 `unknown scope "core"`.** That is deliberate — `core` is a convention no resolver knows
+  (spec §2) and the scaffold's job is to teach that before the bundle is silently empty — and the
+  command's second output line is the warning: `next: add a catalog under \`catalogs\` …`.
+- **`init` refuses a directory holding *either* config name, `--dry-run` included** (the same stance
+  install takes: a preview of a refusal is a refusal), and it does **not** create a missing
+  directory — an unwritable target is exit 2 `cannot write ambit.yml` naming the path.
+  `existingConfigFiles(projectDir)` in `src/config.ts` is the shared "which names are present" check;
+  `findConfigFile` now goes through it. `CONFIG_FILENAMES` is a **tuple** (`as const`) so
+  `INIT_FILENAME = CONFIG_FILENAMES[0]` needs no fallback.
+- **`ambit scopes` carries `held` per scope, and that is what makes it more than a slice of
+  `ambit catalog`.** `held` is **literal membership in `ambit.yml`'s list**, never selection: holding
+  `function.engineering` reaches `function.engineering.frontend` and does not hold it, and a picker
+  that pre-checked the child would report a choice nobody made. Text is
+  `name | held|- | description`; `--json` is `{ scopes: { <name>: { description, held } } }`.
+- **`scopes` validates nothing.** It does not call `assertScopesRegistered`, so a held scope
+  registered nowhere is exit 0 here (and still exit 3 from `resolve`, which a test asserts both
+  halves of) — this is the command someone reads *to fix that typo*. Such a scope appears in no row,
+  since the registry is the subject.
 
 - **`src/doctor.ts` is the whole of `doctor`, and it runs one resolution.** `diagnoseProject` calls
   `planInstall` (bundle, artifacts, prior state, lock bytes) and then `statusOfPlan` — newly exported
@@ -70,9 +99,10 @@ and `ambit init`**, whose `Depends: A24` is now checked.
   `planInstall`, not re-run the pipeline.** One ordering changed with it: `--frozen` is now checked
   *after* `readState`, so an unreadable state file is exit 2 where it used to be exit 5. Both write
   nothing.
-- **`--dry-run` is implemented for `install`, `prune` and `clean`, and there is no `UNIMPLEMENTED`
-  map any more.** Every remaining declared-but-unbuilt command (`init`, `scopes`) is caught by
-  `notImplemented` in `commands.ts` instead. **A new mutating command is given
+- **`--dry-run` is implemented for `install`, `prune`, `clean` and `init`, and there is no
+  `UNIMPLEMENTED` map any more.** Every command in `COMMAND_SPECS` now has a handler, so
+  `notImplemented` in `commands.ts` is currently unreachable — **B01 gives it its first live use**, for
+  the declared-but-unbuilt `catalog` subcommands. **A new mutating command is given
   `--dry-run` by `buildCommand` automatically**, so a handler that ignores it silently mutates under a
   flag that promises not to — read `dryRunRequested(ctx)` or you have shipped that bug.
 - **`--dry-run` checks ownership and `--frozen` on purpose.** A preview of an install that would be
@@ -222,9 +252,9 @@ and `ambit init`**, whose `Depends: A24` is now checked.
   serialized once in `planInstall` and compared before anything is applied; the write happens after
   `apply` and after pruning. **The lock records no mode.**
 - **`emitYaml` in `src/yaml.ts` is the only sanctioned way to write YAML** (spec §3.0): sorted keys at
-  every depth, double quotes when quoting is needed, no anchors/aliases, core schema 1.2. **A25's `init`
-  scaffold and B02's editor emit through it** — except that B02 must *preserve* formatting, so it cannot
-  use `emitYaml` on a hand-written file, only on shapes ambit owns.
+  every depth, double quotes when quoting is needed, no anchors/aliases, core schema 1.2. The lock and
+  the `init` scaffold both go through it, and **B02's editor must too** — except that B02 must
+  *preserve* formatting, so it cannot use `emitYaml` on a hand-written file, only on shapes ambit owns.
 - **Top-level lock keys are sorted, so the file reads `catalogs, mcps, skills, version`.** Empty
   sections stay as `mcps: {}` rather than vanishing.
 - **A source-declared skill's lock `catalog:` is its `source` as written** (`path:../extra`, a git URL),
@@ -237,8 +267,8 @@ and `ambit init`**, whose `Depends: A24` is now checked.
   about the config entry, not the directory, so a catalog parsed straight off disk
   (`validate --catalog`) has none.
 - **`--frozen`, `--adopt`, `--copy`, `--link`, `--dry-run`, `status --check` and `validate --catalog`
-  are implemented.** The unbuilt commands are `init`, `scopes`, and the whole `catalog` authoring
-  group; each is caught by `notImplemented` in `commands.ts`.
+  are implemented.** The only unbuilt surface left is the `catalog` authoring group (B01–B09), which is
+  not yet declared in `COMMAND_SPECS` at all.
 - **Every source resolves through `src/sources.ts`** (§3.1 grammar) returning
   `ResolvedSource = { root, commit? }`. `loadCatalogs`, `mergeConfigEntities`, `loadSourceSkill` and
   `resolveCatalogRoot` take a `SourceContext` (`{ projectDir, env }`); `env` is where the cache location
@@ -297,6 +327,12 @@ and `ambit init`**, whose `Depends: A24` is now checked.
 - `status` reports artifacts only: no lock drift, no env vars, no mode divergence — those three are
   `doctor`'s. **No command reports the configured harnesses**, and none owns that; `validate` adds none
   of the four.
+- **Nothing says which catalog registered a scope.** `mergeCatalogs` keeps that only long enough to
+  raise the description conflict (`RegisteredScope` is internal), so `scopes` cannot report it and
+  neither can `catalog`. **B05's `catalog tree` works on one catalog directory**, so it needs none of
+  this; a merged view that wanted per-scope provenance would have to widen `ScopeDefinition`.
+- **`scopes` says nothing about what a scope *selects*** — no counts, no item lists. That is the scope
+  tree, and it is **B05's `catalog tree`**.
 - **Nothing validates a catalog's *reachability*** — a registered scope nothing declares, an item no
   scope and no `requires` reaches. That is deliberately **B09's `catalog audit`**, not `validate`:
   dead weight is a smell, not a broken catalog.
@@ -372,6 +408,15 @@ and `ambit init`**, whose `Depends: A24` is now checked.
   rather than into `scripts/fixture-catalog.ts`. **Under link mode a test that edits an installed skill
   edits the fixture copy**, which is per-test and disposable — but the edit is visible to the catalog
   immediately.
+- **`test/init.test.ts` asserts the scaffold's *shape*, never its prose**, except for two regexes on
+  the comment block directly above `scopes:` (`/nothing is implicit/i`, `/descendants only/i`). Reword
+  the comments freely; keep those two ideas in that block. Its `uncommented()` helper spots the
+  commented-out example by `/^# (?:catalogs:| )/`, which works only because prose lines never begin
+  with a space after `# ` — a reflowed comment starting with an indent would break it.
+- **`test/scopes.test.ts` writes a second catalog that is a `scopes.yml` and nothing else**, whose
+  `core` description must stay byte-identical to `scripts/fixture-catalog.ts`'s or `mergeCatalogs`
+  raises the §4.4 conflict. It also hardcodes all four fixture descriptions, so renaming one there
+  means updating them here.
 - The text output of every command is asserted with exact column padding from `src/output.ts`.
   `--explain` adds a **third and a fourth** cell to the skills and mcps rows; `why`'s chain pads the name
   column across skills and MCPs together.

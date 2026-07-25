@@ -20,8 +20,13 @@ export const CONFIG_VERSION = 1;
 /** Used when `harnesses` is absent. */
 export const DEFAULT_HARNESSES: readonly string[] = ["claude"];
 
-/** Accepted config filenames, in preference order. Having both is an error. */
-export const CONFIG_FILENAMES: readonly string[] = ["ambit.yml", "ambit.yaml"];
+/**
+ * Accepted config filenames, in preference order. Having both is an error.
+ *
+ * A tuple rather than a `string[]` so the first name — the one `ambit init` writes — is known at
+ * the type level and needs no fallback at the one place that scaffolds it.
+ */
+export const CONFIG_FILENAMES = ["ambit.yml", "ambit.yaml"] as const;
 
 const CONFIG_KEYS = ["catalogs", "harnesses", "mcps", "scopes", "skills", "version"] as const;
 const CATALOG_KEYS = ["name", "ref", "source"] as const;
@@ -264,6 +269,21 @@ async function isFile(target: string): Promise<boolean> {
 }
 
 /**
+ * Which accepted config filenames `projectDir` already holds, in preference order.
+ *
+ * Shared with `ambit init`, whose question is the opposite of {@link findConfigFile}'s: it must
+ * refuse a directory that holds *either* name, and refuse it naming the file it found rather than
+ * the one it was about to write.
+ */
+export async function existingConfigFiles(projectDir: string): Promise<readonly string[]> {
+  const present: string[] = [];
+  for (const name of CONFIG_FILENAMES) {
+    if (await isFile(path.join(projectDir, name))) present.push(name);
+  }
+  return present;
+}
+
+/**
  * Finds the config file in `projectDir`.
  *
  * @returns its absolute path, and the project-relative name to use in messages.
@@ -272,10 +292,7 @@ async function isFile(target: string): Promise<boolean> {
 export async function findConfigFile(
   projectDir: string,
 ): Promise<{ readonly path: string; readonly file: string }> {
-  const present: string[] = [];
-  for (const name of CONFIG_FILENAMES) {
-    if (await isFile(path.join(projectDir, name))) present.push(name);
-  }
+  const present = await existingConfigFiles(projectDir);
 
   if (present.length === 0) {
     throw configError(`no ambit config in ${projectDir}`, [

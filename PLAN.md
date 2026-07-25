@@ -714,7 +714,7 @@ runs the whole pipeline against a local fixture before any git, lock, or prune l
   from the environment, naming which skill or server wants each one; reports drift against
   the lock and any ownership anomaly; exits 6 if any check fails.
 
-- [ ] **A25 — `ambit scopes` and `ambit init`.**
+- [x] **A25 — `ambit scopes` and `ambit init`.**
   **Depends:** A24
   **Done when:** `scopes --json` emits the merged registry with descriptions — the picker
   data a consuming tool needs — and `init` scaffolds a commented, valid `ambit.yml` whose

@@ -6,9 +6,11 @@ import { AmbitError, ExitCode } from "./errors.js";
 import { catalogHandler } from "./handlers/catalog.js";
 import { cleanHandler } from "./handlers/clean.js";
 import { doctorHandler } from "./handlers/doctor.js";
+import { initHandler } from "./handlers/init.js";
 import { installHandler } from "./handlers/install.js";
 import { pruneHandler } from "./handlers/prune.js";
 import { resolveHandler } from "./handlers/resolve.js";
+import { scopesHandler } from "./handlers/scopes.js";
 import { statusHandler } from "./handlers/status.js";
 import { validateHandler } from "./handlers/validate.js";
 import { whyHandler } from "./handlers/why.js";
@@ -21,9 +23,11 @@ export const HANDLERS: CommandHandlers = {
   catalog: catalogHandler,
   clean: cleanHandler,
   doctor: doctorHandler,
+  init: initHandler,
   install: installHandler,
   prune: pruneHandler,
   resolve: resolveHandler,
+  scopes: scopesHandler,
   status: statusHandler,
   validate: validateHandler,
   why: whyHandler,
