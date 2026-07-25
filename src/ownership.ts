@@ -80,7 +80,7 @@ function refuseKey(artifact: PlannedHarnessConfig, key: string): never {
  * Unioned across every artifact naming that path, so ownership survives two adapters writing into
  * one file — the path alone never grants it, because the file is co-owned.
  */
-function ownedKeys(prior: State, file: string): ReadonlySet<string> {
+export function ownedKeys(prior: State, file: string): ReadonlySet<string> {
   const keys = new Set<string>();
   for (const artifact of prior.artifacts) {
     if (artifact.path !== file) continue;

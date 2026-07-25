@@ -675,7 +675,7 @@ runs the whole pipeline against a local fixture before any git, lock, or prune l
   **Done when:** Install A then install B removes A-only skills and MCP entries from disk,
   `.mcp.json`, and state, while leaving unowned files alone.
 
-- [ ] **A19 — Idempotence and `status`.**
+- [x] **A19 — Idempotence and `status`.**
   **Depends:** A18
   **Done when:** A second identical install changes no bytes; `status` reports drift after a
   manual edit; `status --check` exits 5 on drift, 0 when clean.

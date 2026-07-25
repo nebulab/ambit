@@ -110,6 +110,22 @@ async function tree(dir: string): Promise<readonly string[]> {
   return found.sort();
 }
 
+/** Every file in the project, keyed by relative path and carrying its contents. */
+async function snapshot(): Promise<Record<string, string>> {
+  const found: Record<string, string> = {};
+
+  const walk = async (current: string, relative: string): Promise<void> => {
+    for (const entry of await readdir(current, { withFileTypes: true })) {
+      const within = relative === "" ? entry.name : `${relative}/${entry.name}`;
+      if (entry.isDirectory()) await walk(path.join(current, entry.name), within);
+      else found[within] = await readFile(path.join(current, entry.name), "utf8");
+    }
+  };
+
+  await walk(projectDir, "");
+  return found;
+}
+
 /** The installed skill directory names, sorted. */
 async function installedSkills(): Promise<readonly string[]> {
   const entries = await readdir(path.join(projectDir, SKILLS_DIR), { withFileTypes: true });
@@ -923,6 +939,62 @@ describe("pruning", () => {
 
     expect(result.code).toBe(ExitCode.Config);
     expect(result.stderr).toContain(`cannot prune "${SCOPED_MCP}" from ${MCP_FILE}`);
+  });
+});
+
+/**
+ * Spec §7's idempotence claim, whole: a second install of an unchanged project changes no bytes.
+ *
+ * The individual files are pinned above — state, `.mcp.json`, the tree — but the claim is about all
+ * of them at once, and a per-file assertion cannot notice a fifth file appearing. So this compares
+ * the entire project, and asserts what the comparison covered: a snapshot that quietly went empty
+ * would pass every one of these.
+ */
+describe("idempotence", () => {
+  const PROJECT_FILES = [
+    `${STATE_DIRNAME}/${STATE_FILENAME}`,
+    `${SKILLS_DIR}/${CORE_SKILL}/SKILL.md`,
+    `${SKILLS_DIR}/${FRONTEND_SKILL}/SKILL.md`,
+    `${SKILLS_DIR}/${ENGINEERING_SKILL}/SKILL.md`,
+    MCP_FILE,
+    LOCK_FILENAME,
+    "ambit.yml",
+  ];
+
+  it("changes no bytes on a second identical install", async () => {
+    expect((await cli("install")).code).toBe(ExitCode.Success);
+    const before = await snapshot();
+    expect(Object.keys(before).sort()).toEqual([...PROJECT_FILES].sort());
+
+    const second = await cli("install");
+    expect(second.code, second.stderr).toBe(ExitCode.Success);
+
+    expect(await snapshot()).toEqual(before);
+  });
+
+  it("changes no bytes on a second install of a project holding content it does not own", async () => {
+    await writeFile(
+      path.join(projectDir, MCP_FILE),
+      `${JSON.stringify({ mcpServers: { handmade: { command: "node" } }, extra: { kept: true } }, null, 2)}\n`,
+      "utf8",
+    );
+    const foreign = path.join(projectDir, SKILLS_DIR, "hand-written");
+    await mkdir(foreign, { recursive: true });
+    await writeFile(path.join(foreign, "SKILL.md"), "---\nname: hand-written\n---\n", "utf8");
+
+    expect((await cli("install")).code).toBe(ExitCode.Success);
+    const before = await snapshot();
+
+    const second = await cli("install");
+    expect(second.code, second.stderr).toBe(ExitCode.Success);
+
+    expect(await snapshot()).toEqual(before);
+  });
+
+  it("prints the same report twice", async () => {
+    const first = await cli("install");
+
+    expect((await cli("install")).stdout).toBe(first.stdout);
   });
 });
 

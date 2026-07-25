@@ -6,6 +6,7 @@ import { AmbitError, ExitCode } from "./errors.js";
 import { catalogHandler } from "./handlers/catalog.js";
 import { installHandler } from "./handlers/install.js";
 import { resolveHandler } from "./handlers/resolve.js";
+import { statusHandler } from "./handlers/status.js";
 import { whyHandler } from "./handlers/why.js";
 import { VERSION } from "./version.js";
 
@@ -16,6 +17,7 @@ export const HANDLERS: CommandHandlers = {
   catalog: catalogHandler,
   install: installHandler,
   resolve: resolveHandler,
+  status: statusHandler,
   why: whyHandler,
 };
 

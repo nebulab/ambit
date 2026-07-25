@@ -71,10 +71,13 @@ function compare(a: string, b: string): number {
 /**
  * Resolves configured harness names to adapters.
  *
+ * Shared with `status.ts`, which has to plan through exactly the adapters install would use, or the
+ * two commands could disagree about whether a project is installed.
+ *
  * @throws {AmbitError} exit 2 for a harness this build has no adapter for — silently skipping it
  *   would leave a project believing it was installed.
  */
-function adaptersFor(harnesses: readonly string[]): readonly HarnessAdapter[] {
+export function adaptersFor(harnesses: readonly string[]): readonly HarnessAdapter[] {
   return harnesses.map((name) => {
     const adapter = ADAPTERS[name];
     if (adapter === undefined) {

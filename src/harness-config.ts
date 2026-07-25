@@ -139,16 +139,23 @@ export function removeConfigKeys(
 }
 
 /**
+ * The managed section of a document, as an object.
+ *
+ * A section that is absent, or is present but holds something other than an object, reads as an
+ * empty one: neither case is a *collision* with anything ambit would write, and an unusable section
+ * is `mergeConfigSection`'s error to raise, since that is the code which cannot proceed with it.
+ */
+export function sectionOf(document: JsonObject, section: string): JsonObject {
+  const existing = document[section];
+  return isRecord(existing) ? existing : EMPTY_DOCUMENT;
+}
+
+/**
  * The keys currently in `document[section]` — what ownership enforcement compares a plan against
  * (spec §5).
- *
- * A section that is absent, or is present but holds something other than an object, reads as no keys
- * at all: neither case is a *collision*, and an unusable section is `mergeConfigSection`'s error to
- * raise, since that is the code which cannot proceed with it.
  */
 export function sectionKeys(document: JsonObject, section: string): ReadonlySet<string> {
-  const existing = document[section];
-  return new Set(isRecord(existing) ? Object.keys(existing) : []);
+  return new Set(Object.keys(sectionOf(document, section)));
 }
 
 /** The dotted key state records for one managed entry (spec §3.6). */
