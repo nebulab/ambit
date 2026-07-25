@@ -103,10 +103,12 @@ export interface AuditOptions {
    * Where each MCP entity is actually written, catalog-relative, keyed by name — a `.yaml` file as
    * readily as a `.yml` one (spec §3.3).
    *
-   * `McpEntity` carries no filename (it is also what an inline `ambit.yml` declaration parses into),
-   * so a report that must name the offending file has to be told. Absent falls back to the extension
-   * ambit itself writes, which is right for every catalog ambit authored and wrong only for a
-   * hand-written `.yaml` — {@link auditCatalogDirectory} supplies the real answer.
+   * A report that must name the offending file has to be told, since this function is pure. Absent
+   * falls back to the extension ambit itself writes, which is right for every catalog ambit authored
+   * and wrong only for a hand-written `.yaml` — {@link auditCatalogDirectory} supplies the real
+   * answer. A parsed entity now carries the same fact as data (`CatalogMcp.file`), so this is a
+   * second answer to one question that a later task should collapse; nothing here may re-derive it a
+   * third way.
    */
   readonly mcpFiles?: ReadonlyMap<string, string>;
 }

@@ -202,10 +202,13 @@ describe("ambit catalog mcp new", () => {
         transport: { stdio: { args: [...NOTES_ARGS], command: NOTES_COMMAND } },
       }),
     );
+    // `file` is the document parsing read the entity out of, carried so anything reporting about it
+    // can name the file that is actually there rather than the extension ambit happens to write.
     expect(await server(NOTES)).toEqual({
       name: NOTES,
       scopes: [],
       env: [NOTES_ENV],
+      file: NOTES_FILE,
       transport: { kind: "stdio", command: NOTES_COMMAND, args: [...NOTES_ARGS] },
     });
     await validates();
@@ -225,6 +228,7 @@ describe("ambit catalog mcp new", () => {
       name: CLOSE,
       scopes: [],
       env: ["CLOSE_API_KEY"],
+      file: CLOSE_FILE,
       transport: {
         kind: "http",
         url: CLOSE_URL,
@@ -454,7 +458,12 @@ describe("ambit catalog mcp rm", () => {
 
     expect(result.stderr).toContain(`MCP server "${REQUIRED}" is still required (${REQUIRED_FILE})`);
     expect(result.stderr).toContain(`skill "${REQUIRER}" requires it (${REQUIRER_FILE})`);
-    expect(result.stderr).toContain(`remove the \`mcp.${REQUIRED}\` requirement from each of them first`);
+    // The next step names the command that clears a `requires` entry, not the hand-edit that
+    // predated it (spec §6) — and the requirement keeps its `mcp.` prefix while the requirer, always
+    // a skill, does not.
+    expect(result.stderr).toContain(
+      `clear it from each with \`ambit catalog annotate <skill> --remove-requires mcp.${REQUIRED}\``,
+    );
   });
 
   it("refuses a server the catalog does not provide, without guessing at a near miss", async () => {

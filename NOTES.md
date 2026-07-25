@@ -3,12 +3,13 @@
 Rewritten by each Ralph iteration for the next one. Short, current, and only what would cost
 real time to rediscover — see `PROMPT.md` §6.
 
-Last iteration: **A31 — error message accuracy** (the tip of `main`), a message-only task: `scope rm`'s
-refusal now cites a declaring entity by the extension it actually carries, and it and `mcp new`'s closing
-line now name `catalog annotate` instead of telling the reader to hand-edit. **The whole spec §6 CLI
-surface is implemented**, both authoring sections are done, and every behavioural task is closed. Next
-task is **A26 — dotagents compatibility test** (`Depends: B09`, checked), then A27–A29 (Shipping) — A26 is
-the one test allowed to reach the network.
+Last iteration: **A32 — entity filenames through the merged view** (the tip of `main`), the residue A31
+left: an MCP entity now carries the file it was parsed from (`CatalogMcp.file` → `MergedMcp.file`), so
+`validate` cites a `.yaml` entity as `.yaml` and an inline one as `ambit.yml`; and `skill rm`'s and
+`mcp rm`'s "is still required" refusals now name `annotate --remove-requires` instead of a hand-edit.
+**The whole spec §6 CLI surface is implemented**, both authoring sections are done, and every
+behavioural task is closed. Next task is **A26 — dotagents compatibility test** (`Depends: B09`,
+checked), then A27–A29 (Shipping) — A26 is the one test allowed to reach the network.
 
 ## Constraints later tasks inherit
 
@@ -176,8 +177,20 @@ the one test allowed to reach the network.
   them right: `mcpDocumentFile`'s own fallback, the file `mcp new` *creates*, and the two messages about a
   name **no file carries** (`unknownMcp`, and the handler's `transportRefusal`). Those last two name where
   the entity *would* be, as `unknownSkill` does; there is no real file to name, and naming `mcps/` instead
-  would drop the one useful fact (the stem rule). **A new message about an entity that exists must use
-  `mcpDocumentFile`.**
+  would drop the one useful fact (the stem rule). **A new message about an entity that exists must name
+  its real file** — off `CatalogMcp.file` where a parsed catalog is in hand, or `mcpDocumentFile` where
+  only a root and a name are.
+- **A parsed MCP entity carries the file it was read from, and that is the answer everything downstream
+  should use.** `Catalog.mcps` is now `readonly CatalogMcp[]` (`McpEntity` plus a required
+  catalog-relative `file`, set by `parseMcpFile` from what `findMcpFiles` found), and `MergedMcp.file` is
+  the **optional** same field: `mergeCatalogs` spreads the winning entity, so first-wins precedence is
+  still decided in exactly one place, and `mergeConfigEntities` sets none — an inline `ambit.yml` entity
+  has no document of its own, and its `catalog` already *is* the config filename. So
+  `validate`'s `mcpFile(mcp)` is `mcp.file ?? mcp.catalog`, and nothing there re-derives `.yml`.
+  **`file` must stay out of every output surface**, exactly as `MergedSkill.catalogRoot` does: it is
+  catalog-relative rather than machine-specific, but nothing in `resolve --json`, `catalog --json`,
+  `catalog tree --json` or the lock has a use for it, and all four build records from explicit key lists
+  — keep it that way and the goldens never see it (this change regenerated none of them).
 - **A flag belonging to the transport kind that was not named is exit 2, not ignored** (`--header` with
   `--stdio`, `--arg` with `--http`), as is an empty `--stdio`/`--http` value. The stance is that a flag
   someone typed which would be written nowhere is worse than an error. Every transport refusal names
@@ -255,11 +268,13 @@ the one test allowed to reach the network.
   would call that pair fine). **A scope is dead only when its whole registered subtree selects
   nothing** — the count comes from `buildScopeTree`, so audit and `tree` cannot disagree about what a
   scope selects, and a registered parent nobody declares directly is not reported.
-- **`auditCatalog(catalog, { mcpFiles })` is pure and takes the entity filenames as data**, because
-  `McpEntity` carries none and a finding must name a file that is there (spec §6). The I/O wrapper
-  `auditCatalogDirectory(root)` fills the map from `mcpDocumentFile`, so a `.yaml` entity is cited as
-  `.yaml` — deliberately *not* the `.yml`-only shortcut `validate`'s `mcpFile` still takes (see the
-  omissions below: A31 left that one, and nobody owns it). Absent, the map falls back to `.yml`.
+- **`auditCatalog(catalog, { mcpFiles })` is pure and takes the entity filenames as data**, because a
+  finding must name a file that is there (spec §6) and `McpEntity` carried none when it was written. The
+  I/O wrapper `auditCatalogDirectory(root)` fills the map from `mcpDocumentFile`, so a `.yaml` entity is
+  cited as `.yaml`; absent, the map falls back to `.yml`. **A32 made that option redundant** —
+  `catalog.mcps[].file` is the same fact, already parsed — and left it alone rather than change an
+  exported signature inside a message-accuracy task. Collapsing it is unowned (see the omissions); until
+  then do not add a *third* way to answer the question.
 - **`catalog audit` exits 0 however much it found; `--check` is what turns findings into exit 6**
   (`ExitCode.Doctor`, whose comment now covers both callers). Plain audit is a report, and one that
   broke a build by existing is one nobody adds to CI. The verdict helper is `isTidy(report)` and the
@@ -592,21 +607,24 @@ the one test allowed to reach the network.
   `test/catalog-mcp.test.ts` pins it byte-for-byte inside a whole-stdout assertion. `mcp rm` closes with
   **nothing**, deliberately: no project's `ambit.yml` can name a catalog's server (§3.1's `mcps` declares
   one rather than selecting one), so there is nothing for its author to update.
-- **`validate`'s `mcpFile` (`src/validate.ts`) is the last `.yml`-only citation**: an entity written as
-  `mcps/x.yaml` that declares an unregistered scope is reported against `mcps/x.yml`, a file that is not
-  there. A31 deliberately left it, because it is *not* the same fix as `declarersOf`'s was.
-  `validateCatalog(merged, …)` is pure over a **merged** view, `MergedMcp` carries neither a file nor a
-  catalog root, and an inline `ambit.yml` entity has no file at all — so making it accurate means either
-  duplicating `mergeCatalogs`' first-wins precedence in a second place (the drift this codebase avoids) or
-  carrying the filename `findMcpFiles` already computes through `Catalog` → `MergedCatalog`. The second is
-  the right shape and is a **data** change to two core types, not a message change. Nobody owns it.
+- **`CatalogMcp.file` obsoletes three disk lookups nobody owns collapsing.** `auditCatalog`'s
+  `mcpFiles` option (above), `removeMcp`/`alreadyProvided`'s `await mcpDocumentFile(root, …)` in
+  `src/catalog-mcp.ts`, and `declarersOf`'s per-entity `stat` in `src/catalog-scope.ts` (which is the only
+  reason that function is async) all now re-derive a filename the parsed catalog already carries. All
+  three are *accurate* — they agree with `file` by construction for an entity that parsed — so this is
+  redundancy, not a defect; A32 stopped at what its Done-when named. Routing them through the data would
+  delete the option, the two `await`s and probably `declarersOf`'s asyncness. `mcpDocumentFile` itself
+  must stay for a name nothing has parsed (`mcp new`).
 - **Removing an entity file prunes no directory.** `pruneEmptyAncestors` runs for tree changes only, so a
   catalog whose last server was removed keeps an empty `mcps/` — which is its shape, not its contents.
-- **Both `rm` commands' "is still required" refusals still tell the reader to hand-edit** — `skill rm`'s
-  and `mcp rm`'s next step is "remove the `requires` entry from each of them first", though
-  `annotate --remove-requires` now does exactly that. Same class as the two lines A31 fixed; A31's
-  Done-when named only those two, so nobody owns these. Their wording is pinned in
-  `test/catalog-skill.test.ts` and `test/catalog-mcp.test.ts`.
+- **Every `rm` refusal's next step now names the command that does the work**, not a hand-edit: both
+  "is still required" lines read `clear it from each with \`ambit catalog annotate <skill>
+  --remove-requires <name>\`` — with `mcp.` on the requirement and never on the requirer, since only a
+  skill can require anything — and `skill rm`'s keeps its `skill mv` alternative (there is no `mcp mv`).
+  Pinned in `test/catalog-skill.test.ts` and `test/catalog-mcp.test.ts`. Nothing in the §6 error surface
+  tells a reader to hand-edit a file a command can change any more; the only messages naming a file that
+  is *not* on disk are the deliberate "where it would be" ones (`unknownMcp`, `unknownSkill`,
+  `transportRefusal`).
 - **`catalog init` scaffolds no example skill and no example MCP entity**, so a fresh catalog installs
   nothing: `catalog skill new` is the next step and the command's own output says so. It also runs
   no `git init` and writes no `.gitignore` — a catalog has nothing generated to ignore, and the directory
@@ -672,6 +690,8 @@ the one test allowed to reach the network.
   the view cannot drift from the resolver. Two cases deepen the fixture's registry by appending to
   `scopes.yml` in the per-test copy (`function`, `person.jane`); the shared fixture's four scopes are
   untouched, which `test/validate.test.ts` depends on.
+- **`test/catalog-mcp.test.ts`'s two round-trip cases do a whole-object `toEqual` on a parsed
+  `CatalogMcp`**, so they name `file` since A32; a further field on that type means editing both.
 - **`test/catalog-mcp.test.ts` restates the values it expects emitted** rather than importing them, so the
   "the whole file is `emitYaml` of these values" claim is independent of the source — the `catalog init`
   trick. Two cases are load-bearing beyond their assertions: one renames a fixture entity to `.yaml`
@@ -789,6 +809,11 @@ the one test allowed to reach the network.
   `drift` check stays quiet, while every other block sets both **before** installing. Set a var after
   the install and `.mcp.json` becomes `modified`. Its healthy case pins the whole five-row `checks`
   table plus both empty finding lists byte-for-byte, so a new check means editing `HEALTHY_REPORT`.
+- **`test/validate.test.ts`'s `writeMcp(name, annotations, extension)` writes either §3.3 extension**, and
+  two of its cases are about which file a problem cites rather than about the problem: one writes
+  `mcps/loose.yaml` and asserts `mcps/loose.yml` appears nowhere, one declares the entity inline in
+  `ambit.yml` and asserts the problem names `ambit.yml`. They are the guard on `MergedMcp.file`; a change
+  that re-derived the filename passes every other case in the file.
 - **The fixture catalog must stay cycle-free, dangling-free, reachable-in-full, and exactly 4 scopes /
   4 skills / 2 mcps**: `test/validate.test.ts` asserts `ambit validate` against it reports byte-for-byte
   `checked 4 scopes, 4 skills, 2 mcps` and `problems (0)`, `test/catalog-audit.test.ts` asserts

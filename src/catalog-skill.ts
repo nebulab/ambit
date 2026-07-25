@@ -162,11 +162,17 @@ function requires(skill: CatalogSkill): string {
   return `skill "${skill.name}" requires it ${at(skillDocumentOf(skill), undefined)}`;
 }
 
-/** The error for removing a skill something still requires (spec §6). */
+/**
+ * The error for removing a skill something still requires (spec §6).
+ *
+ * The next step names `catalog annotate`, which postdates this refusal: `--remove-requires` is what
+ * clears a `requires` entry now, and spec §6 asks for a next step that exists rather than for work
+ * the reader is told to do by hand.
+ */
 function stillRequired(name: string, requirers: readonly string[]): AmbitError {
   return resolutionError(`skill "${name}" is still required ${at(skillDocumentPath(name), undefined)}`, [
     ...requirers,
-    `remove the \`${REQUIRES_KEY}\` entry from each of them first, or rename it with \`ambit catalog skill mv ${name} <new>\``,
+    `clear it from each with \`ambit catalog annotate <skill> --remove-requires ${name}\`, or rename it with \`ambit catalog skill mv ${name} <new>\``,
   ]);
 }
 

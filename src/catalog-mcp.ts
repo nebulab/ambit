@@ -11,10 +11,10 @@
  *   or two kinds — so the discriminator §3.3 insists on can never be ambiguous in what ambit writes.
  *   The kind's own flags are the handler's to read.
  * - **`rm` removes the file the entity is actually written as**, `.yml` or `.yaml`
- *   ({@link mcpDocumentFile}). Nothing carries an entity's filename — `McpEntity` is the same type an
- *   inline `ambit.yml` declaration parses into, and that has no file at all — so the one place that
- *   deletes one looks it up. Removing the `.yml` a name *would* take would otherwise be a silent
- *   no-op against a catalog that spells it `.yaml`.
+ *   ({@link mcpDocumentFile}), because removing the `.yml` a name *would* take is a silent no-op
+ *   against a catalog that spells it `.yaml`. A parsed catalog now carries that filename as data too
+ *   (`CatalogMcp.file`, added so `validate` could cite it); the `stat` here is the answer for a name
+ *   nothing has parsed, and the two agree by construction for one that has.
  *
  * `new` declares no scopes, because the surface spec §6 gives it has no `--scope`: a new server is
  * reachable only through a skill's `requires` until someone gives it a `scopes` entry, and the
@@ -168,11 +168,18 @@ function requires(skill: CatalogSkill): string {
   return `skill "${skill.name}" requires it ${at(`${skill.path}/${SKILL_FILENAME}`, undefined)}`;
 }
 
-/** The error for removing a server a skill still requires (spec §6). */
+/**
+ * The error for removing a server a skill still requires (spec §6).
+ *
+ * The next step names `catalog annotate`, which postdates this refusal: `--remove-requires` is what
+ * clears a `requires` entry now, and spec §6 asks for a next step that exists rather than for work
+ * the reader is told to do by hand. Only a skill can require a server, so the name the reader passes
+ * is a skill's — no `mcp.` prefix on that one, unlike the requirement being cleared.
+ */
 function stillRequired(name: string, file: string, requirers: readonly string[]): AmbitError {
   return resolutionError(`MCP server "${name}" is still required ${at(file, undefined)}`, [
     ...requirers,
-    `remove the \`${MCP_REQUIREMENT_PREFIX}${name}\` requirement from each of them first`,
+    `clear it from each with \`ambit catalog annotate <skill> --remove-requires ${MCP_REQUIREMENT_PREFIX}${name}\``,
   ]);
 }
 

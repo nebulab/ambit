@@ -32,6 +32,7 @@ export {
 } from "./catalog.js";
 export type {
   Catalog,
+  CatalogMcp,
   CatalogOverlay,
   CatalogParseOptions,
   CatalogSkill,

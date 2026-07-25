@@ -34,7 +34,6 @@ import type {
   Shadowing,
 } from "./catalog.js";
 import {
-  MCPS_DIRNAME,
   SCOPES_FILENAME,
   loadCatalogs,
   mergeCatalogs,
@@ -121,15 +120,19 @@ function problem(kind: ValidationProblemKind, error: AmbitError): ValidationProb
 }
 
 /**
- * Where an MCP entity is written (spec §3.3): the filename is the entity's name, and parsing
- * enforces the agreement, so the name locates the file.
+ * Where an MCP entity is written, as a problem cites it (spec §6).
  *
- * Two cases this only approximates — an entity in a `.yaml` file, and one declared inline in
- * `ambit.yml` — which is why the detail line names the catalog as well: for the inline case that
- * *is* the config file, so a reader is still sent to the right document.
+ * Read off the merged view rather than derived from the name: `mcps/<name>.yml` is only the
+ * extension ambit *writes*, so a catalog spelling an entity `.yaml` would be reported against a file
+ * that is not there. Parsing already found the real one and carries it ({@link MergedMcp.file}),
+ * which also means nothing here has to re-decide which catalog's copy won.
+ *
+ * An entity a project declares inline has no file of its own, and its `catalog` is the config
+ * filename — so its absence reads as "declared in `ambit.yml`", which is where a reader goes to
+ * change it.
  */
 function mcpFile(mcp: MergedMcp): string {
-  return `${MCPS_DIRNAME}/${mcp.name}.yml`;
+  return mcp.file ?? mcp.catalog;
 }
 
 /**

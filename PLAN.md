@@ -848,7 +848,7 @@ mutation ends by re-validating.
   > and withdrawn: it reads as a mandate over the whole error surface, where it was meant as a
   > spot-check on the two defects above. A31 delivered both. The residue it turned up is A32's.
 
-- [ ] **A32 — Entity filenames through the merged view.**
+- [x] **A32 — Entity filenames through the merged view.**
   **Depends:** A31
   **Do:** The residue A31 found. `validate`'s `mcpFile` derives `mcps/<name>.yml`, so an entity
   written as `.yaml` is reported against a file that does not exist. The fix is a data change

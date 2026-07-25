@@ -116,6 +116,20 @@ export interface CatalogSkill {
   readonly env: readonly string[];
 }
 
+/** An MCP entity as one catalog declares it, carrying the document it was read from. */
+export interface CatalogMcp extends McpEntity {
+  /**
+   * The file that defines it, relative to the catalog root — whichever §3.3 extension it actually
+   * carries.
+   *
+   * Carried from parsing rather than derived from the name, because `mcps/<name>.yml` is only the
+   * extension ambit *writes*: an entity spelled `.yaml` has no `.yml` for an error to send a reader
+   * to (spec §6). Parsing already knows which one is there, so nothing downstream has to ask the
+   * filesystem again — or guess.
+   */
+  readonly file: string;
+}
+
 /** One parsed catalog. */
 export interface Catalog {
   readonly name: string;
@@ -139,7 +153,7 @@ export interface Catalog {
   /** Skills, sorted by name. */
   readonly skills: readonly CatalogSkill[];
   /** MCP entities, sorted by name. */
-  readonly mcps: readonly McpEntity[];
+  readonly mcps: readonly CatalogMcp[];
 }
 
 /** A skill in the merged view, tagged with the catalog it came from. */
@@ -164,6 +178,14 @@ export interface MergedSkill extends CatalogSkill {
 /** An MCP entity in the merged view, tagged with the catalog it came from. */
 export interface MergedMcp extends McpEntity {
   readonly catalog: string;
+  /**
+   * The file that defines it inside that catalog, catalog-relative — see {@link CatalogMcp.file}.
+   *
+   * Absent for an entity a project declares inline in its `ambit.yml` (spec §3.1), which has no
+   * document of its own. There is nothing to invent in that case: `catalog` already names the config
+   * file, which is where a reader goes to change it, so an error still has a real file to cite.
+   */
+  readonly file?: string;
 }
 
 /**
@@ -470,7 +492,7 @@ async function parseMcpFile(
   files: CatalogFiles,
   stem: string,
   file: string,
-): Promise<McpEntity> {
+): Promise<CatalogMcp> {
   const mapping = await files.mapping(file);
   const entity = parseMcpEntity(mapping);
 
@@ -481,7 +503,7 @@ async function parseMcpFile(
     ]);
   }
 
-  return entity;
+  return { ...entity, file };
 }
 
 /**
@@ -548,7 +570,7 @@ export async function parseCatalogDirectory(
       skills.push(await parseSkill(files, relative, collectFromCatalog));
     }
 
-    const mcps: McpEntity[] = [];
+    const mcps: CatalogMcp[] = [];
     for (const { stem, file } of await findMcpFiles(files)) {
       mcps.push(await parseMcpFile(files, stem, file));
     }

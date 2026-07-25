@@ -376,7 +376,11 @@ describe("ambit catalog skill rm", () => {
 
     expect(result.stderr).toContain(`skill "${CORE}" is still required (${CORE_FILE})`);
     expect(result.stderr).toContain(`skill "${BRIEF}" requires it (${BRIEF_FILE})`);
-    expect(result.stderr).toContain("remove the `requires` entry from each of them first");
+    // The next step names the command that clears a `requires` entry, not the hand-edit that
+    // predated it (spec §6).
+    expect(result.stderr).toContain(
+      `clear it from each with \`ambit catalog annotate <skill> --remove-requires ${CORE}\``,
+    );
   });
 
   it("refuses a skill the catalog does not provide, without guessing at a near miss", async () => {

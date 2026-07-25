@@ -91,10 +91,19 @@ async function writeMisnamedSkill(relative: string, declared: string): Promise<v
   );
 }
 
-/** Adds an MCP entity, its name taken from its filename per §3.3. */
-async function writeMcp(name: string, annotations: readonly string[] = []): Promise<void> {
+/**
+ * Adds an MCP entity, its name taken from its filename per §3.3.
+ *
+ * @param extension which of §3.3's two extensions to write it as, since which one is on disk is what
+ *   a problem about the entity has to cite.
+ */
+async function writeMcp(
+  name: string,
+  annotations: readonly string[] = [],
+  extension = ".yml",
+): Promise<void> {
   await writeFile(
-    path.join(catalogDir, "mcps", `${name}.yml`),
+    path.join(catalogDir, "mcps", `${name}${extension}`),
     [`name: ${name}`, ...annotations, "transport:", "  stdio:", "    command: fixture-mcp", ""].join(
       "\n",
     ),
@@ -219,6 +228,41 @@ describe("ambit validate: unregistered scopes", () => {
     });
     expect(found.problems[0]?.detail[0]).toBe(
       'MCP server "loose" (catalog "company") declares it, but no catalog\'s scopes.yml registers it',
+    );
+  });
+
+  it("cites the file an entity is written as, not the extension ambit would have chosen", async () => {
+    // `mcps/<name>.yml` is what ambit writes, but §3.3 accepts `.yaml` too — and a problem reported
+    // against the file that is *not* there sends the reader nowhere (spec §6).
+    await writeMcp("loose", ["scopes: [marketing]"], ".yaml");
+
+    const found = await report("validate");
+
+    expect(found.problems.map((problem) => problem.message)).toEqual([
+      'unregistered scope "marketing" (mcps/loose.yaml)',
+    ]);
+    expect(found.problems[0]?.message).not.toContain("mcps/loose.yml");
+  });
+
+  it("cites the config file for an entity the project declares inline, which has no file", async () => {
+    // An inline `mcps` entry (§3.1) is a document ambit never wrote and never will; `ambit.yml` is
+    // where a reader goes to change it, so that is what the problem names.
+    await writeProfile(["core"], [
+      "mcps:",
+      "  - name: custom",
+      "    scopes: [marketing]",
+      "    transport:",
+      "      stdio:",
+      "        command: fixture-mcp",
+    ]);
+
+    const found = await report("validate");
+
+    expect(found.problems.map((problem) => problem.message)).toEqual([
+      'unregistered scope "marketing" (ambit.yml)',
+    ]);
+    expect(found.problems[0]?.detail[0]).toBe(
+      'MCP server "custom" (catalog "ambit.yml") declares it, but no catalog\'s scopes.yml registers it',
     );
   });
 
