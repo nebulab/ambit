@@ -11,6 +11,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { buildFixtureCatalog } from "../scripts/fixture-catalog.js";
+import type { MergedCatalog } from "../src/catalog.js";
 import { loadCatalogs, mergeCatalogs, parseCatalogDirectory } from "../src/catalog.js";
 import { loadProjectConfig } from "../src/config.js";
 import { AmbitError, ExitCode } from "../src/errors.js";
@@ -19,6 +20,14 @@ import type { SourceContext } from "../src/sources.js";
 
 const CATALOG_NAME = "company";
 const CODE_REVIEW = "skills/acme/engineering/use-code-review/SKILL.md";
+
+/** The fixture's core skill, and the scope it declares — the pair a second catalog collides with. */
+const CORE_SKILL = "acme.commons.use-company-context";
+const CORE_DESCRIPTION = "The universal floor — context everyone needs";
+const ENGINEERING_DESCRIPTION = "Building and shipping software";
+
+/** A skill only the second catalog provides, so a merge has something to keep from both. */
+const OWN_SKILL = "jane.use-notes";
 
 let root: string;
 let catalogDir: string;
@@ -51,6 +60,93 @@ async function rejection(): Promise<AmbitError> {
     return error;
   }
   throw new Error("expected the catalog to be rejected");
+}
+
+/**
+ * Builds a catalog beside the fixture that deliberately collides with it: the same `core` scope,
+ * the same core skill, and the same `scoped` server, plus a scope and a skill of its own so the
+ * merge has something to keep from both.
+ *
+ * @param name the catalog's directory, which is also the name config gives it.
+ * @param coreDescription how it describes the shared `core` scope — identical to the fixture's
+ *   unless the test is about two catalogs disagreeing.
+ */
+async function writeShadowingCatalog(
+  name: string,
+  coreDescription: string = CORE_DESCRIPTION,
+): Promise<void> {
+  const files: Readonly<Record<string, string>> = {
+    "scopes.yml": [
+      "scopes:",
+      "  core:",
+      `    description: ${JSON.stringify(coreDescription)}`,
+      "  function.engineering:",
+      `    description: ${JSON.stringify(ENGINEERING_DESCRIPTION)}`,
+      "  person.jane:",
+      "    description: Jane's own things",
+      "",
+    ].join("\n"),
+    [`skills/${CORE_SKILL.replaceAll(".", "/")}/SKILL.md`]: [
+      "---",
+      `name: ${CORE_SKILL}`,
+      `description: ${name}'s copy of the core skill.`,
+      "scopes: [core]",
+      "---",
+      "",
+      `# ${name}'s copy`,
+      "",
+    ].join("\n"),
+    [`skills/${OWN_SKILL.replaceAll(".", "/")}/SKILL.md`]: [
+      "---",
+      `name: ${OWN_SKILL}`,
+      "description: Jane's notes, which no other catalog provides.",
+      "scopes: [core, person.jane]",
+      "---",
+      "",
+      "# notes",
+      "",
+    ].join("\n"),
+    "mcps/scoped.yml": [
+      "name: scoped",
+      "scopes: [function.engineering]",
+      "transport:",
+      "  stdio:",
+      `    command: ${name}-mcp`,
+      "",
+    ].join("\n"),
+  };
+
+  for (const [relative, body] of Object.entries(files)) {
+    const target = path.join(root, name, relative);
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeFile(target, body, "utf8");
+  }
+}
+
+/**
+ * Points the project at the fixture catalog first and the extra catalogs after it, so config order
+ * — which is priority order (spec §3.1) — is the fixture's.
+ */
+async function writeCatalogOrder(
+  extra: readonly string[],
+  scopes: readonly string[] = [],
+): Promise<void> {
+  await writeConfig(
+    [
+      "version: 1",
+      "catalogs:",
+      `  - name: ${CATALOG_NAME}`,
+      "    source: path:../catalog",
+      ...extra.flatMap((name) => [`  - name: ${name}`, `    source: path:../${name}`]),
+      `scopes: [${scopes.join(", ")}]`,
+      "",
+    ].join("\n"),
+  );
+}
+
+/** The merged view of whatever the project's config currently lists. */
+async function merged(): Promise<MergedCatalog> {
+  return mergeCatalogs(await loadCatalogs(await loadProjectConfig(projectDir), context()));
 }
 
 /** Runs the CLI against the project, collecting stdout and stderr. */
@@ -455,5 +551,155 @@ describe("merging", () => {
     expect(merged.catalogs).toEqual([CATALOG_NAME, "personal"]);
     expect(new Set(merged.skills.map((skill) => skill.catalog))).toEqual(new Set([CATALOG_NAME]));
     expect(merged.skills).toHaveLength(4);
+  });
+});
+
+/**
+ * Spec §4.4–§4.5: several catalogs merge into one namespace per kind, the earlier one in config
+ * order wins a duplicate name, and the loss is recorded rather than discarded — a shadowed copy that
+ * vanishes silently is the failure someone adding a personal catalog cannot debug.
+ *
+ * The second catalog is written per test rather than added to the shared fixture: a catalog whose
+ * whole purpose is to collide with another one has no business in the tree every other profile
+ * resolves against.
+ */
+describe("multi-catalog merge and shadowing", () => {
+  const SECOND = "personal";
+  const THIRD = "backup";
+
+  it("keeps the earlier catalog's copy of a duplicate name, and records the shadowing", async () => {
+    await writeShadowingCatalog(SECOND);
+    await writeCatalogOrder([SECOND]);
+
+    const view = await merged();
+
+    expect(view.catalogs).toEqual([CATALOG_NAME, SECOND]);
+    expect(view.skills.find((skill) => skill.name === CORE_SKILL)?.catalog).toBe(CATALOG_NAME);
+    expect(view.shadowing.skills.get(CORE_SKILL)).toEqual({
+      name: CORE_SKILL,
+      catalog: CATALOG_NAME,
+      shadows: [SECOND],
+    });
+    expect(view.shadowing.mcps.get("scoped")).toEqual({
+      name: "scoped",
+      catalog: CATALOG_NAME,
+      shadows: [SECOND],
+    });
+  });
+
+  it("keeps what the later catalog alone provides, and records nothing about it", async () => {
+    await writeShadowingCatalog(SECOND);
+    await writeCatalogOrder([SECOND]);
+
+    const view = await merged();
+
+    expect(view.skills.find((skill) => skill.name === OWN_SKILL)?.catalog).toBe(SECOND);
+    expect(view.shadowing.skills.has(OWN_SKILL)).toBe(false);
+    expect([...view.shadowing.skills.keys()]).toEqual([CORE_SKILL]);
+    expect([...view.shadowing.mcps.keys()]).toEqual(["scoped"]);
+  });
+
+  it("keeps the winner's definition, not merely its label", async () => {
+    // The transports differ, so this is the assertion that the merge dropped the shadowed entry
+    // rather than keeping its body under the winning catalog's name.
+    await writeShadowingCatalog(SECOND);
+    await writeCatalogOrder([SECOND]);
+
+    const dumped = JSON.parse((await cli("catalog", "--json")).stdout) as {
+      mcps: Record<string, { catalog: string; transport: { kind: string } }>;
+    };
+
+    expect(dumped.mcps.scoped).toMatchObject({
+      catalog: CATALOG_NAME,
+      transport: { kind: "http" },
+    });
+  });
+
+  it("names every catalog a duplicate was shadowed in, in config order", async () => {
+    await writeShadowingCatalog(SECOND);
+    await writeShadowingCatalog(THIRD);
+    await writeCatalogOrder([SECOND, THIRD]);
+
+    expect((await merged()).shadowing.skills.get(CORE_SKILL)?.shadows).toEqual([SECOND, THIRD]);
+  });
+
+  it("merges a scope two catalogs describe identically, keeping one registration", async () => {
+    await writeShadowingCatalog(SECOND);
+    await writeCatalogOrder([SECOND]);
+
+    const view = await merged();
+
+    expect(view.scopes.map((scope) => scope.name)).toEqual([
+      "core",
+      "function.engineering",
+      "function.engineering.frontend",
+      "person.jane",
+      "project.acme",
+    ]);
+    expect(view.scopes.find((scope) => scope.name === "core")?.description).toBe(CORE_DESCRIPTION);
+  });
+
+  it("exits 3 for a scope two catalogs describe differently, naming both", async () => {
+    await writeShadowingCatalog(SECOND, "Everything, all of it");
+    await writeCatalogOrder([SECOND], ["core"]);
+
+    const result = await cli("resolve");
+
+    expect(result.code).toBe(ExitCode.Resolution);
+    expect(result.stderr).toContain('conflicting descriptions for scope "core" (scopes.yml)');
+    expect(result.stderr).toContain(`catalog "${CATALOG_NAME}" describes it as "${CORE_DESCRIPTION}"`);
+    expect(result.stderr).toContain(`catalog "${SECOND}" describes it as "Everything, all of it"`);
+    expect(result.stderr).toContain("make the two descriptions identical");
+  });
+
+  it("reports the shadowing beside the reason under `resolve --explain`", async () => {
+    await writeShadowingCatalog(SECOND);
+    await writeCatalogOrder([SECOND], ["core"]);
+
+    const result = await cli("resolve", "--explain");
+
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+    expect(result.stdout).toBe(
+      [
+        "scopes (1)",
+        "  core",
+        "",
+        "skills (2)",
+        `  ${CORE_SKILL}  ${CATALOG_NAME.padEnd(SECOND.length)}  scope:core  catalog:${CATALOG_NAME} (shadows ${SECOND})`,
+        `  ${OWN_SKILL.padEnd(CORE_SKILL.length)}  ${SECOND}  scope:core`,
+        "",
+        "mcps (0)",
+        "  (none)",
+        "",
+        "env (0)",
+        "  (none)",
+      ].join("\n"),
+    );
+  });
+
+  it("adds the shadowed catalogs to `--explain --json`, and only there", async () => {
+    await writeShadowingCatalog(SECOND);
+    await writeCatalogOrder([SECOND], ["core", "function.engineering"]);
+
+    const explained = JSON.parse((await cli("resolve", "--explain", "--json")).stdout) as {
+      skills: Record<string, { catalog: string; shadows?: readonly string[] }>;
+      mcps: Record<string, { catalog: string; reason?: string; shadows?: readonly string[] }>;
+    };
+
+    expect(explained.skills[CORE_SKILL]?.shadows).toEqual([SECOND]);
+    expect(explained.skills[OWN_SKILL]).not.toHaveProperty("shadows");
+    // A server the fixture and the second catalog both provide, selected by its own scope.
+    expect(explained.mcps.scoped).toEqual({
+      catalog: CATALOG_NAME,
+      reason: "scope:function.engineering",
+      shadows: [SECOND],
+    });
+
+    const plain = JSON.parse((await cli("resolve", "--json")).stdout) as {
+      skills: Record<string, unknown>;
+      mcps: Record<string, unknown>;
+    };
+    expect(plain.skills[CORE_SKILL]).not.toHaveProperty("shadows");
+    expect(plain.mcps.scoped).not.toHaveProperty("shadows");
   });
 });

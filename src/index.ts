@@ -19,6 +19,7 @@ export {
   SCOPES_FILENAME,
   SKILLS_DIRNAME,
   SKILL_FILENAME,
+  formatShadowing,
   loadCatalogs,
   loadSourceSkill,
   mergeCatalogs,
@@ -34,6 +35,8 @@ export type {
   MergedMcp,
   MergedSkill,
   ScopeDefinition,
+  Shadowing,
+  Shadowings,
 } from "./catalog.js";
 export { COMMAND_SPECS, jsonRequested, projectDirOf, sourceContextOf } from "./commands.js";
 export type { CommandContext, CommandHandler, CommandHandlers, CommandSpec } from "./commands.js";

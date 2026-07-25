@@ -121,6 +121,29 @@ export interface MergedMcp extends McpEntity {
   readonly catalog: string;
 }
 
+/**
+ * One name more than one catalog provides (spec §4.5).
+ *
+ * Recorded rather than merely resolved, because the loss is otherwise silent in a way nobody can
+ * debug: someone who adds a personal catalog and finds their copy of a skill ignored has no way to
+ * see that a company catalog earlier in the list is the one being installed. Which copy *should*
+ * win is not ambit's call — config order already decided that — but that a choice was made has to
+ * be visible.
+ */
+export interface Shadowing {
+  readonly name: string;
+  /** The catalog whose copy is in the merged view: the earliest in config order. */
+  readonly catalog: string;
+  /** The catalogs whose copies were dropped, in config order — so the list reads as priority does. */
+  readonly shadows: readonly string[];
+}
+
+/** Every shadowed name, keyed by name within each namespace. Empty when nothing collided. */
+export interface Shadowings {
+  readonly skills: ReadonlyMap<string, Shadowing>;
+  readonly mcps: ReadonlyMap<string, Shadowing>;
+}
+
 /** Every configured catalog, merged into one namespace per kind. */
 export interface MergedCatalog {
   /** Catalog names, in config order — which is priority order. */
@@ -128,6 +151,19 @@ export interface MergedCatalog {
   readonly scopes: readonly ScopeDefinition[];
   readonly skills: readonly MergedSkill[];
   readonly mcps: readonly MergedMcp[];
+  /** Which names came from more than one catalog (spec §4.5), for `--explain` and `validate`. */
+  readonly shadowing: Shadowings;
+}
+
+/**
+ * How a shadowing reads in `--explain` (spec §6): `catalog:company (shadows personal)`.
+ *
+ * The winning catalog is named even though the item's own `catalog` column already says it, so the
+ * annotation still answers "which copy is this?" when it is read on its own — which is how it is
+ * read, one row at a time.
+ */
+export function formatShadowing(shadowing: Shadowing): string {
+  return `catalog:${shadowing.catalog} (shadows ${shadowing.shadows.join(", ")})`;
 }
 
 function byName<T extends { readonly name: string }>(items: readonly T[]): readonly T[] {
@@ -538,41 +574,115 @@ export async function mergeConfigEntities(
   return { ...merged, skills: byName(skills), mcps: byName(mcps) };
 }
 
+/** One scope registration, remembering which catalog made it so a conflict can name both. */
+interface RegisteredScope {
+  readonly catalog: string;
+  readonly definition: ScopeDefinition;
+}
+
+/**
+ * The error for one scope two catalogs describe differently (spec §4.4).
+ *
+ * Identical descriptions merge silently — two catalogs agreeing about a shared scope is how a
+ * company catalog and a personal one are meant to overlap. Disagreeing ones are rejected because
+ * the description is what a consuming tool shows a human in the picker (spec §3.4), and quietly
+ * keeping one of two contradictory labels would make a project's own catalog order decide what a
+ * scope appears to mean.
+ */
+function scopeDescriptionConflict(first: RegisteredScope, second: RegisteredScope): AmbitError {
+  const name = first.definition.name;
+  return resolutionError(`conflicting descriptions for scope "${name}" (${SCOPES_FILENAME})`, [
+    `catalog "${first.catalog}" describes it as "${first.definition.description}"`,
+    `catalog "${second.catalog}" describes it as "${second.definition.description}"`,
+    "make the two descriptions identical, or rename the scope in one of the two catalogs",
+  ]);
+}
+
+/**
+ * Notes that `loser` also provides `name`, which `winner` already did.
+ *
+ * Appends rather than replaces, so a name three catalogs provide records both losers in the order
+ * config listed them.
+ */
+function recordShadowing(
+  shadowed: Map<string, Shadowing>,
+  name: string,
+  winner: string,
+  loser: string,
+): void {
+  const existing = shadowed.get(name);
+  shadowed.set(name, {
+    name,
+    catalog: winner,
+    shadows: [...(existing?.shadows ?? []), loser],
+  });
+}
+
+/** A name-keyed map in name order, so iterating it never depends on the order catalogs were read. */
+function mapByName<T>(entries: ReadonlyMap<string, T>): ReadonlyMap<string, T> {
+  return new Map([...entries].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
+}
+
 /**
  * Merges catalogs into one namespace per kind.
  *
- * On a duplicate name the earlier catalog in config order wins (spec §4.5). Reporting the
- * shadowing, and rejecting scopes whose descriptions disagree, arrive with multi-catalog
- * support; until then the first definition simply stands.
+ * On a duplicate skill or MCP name the earlier catalog in config order wins, and the shadowing is
+ * recorded rather than discarded (spec §4.5) — see {@link Shadowing}. Scope registries merge on
+ * matching descriptions and are rejected on differing ones (spec §4.4).
+ *
+ * A config-declared skill or server colliding with a catalog is deliberately *not* this: that is an
+ * error, not a precedence question, because spec §3.1 describes both config surfaces as being for
+ * things no catalog defines. See {@link mergeConfigEntities}.
+ *
+ * @throws {AmbitError} exit 3 for one scope two catalogs describe differently.
  */
 export function mergeCatalogs(catalogs: readonly Catalog[]): MergedCatalog {
-  const scopes = new Map<string, ScopeDefinition>();
+  const scopes = new Map<string, RegisteredScope>();
   const skills = new Map<string, MergedSkill>();
   const mcps = new Map<string, MergedMcp>();
+  const shadowedSkills = new Map<string, Shadowing>();
+  const shadowedMcps = new Map<string, Shadowing>();
 
   for (const catalog of catalogs) {
-    for (const scope of catalog.scopes) {
-      if (!scopes.has(scope.name)) scopes.set(scope.name, scope);
-    }
-    for (const skill of catalog.skills) {
-      if (!skills.has(skill.name)) {
-        skills.set(skill.name, {
-          ...skill,
-          catalog: catalog.name,
-          ...(catalog.commit !== undefined && { commit: catalog.commit }),
-          catalogRoot: catalog.root,
-        });
+    for (const definition of catalog.scopes) {
+      const registered = scopes.get(definition.name);
+      const here: RegisteredScope = { catalog: catalog.name, definition };
+      if (registered === undefined) {
+        scopes.set(definition.name, here);
+      } else if (registered.definition.description !== definition.description) {
+        throw scopeDescriptionConflict(registered, here);
       }
     }
+
+    for (const skill of catalog.skills) {
+      const winner = skills.get(skill.name);
+      if (winner !== undefined) {
+        recordShadowing(shadowedSkills, skill.name, winner.catalog, catalog.name);
+        continue;
+      }
+      skills.set(skill.name, {
+        ...skill,
+        catalog: catalog.name,
+        ...(catalog.commit !== undefined && { commit: catalog.commit }),
+        catalogRoot: catalog.root,
+      });
+    }
+
     for (const mcp of catalog.mcps) {
-      if (!mcps.has(mcp.name)) mcps.set(mcp.name, { ...mcp, catalog: catalog.name });
+      const winner = mcps.get(mcp.name);
+      if (winner !== undefined) {
+        recordShadowing(shadowedMcps, mcp.name, winner.catalog, catalog.name);
+        continue;
+      }
+      mcps.set(mcp.name, { ...mcp, catalog: catalog.name });
     }
   }
 
   return {
     catalogs: catalogs.map((catalog) => catalog.name),
-    scopes: byName([...scopes.values()]),
+    scopes: byName([...scopes.values()].map((registered) => registered.definition)),
     skills: byName([...skills.values()]),
     mcps: byName([...mcps.values()]),
+    shadowing: { skills: mapByName(shadowedSkills), mcps: mapByName(shadowedMcps) },
   };
 }

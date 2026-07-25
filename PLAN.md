@@ -653,7 +653,7 @@ runs the whole pipeline against a local fixture before any git, lock, or prune l
   aliases; the same inputs produce a byte-identical file; a commit SHA that looks numeric
   round-trips as a quoted string; `--frozen` exits 5 when resolution would change it.
 
-- [ ] **A15 — Multi-catalog merge and shadowing.**
+- [x] **A15 — Multi-catalog merge and shadowing.**
   **Depends:** A14
   **Done when:** Two catalogs providing the same skill name resolve to the first in config
   order, `--explain` reports the shadowing, and conflicting scope descriptions exit 3.
