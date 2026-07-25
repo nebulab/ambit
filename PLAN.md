@@ -816,6 +816,19 @@ mutation ends by re-validating.
 
 ### Shipping
 
+- [ ] **A30 — Subcommand exit-code inheritance.**
+  **Depends:** A25
+  **Do:** A late-discovered defect, found while building A20. A subcommand registered with
+  `addCommand` inherits neither `exitOverride` nor `configureOutput`, so a Commander-level
+  usage error — an unknown flag, a missing argument — writes to the real stderr and calls
+  `process.exit` instead of returning a code from `run()`. That bypasses §6's exit-code
+  contract on every subcommand and makes the path untestable. `copyInheritedSettings` in
+  `program.addCommand` is the fix.
+  **Done when:** A usage error in a subcommand returns from `run()` with an exit code and its
+  message goes through ambit's own output, asserted for a nested subcommand rather than only
+  a top-level one; `install --copy --link` is rejected by Commander's own `.conflicts()`
+  rather than by the handler check A20 wrote to work around this.
+
 - [ ] **A26 — dotagents compatibility test.**
   **Depends:** B09
   **Slice:** the compatibility promise becomes executable.
