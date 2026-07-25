@@ -3,26 +3,28 @@
 Rewritten by each Ralph iteration for the next one. Short, current, and only what would cost
 real time to rediscover — see `PROMPT.md` §6.
 
-Last iteration: **B02 — The catalog editor** (the tip of `main`). `src/editor.ts` is the module every
-authoring write goes through; it has no command yet, so nothing user-facing changed. Next task is
-**B03 — `ambit catalog init`**, whose `Depends: B02` is now checked. (A30 also depends on A25, but
-B03 is topmost.)
+Last iteration: **B03 — `ambit catalog init`** (the tip of `main`). The first authoring command, and so
+the first caller of the B02 editor: `src/catalog-init.ts` + `src/handlers/catalog-init.ts`, plus the two
+pieces B01/B02 deferred to it — `catalogDirOf(ctx)` and the diff renderer (`src/diff.ts`). Next task is
+**B04 — Scope registry commands**, whose `Depends: B03` is now checked. (A30 also depends on A25, but
+B04 is topmost.)
 
 ## Constraints later tasks inherit
 
 - **`catalog` is a command group whose default action is `dump`**, and **handlers are keyed by the
-  words a user types**: `"catalog dump"`, `"catalog scope add"`. B02–B09 each add one entry to
-  `HANDLERS` in `src/program.ts` under that key and nothing else in the wiring. A declared command
-  with no entry throws `notImplemented(<the whole invocation>)` — exit **1**, message
-  `command "catalog scope add" is not implemented yet` — which is now live and pinned by a test over
-  all twelve unbuilt commands.
+  words a user types**: `"catalog dump"`, `"catalog init"`, `"catalog scope add"`. B04–B09 each add one
+  entry to `HANDLERS` in `src/program.ts` under that key and nothing else in the wiring. A declared
+  command with no entry throws `notImplemented(<the whole invocation>)` — exit **1**, message
+  `command "catalog scope add" is not implemented yet` — pinned by a test over the eleven still-unbuilt
+  commands, whose `UNBUILT` table shrinks by one row per task.
 - **`CommandSpec` gained `subject`, `subcommands` and `defaultSubcommand`, and `argument` became
   `args`** (a list, because `mv <old> <new>` needs two positionals; Commander takes one name per
   `.argument()` call).
 - **`subject: "catalog"` swaps `--project <dir>` for `--catalog <dir>` and drops `--offline`** — an
-  authoring command reads one directory and resolves no source (spec §6). **There is deliberately no
-  `catalogDirOf(ctx)` yet**: B02/B03 is the first caller and should add it beside `projectDirOf`,
-  following `validateHandler`'s `path.resolve(ctx.cwd, given)`.
+  authoring command reads one directory and resolves no source (spec §6). **`catalogDirOf(ctx)` now sits
+  beside `projectDirOf`** in `src/commands.ts`; every authoring handler goes through it.
+  `validateHandler` deliberately still reads `ctx.options.catalog` itself, because it needs "absent" to
+  mean "the subject is the project".
 - **`enablePositionalOptions()` is set on the program *and* on every group, and both are load-bearing.**
   Without it Commander gives a flag to whichever command up the chain declares it, so
   `ambit catalog dump --json` leaves `--json` with the group and `dump` never sees it. Removing either
@@ -34,13 +36,15 @@ B03 is topmost.)
 - **List-valued flags go through `repeatable()`**: absent when never given, `readonly string[]` in
   argv order otherwise. Deliberately no `[]` default — a handler can tell "not asked for" from
   "emptied", and the help stays free of `(default: [])`.
-- **`src/init.ts` emits the scaffold, it does not template it.** Every value goes through `emitYaml`
-  and the blocks are laid out in **sorted-key order**, so stripping the comment lines from
-  `ambit.yml` leaves exactly `emitYaml({harnesses, scopes, version})` — `test/init.test.ts` pins that
-  equality rather than a golden copy of the prose, so the wording is free to change and the *shape*
-  is not. The commented-out `catalogs` example is emitted the same way and then prefixed, and it sits
-  in the sorted position its key would occupy, so uncommenting it leaves the file sorted (also
-  pinned). **B03's `catalog init` should scaffold the same way**; do not hand-write YAML text.
+- **Every scaffold emits, it does not template.** `src/scaffold.ts` owns the one renderer:
+  `renderScaffold(ScaffoldBlock[])`, where a block is prose plus at most one of `values` (emitted) or
+  `example` (emitted, then commented out). Blocks sit in **sorted-key order**, so stripping the comment
+  lines from a scaffolded file leaves exactly `emitYaml` of its values — `test/init.test.ts` and
+  `test/catalog-init.test.ts` each pin that equality rather than a golden copy of the prose, so wording
+  is free to change and the *shape* is not. `ambit.yml`, the catalog's `scopes.yml`, and the scaffolded
+  GitHub workflow all go through it. **A new scaffolded file goes through it too**; do not hand-write YAML
+  text. (The commented-out `catalogs` example in `ambit.yml` sits in the sorted position its key would
+  occupy, so uncommenting it leaves the file sorted — also pinned.)
 - **The scaffold holds `core` and no catalog, so `ambit install` on a freshly `init`ed project is
   exit 3 `unknown scope "core"`.** That is deliberate — `core` is a convention no resolver knows
   (spec §2) and the scaffold's job is to teach that before the bundle is silently empty — and the
@@ -60,7 +64,6 @@ B03 is topmost.)
   registered nowhere is exit 0 here (and still exit 3 from `resolve`, which a test asserts both
   halves of) — this is the command someone reads *to fix that typo*. Such a scope appears in no row,
   since the registry is the subject.
-
 - **`src/editor.ts` is the whole of authoring's write path, and B03–B07 are its callers.** Two halves:
   `CatalogDocument.open(root, file)` reads one document and gives back setters
   (`setString(path, value)`, `setStringList(path, values)`, `remove(path)`, `has(path)`, `text()`,
@@ -93,6 +96,34 @@ B03 is topmost.)
   one broken file while another is still broken.
 - **An edit that changes no bytes writes nothing at all**, so re-running a mutation leaves even the
   mtime alone (asserted). `applyCatalogEdit` therefore skips validation entirely in that case.
+- **`src/diff.ts` is the only diff renderer, and every authoring `--dry-run` prints through it.**
+  `diffSection(title, changes)` takes `applyCatalogEdit`'s `EditedFile[]` straight and returns a counted
+  section in `src/output.ts`'s shape; `diffLines(before, after)` is the body. It is an exact LCS with
+  removals ordered before additions at every tie (so one edit renders one way), three lines of context,
+  `...` for an elided run, and a `<file> (created|removed|updated)` header per file. **It is a reading
+  aid, not a patch** — nothing about a missing final newline or an intra-line change is shown, and the
+  bytes travel in `--json` for anything that wants to apply them. Do not add a second renderer inside a
+  command.
+- **`src/catalog-init.ts` is the whole of `catalog init`, and it goes through `applyCatalogEdit` like
+  every other mutation** — so the scaffold gets the root check, atomic writes, `--dry-run`, and
+  validation of the *result*. It therefore writes **files only**: `skills/` and `mcps/` exist because a
+  `.gitkeep` is written inside them, which is also what makes them survive the first commit. The five
+  files are `.github/workflows/validate.yml`, `README.md`, `mcps/.gitkeep`, `scopes.yml`,
+  `skills/.gitkeep`.
+- **`scopes.yml`'s presence is what "already a catalog" means**: it alone is refused (exit 2, nothing
+  written, `--dry-run` included). **Every other scaffold file that already exists is `kept`** — left
+  byte-identical and reported in its own section — because a catalog is normally initialized inside a repo
+  that already has a README, and overwriting one would be the reformatting authoring rule 2 forbids one
+  file up. A second `catalog init` is therefore exit 2, not a no-op.
+- **`catalog init` creates a missing root, where `ambit init` refuses one.** Deliberate: the scaffold
+  creates three directories regardless, so "this command creates no directories" was never a stance it
+  could hold, and `ambit catalog init --catalog acme-skills` is the ordinary first use.
+- **The scaffolded README is where spec §2 lives for a catalog author** — descendants-only, nothing
+  implicit, and nest-vs-sibling. `test/catalog-init.test.ts` pins those ideas by regex and nothing else
+  about the prose. It is the one scaffolded file that is not emitted YAML, since nothing parses it back.
+- **The scaffolded workflow's keys come out sorted** (`jobs`, then `name`, then `on`) because it goes
+  through `emitYaml` like everything else. GitHub does not care; a reader might find it odd. Keep it —
+  the alternative is a hand-written file that can drift.
 - **`src/doctor.ts` is the whole of `doctor`, and it runs one resolution.** `diagnoseProject` calls
   `planInstall` (bundle, artifacts, prior state, lock bytes) and then `statusOfPlan` — newly exported
   from `src/status.ts` — so `doctor` and `status` cannot disagree about an artifact and `doctor` and
@@ -307,8 +338,9 @@ B03 is topmost.)
   `apply` and after pruning. **The lock records no mode.**
 - **`emitYaml` in `src/yaml.ts` is the only sanctioned way to write YAML ambit owns the shape of**
   (spec §3.0): sorted keys at every depth, double quotes when quoting is needed, no anchors/aliases,
-  core schema 1.2. The lock and the `init` scaffold both go through it, and **a whole file B03/B05/B06
-  scaffolds should too**. Editing a file someone else wrote is the other case — see the editor below.
+  core schema 1.2. The lock and both scaffolds go through it (via `renderScaffold`), and **a whole file
+  B05/B06 scaffolds should too**. Editing a file someone else wrote is the other case — see the editor
+  below.
 - **Top-level lock keys are sorted, so the file reads `catalogs, mcps, skills, version`.** Empty
   sections stay as `mcps: {}` rather than vanishing.
 - **A source-declared skill's lock `catalog:` is its `source` as written** (`path:../extra`, a git URL),
@@ -321,8 +353,9 @@ B03 is topmost.)
   about the config entry, not the directory, so a catalog parsed straight off disk
   (`validate --catalog`) has none.
 - **`--frozen`, `--adopt`, `--copy`, `--link`, `--dry-run`, `status --check` and `validate --catalog`
-  are implemented.** The unbuilt surface is the `catalog` authoring group (B02–B09), declared in
-  `COMMAND_SPECS` and reporting itself unimplemented until each task lands.
+  are implemented, as are `catalog dump` and `catalog init`.** The unbuilt surface is the rest of the
+  `catalog` authoring group (B04–B09), declared in `COMMAND_SPECS` and reporting itself unimplemented
+  until each task lands.
 - **Every source resolves through `src/sources.ts`** (§3.1 grammar) returning
   `ResolvedSource = { root, commit? }`. `loadCatalogs`, `mergeConfigEntities`, `loadSourceSkill` and
   `resolveCatalogRoot` take a `SourceContext` (`{ projectDir, env }`); `env` is where the cache location
@@ -371,10 +404,6 @@ B03 is topmost.)
 
 ## Deliberate omissions, and who owns them
 
-- **The editor renders no diff.** `applyCatalogEdit` returns each change with the bytes the file holds
-  now (`before`, absent when it creates the file), which is everything a diff needs — but rule 6's
-  "prints the diff it would write" has no renderer yet. **B03 is the first `--dry-run` caller and should
-  add one beside the editor**, not inside each command.
 - **The editor writes and removes *files*, not directories.** `skill rm` has to delete a whole skill
   directory (a skill may carry `references/`), and `skill mv` has to move one — **B05 owns that**, and
   should extend `CatalogChange` rather than reaching for `rm` on its own.
@@ -384,6 +413,10 @@ B03 is topmost.)
 - **`mcpDocumentPath` always says `.yml`**, so annotating an entity someone wrote as `mcps/x.yaml`
   would create a second file for the same name — which parsing then rejects (§3.3). Nothing carries an
   `McpEntity`'s own filename; **B07 needs one** if it wants to support `.yaml`.
+- **`catalog init` scaffolds no example skill and no example MCP entity**, so a fresh catalog installs
+  nothing: `catalog skill new` (B05) is the next step and the command's own output says so. It also runs
+  no `git init` and writes no `.gitignore` — a catalog has nothing generated to ignore, and the directory
+  is usually already a repo. Nobody owns changing either.
 - Nothing prunes the cache, and nothing locks it against a concurrent ambit (`loadCatalogs` is
   sequential for that reason). No task owns cache GC; raise it if it matters.
 - **`prune` leaves `ambit.lock` stale**, and `doctor`'s `lock` check is the only thing that says so;
@@ -396,10 +429,10 @@ B03 is topmost.)
   of the four.
 - **Nothing says which catalog registered a scope.** `mergeCatalogs` keeps that only long enough to
   raise the description conflict (`RegisteredScope` is internal), so `scopes` cannot report it and
-  neither can `catalog`. **B05's `catalog tree` works on one catalog directory**, so it needs none of
+  neither can `catalog`. **B08's `catalog tree` works on one catalog directory**, so it needs none of
   this; a merged view that wanted per-scope provenance would have to widen `ScopeDefinition`.
 - **`scopes` says nothing about what a scope *selects*** — no counts, no item lists. That is the scope
-  tree, and it is **B05's `catalog tree`**.
+  tree, and it is **B08's `catalog tree`**.
 - **Nothing validates a catalog's *reachability*** — a registered scope nothing declares, an item no
   scope and no `requires` reaches. That is deliberately **B09's `catalog audit`**, not `validate`:
   dead weight is a smell, not a broken catalog.
@@ -414,6 +447,15 @@ B03 is topmost.)
 - **The editor's refusal messages are pinned byte-for-byte** in that file, including
   `refusing to write outside the catalog: "<path>"` and
   `refusing to write: the result would not validate`. Reword one and update the test in the same commit.
+- **`test/catalog-init.test.ts` pins the scaffold's file list *and* the command's exact stdout.** Adding
+  or renaming a scaffolded file means editing `SCAFFOLD_FILES` there — deliberately, since a scaffold
+  that quietly grows a file is a scaffold nobody reviewed. `REGISTRY_VALUES` and the workflow's values
+  are restated in the test rather than imported, so the emitted-shape claim is independent of the source.
+- **`test/diff.test.ts` asserts the renderer's exact lines**, elision marker and context width included.
+  Changing `CONTEXT_LINES` or the tie-break rewrites several of its cases; that is the point.
+- **Each B0x task deletes its own row from `test/catalog.test.ts`'s `UNBUILT` table** (B03 removed
+  `catalog init`). Leaving the row behind fails the "exits 1 from every unbuilt subcommand" case, which
+  is the intended alarm.
 - **A Commander-level error in a subcommand still exits the process (A30), and that shapes both the
   authoring commands and their tests.** Two consequences: (1) declare no `.makeOptionMandatory()` and
   no `.conflicts()` on an authoring flag — B04's "`add` requires a description" and B06's "exactly one

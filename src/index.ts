@@ -41,10 +41,20 @@ export type {
   Shadowing,
   Shadowings,
 } from "./catalog.js";
+export {
+  CATALOG_INIT_SCOPE,
+  CATALOG_KEEP_FILENAME,
+  CATALOG_README_FILENAME,
+  CATALOG_WORKFLOW_FILENAME,
+  initCatalog,
+  scaffoldCatalog,
+} from "./catalog-init.js";
+export type { CatalogInitOptions, CatalogInitResult } from "./catalog-init.js";
 export { cleanProject, pruneProject } from "./clean.js";
 export type { CleanOptions, CleanResult, PruneOptions, PruneResult } from "./clean.js";
 export {
   COMMAND_SPECS,
+  catalogDirOf,
   dryRunRequested,
   jsonRequested,
   offlineRequested,
@@ -92,6 +102,8 @@ export type {
   DoctorReport,
   DoctorSeverity,
 } from "./doctor.js";
+export { changeKindOf, diffLines, diffSection } from "./diff.js";
+export type { ChangeKind } from "./diff.js";
 export {
   CatalogDocument,
   applyCatalogEdit,
@@ -185,6 +197,8 @@ export type {
   SelectionReason,
   SelectionReasons,
 } from "./resolve.js";
+export { renderScaffold } from "./scaffold.js";
+export type { ScaffoldBlock } from "./scaffold.js";
 export { parseSource, resolveSource } from "./sources.js";
 export type {
   GitSource,

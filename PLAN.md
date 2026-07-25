@@ -748,7 +748,7 @@ mutation ends by re-validating.
   order, and the body untouched; a target outside the root exits 2 with nothing written; a
   write refused by validation leaves the file byte-identical.
 
-- [ ] **B03 — `ambit catalog init`.**
+- [x] **B03 — `ambit catalog init`.**
   **Depends:** B02
   **Do:** Scaffold a catalog in `--catalog <dir>` (default cwd), the mirror of what `ambit init`
   does for a project: `scopes.yml` registering `core` with a comment, `skills/` and `mcps/`, a

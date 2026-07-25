@@ -7,11 +7,10 @@
  * that wrong yields a bundle quietly missing the company floor, and by design nothing warns about
  * it; the warning therefore has to live in the file itself.
  *
- * The bytes are *emitted*, not templated. Every value goes through {@link emitYaml} and the blocks
- * are laid out in sorted-key order, so stripping the comments from the scaffold leaves exactly what
- * ambit would emit from the same values (spec §3.0) — byte-stable across runs, and impossible to
- * drift into an unsorted key or a value the emitter would have quoted. `test/init.test.ts` pins
- * that equivalence rather than a golden copy of the prose, which is free to be reworded.
+ * The bytes are *emitted*, not templated: the file is a list of {@link ScaffoldBlock}s rendered by
+ * {@link renderScaffold}, so stripping the comments from the scaffold leaves exactly what ambit would
+ * emit from the same values (spec §3.0). `test/init.test.ts` pins that equivalence rather than a
+ * golden copy of the prose, which is free to be reworded.
  *
  * The commented-out `catalogs` example is emitted the same way and then prefixed, so the one part of
  * the file a person is expected to uncomment cannot be malformed YAML.
@@ -21,7 +20,8 @@ import path from "node:path";
 
 import { CONFIG_FILENAMES, CONFIG_VERSION, DEFAULT_HARNESSES, existingConfigFiles } from "./config.js";
 import { configError } from "./errors.js";
-import { emitYaml } from "./yaml.js";
+import type { ScaffoldBlock } from "./scaffold.js";
+import { renderScaffold } from "./scaffold.js";
 
 /** The name `init` writes: the first of the two accepted config filenames (spec §3.1). */
 export const INIT_FILENAME = CONFIG_FILENAMES[0];
@@ -36,22 +36,12 @@ export const INIT_FILENAME = CONFIG_FILENAMES[0];
  */
 export const INIT_SCOPE = "core";
 
-/** One commented block of the scaffold: prose, then at most one of the two YAML forms. */
-interface ScaffoldBlock {
-  /** Prose, one entry per emitted line. An empty entry is a bare `#` separator. */
-  readonly comment: readonly string[];
-  /** Keys this block sets. */
-  readonly values?: Readonly<Record<string, unknown>>;
-  /** Keys shown commented out, for something only the reader can supply. */
-  readonly example?: Readonly<Record<string, unknown>>;
-}
-
 /**
  * The scaffold, block by block.
  *
  * Every block that carries a key sits in sorted-key order, and the commented `catalogs` example sits
  * where its key would go — so uncommenting it leaves the file sorted, and the whole scaffold matches
- * what {@link emitYaml} produces from its values.
+ * what `emitYaml` produces from its values.
  */
 const BLOCKS: readonly ScaffoldBlock[] = [
   {
@@ -99,23 +89,6 @@ const BLOCKS: readonly ScaffoldBlock[] = [
   },
 ];
 
-/** Prefixes prose as YAML comments, leaving a blank entry as a bare `#` rather than `# `. */
-function commentOut(lines: readonly string[]): readonly string[] {
-  return lines.map((line) => (line === "" ? "#" : `# ${line}`));
-}
-
-function emittedLines(values: Readonly<Record<string, unknown>>): readonly string[] {
-  return emitYaml(values).trimEnd().split("\n");
-}
-
-function renderBlock(block: ScaffoldBlock): string {
-  return [
-    ...commentOut(block.comment),
-    ...(block.example === undefined ? [] : commentOut(emittedLines(block.example))),
-    ...(block.values === undefined ? [] : emittedLines(block.values)),
-  ].join("\n");
-}
-
 /**
  * The scaffolded `ambit.yml`, as bytes.
  *
@@ -123,7 +96,7 @@ function renderBlock(block: ScaffoldBlock): string {
  * machines scaffold the same file (spec §3.0).
  */
 export function scaffoldConfig(): string {
-  return `${BLOCKS.map(renderBlock).join("\n\n")}\n`;
+  return renderScaffold(BLOCKS);
 }
 
 /** How an init was asked to behave. */

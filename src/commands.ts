@@ -295,6 +295,18 @@ export function projectDirOf(ctx: CommandContext): string {
   return typeof given === "string" ? path.resolve(ctx.cwd, given) : ctx.cwd;
 }
 
+/**
+ * The catalog directory an authoring command acts on: `--catalog` if given, otherwise the cwd.
+ *
+ * The mirror of {@link projectDirOf}, and separate from it on purpose: a catalog is not a project and
+ * has no `ambit.yml` (spec §6), so a command reads exactly one of the two and the flag it accepts says
+ * which.
+ */
+export function catalogDirOf(ctx: CommandContext): string {
+  const given = ctx.options.catalog;
+  return typeof given === "string" ? path.resolve(ctx.cwd, given) : ctx.cwd;
+}
+
 /** Whether `--json` was requested. */
 export function jsonRequested(ctx: CommandContext): boolean {
   return ctx.options.json === true;
