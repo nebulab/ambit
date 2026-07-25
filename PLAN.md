@@ -634,7 +634,7 @@ runs the whole pipeline against a local fixture before any git, lock, or prune l
   carrying its own `source` — appear in the bundle regardless of scope, as do inline `mcps`
   entries; a bare name matching nothing in any catalog exits 3.
 
-- [ ] **A12 — `resolve --explain` and `ambit why`.**
+- [x] **A12 — `resolve --explain` and `ambit why`.**
   **Depends:** A11
   **Done when:** Every bundle item carries a reason (`scope:…`, `required-by:…`, `explicit`),
   and `ambit why <name>` prints the full chain from a held scope to that item.

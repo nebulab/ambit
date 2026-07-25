@@ -16,23 +16,65 @@
  * already the decision that scopes exist to make. Everything selected either way is then closed
  * over `requires`, so a skill can carry its dependencies into a bundle that would never have
  * selected them.
+ *
+ * Every selected item also carries the reason it was selected (spec §6), because with three routes
+ * into a bundle a list of names is not an answer to "why is this here?" — and the lock records the
+ * reason too (spec §3.5), so it has to be part of resolution rather than a reporting afterthought.
  */
 import type { MergedCatalog, MergedMcp, MergedSkill, ScopeDefinition } from "./catalog.js";
 import { MCPS_DIRNAME, SCOPES_FILENAME, SKILL_FILENAME } from "./catalog.js";
 import type { ProjectConfig } from "./config.js";
-import type { AmbitError } from "./errors.js";
-import { at, resolutionError } from "./errors.js";
+import { AmbitError, ExitCode, at, resolutionError } from "./errors.js";
 
 /** What separates a scope from its children (spec §2). */
 const SCOPE_SEPARATOR = ".";
 
-/** What marks a `requires` entry as naming an MCP entity rather than a skill (spec §3.2). */
-const MCP_REQUIREMENT_PREFIX = "mcp.";
+/**
+ * What marks a `requires` entry as naming an MCP entity rather than a skill (spec §3.2).
+ *
+ * Exported because it is the only disambiguator the two namespaces have, so anything that takes a
+ * name from a human — `ambit why` — has to read it the same way `requires` does.
+ */
+export const MCP_REQUIREMENT_PREFIX = "mcp.";
 
 /** A set of catalog items under consideration, each list sorted by name. */
 export interface Selection {
   readonly skills: readonly MergedSkill[];
   readonly mcps: readonly MergedMcp[];
+}
+
+/** Which of the bundle's two namespaces a name belongs to (spec §3.2). */
+export type ItemKind = "skill" | "mcp";
+
+/** One item of a bundle, named the way its namespace requires. */
+export interface BundleItem {
+  readonly kind: ItemKind;
+  readonly name: string;
+}
+
+/**
+ * Why one item is in the bundle (spec §6) — one of the three routes resolution offers, and never
+ * more than one, so a reader gets an answer rather than a list of possibilities.
+ *
+ * A `scope` reason carries both ends of the expansion: the scope the item declares, and the held
+ * scope that reached it. They differ whenever selection went through the subtree rule, which is
+ * exactly when naming only one of the two would leave a reader looking for a scope their config
+ * does not contain.
+ */
+export type SelectionReason =
+  | { readonly kind: "explicit" }
+  | { readonly kind: "scope"; readonly scope: string; readonly held: string }
+  | { readonly kind: "required-by"; readonly requirer: string };
+
+/** A bundle item with the reason it was selected. */
+export interface ReasonedItem extends BundleItem {
+  readonly reason: SelectionReason;
+}
+
+/** Every selected item's reason, keyed by name within each namespace. */
+export interface SelectionReasons {
+  readonly skills: ReadonlyMap<string, SelectionReason>;
+  readonly mcps: ReadonlyMap<string, SelectionReason>;
 }
 
 /** The resolved set of skills and MCP servers for a project. */
@@ -49,6 +91,8 @@ export interface Bundle {
   readonly mcps: readonly MergedMcp[];
   /** Every env var the selection declares, unioned and sorted (spec §4.10). */
   readonly env: readonly string[];
+  /** Why each of the above is here (spec §6), one entry per selected item. */
+  readonly reasons: SelectionReasons;
 }
 
 function compare(a: string, b: string): number {
@@ -354,6 +398,173 @@ function explicitNames(config: ProjectConfig, merged: MergedCatalog): ExplicitNa
   };
 }
 
+/** Constant, since an explicit reason has nothing to say beyond its own kind. */
+const EXPLICIT: SelectionReason = { kind: "explicit" };
+
+/** How a reason reads in `--explain`, in the lock (spec §3.5), and in `ambit why`. */
+export function formatReason(reason: SelectionReason): string {
+  switch (reason.kind) {
+    case "explicit":
+      return "explicit";
+    case "scope":
+      return `scope:${reason.scope}`;
+    case "required-by":
+      return `required-by:${reason.requirer}`;
+  }
+}
+
+/**
+ * The error for a bundle that cannot account for one of its own items.
+ *
+ * Exit 1 rather than 3: no catalog and no config can produce this, since every item in a bundle
+ * arrived through one of the three routes by construction. Reaching it means the selection and the
+ * explanation of it disagree, which is a bug and worth saying so.
+ */
+function unexplainable(item: BundleItem, problem: string): AmbitError {
+  return new AmbitError(ExitCode.Internal, `cannot explain ${item.kind} "${item.name}"`, [
+    problem,
+    "this is a bug in ambit; please report it",
+  ]);
+}
+
+/**
+ * The held scope that reached `scope`: itself, or the ancestor whose subtree it lies in.
+ *
+ * Ties go to the first in `held`, which arrives sorted — and since a scope's ancestors form a
+ * prefix chain, that is the broadest held scope. Any of them is equally true, so the tie-break only
+ * has to be a function of the names.
+ */
+function heldAncestor(scope: string, held: readonly string[]): string | undefined {
+  return held.find((candidate) => inSubtree(candidate, scope));
+}
+
+/**
+ * The scope reason for an item, or undefined when no held scope reached it.
+ *
+ * The declared scopes are searched in sorted order, so an item declaring two selected scopes
+ * reports the same one whatever order its frontmatter lists them in.
+ */
+function scopeReason(
+  declared: readonly string[],
+  selecting: ReadonlySet<string>,
+  held: readonly string[],
+): SelectionReason | undefined {
+  for (const scope of sortedUnique(declared)) {
+    if (!selecting.has(scope)) continue;
+    const ancestor = heldAncestor(scope, held);
+    if (ancestor !== undefined) return { kind: "scope", scope, held: ancestor };
+  }
+  return undefined;
+}
+
+/**
+ * The `required-by` reason for an item: the first selected skill that requires it.
+ *
+ * Recovered from the closure's result rather than recorded during its walk, so which requirer is
+ * named depends only on the names — `selected` is in name order — and not on the order the
+ * depth-first walk happened to reach the item. Several skills requiring one thing is normal, and
+ * any of them is a true answer.
+ */
+function requiredByReason(
+  item: BundleItem,
+  selected: readonly MergedSkill[],
+): SelectionReason | undefined {
+  const target = item.kind === "mcp" ? `${MCP_REQUIREMENT_PREFIX}${item.name}` : item.name;
+  const requirer = selected.find((skill) => skill.requires.includes(target));
+  return requirer === undefined ? undefined : { kind: "required-by", requirer: requirer.name };
+}
+
+/**
+ * The reason each selected item of one namespace carries.
+ *
+ * Precedence is explicit, then scope, then `required-by`. The first two end a chain where
+ * `required-by` continues one, so preferring them keeps an explanation as short as it can be while
+ * staying true — and a project that named something outright wants to hear that, not to be told
+ * about a scope it could delete without losing the item.
+ *
+ * @param selected the selected skills, which is what a `requires` edge can come from.
+ * @throws {AmbitError} exit 1 for an item none of the three routes accounts for.
+ */
+function selectionReasons(
+  items: readonly { readonly name: string; readonly scopes: readonly string[] }[],
+  kind: ItemKind,
+  explicit: ReadonlySet<string>,
+  selecting: ReadonlySet<string>,
+  held: readonly string[],
+  selected: readonly MergedSkill[],
+): ReadonlyMap<string, SelectionReason> {
+  const reasons = new Map<string, SelectionReason>();
+
+  for (const item of items) {
+    const target: BundleItem = { kind, name: item.name };
+    const reason = explicit.has(item.name)
+      ? EXPLICIT
+      : (scopeReason(item.scopes, selecting, held) ?? requiredByReason(target, selected));
+
+    if (reason === undefined) {
+      throw unexplainable(
+        target,
+        "it is in the bundle, but no held scope, `requires` edge, or explicit entry selected it",
+      );
+    }
+    reasons.set(item.name, reason);
+  }
+
+  return reasons;
+}
+
+/** Whether an item is in the bundle. */
+export function isSelected(bundle: Bundle, item: BundleItem): boolean {
+  const reasons = item.kind === "skill" ? bundle.reasons.skills : bundle.reasons.mcps;
+  return reasons.has(item.name);
+}
+
+/**
+ * Why one item of a bundle is in it.
+ *
+ * @throws {AmbitError} exit 1 if the item is not in the bundle; check with {@link isSelected}
+ *   first, so a name a user typed is rejected as the resolution error it is.
+ */
+export function reasonOf(bundle: Bundle, item: BundleItem): SelectionReason {
+  const reasons = item.kind === "skill" ? bundle.reasons.skills : bundle.reasons.mcps;
+  const reason = reasons.get(item.name);
+  if (reason === undefined) throw unexplainable(item, "it is not in the bundle");
+  return reason;
+}
+
+/**
+ * The whole chain behind one selected item, root cause first and the item itself last.
+ *
+ * A reason alone is only half an answer: `required-by:acme.projects.use-acme-brief` prompts the
+ * same question one level up, and it is the held scope at the end of the walk that a reader can act
+ * on. So the walk follows `required-by` edges backwards until it reaches a root — an explicit entry
+ * or a held scope — which terminates because `requires` cycles were rejected during closure.
+ *
+ * @throws {AmbitError} exit 1 if the item is not in the bundle, or the chain fails to terminate.
+ */
+export function explainSelection(bundle: Bundle, item: BundleItem): readonly ReasonedItem[] {
+  const chain: ReasonedItem[] = [];
+  const walked = new Set<string>();
+  let current = item;
+
+  for (;;) {
+    const reason = reasonOf(bundle, current);
+    chain.unshift({ ...current, reason });
+    if (reason.kind !== "required-by") return chain;
+
+    // Insurance against a broken invariant rather than against a catalog: a repeat here would mean
+    // a `requires` cycle survived closure, and looping forever is a worse way to report that.
+    if (walked.has(reason.requirer)) {
+      throw unexplainable(
+        current,
+        `the \`requires\` chain through ${reason.requirer} does not terminate`,
+      );
+    }
+    walked.add(reason.requirer);
+    current = { kind: "skill", name: reason.requirer };
+  }
+}
+
 /**
  * Computes the bundle for a project.
  *
@@ -363,6 +574,10 @@ function explicitNames(config: ProjectConfig, merged: MergedCatalog): ExplicitNa
  * `env` is unioned over the closed selection, not the scope-selected one (spec §4.10): a server
  * pulled in by `requires` needs its credentials as much as one selected by scope.
  *
+ * Reasons are computed here rather than on request, so `--explain`, `ambit why`, and the lock all
+ * report the same answer, and so a bundle that cannot account for an item fails at resolution
+ * instead of at whichever surface happens to ask first.
+ *
  * @param merged the catalogs, with the project's own declarations already folded in — a `skills`
  *   entry carrying a `source`, and inline `mcps` — as `mergeConfigEntities` does.
  * @throws {AmbitError} exit 3 for a held scope the merged registry does not know, an explicit skill
@@ -371,6 +586,7 @@ function explicitNames(config: ProjectConfig, merged: MergedCatalog): ExplicitNa
 export function resolveBundle(config: ProjectConfig, merged: MergedCatalog): Bundle {
   assertScopesRegistered(config, merged.scopes);
 
+  const held = sortedUnique(config.scopes);
   const selecting = expandHeldScopes(config.scopes, merged.scopes);
   const explicit = explicitNames(config, merged);
 
@@ -387,9 +603,13 @@ export function resolveBundle(config: ProjectConfig, merged: MergedCatalog): Bun
   );
 
   return {
-    scopes: sortedUnique(config.scopes),
+    scopes: held,
     skills,
     mcps,
     env: sortedUnique([...skills.flatMap((skill) => skill.env), ...mcps.flatMap((mcp) => mcp.env)]),
+    reasons: {
+      skills: selectionReasons(skills, "skill", explicit.skills, selecting, held, skills),
+      mcps: selectionReasons(mcps, "mcp", explicit.mcps, selecting, held, skills),
+    },
   };
 }

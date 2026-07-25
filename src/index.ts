@@ -67,8 +67,25 @@ export { MCP_TRANSPORT_KINDS, parseMcpEntity } from "./mcp.js";
 export type { HttpTransport, McpEntity, McpTransport, StdioTransport } from "./mcp.js";
 export { buildProgram, run } from "./program.js";
 export type { Io } from "./program.js";
-export { assertScopesRegistered, closeOverRequires, resolveBundle } from "./resolve.js";
-export type { Bundle, Selection } from "./resolve.js";
+export {
+  MCP_REQUIREMENT_PREFIX,
+  assertScopesRegistered,
+  closeOverRequires,
+  explainSelection,
+  formatReason,
+  isSelected,
+  reasonOf,
+  resolveBundle,
+} from "./resolve.js";
+export type {
+  Bundle,
+  BundleItem,
+  ItemKind,
+  ReasonedItem,
+  Selection,
+  SelectionReason,
+  SelectionReasons,
+} from "./resolve.js";
 export {
   ARTIFACT_KINDS,
   ARTIFACT_MODES,

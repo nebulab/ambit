@@ -81,6 +81,27 @@ ${extra.map((line) => `${line}\n`).join("")}`,
 }
 
 /**
+ * Adds an MCP entity to the fixture catalog, its name taken from its filename per §3.3.
+ *
+ * Only the cases the shared fixture cannot hold need this — a server whose name collides with a
+ * skill's, which no sane catalog would ship.
+ */
+async function writeMcp(name: string, annotations: readonly string[] = []): Promise<void> {
+  await writeFile(
+    path.join(catalogDir, "mcps", `${name}.yml`),
+    [
+      `name: ${name}`,
+      ...annotations,
+      "transport:",
+      "  stdio:",
+      "    command: fixture-mcp",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+}
+
+/**
  * Adds a skill to the fixture catalog, its name derived from its path per §2.
  *
  * The `requires` graphs under test — a chain, a diamond, a cycle — cannot live in the shared
@@ -333,7 +354,13 @@ describe("selection by scope", () => {
   it("yields an empty bundle for an empty scope list", async () => {
     const empty = await bundle([]);
 
-    expect(empty).toEqual({ scopes: [], skills: [], mcps: [], env: [] });
+    expect(empty).toEqual({
+      scopes: [],
+      skills: [],
+      mcps: [],
+      env: [],
+      reasons: { skills: new Map(), mcps: new Map() },
+    });
   });
 
   it("selects an MCP server by its own scopes", async () => {
@@ -713,6 +740,256 @@ describe("explicit skills and inline servers", () => {
 });
 
 /**
+ * Spec §6: every selected item carries the reason it is in the bundle — one of the three routes
+ * resolution offers, and only one, so a reader gets an answer rather than a list of possibilities.
+ *
+ * The reason is asserted on the bundle rather than only through `--explain`, because the lock
+ * records it too (spec §3.5) and both surfaces have to agree by construction.
+ */
+describe("selection reasons", () => {
+  it("names the scope a skill declares, and the held scope that reached it", async () => {
+    const wide = await bundle(["function.engineering"]);
+
+    expect(wide.reasons.skills.get(ENGINEERING_SKILL)).toEqual({
+      kind: "scope",
+      scope: "function.engineering",
+      held: "function.engineering",
+    });
+    // Selected through the subtree rule, so the scope it declares is not one the config lists.
+    expect(wide.reasons.skills.get(FRONTEND_SKILL)).toEqual({
+      kind: "scope",
+      scope: "function.engineering.frontend",
+      held: "function.engineering",
+    });
+    expect(wide.reasons.mcps.get("scoped")).toEqual({
+      kind: "scope",
+      scope: "function.engineering",
+      held: "function.engineering",
+    });
+  });
+
+  it("names the requirer of a skill and a server no held scope selected", async () => {
+    const project = await bundle(["project.acme"]);
+
+    expect(project.reasons.skills.get(CORE_SKILL)).toEqual({
+      kind: "required-by",
+      requirer: PROJECT_SKILL,
+    });
+    expect(project.reasons.mcps.get("fixture")).toEqual({
+      kind: "required-by",
+      requirer: PROJECT_SKILL,
+    });
+  });
+
+  it("names the first requirer by name, not the first the closure happened to walk", async () => {
+    await writeSkill("acme/twice/use-left", ["scopes: [core]", "requires: [mcp.fixture]"]);
+    await writeSkill("acme/twice/use-right", ["scopes: [core]", "requires: [mcp.fixture]"]);
+
+    expect((await bundle(["core"])).reasons.mcps.get("fixture")).toEqual({
+      kind: "required-by",
+      requirer: "acme.twice.use-left",
+    });
+  });
+
+  it("reports an explicit entry as explicit even when a held scope also reaches it", async () => {
+    const both = await bundle(["function.engineering"], ["skills:", `  - ${ENGINEERING_SKILL}`]);
+
+    expect(both.reasons.skills.get(ENGINEERING_SKILL)).toEqual({ kind: "explicit" });
+    // The scope route is still the only thing that reached the nested skill.
+    expect(both.reasons.skills.get(FRONTEND_SKILL)).toMatchObject({ kind: "scope" });
+  });
+
+  it("reports an inline server as explicit", async () => {
+    const inline = await bundle(
+      [],
+      ["mcps:", "  - name: custom", "    transport:", "      stdio:", "        command: custom-mcp"],
+    );
+
+    expect(inline.reasons.mcps.get("custom")).toEqual({ kind: "explicit" });
+  });
+
+  it("explains every item it selected, leaving nothing unaccounted for", async () => {
+    const wide = await bundle(["core", "function.engineering", "project.acme"]);
+
+    expect([...wide.reasons.skills.keys()]).toEqual(wide.skills.map((skill) => skill.name));
+    expect([...wide.reasons.mcps.keys()]).toEqual(wide.mcps.map((mcp) => mcp.name));
+  });
+});
+
+describe("ambit resolve --explain", () => {
+  it("adds a reason column to skills and mcps, and leaves scopes and env alone", async () => {
+    await writeProfile(["core", "function.engineering"]);
+
+    const result = await cli("resolve", "--explain");
+
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+    expect(result.stdout).toBe(
+      [
+        "scopes (2)",
+        "  core",
+        "  function.engineering",
+        "",
+        "skills (3)",
+        `  ${CORE_SKILL.padEnd(FRONTEND_SKILL.length)}  ${CATALOG_NAME}  scope:core`,
+        `  ${FRONTEND_SKILL}  ${CATALOG_NAME}  scope:function.engineering.frontend`,
+        `  ${ENGINEERING_SKILL.padEnd(FRONTEND_SKILL.length)}  ${CATALOG_NAME}  scope:function.engineering`,
+        "",
+        "mcps (1)",
+        `  scoped  ${CATALOG_NAME}  scope:function.engineering`,
+        "",
+        "env (2)",
+        "  ACME_FIGMA_TOKEN",
+        "  SCOPED_API_KEY",
+      ].join("\n"),
+    );
+  });
+
+  it("adds a reason to every JSON record, which plain `--json` omits", async () => {
+    await writeProfile(["project.acme"]);
+
+    const explained = JSON.parse((await cli("resolve", "--explain", "--json")).stdout) as {
+      skills: Record<string, { reason?: string }>;
+      mcps: Record<string, { reason?: string }>;
+    };
+
+    expect(explained.skills[CORE_SKILL]?.reason).toBe(`required-by:${PROJECT_SKILL}`);
+    expect(explained.skills[PROJECT_SKILL]?.reason).toBe("scope:project.acme");
+    expect(explained.mcps.fixture?.reason).toBe(`required-by:${PROJECT_SKILL}`);
+
+    const plain = JSON.parse((await cli("resolve", "--json")).stdout) as {
+      skills: Record<string, { reason?: string }>;
+    };
+    expect(plain.skills[PROJECT_SKILL]).not.toHaveProperty("reason");
+  });
+});
+
+/**
+ * Spec §6: `ambit why <name>` prints the chain from a held scope to the item. The chain matters more
+ * than the reason — `required-by:x` only moves the question up a level — so the assertions are on
+ * the whole path, not on the last link.
+ */
+describe("ambit why", () => {
+  it("prints the one-link chain of something a held scope selected outright", async () => {
+    await writeProfile(["core"]);
+
+    const result = await cli("why", CORE_SKILL);
+
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+    expect(result.stdout).toBe(
+      [`skill ${CORE_SKILL}`, "", "chain (1)", `  ${CORE_SKILL}  skill  scope:core`].join("\n"),
+    );
+  });
+
+  it("walks back through `requires` to the held scope that started it", async () => {
+    await writeProfile(["project.acme"]);
+
+    const result = await cli("why", CORE_SKILL);
+
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+    expect(result.stdout).toBe(
+      [
+        `skill ${CORE_SKILL}`,
+        "",
+        "chain (2)",
+        `  ${PROJECT_SKILL.padEnd(CORE_SKILL.length)}  skill  scope:project.acme`,
+        `  ${CORE_SKILL}  skill  required-by:${PROJECT_SKILL}`,
+      ].join("\n"),
+    );
+  });
+
+  it("names the held scope as well when the subtree rule did the reaching", async () => {
+    await writeProfile(["function.engineering"]);
+
+    const result = await cli("why", FRONTEND_SKILL);
+
+    expect(result.stdout).toContain(
+      "scope:function.engineering.frontend (held function.engineering)",
+    );
+  });
+
+  it("finds a server by its bare name and by the `mcp.` prefix `requires` uses", async () => {
+    await writeProfile(["project.acme"]);
+
+    const bare = await cli("why", "fixture");
+    const prefixed = await cli("why", "mcp.fixture");
+
+    expect(bare.code, bare.stderr).toBe(ExitCode.Success);
+    expect(bare.stdout).toContain("mcp fixture");
+    expect(bare.stdout).toContain(
+      `${"fixture".padEnd(PROJECT_SKILL.length)}  mcp    required-by:${PROJECT_SKILL}`,
+    );
+    expect(prefixed.stdout).toBe(bare.stdout);
+  });
+
+  it("prefers the skill for a bare name both namespaces hold, and the prefix names the server", async () => {
+    await writeMcp(CORE_SKILL, ["scopes: [core]"]);
+    await writeProfile(["core"]);
+
+    expect((await cli("why", CORE_SKILL)).stdout).toContain(`skill ${CORE_SKILL}`);
+    expect((await cli("why", `mcp.${CORE_SKILL}`)).stdout).toContain(`mcp ${CORE_SKILL}`);
+  });
+
+  it("reports an explicit entry as the whole chain, since nothing precedes it", async () => {
+    await writeProfile([], ["skills:", `  - ${ENGINEERING_SKILL}`]);
+
+    const result = await cli("why", ENGINEERING_SKILL);
+
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+    expect(result.stdout).toContain(`${ENGINEERING_SKILL}  skill  explicit`);
+  });
+
+  it("emits the chain, the item, and its reason as JSON", async () => {
+    await writeProfile(["project.acme"]);
+
+    const result = await cli("why", "mcp.fixture", "--json");
+
+    expect(JSON.parse(result.stdout)).toEqual({
+      chain: [
+        {
+          held: "project.acme",
+          kind: "skill",
+          name: PROJECT_SKILL,
+          reason: "scope:project.acme",
+        },
+        { kind: "mcp", name: "fixture", reason: `required-by:${PROJECT_SKILL}` },
+      ],
+      kind: "mcp",
+      name: "fixture",
+      reason: `required-by:${PROJECT_SKILL}`,
+    });
+  });
+
+  it("exits 3 for a skill a catalog provides but nothing selects, naming the scope that would", async () => {
+    await writeProfile(["core"]);
+
+    const result = await cli("why", PROJECT_SKILL);
+
+    expect(result.code).toBe(ExitCode.Resolution);
+    expect(result.stderr).toContain(`skill "${PROJECT_SKILL}" is not in the bundle`);
+    expect(result.stderr).toContain(`catalog "${CATALOG_NAME}" provides it`);
+    expect(result.stderr).toContain("hold one of its scopes (project.acme)");
+  });
+
+  it("points at `requires` for an unselected server, which no `skills` entry can reach", async () => {
+    await writeProfile(["core"]);
+
+    const result = await cli("why", "mcp.fixture");
+
+    expect(result.code).toBe(ExitCode.Resolution);
+    expect(result.stderr).toContain('MCP server "fixture" is not in the bundle');
+    expect(result.stderr).toContain("have a selected skill `require` mcp.fixture");
+  });
+
+  it("exits 3 for a name nothing provides, and says where to look", async () => {
+    const result = await cli("why", "acme.absent.use-nothing");
+
+    expect(result.code).toBe(ExitCode.Resolution);
+    expect(result.stderr).toContain('unknown skill or MCP server "acme.absent.use-nothing"');
+    expect(result.stderr).toContain("run `ambit catalog` to see what is available");
+  });
+});
+
+/**
  * Spec §4.6: a held scope the merged registry does not know is exit 3, not a silent miss. The
  * line assertions are exact rather than loose, since the whole point of the message is that it
  * sends a reader to the offending line of their own config.
@@ -829,11 +1106,13 @@ describe("ambit resolve", () => {
     expect(result.stdout).not.toContain(root);
   });
 
-  it("reports `--explain` as unimplemented instead of printing an unannotated bundle", async () => {
-    const result = await cli("resolve", "--explain");
+  it("emits byte-identical JSON on a second run under `--explain` too", async () => {
+    await writeProfile(["core", "function.engineering", "project.acme"]);
 
-    expect(result.code).toBe(ExitCode.Internal);
-    expect(result.stderr).toContain("`--explain` is not implemented yet");
+    const first = await cli("resolve", "--explain", "--json");
+    const second = await cli("resolve", "--explain", "--json");
+
+    expect(second.stdout).toBe(first.stdout);
   });
 
   it("exits 2 when the project has no config", async () => {

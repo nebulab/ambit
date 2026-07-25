@@ -6,6 +6,7 @@ import { AmbitError, ExitCode } from "./errors.js";
 import { catalogHandler } from "./handlers/catalog.js";
 import { installHandler } from "./handlers/install.js";
 import { resolveHandler } from "./handlers/resolve.js";
+import { whyHandler } from "./handlers/why.js";
 import { VERSION } from "./version.js";
 
 export type Io = Pick<CommandContext, "cwd" | "stdout" | "stderr">;
@@ -15,6 +16,7 @@ export const HANDLERS: CommandHandlers = {
   catalog: catalogHandler,
   install: installHandler,
   resolve: resolveHandler,
+  why: whyHandler,
 };
 
 export function buildProgram(io: Io, handlers: CommandHandlers, onExit: (code: ExitCode) => void): Command {
