@@ -842,9 +842,26 @@ mutation ends by re-validating.
   `mcpDocumentFile` makes the function async, which is why B07 left it. And `mcp new`'s
   closing line and `scope rm`'s refusal predate `catalog annotate`, so neither points at the
   command that now does what they tell the reader to do by hand.
-  **Done when:** `scope rm` refused by a `.yaml` entity cites that entity's real filename;
-  the two next-step lines name `catalog annotate`; no message names a file that does not
-  exist on disk.
+  **Done when:** `scope rm` refused by a `.yaml` entity cites that entity's real filename, and
+  the two next-step lines name `catalog annotate`.
+  > A third clause — "no message names a file that does not exist on disk" — was written here
+  > and withdrawn: it reads as a mandate over the whole error surface, where it was meant as a
+  > spot-check on the two defects above. A31 delivered both. The residue it turned up is A32's.
+
+- [ ] **A32 — Entity filenames through the merged view.**
+  **Depends:** A31
+  **Do:** The residue A31 found. `validate`'s `mcpFile` derives `mcps/<name>.yml`, so an entity
+  written as `.yaml` is reported against a file that does not exist. The fix is a data change
+  A31 correctly refused to make inside a message-accuracy task: carry the filename
+  `findMcpFiles` already computes through `Catalog` → `MergedCatalog`, so `validateCatalog`
+  stays pure and no second copy of `mergeCatalogs`' first-wins precedence appears. An inline
+  `ambit.yml` entity has no file at all, so the field is optional and its absence must read as
+  "declared in the config", not as a missing `.yml`. While there, finish the same-class next
+  steps A31 scoped out: `skill rm`'s and `mcp rm`'s "is still required" refusals still say to
+  remove the `requires` entry by hand, which `annotate --remove-requires` now does.
+  **Done when:** `validate` reports a `.yaml` entity against its real filename and an inline
+  entity against the config file; the two `rm` refusals name `annotate --remove-requires`; the
+  claim A31 withdrew holds — no message names a file that does not exist on disk.
 
 - [ ] **A26 — dotagents compatibility test.**
   **Depends:** B09
