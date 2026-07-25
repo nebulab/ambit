@@ -791,11 +791,15 @@ mutation ends by re-validating.
 - [ ] **B07 — `ambit catalog annotate`.**
   **Depends:** B06
   **Do:** Add and remove `scopes`, `requires`, and `env` entries on an existing skill or MCP,
-  through the B02 editor.
+  through the B02 editor. Being the last authoring command that edits an MCP document, it also
+  owns the one remaining `.yml`-only call site B06 left behind: `catalog scope mv` reaches an
+  entity through the editor's `mcpDocumentPath`, so renaming a scope in a catalog holding a
+  `mcps/<name>.yaml` fails exit 3 with nothing written. Route it through B06's
+  `mcpDocumentFile`, which picks the extension actually on disk.
   **Done when:** Lists emerge sorted and deduplicated; unknown frontmatter keys, comments, and
   the body survive; removing the last entry leaves an empty list, not a null; an unregistered
   scope or an unresolvable `requires` target exits 3 with nothing written; annotating twice is
-  idempotent.
+  idempotent; and `catalog scope mv` renames a scope declared by a `.yaml` MCP entity.
 
 - [ ] **B08 — `ambit catalog tree`.**
   **Depends:** B07
