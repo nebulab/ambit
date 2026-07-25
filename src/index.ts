@@ -50,7 +50,13 @@ export {
   projectDirOf,
   sourceContextOf,
 } from "./commands.js";
-export type { CommandContext, CommandHandler, CommandHandlers, CommandSpec } from "./commands.js";
+export type {
+  CommandContext,
+  CommandHandler,
+  CommandHandlers,
+  CommandSpec,
+  CommandSubject,
+} from "./commands.js";
 export {
   CONFIG_FILENAMES,
   CONFIG_VERSION,

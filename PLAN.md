@@ -728,7 +728,7 @@ compatibility test gets to run against a catalog ambit itself authored. Every co
 files other tools also read, so the editor lands before anything that uses it, and every
 mutation ends by re-validating.
 
-- [ ] **B01 — Authoring surface and `catalog dump`.**
+- [x] **B01 — Authoring surface and `catalog dump`.**
   **Depends:** A25
   **Do:** Make `catalog` a command group with `dump` as its default action, and declare the
   whole authoring surface — `--catalog <dir>` included — in the one place `COMMAND_SPECS`

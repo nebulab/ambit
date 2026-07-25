@@ -3,13 +3,37 @@
 Rewritten by each Ralph iteration for the next one. Short, current, and only what would cost
 real time to rediscover — see `PROMPT.md` §6.
 
-Last iteration: **A25 — `ambit scopes` and `ambit init`** (the tip of `main`). The consumer side of
-the CLI is now complete: every command in `COMMAND_SPECS` has a handler. Next task is **B01 —
-Authoring surface and `catalog dump`**, whose `Depends: A25` is now checked. (A30 also depends on
-A25, but B01 is topmost.)
+Last iteration: **B01 — Authoring surface and `catalog dump`** (the tip of `main`). The whole
+catalog-authoring surface is now declared and dispatched; nothing under it but `dump` has behaviour.
+Next task is **B02 — The catalog editor**, whose `Depends: B01` is now checked. (A30 also depends on
+A25, but B02 is topmost.)
 
 ## Constraints later tasks inherit
 
+- **`catalog` is a command group whose default action is `dump`**, and **handlers are keyed by the
+  words a user types**: `"catalog dump"`, `"catalog scope add"`. B02–B09 each add one entry to
+  `HANDLERS` in `src/program.ts` under that key and nothing else in the wiring. A declared command
+  with no entry throws `notImplemented(<the whole invocation>)` — exit **1**, message
+  `command "catalog scope add" is not implemented yet` — which is now live and pinned by a test over
+  all twelve unbuilt commands.
+- **`CommandSpec` gained `subject`, `subcommands` and `defaultSubcommand`, and `argument` became
+  `args`** (a list, because `mv <old> <new>` needs two positionals; Commander takes one name per
+  `.argument()` call).
+- **`subject: "catalog"` swaps `--project <dir>` for `--catalog <dir>` and drops `--offline`** — an
+  authoring command reads one directory and resolves no source (spec §6). **There is deliberately no
+  `catalogDirOf(ctx)` yet**: B02/B03 is the first caller and should add it beside `projectDirOf`,
+  following `validateHandler`'s `path.resolve(ctx.cwd, given)`.
+- **`enablePositionalOptions()` is set on the program *and* on every group, and both are load-bearing.**
+  Without it Commander gives a flag to whichever command up the chain declares it, so
+  `ambit catalog dump --json` leaves `--json` with the group and `dump` never sees it. Removing either
+  one silently breaks every flag typed after a subcommand name.
+- **A group with no `defaultSubcommand` (`scope`, `skill`, `mcp`) carries no global flags and prints
+  its own help at exit 0** (`acts` in `buildCommand`). No flags because a group that declares one its
+  children also declare is a group that eats it; help-not-error because bare `ambit` behaves the same
+  way. Adding a default action to one of them means giving it the flag set back.
+- **List-valued flags go through `repeatable()`**: absent when never given, `readonly string[]` in
+  argv order otherwise. Deliberately no `[]` default — a handler can tell "not asked for" from
+  "emptied", and the help stays free of `(default: [])`.
 - **`src/init.ts` emits the scaffold, it does not template it.** Every value goes through `emitYaml`
   and the blocks are laid out in **sorted-key order**, so stripping the comment lines from
   `ambit.yml` leaves exactly `emitYaml({harnesses, scopes, version})` — `test/init.test.ts` pins that
@@ -99,12 +123,10 @@ A25, but B01 is topmost.)
   `planInstall`, not re-run the pipeline.** One ordering changed with it: `--frozen` is now checked
   *after* `readState`, so an unreadable state file is exit 2 where it used to be exit 5. Both write
   nothing.
-- **`--dry-run` is implemented for `install`, `prune`, `clean` and `init`, and there is no
-  `UNIMPLEMENTED` map any more.** Every command in `COMMAND_SPECS` now has a handler, so
-  `notImplemented` in `commands.ts` is currently unreachable — **B01 gives it its first live use**, for
-  the declared-but-unbuilt `catalog` subcommands. **A new mutating command is given
-  `--dry-run` by `buildCommand` automatically**, so a handler that ignores it silently mutates under a
-  flag that promises not to — read `dryRunRequested(ctx)` or you have shipped that bug.
+- **A new mutating command is given `--dry-run` by `buildCommand` automatically**, so a handler that
+  ignores it silently mutates under a flag that promises not to — read `dryRunRequested(ctx)` or you
+  have shipped that bug. Every authoring mutation is already declared `mutating: true`, and authoring
+  rule 6 wants a *diff* out of it, not just silence.
 - **`--dry-run` checks ownership and `--frozen` on purpose.** A preview of an install that would be
   refused is refused, with the same message and exit code, because "what would happen" includes
   stopping. Neither check writes.
@@ -267,8 +289,8 @@ A25, but B01 is topmost.)
   about the config entry, not the directory, so a catalog parsed straight off disk
   (`validate --catalog`) has none.
 - **`--frozen`, `--adopt`, `--copy`, `--link`, `--dry-run`, `status --check` and `validate --catalog`
-  are implemented.** The only unbuilt surface left is the `catalog` authoring group (B01–B09), which is
-  not yet declared in `COMMAND_SPECS` at all.
+  are implemented.** The unbuilt surface is the `catalog` authoring group (B02–B09), declared in
+  `COMMAND_SPECS` and reporting itself unimplemented until each task lands.
 - **Every source resolves through `src/sources.ts`** (§3.1 grammar) returning
   `ResolvedSource = { root, commit? }`. `loadCatalogs`, `mergeConfigEntities`, `loadSourceSkill` and
   `resolveCatalogRoot` take a `SourceContext` (`{ projectDir, env }`); `env` is where the cache location
@@ -339,6 +361,22 @@ A25, but B01 is topmost.)
 
 ## Traps
 
+- **A Commander-level error in a subcommand still exits the process (A30), and that shapes both the
+  authoring commands and their tests.** Two consequences: (1) declare no `.makeOptionMandatory()` and
+  no `.conflicts()` on an authoring flag — B04's "`add` requires a description" and B06's "exactly one
+  transport" must be enforced *in the handler*, in spec §6's message shape, as `installHandler` does
+  for `--copy`/`--link`; (2) **every test invocation must supply all declared positionals**, or the run
+  takes the vitest worker with it instead of returning an exit code. `test/catalog.test.ts`'s `UNBUILT`
+  table carries that padding on purpose.
+- **`ambit catalog --help` is asserted by reading `helpInformation()` off `buildProgram`** (the
+  `command(...)` helper in `test/catalog.test.ts`), never by running `--help` through `run()` — for the
+  same reason. It works fine from a real shell; it just cannot be tested in-process until A30.
+- **`test/catalog.test.ts`'s `cli()` appends `--project`, which an authoring command does not accept.**
+  Use `invoke(argv)` for anything under `catalog` other than `dump`, or Commander will reject the flag
+  and exit the worker.
+- **Two tests pin that `ambit catalog` and `ambit catalog dump` emit identical stdout**, text and
+  `--json`. They are the guard on the group's default action, so a change to either path must keep
+  going through `catalogHandler`.
 - **Nothing may reach the network (spec §7).** Git tests use `buildFixtureGitCatalog`'s local bare repo,
   whose commit SHA is fixed by pinned dates and `GIT_CONFIG_GLOBAL=/dev/null`. A test needing a
   *rejected* source must pick one no fetch can be attempted for — a bare relative path like

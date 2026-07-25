@@ -18,9 +18,15 @@ import { VERSION } from "./version.js";
 
 export type Io = Pick<CommandContext, "cwd" | "stdout" | "stderr">;
 
-/** Handlers wired up so far. Each task in the build fills in one more. */
+/**
+ * Handlers wired up so far, keyed by the words a user types. Each task in the build fills in one
+ * more; a declared command with no entry here reports itself unimplemented (exit 1).
+ *
+ * `catalog dump` is the whole of `ambit catalog`: the group's default action dispatches to it, so
+ * the two invocations cannot render the catalog differently.
+ */
 export const HANDLERS: CommandHandlers = {
-  catalog: catalogHandler,
+  "catalog dump": catalogHandler,
   clean: cleanHandler,
   doctor: doctorHandler,
   init: initHandler,
@@ -41,6 +47,10 @@ export function buildProgram(io: Io, handlers: CommandHandlers, onExit: (code: E
     .helpOption("--help", "show usage")
     .addHelpCommand(false)
     .showHelpAfterError("(run `ambit --help` for usage)")
+    // Every flag belongs to the command it follows. Without this, Commander gives an option to
+    // whichever command up the chain declares it, so `ambit catalog dump --json` would leave
+    // `--json` with the `catalog` group and `dump` believing it was never asked for.
+    .enablePositionalOptions()
     .configureOutput({
       writeOut: (str) => io.stdout(str.replace(/\n$/, "")),
       writeErr: (str) => io.stderr(str.replace(/\n$/, "")),

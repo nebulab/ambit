@@ -8,6 +8,7 @@
 import { cp, mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import type { Command } from "commander";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { buildFixtureCatalog } from "../scripts/fixture-catalog.js";
@@ -15,7 +16,7 @@ import type { MergedCatalog } from "../src/catalog.js";
 import { loadCatalogs, mergeCatalogs, parseCatalogDirectory } from "../src/catalog.js";
 import { loadProjectConfig } from "../src/config.js";
 import { AmbitError, ExitCode } from "../src/errors.js";
-import { run } from "../src/program.js";
+import { HANDLERS, buildProgram, run } from "../src/program.js";
 import type { SourceContext } from "../src/sources.js";
 
 const CATALOG_NAME = "company";
@@ -149,18 +150,30 @@ async function merged(): Promise<MergedCatalog> {
   return mergeCatalogs(await loadCatalogs(await loadProjectConfig(projectDir), context()));
 }
 
-/** Runs the CLI against the project, collecting stdout and stderr. */
-async function cli(
-  ...argv: readonly string[]
-): Promise<{ code: ExitCode; stdout: string; stderr: string }> {
+interface CliResult {
+  code: ExitCode;
+  stdout: string;
+  stderr: string;
+}
+
+/** Runs the CLI exactly as given, collecting stdout and stderr. */
+async function invoke(argv: readonly string[]): Promise<CliResult> {
   const out: string[] = [];
   const err: string[] = [];
-  const code = await run([...argv, "--project", projectDir], {
+  const code = await run(argv, {
     cwd: root,
     stdout: (line) => out.push(line),
     stderr: (line) => err.push(line),
   });
   return { code, stdout: out.join("\n"), stderr: err.join("\n") };
+}
+
+/**
+ * Runs the CLI against the project under test. Authoring commands take `--catalog` instead and so
+ * cannot go through here — use `invoke` for those (spec §6).
+ */
+async function cli(...argv: readonly string[]): Promise<CliResult> {
+  return invoke([...argv, "--project", projectDir]);
 }
 
 beforeEach(async () => {
@@ -522,6 +535,108 @@ describe("ambit catalog", () => {
     const result = await cli("catalog");
     expect(result.code).toBe(ExitCode.Config);
     expect(result.stderr).toContain("no ambit config");
+  });
+});
+
+/**
+ * Spec §6, "Catalog authoring": `catalog` becomes a command group whose default action is `dump`, so
+ * the consumer command keeps behaving exactly as it did while the maintainer commands hang off the
+ * same word. Nothing but `dump` is built yet, so what is asserted here is the surface — which
+ * commands exist, what each is called, which directory flag it takes, and what an unbuilt one does.
+ */
+describe("ambit catalog as a command group", () => {
+  /** Every subcommand of `catalog`, as spec §6 lists them. */
+  const SUBCOMMANDS = ["dump", "init", "tree", "audit", "scope", "skill", "mcp", "annotate"];
+
+  /**
+   * The declared-but-unbuilt commands, each with enough argv to satisfy Commander's required
+   * positionals. That is not padding: a missing positional is a Commander-level error, and until A30
+   * a subcommand inherits neither `exitOverride` nor `configureOutput`, so such a run would exit the
+   * process instead of returning a code.
+   */
+  const UNBUILT: readonly (readonly [name: string, argv: readonly string[]])[] = [
+    ["catalog init", ["init"]],
+    ["catalog tree", ["tree"]],
+    ["catalog audit", ["audit"]],
+    ["catalog scope add", ["scope", "add", "person.jane", "--description", "Jane's own things"]],
+    ["catalog scope rm", ["scope", "rm", "person.jane"]],
+    ["catalog scope mv", ["scope", "mv", "person.jane", "person.joan"]],
+    ["catalog skill new", ["skill", "new", "jane.use-notes"]],
+    ["catalog skill rm", ["skill", "rm", "jane.use-notes"]],
+    ["catalog skill mv", ["skill", "mv", "jane.use-notes", "jane.use-memos"]],
+    ["catalog mcp new", ["mcp", "new", "notes", "--stdio", "notes-mcp"]],
+    ["catalog mcp rm", ["mcp", "rm", "notes"]],
+    ["catalog annotate", ["annotate", "jane.use-notes", "--add-scope", "core"]],
+  ];
+
+  /**
+   * One command out of the built program, so help text can be read without running `--help` — which
+   * goes through Commander's own exit path, and so out of the process, until A30 lands.
+   */
+  function command(...words: readonly string[]): Command {
+    const program = buildProgram(
+      { cwd: root, stdout: () => {}, stderr: () => {} },
+      HANDLERS,
+      () => {},
+    );
+    let found: Command = program;
+    for (const word of words) {
+      const child = found.commands.find((candidate) => candidate.name() === word);
+      if (!child) throw new Error(`the program declares no \`${words.join(" ")}\``);
+      found = child;
+    }
+    return found;
+  }
+
+  it("dumps the merged catalog under both `catalog` and `catalog dump`", async () => {
+    const group = await cli("catalog");
+    const dump = await cli("catalog", "dump");
+
+    expect(group.code, group.stderr).toBe(ExitCode.Success);
+    expect(dump.code, dump.stderr).toBe(ExitCode.Success);
+    expect(dump.stdout).toBe(group.stdout);
+  });
+
+  it("emits byte-identical JSON under both", async () => {
+    const group = await cli("catalog", "--json");
+    const dump = await cli("catalog", "dump", "--json");
+
+    expect(dump.stdout).toBe(group.stdout);
+    expect(JSON.parse(dump.stdout)).toMatchObject({ catalogs: [CATALOG_NAME] });
+  });
+
+  it("lists every authoring subcommand in `ambit catalog --help`", () => {
+    const help = command("catalog").helpInformation();
+
+    for (const name of SUBCOMMANDS) expect(help).toContain(`\n  ${name} `);
+  });
+
+  it("gives an authoring command `--catalog <dir>`, and `dump` `--project <dir>`", () => {
+    // The two directories are different subjects, not the same one under two names: a catalog has no
+    // `ambit.yml` to read (spec §6).
+    const init = command("catalog", "init").helpInformation();
+    expect(init).toContain("--catalog <dir>");
+    expect(init).not.toContain("--project");
+
+    expect(command("catalog", "dump").helpInformation()).toContain("--project <dir>");
+  });
+
+  it("prints its usage for a group that has no default action", async () => {
+    const result = await invoke(["catalog", "scope"]);
+
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+    expect(result.stdout).toContain("Usage: ambit catalog scope");
+    for (const verb of ["add", "rm", "mv"]) expect(result.stdout).toContain(`\n  ${verb} `);
+  });
+
+  it("exits 1 from every unbuilt subcommand, naming the whole invocation", async () => {
+    for (const [name, argv] of UNBUILT) {
+      const result = await invoke(["catalog", ...argv, "--catalog", catalogDir]);
+
+      expect(result.code, `${name}: ${result.stderr}`).toBe(ExitCode.Internal);
+      expect(result.stderr).toContain(`command "${name}" is not implemented yet`);
+      expect(result.stdout).toBe("");
+    }
   });
 });
 

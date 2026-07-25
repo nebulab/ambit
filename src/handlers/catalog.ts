@@ -1,5 +1,10 @@
 /**
- * `ambit catalog` — dump the merged catalog (spec §6).
+ * `ambit catalog dump` — dump the merged catalog (spec §6), and the default action of the `catalog`
+ * group, so bare `ambit catalog` is this command rather than a second rendering of it.
+ *
+ * It is the one command under `catalog` that reads a *project*: the merged view is what several
+ * catalogs and one `ambit.yml` add up to, which no catalog directory holds on its own. Everything else
+ * in the group maintains a single catalog and takes `--catalog <dir>` instead.
  *
  * This is the window onto everything resolution works from, so it prints what was parsed rather
  * than a summary of it. `--json` output carries no absolute paths and sorts every key, so it is
