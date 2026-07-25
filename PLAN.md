@@ -833,6 +833,19 @@ mutation ends by re-validating.
   a top-level one; `install --copy --link` is rejected by Commander's own `.conflicts()`
   rather than by the handler check A20 wrote to work around this.
 
+- [ ] **A31 — Error message accuracy.**
+  **Depends:** A30
+  **Do:** Two message-only defects B07 left, both against §6's own standard — an error must
+  name the offending *file* and give a next step that exists. `declarersOf` in
+  `src/catalog-scope.ts` names an entity through `mcpDocumentPath`, so `scope rm`'s refusal
+  cites `mcps/<name>.yml` for an entity stored as `.yaml`; routing it through B06's
+  `mcpDocumentFile` makes the function async, which is why B07 left it. And `mcp new`'s
+  closing line and `scope rm`'s refusal predate `catalog annotate`, so neither points at the
+  command that now does what they tell the reader to do by hand.
+  **Done when:** `scope rm` refused by a `.yaml` entity cites that entity's real filename;
+  the two next-step lines name `catalog annotate`; no message names a file that does not
+  exist on disk.
+
 - [ ] **A26 — dotagents compatibility test.**
   **Depends:** B09
   **Slice:** the compatibility promise becomes executable.
