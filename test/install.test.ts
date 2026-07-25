@@ -114,6 +114,7 @@ beforeEach(async () => {
   projectDir = path.join(root, "project");
   await buildFixtureCatalog(catalogDir);
   await mkdir(projectDir, { recursive: true });
+  // `function.engineering` also selects its nested frontend child, so this profile is three skills.
   await writeProfile(["core", "function.engineering"]);
 });
 
@@ -130,9 +131,10 @@ describe("the Claude adapter's plan", () => {
 
     expect(plan.map((artifact) => artifact.path)).toEqual([
       `${SKILLS_DIR}/${CORE_SKILL}`,
+      `${SKILLS_DIR}/${FRONTEND_SKILL}`,
       `${SKILLS_DIR}/${ENGINEERING_SKILL}`,
     ]);
-    expect(plan.map((artifact) => artifact.mode)).toEqual(["copy", "copy"]);
+    expect(plan.map((artifact) => artifact.mode)).toEqual(["copy", "copy", "copy"]);
     expect(plan[0]?.source).toBe(
       path.join(catalogDir, "skills/acme/commons/use-company-context"),
     );
@@ -153,9 +155,10 @@ describe("ambit install", () => {
     const result = await cli("install");
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
-    expect(await installedSkills()).toEqual([CORE_SKILL, ENGINEERING_SKILL]);
+    expect(await installedSkills()).toEqual([CORE_SKILL, FRONTEND_SKILL, ENGINEERING_SKILL]);
     expect(await tree(SKILLS_DIR)).toEqual([
       `${CORE_SKILL}/SKILL.md`,
+      `${FRONTEND_SKILL}/SKILL.md`,
       `${ENGINEERING_SKILL}/SKILL.md`,
     ]);
   });
@@ -200,6 +203,7 @@ describe("ambit install", () => {
       harnesses: ["claude"],
       artifacts: [
         { path: `${SKILLS_DIR}/${CORE_SKILL}`, kind: "skill-dir", mode: "copy" },
+        { path: `${SKILLS_DIR}/${FRONTEND_SKILL}`, kind: "skill-dir", mode: "copy" },
         { path: `${SKILLS_DIR}/${ENGINEERING_SKILL}`, kind: "skill-dir", mode: "copy" },
       ],
     });
@@ -231,6 +235,7 @@ describe("ambit install", () => {
 
     expect(await tree(SKILLS_DIR)).toEqual([
       `${CORE_SKILL}/SKILL.md`,
+      `${FRONTEND_SKILL}/SKILL.md`,
       `${ENGINEERING_SKILL}/SKILL.md`,
     ]);
   });
@@ -238,14 +243,17 @@ describe("ambit install", () => {
   it("lists what it wrote", async () => {
     const result = await cli("install");
 
+    // The path column is padded out to the longest one, so the kinds line up down the section.
+    const width = `${SKILLS_DIR}/${FRONTEND_SKILL}`.length;
     expect(result.stdout).toBe(
       [
         "harnesses (1)",
         "  claude",
         "",
-        "artifacts (2)",
-        `  ${SKILLS_DIR}/${CORE_SKILL}  skill-dir  copy`,
-        `  ${SKILLS_DIR}/${ENGINEERING_SKILL}  skill-dir  copy`,
+        "artifacts (3)",
+        `  ${`${SKILLS_DIR}/${CORE_SKILL}`.padEnd(width)}  skill-dir  copy`,
+        `  ${SKILLS_DIR}/${FRONTEND_SKILL}  skill-dir  copy`,
+        `  ${`${SKILLS_DIR}/${ENGINEERING_SKILL}`.padEnd(width)}  skill-dir  copy`,
       ].join("\n"),
     );
   });
@@ -256,10 +264,11 @@ describe("ambit install", () => {
     expect(JSON.parse(result.stdout)).toEqual({
       artifacts: [
         { kind: "skill-dir", mode: "copy", path: `${SKILLS_DIR}/${CORE_SKILL}` },
+        { kind: "skill-dir", mode: "copy", path: `${SKILLS_DIR}/${FRONTEND_SKILL}` },
         { kind: "skill-dir", mode: "copy", path: `${SKILLS_DIR}/${ENGINEERING_SKILL}` },
       ],
       harnesses: ["claude"],
-      skills: [CORE_SKILL, ENGINEERING_SKILL],
+      skills: [CORE_SKILL, FRONTEND_SKILL, ENGINEERING_SKILL],
     });
     expect(result.stdout).not.toContain(root);
   });
@@ -269,6 +278,7 @@ describe("ambit install", () => {
 
     expect(result.bundle.skills.map((skill) => skill.name)).toEqual([
       CORE_SKILL,
+      FRONTEND_SKILL,
       ENGINEERING_SKILL,
     ]);
     expect(result.harnesses).toEqual(["claude"]);

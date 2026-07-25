@@ -1,5 +1,6 @@
 {
   "env": [
+    "ACME_FIGMA_TOKEN",
     "SCOPED_API_KEY"
   ],
   "mcps": {
@@ -11,6 +12,10 @@
     "function.engineering"
   ],
   "skills": {
+    "acme.engineering.frontend.use-design-tokens": {
+      "catalog": "company",
+      "path": "skills/acme/engineering/frontend/use-design-tokens"
+    },
     "acme.engineering.use-code-review": {
       "catalog": "company",
       "path": "skills/acme/engineering/use-code-review"

@@ -545,7 +545,7 @@ runs the whole pipeline against a local fixture before any git, lock, or prune l
 
 ### Resolver
 
-- [ ] **A07 — Scope subtree expansion.**
+- [x] **A07 — Scope subtree expansion.**
   **Depends:** A06
   **Done when:** `["function.engineering"]` now also selects the frontend skill;
   `[function.engineering.frontend]` selects the frontend skill but **not** general

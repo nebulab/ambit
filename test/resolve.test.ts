@@ -1,5 +1,10 @@
 /**
- * Resolution by exact scope match (spec §4.6–§4.7), and the `ambit resolve` output built on it.
+ * Resolution by scope (spec §4.6–§4.7), and the `ambit resolve` output built on it.
+ *
+ * The rule under test is descendants-only: a held scope selects itself and everything beneath it,
+ * and never anything above it. Both directions matter, so both are asserted — on the expansion
+ * itself, where a synthetic registry can hold shapes the fixture does not, and end to end against
+ * the fixture catalog.
  *
  * The `resolve --json` shape is pinned by golden files under `test/golden/resolve/`, one per
  * profile, so a change in what a set of scopes selects shows up as a reviewable diff rather than
@@ -17,7 +22,7 @@ import { loadProjectConfig } from "../src/config.js";
 import { ExitCode } from "../src/errors.js";
 import { run } from "../src/program.js";
 import type { Bundle } from "../src/resolve.js";
-import { resolveBundle } from "../src/resolve.js";
+import { expandHeldScopes, resolveBundle } from "../src/resolve.js";
 
 const CATALOG_NAME = "company";
 
@@ -133,32 +138,84 @@ describe("resolve golden files", () => {
   }
 });
 
-describe("selection by exact scope", () => {
-  it("selects only what declares a held scope — nothing is implicit", async () => {
+/**
+ * The expansion in isolation, against a registry the fixture cannot supply: two levels of
+ * nesting, and a sibling whose name merely starts with another scope's.
+ */
+describe("scope subtree expansion", () => {
+  const REGISTRY = [
+    { name: "core", description: "The universal floor" },
+    { name: "function.engineering", description: "Engineering" },
+    { name: "function.engineering-legacy", description: "A sibling, not a child" },
+    { name: "function.engineering.frontend", description: "Frontend" },
+    { name: "function.engineering.frontend.a11y", description: "Accessibility" },
+  ];
+
+  it("includes the held scope and every scope beneath it, however deep", () => {
+    expect([...expandHeldScopes(["function.engineering"], REGISTRY)]).toEqual([
+      "function.engineering",
+      "function.engineering.frontend",
+      "function.engineering.frontend.a11y",
+    ]);
+  });
+
+  it("does not reach up from a child to its parent", () => {
+    expect([...expandHeldScopes(["function.engineering.frontend"], REGISTRY)]).toEqual([
+      "function.engineering.frontend",
+      "function.engineering.frontend.a11y",
+    ]);
+  });
+
+  it("does not reach a sibling that merely shares a prefix", () => {
+    expect(
+      expandHeldScopes(["function.engineering"], REGISTRY).has("function.engineering-legacy"),
+    ).toBe(false);
+  });
+
+  it("expands nothing for a scope the registry does not know", () => {
+    expect([...expandHeldScopes(["function.enginering"], REGISTRY)]).toEqual([]);
+  });
+
+  it("expands identically whatever order the held scopes arrive in", () => {
+    expect([...expandHeldScopes(["function.engineering.frontend", "core"], REGISTRY)]).toEqual([
+      ...expandHeldScopes(["core", "function.engineering.frontend"], REGISTRY),
+    ]);
+  });
+});
+
+describe("selection by scope", () => {
+  it("selects only what a held scope's subtree declares — nothing is implicit", async () => {
     const engineering = await bundle(["function.engineering"]);
 
-    expect(engineering.skills.map((skill) => skill.name)).toEqual([ENGINEERING_SKILL]);
+    expect(engineering.skills.map((skill) => skill.name)).toEqual([
+      FRONTEND_SKILL,
+      ENGINEERING_SKILL,
+    ]);
     expect(engineering.skills.map((skill) => skill.name)).not.toContain(CORE_SKILL);
   });
 
   it("selects the union when both scopes are held", async () => {
     const both = await bundle(["core", "function.engineering"]);
 
-    expect(both.skills.map((skill) => skill.name)).toEqual([CORE_SKILL, ENGINEERING_SKILL]);
+    expect(both.skills.map((skill) => skill.name)).toEqual([
+      CORE_SKILL,
+      FRONTEND_SKILL,
+      ENGINEERING_SKILL,
+    ]);
   });
 
-  it("does not descend into a nested scope", async () => {
+  it("does not cross into another branch of the tree", async () => {
     for (const scopes of [["function.engineering"], ["core", "function.engineering"]]) {
       const resolved = await bundle(scopes);
-      expect(resolved.skills.map((skill) => skill.name)).not.toContain(FRONTEND_SKILL);
       expect(resolved.skills.map((skill) => skill.name)).not.toContain(PROJECT_SKILL);
     }
   });
 
-  it("does not reach up from a nested scope to its parent", async () => {
+  it("does not reach up from a nested scope to its parent, nor to core", async () => {
     const frontend = await bundle(["function.engineering.frontend"]);
 
     expect(frontend.skills.map((skill) => skill.name)).toEqual([FRONTEND_SKILL]);
+    expect(frontend.mcps).toEqual([]);
   });
 
   it("yields an empty bundle for an empty scope list", async () => {
@@ -180,8 +237,10 @@ describe("selection by exact scope", () => {
     expect((await bundle(["core"])).mcps).toEqual([]);
   });
 
-  it("unions env across the selected skills and servers", async () => {
-    const wide = await bundle(["function.engineering", "function.engineering.frontend"]);
+  it("unions env across the whole subtree it selected", async () => {
+    // ACME_FIGMA_TOKEN comes from the nested frontend skill, SCOPED_API_KEY from the server the
+    // parent scope selects, so one held scope must produce both.
+    const wide = await bundle(["function.engineering"]);
 
     expect(wide.env).toEqual(["ACME_FIGMA_TOKEN", "SCOPED_API_KEY"]);
   });
@@ -205,14 +264,17 @@ describe("ambit resolve", () => {
         "  core",
         "  function.engineering",
         "",
-        "skills (2)",
-        `  ${CORE_SKILL}  ${CATALOG_NAME}`,
-        `  ${ENGINEERING_SKILL}  ${CATALOG_NAME}`,
+        // The catalog column is padded out to the widest name, so it lines up down the section.
+        "skills (3)",
+        `  ${CORE_SKILL.padEnd(FRONTEND_SKILL.length)}  ${CATALOG_NAME}`,
+        `  ${FRONTEND_SKILL}  ${CATALOG_NAME}`,
+        `  ${ENGINEERING_SKILL.padEnd(FRONTEND_SKILL.length)}  ${CATALOG_NAME}`,
         "",
         "mcps (1)",
         `  scoped  ${CATALOG_NAME}`,
         "",
-        "env (1)",
+        "env (2)",
+        "  ACME_FIGMA_TOKEN",
         "  SCOPED_API_KEY",
       ].join("\n"),
     );
