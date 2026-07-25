@@ -708,7 +708,7 @@ runs the whole pipeline against a local fixture before any git, lock, or prune l
   `requires`, cycles, name↔path mismatches, and shadowing; exits 3 with all problems listed,
   not just the first.
 
-- [ ] **A24 — `ambit doctor`.**
+- [x] **A24 — `ambit doctor`.**
   **Depends:** A23
   **Done when:** Reports every env var the bundle's skills and MCPs declare that is absent
   from the environment, naming which skill or server wants each one; reports drift against

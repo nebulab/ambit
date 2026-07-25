@@ -78,6 +78,20 @@ function interpolate(value: string, env: Readonly<Record<string, string | undefi
 }
 
 /**
+ * Every `${VAR}` name a value still references.
+ *
+ * Exported for `doctor`, which is the surface spec §5 names for a missing variable. Run over a value
+ * {@link interpolate} has already been through, what is left is exactly the set of variables the
+ * environment did not supply — so `doctor` reads the fact off the plan instead of re-deciding it, and
+ * a change to what counts as a placeholder cannot leave the two disagreeing.
+ */
+export function envPlaceholders(value: string): readonly string[] {
+  return [...value.matchAll(ENV_PLACEHOLDER)].flatMap((match) =>
+    match[1] === undefined ? [] : [match[1]],
+  );
+}
+
+/**
  * Maps one entity's transport onto the harness's server shape (spec §5).
  *
  * `type` is emitted for `http` because the harness treats a server without one as stdio, and

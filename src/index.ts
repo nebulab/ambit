@@ -13,6 +13,7 @@ export {
   CLAUDE_MCP_SECTION,
   CLAUDE_SKILLS_DIR,
   claudeAdapter,
+  envPlaceholders,
 } from "./adapters/claude.js";
 export {
   MCPS_DIRNAME,
@@ -66,6 +67,23 @@ export type {
   SkillRequest,
   SourceSkillRequest,
 } from "./config.js";
+export {
+  DOCTOR_CHECKS,
+  DOCTOR_SEVERITIES,
+  diagnoseProject,
+  doctorFailures,
+  doctorWarnings,
+  isHealthy,
+} from "./doctor.js";
+export type {
+  CheckResult,
+  CheckStatus,
+  DoctorCheck,
+  DoctorFinding,
+  DoctorOptions,
+  DoctorReport,
+  DoctorSeverity,
+} from "./doctor.js";
 export {
   CACHE_DIRNAME,
   REPOS_DIRNAME,
@@ -173,7 +191,7 @@ export {
   writeState,
 } from "./state.js";
 export type { ArtifactKind, ArtifactMode, OwnedArtifact, State } from "./state.js";
-export { ARTIFACT_STATES, isClean, projectStatus, statusDrift } from "./status.js";
+export { ARTIFACT_STATES, isClean, projectStatus, statusDrift, statusOfPlan } from "./status.js";
 export type { ArtifactState, ProjectStatus, StatusArtifact, StatusOptions } from "./status.js";
 export {
   VALIDATION_PROBLEM_KINDS,

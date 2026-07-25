@@ -413,6 +413,25 @@ async function compareArtifacts(
 }
 
 /**
+ * Compares an already-planned install against the project — the comparison without the resolution.
+ *
+ * Exported for `doctor` (spec §6), which needs both this verdict and the rest of `planInstall`'s
+ * output and must not resolve the project twice to get them. Taking the plan as an argument is what
+ * keeps the two commands from being able to disagree: there is one comparison, and `status` is it.
+ *
+ * @param plan every adapter's planned artifacts, flattened.
+ * @param prior what the last install recorded owning.
+ * @throws {AmbitError} exit 2 for a target that cannot be inspected or a config file that cannot be
+ *   parsed.
+ */
+export async function statusOfPlan(
+  plan: readonly PlannedArtifact[],
+  prior: State,
+): Promise<ProjectStatus> {
+  return { artifacts: await compareArtifacts(plan, prior) };
+}
+
+/**
  * Compares a project against what resolution now produces.
  *
  * Plans through the adapters rather than reasoning about state alone, because the question is what
@@ -442,5 +461,5 @@ export async function projectStatus(
   const project: ProjectPaths = { root: projectDir, env: process.env };
   const plan = adapters.flatMap((adapter) => adapter.plan(bundle, project));
 
-  return { artifacts: await compareArtifacts(plan, await readState(projectDir)) };
+  return statusOfPlan(plan, await readState(projectDir));
 }

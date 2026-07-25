@@ -3,11 +3,33 @@
 Rewritten by each Ralph iteration for the next one. Short, current, and only what would cost
 real time to rediscover — see `PROMPT.md` §6.
 
-Last iteration: **A23 — `ambit validate`** (the tip of `main`). Next task is **A24 — `ambit
-doctor`**, whose `Depends: A23` is now checked.
+Last iteration: **A24 — `ambit doctor`** (the tip of `main`). Next task is **A25 — `ambit scopes`
+and `ambit init`**, whose `Depends: A24` is now checked.
 
 ## Constraints later tasks inherit
 
+- **`src/doctor.ts` is the whole of `doctor`, and it runs one resolution.** `diagnoseProject` calls
+  `planInstall` (bundle, artifacts, prior state, lock bytes) and then `statusOfPlan` — newly exported
+  from `src/status.ts` — so `doctor` and `status` cannot disagree about an artifact and `doctor` and
+  `install --frozen` cannot disagree about the lock. **Do not call `projectStatus` from a command that
+  already has a plan**; that would resolve twice.
+- **`doctor` has five checks, in a declared order that is also the report order** (`DOCTOR_CHECKS` =
+  `env, lock, ownership, drift, mode`), and **two severities**. Only `fail` reaches exit 6; `warn`
+  exits 0. Mode divergence is the only warning, which is what settles A20's objection: a project
+  installed with `--copy` reports three warnings and still passes. An unset env var *is* a failure —
+  spec §5's "warning, not a failure" governs install, and doctor exists precisely to fail on it.
+- **The `drift` check owns the managed `.gitignore` block**, since it has no state entry and therefore
+  no `status` row. It asks `updateGitignoreText` whether the file would change, exactly as
+  `previewInstall` does. `unowned` is deliberately excluded from `drift` — it is the `ownership`
+  check's, and reporting it twice would double every finding about a crashed install.
+- **`doctor` writes its own lock message rather than reusing `assertLockCurrent`**, whose text names
+  `--frozen` and interpolates the project's **absolute path**. Nothing in a report may carry a machine
+  path (a test asserts it). The two say the same thing in different words; keep them in step by hand.
+- **`envPlaceholders(value)` is exported from `src/adapters/claude.ts`** so `doctor` reads leftover
+  `${VAR}`s off the *planned* config values instead of re-deciding what a placeholder is. Anything that
+  changes interpolation must keep the two in one place.
+- **The `mode` check only looks at artifacts `status` called `ok`**, and reads the mode off disk with
+  `lstat` (not off state's recorded `mode`), so it cannot contradict what `status` reports.
 - **`src/validate.ts` is the whole of `validate`, and `validateCatalog(merged, { config, parsed })` is
   pure** — that is the function B04–B07 call to satisfy spec §6 authoring rule 4 ("validate before
   writing"). Two I/O wrappers sit beside it: `validateProject(context)` runs the same
@@ -39,7 +61,7 @@ doctor`**, whose `Depends: A23` is now checked.
   company one therefore *fails* `validate` while installing fine. **Worth a second opinion**; the
   alternative reading is that shadowing is only a problem in `--catalog` mode.
 - **`validate` reports nothing about env vars, the lock, ownership, or drift** — all four are
-  **A24's `doctor`**, which should build on `projectStatus` and the bundle's `env`.
+  `doctor`'s, and all four are now built.
 - **Everything up to the first write is `planInstall` in `src/install.ts`** — config, catalogs,
   resolution, the lock bytes, `readState`, and every adapter's plan — and `previewInstall` is that
   plan rendered for `--dry-run` rather than applied. `installProject` and `pruneProject` both start
@@ -49,8 +71,8 @@ doctor`**, whose `Depends: A23` is now checked.
   *after* `readState`, so an unreadable state file is exit 2 where it used to be exit 5. Both write
   nothing.
 - **`--dry-run` is implemented for `install`, `prune` and `clean`, and there is no `UNIMPLEMENTED`
-  map any more.** Every remaining declared-but-unbuilt command (`init`, `scopes`, `validate`,
-  `doctor`) is caught by `notImplemented` in `commands.ts` instead. **A new mutating command is given
+  map any more.** Every remaining declared-but-unbuilt command (`init`, `scopes`) is caught by
+  `notImplemented` in `commands.ts` instead. **A new mutating command is given
   `--dry-run` by `buildCommand` automatically**, so a handler that ignores it silently mutates under a
   flag that promises not to — read `dryRunRequested(ctx)` or you have shipped that bug.
 - **`--dry-run` checks ownership and `--frozen` on purpose.** A preview of an install that would be
@@ -127,8 +149,8 @@ doctor`**, whose `Depends: A23` is now checked.
   `linkVerdict` in `src/status.ts`). So a project installed with `--copy` whose copies are intact reads
   **clean** even though a plain `install` would relink it: mode is a per-run choice, both modes put
   identical bytes in front of the harness, and treating divergence as drift would leave anyone who uses
-  the flag with a `status --check` that can never pass. **Reporting mode divergence is A24's
-  `doctor`.** Worth a second opinion.
+  the flag with a `status --check` that can never pass. **Mode divergence is `doctor`'s, as a warning**
+  that never reaches exit 6.
 - **Editing a linked skill edits the catalog, and that is never drift.** Content drift is only a
   question about a copy.
 - **`--copy`/`--link` mutual exclusion is enforced in `installHandler`, not by Commander's
@@ -141,9 +163,8 @@ doctor`**, whose `Depends: A23` is now checked.
   install does** and then compares, writing nothing. Every row is one artifact and one `ArtifactState`
   (`missing | modified | ok | stale | unowned`), so the whole report answers one question: would
   `ambit install` change this? **Drift is never an error**: `statusHandler` prints the table and
-  *returns* `ExitCode.Drift` under `--check`. **A24's `doctor` should build on `projectStatus`** and add
-  what it deliberately leaves out: lock drift (status never reads `ambit.lock`), env vars, and mode
-  divergence.
+  *returns* `ExitCode.Drift` under `--check`. **`statusOfPlan(plan, prior)` is that comparison without
+  the resolution**, exported for `doctor`; a third caller with a plan in hand should use it too.
 - **A copied skill's contents are compared against its `source`, so status reports upstream change,
   not only local edits.** One difference is reported, the first in sorted order, and a file that cannot
   be read counts as differing.
@@ -178,7 +199,7 @@ doctor`**, whose `Depends: A23` is now checked.
   byte-for-byte spec §6's example, so **do not reword it without changing the spec**.
 - **A crash mid-`apply` still costs a `--adopt`.** State is written last (§5 rule 4), so artifacts from
   a failed run are present-but-unowned and the next plain `install` refuses them — `status` reports them
-  as `unowned` before that happens. **A24's `doctor` is what should explain it.**
+  as `unowned` before that happens, and **`doctor`'s `ownership` check explains it and names `--adopt`**.
 - **Shadowing is *not* a `SelectionReason`.** `MergedCatalog` carries `shadowing: { skills, mcps }` —
   name-keyed maps of `Shadowing = { name, catalog, shadows[] }`, `shadows` in config order — and
   `formatShadowing` renders spec §6's `catalog:company (shadows personal)`. Deliberately *beside* the
@@ -216,8 +237,8 @@ doctor`**, whose `Depends: A23` is now checked.
   about the config entry, not the directory, so a catalog parsed straight off disk
   (`validate --catalog`) has none.
 - **`--frozen`, `--adopt`, `--copy`, `--link`, `--dry-run`, `status --check` and `validate --catalog`
-  are implemented.** The unbuilt commands are `init`, `scopes`, `doctor`, and the whole `catalog`
-  authoring group; each is caught by `notImplemented` in `commands.ts`.
+  are implemented.** The unbuilt commands are `init`, `scopes`, and the whole `catalog` authoring
+  group; each is caught by `notImplemented` in `commands.ts`.
 - **Every source resolves through `src/sources.ts`** (§3.1 grammar) returning
   `ResolvedSource = { root, commit? }`. `loadCatalogs`, `mergeConfigEntities`, `loadSourceSkill` and
   `resolveCatalogRoot` take a `SourceContext` (`{ projectDir, env }`); `env` is where the cache location
@@ -258,7 +279,8 @@ doctor`**, whose `Depends: A23` is now checked.
   threshold `max(2, floor(len/3))`, ties by the registry's sorted order. **Explicit skill names and
   `ambit why` arguments get no suggestion.**
 - `${VAR}` in http `headers` is interpolated at install (spec §5); an unset variable leaves its
-  placeholder rather than emptying the value, and **A24's `doctor` reports it**. `status` interpolates
+  placeholder rather than emptying the value, and **`doctor`'s `env` check reports it**, reading the
+  leftover placeholder off the plan. `status` interpolates
   from the same `process.env`, so a variable that changed between two runs *is* drift.
 - **`ProjectPaths` carries `env` and `mode?`**, both supplied by `planInstall` (and `env` by
   `projectStatus`), so `claudeAdapter.plan` stays pure.
@@ -267,16 +289,14 @@ doctor`**, whose `Depends: A23` is now checked.
 
 - Nothing prunes the cache, and nothing locks it against a concurrent ambit (`loadCatalogs` is
   sequential for that reason). No task owns cache GC; raise it if it matters.
-- Nothing *checks* the managed gitignore block: `status` has no row for it, and no command reports a
-  block someone edited or deleted (the next install silently fixes it, and `install --dry-run` will say
-  the file would change). **A24's `doctor`** is where that belongs if it matters.
-- **`prune` leaves `ambit.lock` stale** and nothing warns about it; `clean` leaves the lock, an emptied
-  `mcpServers`, and an empty `.claude/skills`. All deliberate (see above). `doctor` is the command that
-  could report the first.
+- **`prune` leaves `ambit.lock` stale**, and `doctor`'s `lock` check is the only thing that says so;
+  `clean` leaves the lock, an emptied `mcpServers`, and an empty `.claude/skills`, and nothing reports
+  any of those three. All deliberate (see above).
 - **Nothing persists a materialization mode.** `--copy`/`--link` are per-run (spec §5) and there is no
   config key for them. Fixing that is a config change and a spec change, not an adapter change.
-- `status` reports artifacts only: no lock drift, no env vars, no harness list, no mode divergence —
-  **A24's `doctor`**. `validate` adds none of those four either.
+- `status` reports artifacts only: no lock drift, no env vars, no mode divergence — those three are
+  `doctor`'s. **No command reports the configured harnesses**, and none owns that; `validate` adds none
+  of the four.
 - **Nothing validates a catalog's *reachability*** — a registered scope nothing declares, an item no
   scope and no `requires` reaches. That is deliberately **B09's `catalog audit`**, not `validate`:
   dead weight is a smell, not a broken catalog.
@@ -337,6 +357,12 @@ doctor`**, whose `Depends: A23` is now checked.
   and four artifacts set the column widths. Those three files stub `SCOPED_API_KEY` to `undefined` in
   `beforeEach` because the fixture interpolates it into a header. Any new test that installs and asserts
   file contents needs the same discipline.
+- **`test/doctor.test.ts` stubs env vars per `describe`, not in the shared `beforeEach`**, because which
+  of them are set is the subject of the first check. The trap is the interaction with the others: the
+  env-failure block installs with **both vars unset** so `.mcp.json` holds the placeholder and the
+  `drift` check stays quiet, while every other block sets both **before** installing. Set a var after
+  the install and `.mcp.json` becomes `modified`. Its healthy case pins the whole five-row `checks`
+  table plus both empty finding lists byte-for-byte, so a new check means editing `HEALTHY_REPORT`.
 - **The fixture catalog must stay cycle-free, dangling-free, and exactly 4 scopes / 4 skills / 2
   mcps**: `test/validate.test.ts` asserts `ambit validate` against it reports byte-for-byte
   `checked 4 scopes, 4 skills, 2 mcps` and `problems (0)`, and several of its cases add one item and

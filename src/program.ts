@@ -5,6 +5,7 @@ import { COMMAND_SPECS, buildCommand } from "./commands.js";
 import { AmbitError, ExitCode } from "./errors.js";
 import { catalogHandler } from "./handlers/catalog.js";
 import { cleanHandler } from "./handlers/clean.js";
+import { doctorHandler } from "./handlers/doctor.js";
 import { installHandler } from "./handlers/install.js";
 import { pruneHandler } from "./handlers/prune.js";
 import { resolveHandler } from "./handlers/resolve.js";
@@ -19,6 +20,7 @@ export type Io = Pick<CommandContext, "cwd" | "stdout" | "stderr">;
 export const HANDLERS: CommandHandlers = {
   catalog: catalogHandler,
   clean: cleanHandler,
+  doctor: doctorHandler,
   install: installHandler,
   prune: pruneHandler,
   resolve: resolveHandler,
