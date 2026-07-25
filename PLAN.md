@@ -648,7 +648,7 @@ runs the whole pipeline against a local fixture before any git, lock, or prune l
   path-source version; a second run hits the cache without fetching.
 
 - [ ] **A14 — `ambit.lock`.**
-  **Depends:** A14
+  **Depends:** A13
   **Done when:** Install writes a sorted, timestamp-free YAML lock with no anchors or
   aliases; the same inputs produce a byte-identical file; a commit SHA that looks numeric
   round-trips as a quoted string; `--frozen` exits 5 when resolution would change it.
