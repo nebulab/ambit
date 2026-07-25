@@ -509,7 +509,7 @@ runs the whole pipeline against a local fixture before any git, lock, or prune l
   one scoped, one reachable only via `requires`.
   **Done when:** Idempotent, and a test asserts the fixture's contents.
 
-- [ ] **A03 — Config loading.**
+- [x] **A03 — Config loading.**
   **Depends:** A02
   **Do:** Build the shared YAML loader enforcing every §3.0 rule, then parse and validate
   `ambit.yml` per §3.1 on top of it. Unknown keys are an error, not a warning. Every later
