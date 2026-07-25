@@ -9,7 +9,12 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { AmbitError, ExitCode } from "../src/errors.js";
-import { parseYamlMapping, readYamlMapping } from "../src/yaml.js";
+import {
+  parseFrontmatterMapping,
+  parseYamlMapping,
+  readFrontmatterMapping,
+  readYamlMapping,
+} from "../src/yaml.js";
 
 /** Runs `body`, asserting it rejected the document as a config error (exit 2). */
 function rejection(body: () => unknown): AmbitError {
@@ -270,6 +275,84 @@ describe("YAML loader", () => {
       expect(rejection(() => load("version: 1.5\n").requireInteger("version")).format()).toContain(
         "found a number",
       );
+    });
+  });
+
+  describe("frontmatter", () => {
+    const DOC = "SKILL.md";
+
+    function frontmatter(text: string) {
+      return parseFrontmatterMapping(text, DOC);
+    }
+
+    it("parses the block under the same rules as a file", () => {
+      const root = frontmatter(
+        ["---", "name: acme.sales.use-close", "scopes: [function.sales]", "---", "", "# Close", ""].join("\n"),
+      );
+
+      expect(root.keys()).toEqual(["name", "scopes"]);
+      expect(root.requireString("name")).toBe("acme.sales.use-close");
+      expect(root.optionalStringList("scopes")).toEqual(["function.sales"]);
+    });
+
+    it("reports lines of the document, not of the block", () => {
+      // The reader is told a line number to go to, so it has to be the document's own.
+      const text = ["---", "name: acme.a", "ref: 1e5", "---", "body", ""].join("\n");
+
+      expect(rejection(() => frontmatter(text).requireString("ref")).format()).toContain(
+        `(${DOC} line 3)`,
+      );
+    });
+
+    it("applies every §3.0 rule to the block", () => {
+      const duplicate = ["---", "name: a", "name: b", "---", ""].join("\n");
+      expect(rejection(() => frontmatter(duplicate)).message).toBe(
+        `duplicate key "name" (${DOC} line 3)`,
+      );
+
+      const tabbed = ["---", "scopes:", "\t- core", "---", ""].join("\n");
+      expect(rejection(() => frontmatter(tabbed)).message).toContain("does not permit tabs");
+    });
+
+    it("rejects a document with no block", () => {
+      expect(rejection(() => frontmatter("# Close\n")).message).toBe(
+        `${DOC} has no frontmatter block`,
+      );
+    });
+
+    it("rejects a block holding nothing", () => {
+      for (const text of ["---\n---\n", "---\n\n---\n", "---\n# only a comment\n---\n"]) {
+        expect(rejection(() => frontmatter(text)).message).toBe(
+          `${DOC} has an empty frontmatter block`,
+        );
+      }
+    });
+
+    it("rejects a non-mapping block", () => {
+      expect(rejection(() => frontmatter("---\n- core\n---\n")).message).toContain(
+        "root is not a mapping",
+      );
+    });
+
+    it("rejects a language tag naming anything but YAML", () => {
+      expect(rejection(() => frontmatter('---json\n{"name": "a"}\n---\n')).message).toBe(
+        `${DOC} declares its frontmatter as "json"`,
+      );
+      expect(rejection(() => frontmatter('---toml\nname = "a"\n---\n')).message).toBe(
+        `cannot read the frontmatter of ${DOC}`,
+      );
+    });
+
+    it("reads a file and names it as asked in errors", async () => {
+      const dir = await mkdtemp(path.join(tmpdir(), "ambit-frontmatter-"));
+      try {
+        const target = path.join(dir, "SKILL.md");
+        await writeFile(target, "---\nname: acme.a\n---\n", "utf8");
+
+        expect((await readFrontmatterMapping(target, DOC)).file).toBe(DOC);
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
     });
   });
 

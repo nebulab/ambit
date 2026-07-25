@@ -12,6 +12,7 @@
  */
 import { readFile } from "node:fs/promises";
 
+import matter from "gray-matter";
 import type { Pair, YAMLMap } from "yaml";
 import { LineCounter, isMap, isScalar, isSeq, parseDocument, visit } from "yaml";
 
@@ -480,20 +481,100 @@ export function parseYamlMapping(text: string, file: string): YamlMapping {
 }
 
 /**
- * Reads and parses a YAML file.
- *
- * @param path the file to read.
- * @param file how it is named in error messages. Defaults to `path`.
+ * Neutralizes gray-matter's own parsing. It is used only to find where the frontmatter block
+ * starts and ends; the block's contents go through {@link parseYamlMapping}, so that js-yaml
+ * never sees ambit's YAML and cannot accept what §3.0 rejects.
  */
-export async function readYamlMapping(path: string, file = path): Promise<YamlMapping> {
-  let text: string;
+const NO_PARSE = { parse: (): object => ({}) };
+
+const FRONTMATTER_LANGUAGE = "yaml";
+
+/**
+ * gray-matter sets `isEmpty` for a block that holds nothing but comments, which its own types
+ * omit. Worth keeping: it is the difference between "empty frontmatter" and a parse error.
+ */
+type ParsedFrontmatter = matter.GrayMatterFile<string> & { readonly isEmpty?: boolean };
+
+/**
+ * Parses the frontmatter block of a Markdown document — `SKILL.md`'s, in practice — under the
+ * same §3.0 rules as a standalone YAML file.
+ *
+ * Reported lines are lines of the whole document rather than of the extracted block, because a
+ * reader told "line 4" must be able to go to line 4 of the file named. That comes for free:
+ * gray-matter's `matter` keeps the newline that follows the opening delimiter, so the block
+ * arrives already offset by the one line the delimiter occupies.
+ *
+ * @param text the whole document, frontmatter included.
+ * @param file how it is named in error messages.
+ * @throws {AmbitError} exit 2 if there is no frontmatter, or it violates a §3.0 rule.
+ */
+export function parseFrontmatterMapping(text: string, file: string): YamlMapping {
+  const missing = configError(`${file} has no frontmatter block`, [
+    "expected the document to open with a `---` delimited YAML block",
+    "add one, starting on the first line",
+  ]);
+
+  let document: ParsedFrontmatter;
   try {
-    text = await readFile(path, "utf8");
+    document = matter(text, {
+      language: FRONTMATTER_LANGUAGE,
+      engines: { javascript: NO_PARSE, json: NO_PARSE, yaml: NO_PARSE },
+    });
+  } catch (error) {
+    // Reached only by an unrecognized language tag, which gray-matter rejects on its own terms.
+    throw configError(`cannot read the frontmatter of ${file}`, [
+      error instanceof Error ? error.message : String(error),
+      "write it as a plain `---` delimited YAML block",
+    ]);
+  }
+
+  // `isEmpty` distinguishes a block holding nothing from a document with no block at all — for
+  // `---` immediately followed by `---`, gray-matter reports both, and the former is the useful
+  // thing to say.
+  if (document.isEmpty === true) {
+    throw configError(`${file} has an empty frontmatter block`, [
+      "expected a YAML mapping between the `---` delimiters",
+      "add the keys this format requires",
+    ]);
+  }
+  if (document.matter === "") throw missing;
+  if (document.language !== FRONTMATTER_LANGUAGE) {
+    throw configError(`${file} declares its frontmatter as "${document.language}"`, [
+      "ambit reads frontmatter as YAML",
+      `remove the language tag after the opening \`---\`, or write \`---${FRONTMATTER_LANGUAGE}\``,
+    ]);
+  }
+
+  return parseYamlMapping(document.matter, file);
+}
+
+async function readText(target: string, file: string): Promise<string> {
+  try {
+    return await readFile(target, "utf8");
   } catch (error) {
     throw configError(`cannot read ${file}`, [
       error instanceof Error ? error.message : String(error),
       "check the path and its permissions",
     ]);
   }
-  return parseYamlMapping(text, file);
+}
+
+/**
+ * Reads and parses a YAML file.
+ *
+ * @param path the file to read.
+ * @param file how it is named in error messages. Defaults to `path`.
+ */
+export async function readYamlMapping(path: string, file = path): Promise<YamlMapping> {
+  return parseYamlMapping(await readText(path, file), file);
+}
+
+/**
+ * Reads a Markdown file and parses its frontmatter block.
+ *
+ * @param path the file to read.
+ * @param file how it is named in error messages. Defaults to `path`.
+ */
+export async function readFrontmatterMapping(path: string, file = path): Promise<YamlMapping> {
+  return parseFrontmatterMapping(await readText(path, file), file);
 }

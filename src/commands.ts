@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import { Command, Option } from "commander";
 
 import { AmbitError, ExitCode } from "./errors.js";
@@ -91,6 +93,17 @@ export interface CommandContext {
 }
 
 export type CommandHandler = (ctx: CommandContext) => Promise<ExitCode> | ExitCode;
+
+/** The project directory a command acts on: `--project` if given, otherwise the cwd. */
+export function projectDirOf(ctx: CommandContext): string {
+  const given = ctx.options.project;
+  return typeof given === "string" ? path.resolve(ctx.cwd, given) : ctx.cwd;
+}
+
+/** Whether `--json` was requested. */
+export function jsonRequested(ctx: CommandContext): boolean {
+  return ctx.options.json === true;
+}
 
 /** Handlers, keyed by command name. Absent means declared-but-unimplemented. */
 export type CommandHandlers = Readonly<Record<string, CommandHandler>>;

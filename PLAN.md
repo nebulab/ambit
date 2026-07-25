@@ -519,7 +519,7 @@ runs the whole pipeline against a local fixture before any git, lock, or prune l
   tag, empty document, non-mapping root, unknown key, explicit null where a value is
   required, and `ref: 1234567` arriving as a number rather than a string.
 
-- [ ] **A04 — Catalog parsing, local paths only.**
+- [x] **A04 — Catalog parsing, local paths only.**
   **Depends:** A03
   **Do:** Read `scopes.yml`, `skills/**/SKILL.md` frontmatter, `mcps/*.yml` from a `path:`
   source. Enforce name↔path agreement.
