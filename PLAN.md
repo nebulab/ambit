@@ -690,10 +690,15 @@ runs the whole pipeline against a local fixture before any git, lock, or prune l
   **Done when:** Owned paths land in a delimited managed block that is rewritten in place
   across runs and never disturbs surrounding lines.
 
-- [ ] **A22 — `--dry-run` and `clean`.**
+- [ ] **A22 — `--dry-run`, `prune`, and `clean`.**
   **Depends:** A21
-  **Done when:** `--dry-run` prints the plan and touches nothing; `clean` removes every
-  owned artifact and leaves the project otherwise identical to before the first install.
+  **Do:** The three remaining §6 commands over machinery A18 and A21 already built.
+  `prune` is the install-time prune (A18) reached without materializing: it removes owned
+  artifacts absent from the current bundle and nothing else.
+  **Done when:** `--dry-run` prints the plan and touches nothing; `ambit prune` removes
+  owned artifacts not in the current bundle while leaving unowned files and the current
+  bundle intact; `clean` removes every owned artifact and leaves the project otherwise
+  identical to before the first install.
 
 ### Validation and health
 
