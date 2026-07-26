@@ -23,8 +23,8 @@ import {
 import type { ProjectPaths } from "../../src/harness/adapter.js";
 import type { HarnessProfile } from "../../src/harness/profile.js";
 import { SHARED_SKILLS_DIR, skippedHooks } from "../../src/harness/profile.js";
-import type { MergedMcp } from "../../src/model/catalog.js";
-import type { HookEntity, HookEvent } from "../../src/model/hook-entity.js";
+import type { MergedHook, MergedMcp } from "../../src/model/catalog.js";
+import type { HookEvent } from "../../src/model/hook-entity.js";
 import { HOOK_EVENTS } from "../../src/model/hook-entity.js";
 
 /** Where Claude Code and Cursor read skills, and so the one link ambit plans. */
@@ -320,8 +320,10 @@ describe("the hook each profile emits", () => {
   const PROJECT: ProjectPaths = { root: "/tmp/ambit-project" };
 
   /** A hook carrying both optional fields, which is where the shape has anything to say. */
-  const HOOK: HookEntity = {
+  const HOOK: MergedHook = {
     name: "block-rm",
+    catalog: "company",
+    shipsScript: false,
     scopes: [],
     env: [],
     event: "PreToolUse",
@@ -331,8 +333,10 @@ describe("the hook each profile emits", () => {
   };
 
   /** A hook carrying neither, on the event a `matcher` is not even allowed on. */
-  const BARE: HookEntity = {
+  const BARE: MergedHook = {
     name: "greet",
+    catalog: "company",
+    shipsScript: false,
     scopes: [],
     env: [],
     event: "SessionStart",
@@ -452,6 +456,97 @@ describe("the hook each profile emits", () => {
     expect(JSON.stringify(cursor.hookConfig?.(HOOK, PROJECT))).not.toBe(
       JSON.stringify(claude.hookConfig?.(HOOK, PROJECT)),
     );
+  });
+
+  /**
+   * The command a shipped script is written as, per harness.
+   *
+   * The one string that decides whether a materialized hook actually runs, and it is genuinely
+   * per-harness: a catalog declares `command: hook.sh`, which names a file relative to the hook's own
+   * directory in the catalog — a location no harness has ever heard of. So the rendered command has to
+   * say where the *installed* script is, spelled the way that harness resolves a path.
+   *
+   * Asserted as exact strings rather than by pattern, because a placeholder a harness does not
+   * interpolate is not a near miss: it is a hook that never fires, and it fails silently.
+   */
+  describe("a hook that ships its own script", () => {
+    /** The script-shipping counterpart of {@link HOOK}: the same declaration, `shipsScript` set. */
+    const SCRIPT: MergedHook = {
+      ...HOOK,
+      catalogRoot: "/catalogs/company",
+      path: "hooks/block-rm",
+      command: "hook.sh",
+      shipsScript: true,
+    };
+
+    /** The command out of one profile's rendering, whichever shape it wrote. */
+    function commandOf(profile: HarnessProfile, hook: MergedHook): string {
+      const emitted = profile.hookConfig?.(hook, PROJECT) as {
+        command?: string;
+        hooks?: readonly { command: string }[];
+      };
+      return emitted.command ?? emitted.hooks?.[0]?.command ?? "";
+    }
+
+    it("points Claude and VS Code at the project root through Claude's own placeholder", () => {
+      // `${CLAUDE_PROJECT_DIR}` is documented — by Claude — as interpolated in `command` and as holding
+      // the project root, so the script is found however deep in the tree the session's cwd sits. VS Code
+      // reads this same file and gets the same string, documented or not: a second spelling would put two
+      // entries in one array for one declared hook, and both harnesses would run both.
+      expect(commandOf(claude, SCRIPT)).toBe(
+        "${CLAUDE_PROJECT_DIR}/.agents/hooks/block-rm/hook.sh",
+      );
+      expect(commandOf(vscode, SCRIPT)).toBe(
+        "${CLAUDE_PROJECT_DIR}/.agents/hooks/block-rm/hook.sh",
+      );
+    });
+
+    it("writes Cursor and Codex a project-relative path, and no subshell", () => {
+      // Neither interpolates anything in a `command`, so the path as written is all there is. Codex's
+      // own docs suggest `$(git rev-parse --show-toplevel)/…`; ambit does not write it — it assumes git
+      // and a POSIX shell, and a config file holding a subshell is not a value a reader can check.
+      expect(commandOf(cursor, SCRIPT)).toBe(".agents/hooks/block-rm/hook.sh");
+      expect(commandOf(codex, SCRIPT)).toBe(".agents/hooks/block-rm/hook.sh");
+      for (const profile of [cursor, codex]) {
+        expect(commandOf(profile, SCRIPT)).not.toContain("git rev-parse");
+        expect(commandOf(profile, SCRIPT)).not.toContain("${");
+      }
+    });
+
+    it("gives Codex a different command from Claude's, sharing the entry shape and not the path", () => {
+      // Which is why `root` is a parameter of the Claude renderer rather than a constant inside it: the
+      // three harnesses agree on the shape of an entry and disagree on how to name a file.
+      expect(commandOf(codex, SCRIPT)).not.toBe(commandOf(claude, SCRIPT));
+      expect(Object.keys(claude.hookConfig?.(SCRIPT, PROJECT) as object)).toEqual(
+        Object.keys(codex.hookConfig?.(SCRIPT, PROJECT) as object),
+      );
+    });
+
+    it("rewrites the program and keeps every argument", () => {
+      // `command` is a shell fragment ambit does not parse, so only the first token — the one thing that
+      // can name a shipped file — is rewritten. An argument that happens to look like a path is the
+      // program's business, not ambit's.
+      const withArgs: MergedHook = { ...SCRIPT, command: "./hook.sh --strict bin/other" };
+
+      expect(commandOf(claude, withArgs)).toBe(
+        "${CLAUDE_PROJECT_DIR}/.agents/hooks/block-rm/hook.sh --strict bin/other",
+      );
+      expect(commandOf(cursor, withArgs)).toBe(".agents/hooks/block-rm/hook.sh --strict bin/other");
+    });
+
+    it("leaves a hook that ships nothing exactly as declared", () => {
+      // The command line case, which is most hooks: prefixing `npx --yes prettier` with a directory
+      // would break it, and there are no bytes at that directory to point at anyway.
+      const inline: MergedHook = { ...HOOK, command: "npx --yes prettier --check" };
+
+      for (const profile of [claude, codex, cursor, vscode]) {
+        expect(commandOf(profile, inline), profile.name).toBe("npx --yes prettier --check");
+      }
+      // Including one whose command reads as a path but ships nothing: `shipsScript` is the answer, and
+      // the catalog derived it by looking. Rewriting on the spelling alone would point at a file the
+      // hook's directory never held.
+      expect(commandOf(claude, HOOK)).toBe("./bin/block-rm");
+    });
   });
 
   it("resolves no variable in a command, and rewrites no reference either", () => {

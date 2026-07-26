@@ -203,7 +203,7 @@ lands in the volatile `.agents/.gitignore` block.
 
 ## 10. Per-harness command rewriting
 
-- [ ] The command a shipped script is written as.
+- [x] The command a shipped script is written as.
 
 **Slice** — the materialized script is actually reachable from each harness.
 
@@ -217,6 +217,16 @@ a hook under `.agents/` rather than `.cursor/`. Record what you found in the com
 turns out false, stop and note it here rather than inventing a workaround.
 
 **Done when** — an install test per harness pinning the written command string.
+
+> found (task 10): Cursor's half of §6 holds — its docs say project hooks "run from the project root"
+> and warn that `./hooks/script.sh` "would look for `<project>/hooks/script.sh`", which is this exact
+> case and scopes nothing to `.cursor/` (cursor.com/docs/hooks). VS Code's half is **not documented
+> either way**: VS Code documents reading `.claude/settings.json` and parsing Claude's hook format, and
+> documents expanding `${CLAUDE_PLUGIN_ROOT}` in a hook command for Claude-format plugins, but mentions
+> no project-root token anywhere (code.visualstudio.com/docs/agent-customization/hooks and
+> /agent-plugins, 7/15/2026; docs.github.com/en/copilot/reference/hooks-configuration). Not false, so
+> §6's table is implemented as written — one string in `definitions.ts` if it ever needs revisiting. If
+> it does bite, §6 puts a harness limitation ambit cannot write around in `doctor` (task 13).
 
 > note (task 9): the seam is `HarnessProfile.hookConfig` — `claudeHook` and `cursorHook` in
 > `harness/definitions.ts`, which today write `hook.command` verbatim. Both need `MergedHook` rather than

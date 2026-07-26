@@ -19,6 +19,7 @@
  * while configuring it is told the hook was skipped (`skippedHooks`, `profile.ts`).
  */
 import type { HarnessProfile, HookLayout } from "./profile.js";
+import { SHARED_HOOKS_DIR } from "./profile.js";
 import type { EnvRefStyle } from "./env.js";
 import {
   bracedRef,
@@ -28,8 +29,9 @@ import {
   soleReference,
   translateRefs,
 } from "./env.js";
-import type { MergedMcp } from "../model/catalog.js";
-import type { HookEntity, HookEvent } from "../model/hook-entity.js";
+import type { MergedHook, MergedMcp } from "../model/catalog.js";
+import { hookCommand } from "../model/catalog.js";
+import type { HookEvent } from "../model/hook-entity.js";
 
 /** Where Claude Code and Cursor look for skills. */
 const CLAUDE_SKILLS_LINK = ".claude/skills";
@@ -49,6 +51,35 @@ const CLAUDE_HOOKS: HookLayout = {
 };
 
 /**
+ * Where Claude Code resolves a materialized hook script from.
+ *
+ * `${CLAUDE_PROJECT_DIR}` is Claude's own documented placeholder, and its documentation says exactly
+ * what this is for: "use these placeholders to reference hook scripts relative to the project or plugin
+ * root, regardless of the working directory when the hook runs". So the script is found however deep in
+ * the tree a session's cwd happens to sit — which a relative path cannot promise.
+ *
+ * Written for VS Code too, which reads this same file. Whether VS Code interpolates it is *not*
+ * documented either way — see {@link vscode}, where that is set out.
+ */
+const CLAUDE_HOOK_ROOT = `\${CLAUDE_PROJECT_DIR}/${SHARED_HOOKS_DIR}`;
+
+/**
+ * Where the harnesses with no placeholder resolve one from: the path as written, project-relative.
+ *
+ * Cursor and Codex interpolate nothing in a `command`, so the plain project-relative path is all there
+ * is to write. Cursor documents the resolution and documents it as the project root's — "project hooks
+ * (`.cursor/hooks.json` in a repository): run from the project root" — with a caution that spells out
+ * this exact case: `./hooks/script.sh` "would look for `<project>/hooks/script.sh`". Nothing scopes it to
+ * `.cursor/`, so a script under `.agents/` is found the same way.
+ *
+ * Deliberately *not* Codex's own documented suggestion of `$(git rev-parse --show-toplevel)/…`: that
+ * assumes git and a POSIX shell, and a config file holding a subshell is the opposite of a value a reader
+ * can check. A relative path misses if a session's cwd is not the project root, which is the harness's
+ * own limitation and exactly what a person writing the hook by hand would hit.
+ */
+const RELATIVE_HOOK_ROOT = SHARED_HOOKS_DIR;
+
+/**
  * One hook, Claude-shaped: an entry in `hooks.<Event>` pairing an optional tool `matcher` with the
  * commands to run.
  *
@@ -58,17 +89,19 @@ const CLAUDE_HOOKS: HookLayout = {
  *
  * VS Code reads exactly this and ignores `matcher`, so it needs no rendering of its own. A second
  * spelling would put two entries in one array for one declared hook, which is the opposite of sharing
- * the file.
+ * the file. Codex reads it too, and differs in one string: `root`, which is why that is a parameter
+ * rather than a constant read from here — the three harnesses share an entry shape and not a way to
+ * name a file.
  *
  * Key order here is the digest's input, so it is fixed in this one place and read off nowhere else.
  */
-function claudeHook(hook: HookEntity): unknown {
+function claudeHook(hook: MergedHook, root: string): unknown {
   return {
     ...(hook.matcher !== undefined && { matcher: hook.matcher }),
     hooks: [
       {
         type: "command",
-        command: hook.command,
+        command: hookCommand(hook, root),
         ...(hook.timeout !== undefined && { timeout: hook.timeout }),
       },
     ],
@@ -140,11 +173,14 @@ const CURSOR_HOOKS: HookLayout = {
  * Cursor is a filter Cursor simply cannot express, and dropping it installs the hook unfiltered rather
  * than not at all.
  *
+ * A shipped script is named project-relative, because Cursor interpolates nothing in a `command` —
+ * {@link RELATIVE_HOOK_ROOT} is where that is argued.
+ *
  * Key order here is the digest's input, so it is fixed in this one place and read off nowhere else.
  */
-function cursorHook(hook: HookEntity): unknown {
+function cursorHook(hook: MergedHook): unknown {
   return {
-    command: hook.command,
+    command: hookCommand(hook, RELATIVE_HOOK_ROOT),
     ...(hook.timeout !== undefined && { timeout: hook.timeout }),
   };
 }
@@ -220,7 +256,7 @@ export const claude: HarnessProfile = {
     };
   },
   hooks: CLAUDE_HOOKS,
-  hookConfig: claudeHook,
+  hookConfig: (hook) => claudeHook(hook, CLAUDE_HOOK_ROOT),
 };
 
 /**
@@ -253,7 +289,16 @@ export const cursor: HarnessProfile = {
  * ambit does not write. Emitting one without the other would reference a prompt that does not exist.
  *
  * Its hooks are Claude's outright: it reads `.claude/settings.json` natively, so the profile names
- * Claude's layout and Claude's renderer rather than any of its own.
+ * Claude's layout and Claude's renderer rather than any of its own — including its `${CLAUDE_PROJECT_DIR}`
+ * spelling of a shipped script's path, which is the one thing here that is not documented either way.
+ * VS Code documents reading the file and parsing Claude's format; it documents expanding
+ * `${CLAUDE_PLUGIN_ROOT}` in a hook command for Claude-format plugins, and documents no project-root
+ * token at all. So this may be a literal `${CLAUDE_PROJECT_DIR}` to VS Code rather than a path.
+ *
+ * Written anyway, because the alternative is worse in a way this is not: a second spelling would put two
+ * entries in one array for one declared hook — VS Code would run both, and Claude would too — and every
+ * project reading the file would see the same hook twice. If it turns out to bite, it is one string in
+ * one place, and `doctor` is where §6 puts a harness limitation ambit cannot write its way out of.
  */
 export const vscode: HarnessProfile = {
   name: "vscode",
@@ -271,7 +316,7 @@ export const vscode: HarnessProfile = {
     };
   },
   hooks: CLAUDE_HOOKS,
-  hookConfig: claudeHook,
+  hookConfig: (hook) => claudeHook(hook, CLAUDE_HOOK_ROOT),
 };
 
 /**
@@ -311,7 +356,7 @@ export const codex: HarnessProfile = {
     };
   },
   hooks: CODEX_HOOKS,
-  hookConfig: claudeHook,
+  hookConfig: (hook) => claudeHook(hook, RELATIVE_HOOK_ROOT),
 };
 
 /**

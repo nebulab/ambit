@@ -25,6 +25,7 @@ export {
   SKILLS_DIRNAME,
   SKILL_FILENAME,
   formatShadowing,
+  hookCommand,
   loadCatalogs,
   loadSourceSkill,
   mergeCatalogs,

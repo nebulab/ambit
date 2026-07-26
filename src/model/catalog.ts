@@ -658,6 +658,42 @@ function readsAsPath(program: string): boolean {
   return program.includes(".");
 }
 
+/**
+ * The file a shipped script's program names, as its own directory holds it.
+ *
+ * `./hook.sh` and `hook.sh` name the same file — the `./` is a person saying "a path, not a command",
+ * which {@link readsAsPath} has already read off it. Dropped here so one spelling reaches disk, which
+ * is what lets {@link shipsScript} look for exactly what {@link hookCommand} later writes.
+ */
+function scriptReference(program: string): string {
+  return program.startsWith("./") ? program.slice(2) : program;
+}
+
+/**
+ * One hook's `command` as a harness should read it: a shipped script's path moved under `root`.
+ *
+ * The rewrite is the whole reason a hook can ship bytes. A catalog declares `command: hook.sh`, which
+ * names a file relative to the hook's own directory — a location that exists in the catalog and nowhere
+ * a harness looks. Once installed the script sits at `<root>/<name>/hook.sh`, and `root` is how each
+ * harness spells the way there — its profile's `hookConfig` chooses it (`harness/definitions.ts`).
+ *
+ * Only the program is rewritten. Everything after the first token is arguments, and a `command` is a
+ * shell fragment ambit does not parse: rewriting inside it would corrupt a quoted string or a path that
+ * means something to the program rather than to ambit. So `hook.sh --strict` becomes
+ * `<root>/<name>/hook.sh --strict`, and the arguments arrive exactly as written.
+ *
+ * A hook that ships nothing is returned verbatim, which is most of them: `npx --yes prettier` is a
+ * command line the harness runs as-is, and prefixing it with a directory would break it.
+ */
+export function hookCommand(hook: MergedHook, root: string): string {
+  if (!hook.shipsScript) return hook.command;
+
+  const command = hook.command.trim();
+  const program = commandProgram(command);
+  const script = `${root}/${hook.name}/${scriptReference(program)}`;
+  return `${script}${command.slice(program.length)}`;
+}
+
 /** Every file a hook's directory holds besides its own `HOOK.yml`, in path order. */
 async function hookDirectoryContents(
   files: CatalogFiles,
@@ -699,7 +735,7 @@ async function shipsScript(
   const program = commandProgram(command);
   if (!readsAsPath(program)) return false;
 
-  const reference = program.startsWith("./") ? program.slice(2) : program;
+  const reference = scriptReference(program);
   if (await files.isFile(`${directory}/${reference}`)) return true;
 
   const contents = await hookDirectoryContents(files, directory);

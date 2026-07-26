@@ -727,15 +727,25 @@ describe("a hook that ships its own script", () => {
   const SCRIPT_BODY = "#!/bin/sh\nexit 0\n";
 
   /**
+   * Where each harness family is pointed at the materialized script.
+   *
+   * The declaration is `command: hook.sh`, which names a file relative to the hook's directory *in the
+   * catalog* — so what reaches a config file has to name the installed copy instead, spelled the way
+   * that harness resolves a path. Claude and VS Code get Claude's documented `${CLAUDE_PROJECT_DIR}`;
+   * Cursor and Codex interpolate nothing, so they get the path project-relative.
+   */
+  const CLAUDE_COMMAND = `\${CLAUDE_PROJECT_DIR}/${HOOK_DIR}/${SCRIPT}`;
+  const RELATIVE_COMMAND = `${HOOK_DIR}/${SCRIPT}`;
+
+  /**
    * What the hook renders as in Claude's file.
    *
-   * `command` is the declaration verbatim, which is what this increment writes: rewriting it into the
-   * materialized path the way each harness resolves one is the next increment, and it lands in the
-   * profiles' own renderers. Kept in one place here so that when it changes, one constant changes.
+   * Kept in one place because the digest — and so every managed key state records — is taken over
+   * exactly these bytes: one constant changes when the rendering does.
    */
   const SCRIPT_ENTRY = {
     matcher: "Bash",
-    hooks: [{ type: "command", command: SCRIPT }],
+    hooks: [{ type: "command", command: CLAUDE_COMMAND }],
   };
 
   /** The inline hook in the same catalog, which ships nothing. */
@@ -752,8 +762,10 @@ describe("a hook that ships its own script", () => {
    *
    * Two hooks rather than one, because "only a script-shipping hook plans a directory" is half the
    * claim: an inline hook in the same bundle has to plan a config entry and nothing else.
+   *
+   * @param harnesses the `harnesses` list; the default is the one file most of these cases read.
    */
-  async function writeCatalog(): Promise<void> {
+  async function writeCatalog(harnesses: readonly string[] = ["claude"]): Promise<void> {
     const catalogDir = path.join(root, "catalog");
     const files: Readonly<Record<string, string>> = {
       "scopes.yml": "scopes:\n  core:\n    description: Everyone\n",
@@ -785,7 +797,7 @@ describe("a hook that ships its own script", () => {
     await writeFile(
       path.join(projectDir, "ambit.yml"),
       `version: 1
-harnesses: [claude]
+harnesses: [${harnesses.join(", ")}]
 catalogs:
   - name: company
     source: path:../catalog
@@ -833,6 +845,56 @@ scopes: [core]
     expect(
       (await stateArtifacts()).filter((artifact) => artifact.kind === "hook-dir"),
     ).toHaveLength(1);
+  });
+
+  /**
+   * The command each harness is actually given, from an install rather than from a renderer.
+   *
+   * The one string the whole increment turns on: `command: hook.sh` is relative to a directory in the
+   * catalog, which is a place no harness has heard of, so an unrewritten command installs a hook that
+   * silently never fires. Four harnesses, one materialized script, two spellings of the way to it — and
+   * exact strings, because a placeholder a harness does not interpolate is not a near miss.
+   */
+  it("writes the materialized path the way each harness resolves one", async () => {
+    await writeCatalog(["claude", "codex", "cursor", "vscode"]);
+
+    const result = await cli("install");
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+
+    // One script, however many harnesses read it.
+    expect(await fileText(`${HOOK_DIR}/${SCRIPT}`)).toBe(SCRIPT_BODY);
+
+    // Claude, and VS Code out of the same file: Claude's own documented placeholder, which holds the
+    // project root, so the script is found whatever a session's cwd is.
+    expect(await settings()).toEqual({
+      hooks: { PreToolUse: [SCRIPT_ENTRY], Stop: [ANNOUNCE_ENTRY] },
+    });
+    expect(await settingsText()).toContain(CLAUDE_COMMAND);
+
+    // Codex: Claude's entry shape, and not Claude's path — it interpolates nothing. Notably *not*
+    // `$(git rev-parse --show-toplevel)/…`, which its own docs suggest and ambit will not write.
+    expect(JSON.parse(await fileText(".codex/hooks.json"))).toEqual({
+      hooks: {
+        PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: RELATIVE_COMMAND }] }],
+        Stop: [ANNOUNCE_ENTRY],
+      },
+    });
+
+    // Cursor: its own flat entry, its own camelCased events, and the same project-relative path.
+    expect(JSON.parse(await fileText(".cursor/hooks.json"))).toEqual({
+      version: 1,
+      hooks: {
+        preToolUse: [{ command: RELATIVE_COMMAND }],
+        stop: [{ command: "npx --yes say done" }],
+      },
+    });
+
+    // And the hook that ships nothing is written verbatim into all three: prefixing a command line with
+    // a directory would break it, and there are no bytes there to point at.
+    for (const file of [SETTINGS, ".codex/hooks.json", ".cursor/hooks.json"]) {
+      expect(await fileText(file), file).toContain("npx --yes say done");
+      expect(await fileText(file), file).not.toContain(`hooks/announce`);
+    }
   });
 
   /**

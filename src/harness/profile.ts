@@ -155,10 +155,16 @@ export interface HarnessProfile {
    * {@link HarnessProfile.serverConfig}.
    *
    * The one place a neutral `PreToolUse` becomes whatever this harness spells it, and the one place
-   * that decides what a `matcher` or a `timeout` turns into. `project` is what a hook shipping its own
-   * script needs to write a path the harness can resolve.
+   * that decides what a `matcher` or a `timeout` turns into — and, for a hook that ships a script, the
+   * one place that decides how the materialized path is spelled: a documented placeholder where the
+   * harness has one, project-relative where it does not (`harness/definitions.ts`).
+   *
+   * Takes the {@link MergedHook} rather than the entity, because that rewrite needs two things a
+   * declaration alone does not carry: the `name` the script was materialized under, and `shipsScript` —
+   * the answer to whether `command` is a path to rewrite at all or a command line to leave exactly as
+   * written.
    */
-  hookConfig?(hook: HookEntity, project: ProjectPaths): unknown;
+  hookConfig?(hook: MergedHook, project: ProjectPaths): unknown;
 }
 
 function compare(a: string, b: string): number {
@@ -337,7 +343,7 @@ function planHookDir(
  */
 function planHookConfig(
   profile: HarnessProfile,
-  hooks: readonly HookEntity[],
+  hooks: readonly MergedHook[],
   project: ProjectPaths,
 ): PlannedHarnessConfig | undefined {
   const layout = profile.hooks;
