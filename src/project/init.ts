@@ -18,7 +18,12 @@
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { CONFIG_FILENAMES, CONFIG_VERSION, DEFAULT_HARNESSES, existingConfigFiles } from "../model/config.js";
+import {
+  CONFIG_FILENAMES,
+  CONFIG_VERSION,
+  DEFAULT_HARNESSES,
+  existingConfigFiles,
+} from "../model/config.js";
 import { configError } from "../errors.js";
 import type { ScaffoldBlock } from "../model/scaffold.js";
 import { renderScaffold } from "../model/scaffold.js";
@@ -57,7 +62,7 @@ const BLOCKS: readonly ScaffoldBlock[] = [
     comment: [
       "The catalogs to draw skills and MCP servers from, in priority order: on a name collision,",
       "the first one wins. A source is `owner/repo`, `owner/repo@ref`, a git URL, or",
-      "`path:./relative/dir`. Quote a ref that looks like a number — `ref: \"1234567\"` — or YAML",
+      '`path:./relative/dir`. Quote a ref that looks like a number — `ref: "1234567"` — or YAML',
       "will read it as one.",
     ],
     example: { catalogs: [{ name: "company", ref: "main", source: "acme/skills" }] },

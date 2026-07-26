@@ -29,7 +29,16 @@
  * stable, and that describe says the mechanism keeping them stable is still there.
  */
 import type * as FsPromises from "node:fs/promises";
-import { lstat, mkdir, mkdtemp, readFile, readdir, readlink, rm, writeFile } from "node:fs/promises";
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  readlink,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -459,9 +468,7 @@ describe("ambit install writes the same tree whatever order directories are read
     await mkdir(dir, { recursive: true });
     await writeProfile(dir);
 
-    const result = await withReadOrder(order, () =>
-      cli(["install", "--project", dir], writeRoot),
-    );
+    const result = await withReadOrder(order, () => cli(["install", "--project", dir], writeRoot));
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     return snapshot(dir);

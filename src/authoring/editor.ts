@@ -327,7 +327,9 @@ async function parsedFilesUnder(root: string, relative: string): Promise<readonl
 
   const walk = async (directory: string): Promise<void> => {
     const entries = await readdir(path.join(root, directory), { withFileTypes: true });
-    for (const entry of [...entries].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))) {
+    for (const entry of [...entries].sort((a, b) =>
+      a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
+    )) {
       const inner = `${directory}/${entry.name}`;
       if (entry.isDirectory()) await walk(inner);
       else if (isParsedFile(entry.name)) found.push(inner);
@@ -598,7 +600,11 @@ export async function applyCatalogEdit(
 
   const report = await validateCatalogDirectory(
     root,
-    await overlayOf(root, trees, pending.map((entry) => entry.change)),
+    await overlayOf(
+      root,
+      trees,
+      pending.map((entry) => entry.change),
+    ),
   );
   if (!isValid(report)) throw refusedByValidation(root, report);
 

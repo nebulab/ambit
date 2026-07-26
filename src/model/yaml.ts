@@ -325,12 +325,7 @@ export class YamlMapping {
     return this.coerceString(value, this.label(key), this.lineOf(key), "a string");
   }
 
-  private readItemString(
-    item: unknown,
-    key: string,
-    index: number,
-    expected = "a string",
-  ): string {
+  private readItemString(item: unknown, key: string, index: number, expected = "a string"): string {
     const label = `${this.label(key)}[${index}]`;
     if (item === null || (isScalar(item) && item.value === null)) {
       throw configError(`"${label}" must not be null ${at(this.file, this.source.lineOf(item))}`, [
@@ -393,12 +388,7 @@ export class YamlMapping {
     ]);
   }
 
-  private itemMismatch(
-    key: string,
-    index: number,
-    expected: string,
-    value: unknown,
-  ): AmbitError {
+  private itemMismatch(key: string, index: number, expected: string, value: unknown): AmbitError {
     const label = `${this.label(key)}[${index}]`;
     const line = this.source.lineOf(value) ?? this.lineOf(key);
     return configError(`"${label}" must be ${expected} ${at(this.file, line)}`, [
@@ -409,7 +399,10 @@ export class YamlMapping {
 }
 
 /** Rewrites a parser error into ambit's message shape, keeping the position. */
-function syntaxError(source: YamlSource, error: { code?: string; message: string; pos: [number, number] }): AmbitError {
+function syntaxError(
+  source: YamlSource,
+  error: { code?: string; message: string; pos: [number, number] },
+): AmbitError {
   const line = source.lineOf({ range: error.pos });
   const where = at(source.file, line);
 
@@ -441,10 +434,7 @@ function structuralProblem(source: YamlSource, root: unknown): AmbitError | unde
     problems.push(
       configError(
         `custom YAML tag \`${shorthand}\` is not permitted ${at(source.file, source.lineOf(node))}`,
-        [
-          "ambit parses YAML 1.2 with the core schema only",
-          `remove \`${shorthand}\``,
-        ],
+        ["ambit parses YAML 1.2 with the core schema only", `remove \`${shorthand}\``],
       ),
     );
   };
@@ -794,7 +784,11 @@ export class EditableYaml {
     const trailing = /\n*$/.exec(body)?.[0] ?? "";
     const block = body.slice(0, body.length - trailing.length);
 
-    return new EditableYaml(parseChecked(block, file, lineCount(leading)).document, leading, trailing);
+    return new EditableYaml(
+      parseChecked(block, file, lineCount(leading)).document,
+      leading,
+      trailing,
+    );
   }
 
   /**

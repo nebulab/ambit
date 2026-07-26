@@ -165,7 +165,12 @@ function unregisteredScopeProblems(merged: MergedCatalog): readonly ValidationPr
     for (const scope of sortedUnique(skill.scopes)) {
       if (known.has(scope)) continue;
       problems.push(
-        unregisteredScope(scope, at(skillFile(skill), undefined), `skill "${skill.name}"`, merged.scopes),
+        unregisteredScope(
+          scope,
+          at(skillFile(skill), undefined),
+          `skill "${skill.name}"`,
+          merged.scopes,
+        ),
       );
     }
   }

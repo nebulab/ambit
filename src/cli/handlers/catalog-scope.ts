@@ -133,7 +133,9 @@ export const catalogScopeAddHandler: CommandHandler = async (ctx) => {
     {
       heading: REGISTERED,
       rows: [[result.registered.name, result.registered.description]],
-      json: { registered: { description: result.registered.description, name: result.registered.name } },
+      json: {
+        registered: { description: result.registered.description, name: result.registered.name },
+      },
     },
     result,
   );
@@ -146,7 +148,11 @@ export const catalogScopeRemoveHandler: CommandHandler = async (ctx) => {
 
   return report(
     ctx,
-    { heading: UNREGISTERED, rows: [[result.unregistered]], json: { unregistered: result.unregistered } },
+    {
+      heading: UNREGISTERED,
+      rows: [[result.unregistered]],
+      json: { unregistered: result.unregistered },
+    },
     result,
   );
 };

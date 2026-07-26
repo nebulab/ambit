@@ -206,10 +206,7 @@ function nearestScope(scope: string, registered: readonly ScopeDefinition[]): st
  * Exported because two surfaces reject a scope — resolution, on the first offender, and
  * `ambit validate`, on every one of them — and the advice must read identically from both.
  */
-export function scopeSuggestion(
-  scope: string,
-  registered: readonly ScopeDefinition[],
-): string {
+export function scopeSuggestion(scope: string, registered: readonly ScopeDefinition[]): string {
   const suggestion = nearestScope(scope, registered);
   return suggestion === undefined
     ? `register it in a catalog's ${SCOPES_FILENAME}, or correct the spelling`

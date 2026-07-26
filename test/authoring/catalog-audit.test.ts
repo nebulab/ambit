@@ -105,12 +105,43 @@ async function auditJson(dir: string): Promise<JsonReport> {
  */
 async function buildAuthoredCatalog(dir: string): Promise<string> {
   await author(dir, "init");
-  await author(dir, "skill", "new", BRIEF, "--description", "The engagement brief.", "--scope", CORE);
+  await author(
+    dir,
+    "skill",
+    "new",
+    BRIEF,
+    "--description",
+    "The engagement brief.",
+    "--scope",
+    CORE,
+  );
   await author(dir, "scope", "add", DEAD_SCOPE, "--description", "An engagement that ended");
   await author(dir, "skill", "new", ORPHAN_SKILL, "--description", "Nothing points at this.");
-  await author(dir, "mcp", "new", NEEDED, "--stdio", "npx", "--arg", "-y", "--arg", "@acme/needed-mcp");
+  await author(
+    dir,
+    "mcp",
+    "new",
+    NEEDED,
+    "--stdio",
+    "npx",
+    "--arg",
+    "-y",
+    "--arg",
+    "@acme/needed-mcp",
+  );
   await author(dir, "annotate", BRIEF, "--add-requires", `mcp.${NEEDED}`);
-  await author(dir, "mcp", "new", ORPHAN_MCP, "--stdio", "npx", "--arg", "-y", "--arg", "@acme/orphan-mcp");
+  await author(
+    dir,
+    "mcp",
+    "new",
+    ORPHAN_MCP,
+    "--stdio",
+    "npx",
+    "--arg",
+    "-y",
+    "--arg",
+    "@acme/orphan-mcp",
+  );
   return dir;
 }
 
@@ -306,7 +337,10 @@ describe("what makes a registered scope dead", () => {
     // `.yaml` is as legal as `.yml`, and an error — or a finding, which
     // is the same thing listed rather than raised — has to name a file that is there.
     await author(fixture, "annotate", "mcp.scoped", "--remove-scope", "function.engineering");
-    await rename(path.join(fixture, "mcps", "scoped.yml"), path.join(fixture, "mcps", "scoped.yaml"));
+    await rename(
+      path.join(fixture, "mcps", "scoped.yml"),
+      path.join(fixture, "mcps", "scoped.yaml"),
+    );
 
     expect((await auditJson(fixture)).findings.map((found) => found.message)).toEqual([
       'unreachable MCP server "scoped" (mcps/scoped.yaml)',

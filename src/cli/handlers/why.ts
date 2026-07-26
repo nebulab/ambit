@@ -22,7 +22,12 @@ import type { ProjectConfig } from "../../model/config.js";
 import { loadProjectConfig } from "../../model/config.js";
 import { AmbitError, ExitCode, resolutionError } from "../../errors.js";
 import { printSections, section } from "../output.js";
-import type { Bundle, BundleItem, ReasonedItem, SelectionReason } from "../../resolution/resolve.js";
+import type {
+  Bundle,
+  BundleItem,
+  ReasonedItem,
+  SelectionReason,
+} from "../../resolution/resolve.js";
 import {
   MCP_REQUIREMENT_PREFIX,
   explainSelection,
@@ -66,9 +71,7 @@ function selectionAdvice(item: BundleItem, scopes: readonly string[]): string {
   const hold = scopes.length === 0 ? undefined : `hold one of its scopes (${scopes.join(", ")})`;
   const name = item.kind === "skill" ? item.name : `${MCP_REQUIREMENT_PREFIX}${item.name}`;
   const otherwise =
-    item.kind === "skill"
-      ? "list it under `skills`"
-      : `have a selected skill \`require\` ${name}`;
+    item.kind === "skill" ? "list it under `skills`" : `have a selected skill \`require\` ${name}`;
 
   return hold === undefined ? otherwise : `${hold}, or ${otherwise}`;
 }

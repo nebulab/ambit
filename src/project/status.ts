@@ -26,7 +26,12 @@
 import { lstat, readFile, readdir, readlink } from "node:fs/promises";
 import path from "node:path";
 
-import type { PlannedArtifact, PlannedHarnessConfig, PlannedSkillDir, ProjectPaths } from "../harness/adapter.js";
+import type {
+  PlannedArtifact,
+  PlannedHarnessConfig,
+  PlannedSkillDir,
+  ProjectPaths,
+} from "../harness/adapter.js";
 import { loadCatalogs, mergeCatalogs, mergeConfigEntities } from "../model/catalog.js";
 import { loadProjectConfig } from "../model/config.js";
 import { configError } from "../errors.js";
@@ -95,7 +100,9 @@ export function isClean(status: ProjectStatus): boolean {
 
 /** Whether a filesystem error means the path simply is not there. */
 function isMissing(error: unknown): boolean {
-  return typeof error === "object" && error !== null && (error as { code?: unknown }).code === "ENOENT";
+  return (
+    typeof error === "object" && error !== null && (error as { code?: unknown }).code === "ENOENT"
+  );
 }
 
 function isRecord(value: unknown): value is JsonObject {
@@ -201,7 +208,9 @@ async function firstDifference(artifact: PlannedSkillDir): Promise<string | unde
   for (const relative of [...new Set([...expected, ...actual])].sort(compare)) {
     if (!installed.has(relative)) return `${relative} is missing`;
     if (!shipped.has(relative)) return `${relative} is not in its source`;
-    if (!(await sameBytes(path.join(artifact.source, relative), path.join(artifact.target, relative)))) {
+    if (
+      !(await sameBytes(path.join(artifact.source, relative), path.join(artifact.target, relative)))
+    ) {
       return `${relative} differs from its source`;
     }
   }
@@ -315,7 +324,8 @@ async function configVerdict(
     const section = sectionOf(document, artifact.section);
     for (const entry of artifact.entries) {
       const key = managedKey(artifact.section, entry.key);
-      if (!Object.hasOwn(section, entry.key)) return { state: "missing", detail: `"${key}" is absent` };
+      if (!Object.hasOwn(section, entry.key))
+        return { state: "missing", detail: `"${key}" is absent` };
       if (!claimed.has(key)) {
         return { state: "unowned", detail: `"${key}" exists but ambit did not create it` };
       }
@@ -331,7 +341,9 @@ async function configVerdict(
 }
 
 /** The plan indexed by path, so a file two adapters write into is compared once. */
-function plannedByPath(plan: readonly PlannedArtifact[]): ReadonlyMap<string, readonly PlannedArtifact[]> {
+function plannedByPath(
+  plan: readonly PlannedArtifact[],
+): ReadonlyMap<string, readonly PlannedArtifact[]> {
   const byPath = new Map<string, PlannedArtifact[]>();
   for (const artifact of plan) {
     const group = byPath.get(artifact.path) ?? [];
@@ -451,7 +463,11 @@ export async function projectStatus(
   const config = await loadProjectConfig(projectDir);
   const adapters = adaptersFor([...new Set(config.harnesses)].sort(compare));
 
-  const context: SourceContext = { projectDir, env: process.env, offline: options.offline === true };
+  const context: SourceContext = {
+    projectDir,
+    env: process.env,
+    offline: options.offline === true,
+  };
   const loaded = await loadCatalogs(config, context);
   const catalogs = mergeCatalogs(loaded);
   const bundle = resolveBundle(config, await mergeConfigEntities(catalogs, config, context));

@@ -198,7 +198,8 @@ export function removeGitignoreText(existing: string | undefined): string | unde
   const block = findBlock(lines);
   if (block === undefined) return undefined;
 
-  const start = block.start > 0 && lines[block.start - 1]?.trim() === "" ? block.start - 1 : block.start;
+  const start =
+    block.start > 0 && lines[block.start - 1]?.trim() === "" ? block.start - 1 : block.start;
   lines.splice(start, block.end - start + 1);
 
   return lines.length === 0 ? "" : `${lines.join("\n")}\n`;
@@ -216,7 +217,11 @@ export async function readGitignoreText(projectDir: string): Promise<string | un
   try {
     return await readFile(target, "utf8");
   } catch (error) {
-    if (typeof error === "object" && error !== null && (error as { code?: unknown }).code === "ENOENT") {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      (error as { code?: unknown }).code === "ENOENT"
+    ) {
       return undefined;
     }
     throw configError(`cannot read ${GITIGNORE_FILENAME}`, [
@@ -238,7 +243,10 @@ export async function writeGitignoreBlock(
   projectDir: string,
   artifacts: readonly OwnedArtifact[],
 ): Promise<void> {
-  const next = updateGitignoreText(await readGitignoreText(projectDir), gitignoreEntries(artifacts));
+  const next = updateGitignoreText(
+    await readGitignoreText(projectDir),
+    gitignoreEntries(artifacts),
+  );
   if (next === undefined) return;
   await writeFile(path.join(projectDir, GITIGNORE_FILENAME), next, "utf8");
 }

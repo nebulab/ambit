@@ -161,7 +161,9 @@ export function lockFilePath(projectDir: string): string {
 
 /** Whether a filesystem error means the path simply is not there. */
 function isMissing(error: unknown): boolean {
-  return typeof error === "object" && error !== null && (error as { code?: unknown }).code === "ENOENT";
+  return (
+    typeof error === "object" && error !== null && (error as { code?: unknown }).code === "ENOENT"
+  );
 }
 
 /**

@@ -10,7 +10,13 @@
  * than a summary of it. `--json` output carries no absolute paths and sorts every key, so it is
  * comparable between machines and stable enough to commit as a golden file.
  */
-import type { Catalog, MergedCatalog, MergedMcp, MergedSkill, ScopeDefinition } from "../../model/catalog.js";
+import type {
+  Catalog,
+  MergedCatalog,
+  MergedMcp,
+  MergedSkill,
+  ScopeDefinition,
+} from "../../model/catalog.js";
 import { loadCatalogs, mergeCatalogs } from "../../model/catalog.js";
 import type { CommandHandler } from "../commands.js";
 import { jsonRequested, sourceContextOf } from "../commands.js";
@@ -55,9 +61,13 @@ function toJson(merged: MergedCatalog): Readonly<Record<string, unknown>> {
   return {
     catalogs: merged.catalogs,
     mcps: keyed(merged.mcps, (mcp) => mcp.name, mcpJson),
-    scopes: keyed(merged.scopes, (scope) => scope.name, (scope) => ({
-      description: scope.description,
-    })),
+    scopes: keyed(
+      merged.scopes,
+      (scope) => scope.name,
+      (scope) => ({
+        description: scope.description,
+      }),
+    ),
     skills: keyed(merged.skills, (skill) => skill.name, skillJson),
   };
 }

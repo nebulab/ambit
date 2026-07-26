@@ -114,7 +114,9 @@ function fixture(file: string): string {
 /** The registry as the parser reads it back. */
 async function registeredScopes(): Promise<Readonly<Record<string, string>>> {
   const catalog = await parseCatalogDirectory("subject", `path:${catalogDir}`, catalogDir);
-  return Object.fromEntries(catalog.scopes.map((definition) => [definition.name, definition.description]));
+  return Object.fromEntries(
+    catalog.scopes.map((definition) => [definition.name, definition.description]),
+  );
 }
 
 /** `ambit validate` against the catalog: what every mutation has to leave passing. */
@@ -175,7 +177,13 @@ describe("ambit catalog scope add", () => {
     await succeeds("add", JANE, "--description", JANE_DESCRIPTION);
     const after = await read(REGISTRY);
 
-    const result = await refused(ExitCode.Resolution, "add", JANE, "--description", "Something else");
+    const result = await refused(
+      ExitCode.Resolution,
+      "add",
+      JANE,
+      "--description",
+      "Something else",
+    );
 
     expect(result.stderr).toContain(`scope "${JANE}" is already registered (${REGISTRY})`);
     expect(await read(REGISTRY)).toBe(after);
@@ -206,13 +214,9 @@ describe("ambit catalog scope add", () => {
     const result = await succeeds("add", JANE, "--description", JANE_DESCRIPTION);
 
     expect(result.stdout).toBe(
-      [
-        "registered (1)",
-        `  ${JANE}  ${JANE_DESCRIPTION}`,
-        "",
-        "files (1)",
-        `  ${REGISTRY}`,
-      ].join("\n"),
+      ["registered (1)", `  ${JANE}  ${JANE_DESCRIPTION}`, "", "files (1)", `  ${REGISTRY}`].join(
+        "\n",
+      ),
     );
   });
 
@@ -279,7 +283,9 @@ describe("ambit catalog scope rm", () => {
     const result = await refused(ExitCode.Resolution, "rm", PARENT);
 
     expect(result.stderr).toContain(`scope "${PARENT}" is still declared (${REGISTRY})`);
-    expect(result.stderr).toContain(`skill "acme.engineering.use-code-review" declares it (${CODE_REVIEW})`);
+    expect(result.stderr).toContain(
+      `skill "acme.engineering.use-code-review" declares it (${CODE_REVIEW})`,
+    );
     expect(result.stderr).toContain(`MCP server "scoped" declares it (${SCOPED_MCP})`);
     // The next step names the command that clears a declaration, not the hand-editing it replaced.
     expect(result.stderr).toContain(

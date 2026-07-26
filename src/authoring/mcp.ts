@@ -30,7 +30,12 @@ import { stat } from "node:fs/promises";
 import path from "node:path";
 
 import type { Catalog, CatalogMcp, CatalogSkill } from "../model/catalog.js";
-import { MCPS_DIRNAME, MCP_EXTENSIONS, SKILL_FILENAME, parseCatalogDirectory } from "../model/catalog.js";
+import {
+  MCPS_DIRNAME,
+  MCP_EXTENSIONS,
+  SKILL_FILENAME,
+  parseCatalogDirectory,
+} from "../model/catalog.js";
 import type { EditOptions, EditResult } from "./editor.js";
 import { applyCatalogEdit, mcpDocumentPath } from "./editor.js";
 import type { AmbitError } from "../errors.js";
@@ -156,13 +161,10 @@ function alreadyProvided(name: string, file: string): AmbitError {
  * of saying the catalog does not have it.
  */
 export function unknownMcp(name: string): AmbitError {
-  return resolutionError(
-    `unknown MCP server "${name}" ${at(mcpDocumentPath(name), undefined)}`,
-    [
-      "this catalog provides no server by that name",
-      `a server's name is the stem of its file under ${MCPS_DIRNAME}/`,
-    ],
-  );
+  return resolutionError(`unknown MCP server "${name}" ${at(mcpDocumentPath(name), undefined)}`, [
+    "this catalog provides no server by that name",
+    `a server's name is the stem of its file under ${MCPS_DIRNAME}/`,
+  ]);
 }
 
 /** How a requirer reads in a refusal: what it is called, and where the `requires` entry is written. */

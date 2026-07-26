@@ -116,7 +116,10 @@ async function pathExists(target: string): Promise<boolean> {
 }
 
 async function readMcpConfig(): Promise<Record<string, unknown>> {
-  return JSON.parse(await readFile(path.join(projectDir, MCP_FILE), "utf8")) as Record<string, unknown>;
+  return JSON.parse(await readFile(path.join(projectDir, MCP_FILE), "utf8")) as Record<
+    string,
+    unknown
+  >;
 }
 
 async function ownedPathsNow(): Promise<readonly string[]> {
@@ -205,7 +208,10 @@ describe("ambit prune", () => {
 
     expect(await installedSkills()).toEqual([CORE_SKILL]);
     expect(await readFile(path.join(projectDir, SKILLS_DIR, CORE_SKILL, "SKILL.md"), "utf8")).toBe(
-      await readFile(path.join(catalogDir, "skills/acme/commons/use-company-context/SKILL.md"), "utf8"),
+      await readFile(
+        path.join(catalogDir, "skills/acme/commons/use-company-context/SKILL.md"),
+        "utf8",
+      ),
     );
   });
 
@@ -309,9 +315,7 @@ describe("ambit prune", () => {
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     expect(await snapshot()).toEqual(before);
-    expect(await installedSkills()).toEqual(
-      [CORE_SKILL, FRONTEND_SKILL, ENGINEERING_SKILL].sort(),
-    );
+    expect(await installedSkills()).toEqual([CORE_SKILL, FRONTEND_SKILL, ENGINEERING_SKILL].sort());
   });
 
   it("writes nothing at all in a project ambit never installed into", async () => {
@@ -419,7 +423,9 @@ describe("ambit clean", () => {
     // `ambit.lock` is a record of a resolution rather than an artifact, and `.mcp.json` is
     // co-owned, so neither is ambit's to delete — see `src/project/clean.ts`. The `.gitignore` ambit created
     // goes, because ambit's block was the whole of it.
-    expect(Object.keys(await snapshot()).sort()).toEqual(["ambit.yml", "ambit.lock", MCP_FILE].sort());
+    expect(Object.keys(await snapshot()).sort()).toEqual(
+      ["ambit.yml", "ambit.lock", MCP_FILE].sort(),
+    );
   });
 
   it("gives a .gitignore the project already had back byte for byte", async () => {
@@ -472,7 +478,9 @@ describe("ambit clean", () => {
     expect(second.code, second.stderr).toBe(ExitCode.Success);
 
     expect(await snapshot()).toEqual(before);
-    expect(second.stdout).toBe(["removed (0)", "  (none)", "", "records (0)", "  (none)"].join("\n"));
+    expect(second.stdout).toBe(
+      ["removed (0)", "  (none)", "", "records (0)", "  (none)"].join("\n"),
+    );
   });
 
   it("lists what it removed, artifacts and records apart", async () => {
@@ -527,9 +535,7 @@ describe("ambit clean", () => {
       stateRemoved: true,
     });
     expect(await snapshot()).toEqual(before);
-    expect(await installedSkills()).toEqual(
-      [CORE_SKILL, FRONTEND_SKILL, ENGINEERING_SKILL].sort(),
-    );
+    expect(await installedSkills()).toEqual([CORE_SKILL, FRONTEND_SKILL, ENGINEERING_SKILL].sort());
   });
 
   it("unlinks a linked skill without following it into the catalog", async () => {
@@ -537,7 +543,10 @@ describe("ambit clean", () => {
 
     expect(await installedSkills()).toEqual([]);
     expect(
-      await readFile(path.join(catalogDir, "skills/acme/commons/use-company-context/SKILL.md"), "utf8"),
+      await readFile(
+        path.join(catalogDir, "skills/acme/commons/use-company-context/SKILL.md"),
+        "utf8",
+      ),
     ).toContain(CORE_SKILL);
   });
 
@@ -547,8 +556,6 @@ describe("ambit clean", () => {
     const result = await cli("install");
 
     expect(result.code, result.stderr).toBe(ExitCode.Success);
-    expect(await installedSkills()).toEqual(
-      [CORE_SKILL, FRONTEND_SKILL, ENGINEERING_SKILL].sort(),
-    );
+    expect(await installedSkills()).toEqual([CORE_SKILL, FRONTEND_SKILL, ENGINEERING_SKILL].sort());
   });
 });

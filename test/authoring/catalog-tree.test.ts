@@ -209,10 +209,7 @@ describe("ambit catalog tree", () => {
     expect(scopes.function?.direct).toEqual({ mcps: [], skills: [] });
     expect(scopes.function?.inherited).toEqual({
       mcps: ["scoped"],
-      skills: [
-        "acme.engineering.frontend.use-design-tokens",
-        "acme.engineering.use-code-review",
-      ],
+      skills: ["acme.engineering.frontend.use-design-tokens", "acme.engineering.use-code-review"],
     });
   });
 

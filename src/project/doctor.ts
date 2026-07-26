@@ -197,7 +197,9 @@ function envDemands(
       for (const variable of sortedUnique(stringsIn(entry.value).flatMap(envPlaceholders))) {
         const demand = demandOf(demands, variable);
         demand.interpolated = true;
-        demand.wanted.push(`"${key}" in ${artifact.path} still holds its \`\${${variable}}\` placeholder`);
+        demand.wanted.push(
+          `"${key}" in ${artifact.path} still holds its \`\${${variable}}\` placeholder`,
+        );
       }
     }
   }
@@ -246,7 +248,10 @@ function envFindings(
  * `assertLockCurrent`, whose message names `--frozen` and the project's absolute path — neither
  * belongs in a report.
  */
-async function lockFindings(projectDir: string, expected: string): Promise<readonly DoctorFinding[]> {
+async function lockFindings(
+  projectDir: string,
+  expected: string,
+): Promise<readonly DoctorFinding[]> {
   const actual = await readLockText(projectDir);
   if (actual === expected) return [];
 

@@ -43,7 +43,13 @@ import { writeLockText } from "./lock.js";
 import type { PrunedArtifact } from "./prune.js";
 import { planPrune, pruneArtifacts, remainingArtifacts } from "./prune.js";
 import type { OwnedArtifact } from "../model/state.js";
-import { STATE_DIRNAME, STATE_VERSION, readState, stateFilePath, writeState } from "../model/state.js";
+import {
+  STATE_DIRNAME,
+  STATE_VERSION,
+  readState,
+  stateFilePath,
+  writeState,
+} from "../model/state.js";
 
 /** How a prune was asked to behave. */
 export interface PruneOptions {

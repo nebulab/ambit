@@ -73,8 +73,7 @@ async function writeProfile(
   extra: readonly string[] = [],
 ): Promise<void> {
   const list = scopes.length === 0 ? "[]" : `\n${scopes.map((scope) => `  - ${scope}`).join("\n")}`;
-  const harnessLine =
-    harnesses === undefined ? "" : `harnesses: [${harnesses.join(", ")}]\n`;
+  const harnessLine = harnesses === undefined ? "" : `harnesses: [${harnesses.join(", ")}]\n`;
   await writeFile(
     path.join(projectDir, "ambit.yml"),
     `version: 1
@@ -236,7 +235,9 @@ describe("the Claude adapter's plan", () => {
     ]);
 
     // The fixture is a `path:` catalog, so every skill is planned as a link.
-    const skills = plan.filter((artifact): artifact is PlannedSkillDir => artifact.kind === "skill-dir");
+    const skills = plan.filter(
+      (artifact): artifact is PlannedSkillDir => artifact.kind === "skill-dir",
+    );
     expect(skills.map((artifact) => artifact.mode)).toEqual(["link", "link", "link"]);
     expect(skills[0]?.source).toBe(
       path.join(catalogDir, "skills/acme/commons/use-company-context"),
@@ -444,7 +445,10 @@ describe("how a skill's source reaches its target", () => {
 
     const written = await linkAt(CORE_TARGET);
     expect(written).toBe(
-      path.relative(path.dirname(path.join(projectDir, CORE_TARGET)), path.join(catalogDir, CORE_SOURCE)),
+      path.relative(
+        path.dirname(path.join(projectDir, CORE_TARGET)),
+        path.join(catalogDir, CORE_SOURCE),
+      ),
     );
     // Relative, so the project and its catalog can be moved together — and so no absolute path from
     // this machine lands in the working tree.
@@ -775,7 +779,11 @@ describe("explicitly declared skills and servers", () => {
   it("installs a skill from its own source and an inline server, holding no scopes", async () => {
     const source = path.join(root, "extra", "skills", READWISE);
     await mkdir(source, { recursive: true });
-    await writeFile(path.join(source, "SKILL.md"), `---\nname: ${READWISE}\n---\n\n# readwise\n`, "utf8");
+    await writeFile(
+      path.join(source, "SKILL.md"),
+      `---\nname: ${READWISE}\n---\n\n# readwise\n`,
+      "utf8",
+    );
 
     await writeProfile([], undefined, [
       "skills:",
@@ -846,7 +854,6 @@ describe("ambit install failures", () => {
     expect(result.code).toBe(ExitCode.Config);
     expect(result.stderr).toContain("not a valid ambit state file");
   });
-
 });
 
 /**
@@ -861,9 +868,14 @@ describe("ambit install failures", () => {
 describe("ambit install --dry-run", () => {
   /** The two sections a preview adds after the ones install itself prints. */
   const EXTRA_SECTIONS = (lock: string, gitignore: string): string =>
-    ["pruned (0)", "  (none)", "", "files (2)", `  ${LOCK_FILENAME}  ${lock}`, `  ${GITIGNORE_FILENAME}  ${gitignore}`].join(
-      "\n",
-    );
+    [
+      "pruned (0)",
+      "  (none)",
+      "",
+      "files (2)",
+      `  ${LOCK_FILENAME}  ${lock}`,
+      `  ${GITIGNORE_FILENAME}  ${gitignore}`,
+    ].join("\n");
 
   it("writes nothing at all", async () => {
     const result = await cli("install", "--dry-run");
@@ -958,7 +970,12 @@ describe("ownership", () => {
   /** A `.mcp.json` whose `scoped` key collides with the one the fixture's server would write. */
   async function writeUnownedServer(): Promise<string> {
     const contents = `${JSON.stringify(
-      { mcpServers: { [SCOPED_MCP]: { command: "node", args: ["./scoped.js"] }, kept: { command: "keep" } } },
+      {
+        mcpServers: {
+          [SCOPED_MCP]: { command: "node", args: ["./scoped.js"] },
+          kept: { command: "keep" },
+        },
+      },
       null,
       2,
     )}\n`;
@@ -985,7 +1002,9 @@ describe("ownership", () => {
     // The check sees the whole plan before the first write, so the other two skills, the server
     // file, the lock, and the state file are all still absent.
     expect(await tree(SKILLS_DIR)).toEqual([`${CORE_SKILL}/SKILL.md`, `${CORE_SKILL}/notes.md`]);
-    expect(await readFile(path.join(projectDir, CORE_TARGET, "SKILL.md"), "utf8")).toBe(HANDWRITTEN);
+    expect(await readFile(path.join(projectDir, CORE_TARGET, "SKILL.md"), "utf8")).toBe(
+      HANDWRITTEN,
+    );
     expect(await pathExists(MCP_FILE)).toBe(false);
     expect(await pathExists(LOCK_FILENAME)).toBe(false);
     expect(await pathExists(STATE_FILE)).toBe(false);
@@ -1044,7 +1063,10 @@ describe("ownership", () => {
       `${ENGINEERING_SKILL}/SKILL.md`,
     ]);
     expect(await readFile(path.join(projectDir, CORE_TARGET, "SKILL.md"), "utf8")).toBe(
-      await readFile(path.join(catalogDir, "skills/acme/commons/use-company-context/SKILL.md"), "utf8"),
+      await readFile(
+        path.join(catalogDir, "skills/acme/commons/use-company-context/SKILL.md"),
+        "utf8",
+      ),
     );
     expect(
       parseState(await readStateFile(), STATE_FILENAME).artifacts.map((artifact) => artifact.path),
@@ -1342,7 +1364,8 @@ describe("state", () => {
   });
 
   it("rejects a state file from a future version", () => {
-    expect(() => parseState('{"version": 2, "harnesses": [], "artifacts": []}', STATE_FILENAME))
-      .toThrowError(/unsupported state version 2/);
+    expect(() =>
+      parseState('{"version": 2, "harnesses": [], "artifacts": []}', STATE_FILENAME),
+    ).toThrowError(/unsupported state version 2/);
   });
 });

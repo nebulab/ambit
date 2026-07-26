@@ -106,11 +106,18 @@ async function detailOf(target: string): Promise<string | undefined> {
 }
 
 async function writeMcpFile(document: unknown): Promise<void> {
-  await writeFile(path.join(projectDir, MCP_FILE), `${JSON.stringify(document, null, 2)}\n`, "utf8");
+  await writeFile(
+    path.join(projectDir, MCP_FILE),
+    `${JSON.stringify(document, null, 2)}\n`,
+    "utf8",
+  );
 }
 
 async function readMcpConfig(): Promise<Record<string, unknown>> {
-  return JSON.parse(await readFile(path.join(projectDir, MCP_FILE), "utf8")) as Record<string, unknown>;
+  return JSON.parse(await readFile(path.join(projectDir, MCP_FILE), "utf8")) as Record<
+    string,
+    unknown
+  >;
 }
 
 beforeEach(async () => {
@@ -246,7 +253,9 @@ describe("ambit status after a manual edit", () => {
   it("reports an edited server as modified, naming the key", async () => {
     await writeMcpFile({ mcpServers: { [SCOPED_MCP]: { command: "my-own-thing" } } });
 
-    expect(await detailOf(MCP_FILE)).toBe(`"mcpServers.${SCOPED_MCP}" is not what install would write`);
+    expect(await detailOf(MCP_FILE)).toBe(
+      `"mcpServers.${SCOPED_MCP}" is not what install would write`,
+    );
     expect(await states()).toContain(`${MCP_FILE}=modified`);
   });
 
@@ -265,7 +274,8 @@ describe("ambit status after a manual edit", () => {
 
   it("does not read a reordered server as drift: ambit owns the key, not the layout", async () => {
     const document = await readMcpConfig();
-    const scoped = (document.mcpServers as Record<string, Record<string, unknown>>)[SCOPED_MCP] ?? {};
+    const scoped =
+      (document.mcpServers as Record<string, Record<string, unknown>>)[SCOPED_MCP] ?? {};
     await writeMcpFile({
       mcpServers: { [SCOPED_MCP]: { headers: scoped.headers, url: scoped.url, type: scoped.type } },
     });

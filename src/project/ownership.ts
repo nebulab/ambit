@@ -32,7 +32,9 @@ export interface OwnershipOptions {
 
 /** Whether a filesystem error means the path simply is not there. */
 function isMissing(error: unknown): boolean {
-  return typeof error === "object" && error !== null && (error as { code?: unknown }).code === "ENOENT";
+  return (
+    typeof error === "object" && error !== null && (error as { code?: unknown }).code === "ENOENT"
+  );
 }
 
 /**
@@ -104,7 +106,10 @@ async function checkConfigKeys(
   prior: State,
   options: OwnershipOptions,
 ): Promise<void> {
-  const present = sectionKeys(await readJsonDocument(artifact.target, artifact.path), artifact.section);
+  const present = sectionKeys(
+    await readJsonDocument(artifact.target, artifact.path),
+    artifact.section,
+  );
   if (present.size === 0 || options.adopt === true) return;
 
   const owned = ownedKeys(prior, artifact.path);

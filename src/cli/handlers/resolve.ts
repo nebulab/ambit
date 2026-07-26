@@ -17,7 +17,12 @@
  * shadowed item its reason, in `--explain` and in `ambit why`'s chain both.
  */
 import type { MergedCatalog, Shadowing } from "../../model/catalog.js";
-import { formatShadowing, loadCatalogs, mergeCatalogs, mergeConfigEntities } from "../../model/catalog.js";
+import {
+  formatShadowing,
+  loadCatalogs,
+  mergeCatalogs,
+  mergeConfigEntities,
+} from "../../model/catalog.js";
 import type { CommandHandler } from "../commands.js";
 import { jsonRequested, sourceContextOf } from "../commands.js";
 import { loadProjectConfig } from "../../model/config.js";
@@ -52,30 +57,38 @@ function toJson(
 ): Readonly<Record<string, unknown>> {
   return {
     env: bundle.env,
-    mcps: keyed(bundle.mcps, (mcp) => mcp.name, (mcp) => {
-      const item: BundleItem = { kind: "mcp", name: mcp.name };
-      const why = reason(bundle, item, explain);
-      const shadowed = shadowing(merged, item, explain);
-      return {
-        catalog: mcp.catalog,
-        ...(why !== undefined && { reason: why }),
-        ...(shadowed !== undefined && { shadows: shadowed.shadows }),
-      };
-    }),
+    mcps: keyed(
+      bundle.mcps,
+      (mcp) => mcp.name,
+      (mcp) => {
+        const item: BundleItem = { kind: "mcp", name: mcp.name };
+        const why = reason(bundle, item, explain);
+        const shadowed = shadowing(merged, item, explain);
+        return {
+          catalog: mcp.catalog,
+          ...(why !== undefined && { reason: why }),
+          ...(shadowed !== undefined && { shadows: shadowed.shadows }),
+        };
+      },
+    ),
     scopes: bundle.scopes,
-    skills: keyed(bundle.skills, (skill) => skill.name, (skill) => {
-      const item: BundleItem = { kind: "skill", name: skill.name };
-      const why = reason(bundle, item, explain);
-      const shadowed = shadowing(merged, item, explain);
-      return {
-        catalog: skill.catalog,
-        path: skill.path,
-        ...(why !== undefined && { reason: why }),
-        // Structured rather than the `--explain` string: the record already names the winning
-        // catalog, so a consumer needs the losers, not a sentence about them.
-        ...(shadowed !== undefined && { shadows: shadowed.shadows }),
-      };
-    }),
+    skills: keyed(
+      bundle.skills,
+      (skill) => skill.name,
+      (skill) => {
+        const item: BundleItem = { kind: "skill", name: skill.name };
+        const why = reason(bundle, item, explain);
+        const shadowed = shadowing(merged, item, explain);
+        return {
+          catalog: skill.catalog,
+          path: skill.path,
+          ...(why !== undefined && { reason: why }),
+          // Structured rather than the `--explain` string: the record already names the winning
+          // catalog, so a consumer needs the losers, not a sentence about them.
+          ...(shadowed !== undefined && { shadows: shadowed.shadows }),
+        };
+      },
+    ),
   };
 }
 
@@ -97,7 +110,10 @@ function row(
 
 function toText(bundle: Bundle, merged: MergedCatalog, explain: boolean): readonly string[] {
   return [
-    ...section("scopes", bundle.scopes.map((scope) => [scope])),
+    ...section(
+      "scopes",
+      bundle.scopes.map((scope) => [scope]),
+    ),
     ...section(
       "skills",
       bundle.skills.map((skill) => {
@@ -120,7 +136,10 @@ function toText(bundle: Bundle, merged: MergedCatalog, explain: boolean): readon
         );
       }),
     ),
-    ...section("env", bundle.env.map((name) => [name])),
+    ...section(
+      "env",
+      bundle.env.map((name) => [name]),
+    ),
   ];
 }
 

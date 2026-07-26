@@ -90,11 +90,7 @@ export function isTidy(report: AuditReport): boolean {
   return report.findings.length === 0;
 }
 
-function finding(
-  kind: AuditFindingKind,
-  message: string,
-  detail: readonly string[],
-): AuditFinding {
+function finding(kind: AuditFindingKind, message: string, detail: readonly string[]): AuditFinding {
   return { kind, message, detail };
 }
 
@@ -186,10 +182,7 @@ function deadScopeFindings(catalog: Catalog): readonly AuditFinding[] {
 }
 
 /** Skills no profile can select, in name order. */
-function unreachableSkillFindings(
-  catalog: Catalog,
-  reachable: Reachable,
-): readonly AuditFinding[] {
+function unreachableSkillFindings(catalog: Catalog, reachable: Reachable): readonly AuditFinding[] {
   return catalog.skills
     .filter((skill) => !reachable.skills.has(skill.name))
     .map((skill) =>

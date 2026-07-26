@@ -135,7 +135,9 @@ export const catalogSkillNewHandler: CommandHandler = async (ctx) => {
       ],
       json: {
         created: {
-          ...(result.created.description !== undefined && { description: result.created.description }),
+          ...(result.created.description !== undefined && {
+            description: result.created.description,
+          }),
           name: result.created.name,
         },
       },

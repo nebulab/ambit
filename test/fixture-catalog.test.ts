@@ -68,7 +68,10 @@ const SKILL_PATHS = EXPECTED_FILES.filter((file) => file.endsWith("SKILL.md"));
 
 /** The name↔path convention: path under `skills/`, with `/` → `.`. */
 function nameFromPath(skillPath: string): string {
-  return path.posix.dirname(skillPath).replace(/^skills\//, "").replaceAll("/", ".");
+  return path.posix
+    .dirname(skillPath)
+    .replace(/^skills\//, "")
+    .replaceAll("/", ".");
 }
 
 describe("fixture catalog", () => {
@@ -207,7 +210,11 @@ describe("fixture catalog", () => {
   it("removes stale files left by a previous build", async () => {
     await writeFile(path.join(dir, "scopes.yaml"), "scopes: {}\n", "utf8");
     await mkdir(path.join(dir, "skills/acme/stale"), { recursive: true });
-    await writeFile(path.join(dir, "skills/acme/stale/SKILL.md"), "---\nname: stale\n---\n", "utf8");
+    await writeFile(
+      path.join(dir, "skills/acme/stale/SKILL.md"),
+      "---\nname: stale\n---\n",
+      "utf8",
+    );
 
     await buildFixtureCatalog(dir);
 

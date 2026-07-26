@@ -28,7 +28,11 @@ import { loadProjectConfig } from "../../src/model/config.js";
 import { AmbitError, ExitCode } from "../../src/errors.js";
 import { run } from "../../src/cli/program.js";
 import type { Bundle } from "../../src/resolution/resolve.js";
-import { assertScopesRegistered, expandHeldScopes, resolveBundle } from "../../src/resolution/resolve.js";
+import {
+  assertScopesRegistered,
+  expandHeldScopes,
+  resolveBundle,
+} from "../../src/resolution/resolve.js";
 import type { SourceContext } from "../../src/model/sources.js";
 
 const CATALOG_NAME = "company";
@@ -323,11 +327,15 @@ describe("unknown-scope suggestions", () => {
   }
 
   it("accepts every registered scope, and says nothing about them", () => {
-    expect(() => assertScopesRegistered(held(["core", "function.engineering"]), REGISTRY)).not.toThrow();
+    expect(() =>
+      assertScopesRegistered(held(["core", "function.engineering"]), REGISTRY),
+    ).not.toThrow();
   });
 
   it("proposes the closest of several plausible candidates", () => {
-    expect(rejection(["function.engineerng"]).format()).toContain('did you mean "function.engineering"?');
+    expect(rejection(["function.engineerng"]).format()).toContain(
+      'did you mean "function.engineering"?',
+    );
   });
 
   it("degrades to naming the file when the config gave no line", () => {
@@ -387,7 +395,9 @@ describe("selection by scope", () => {
   });
 
   it("selects an MCP server by its own scopes", async () => {
-    expect((await bundle(["function.engineering"])).mcps.map((mcp) => mcp.name)).toEqual(["scoped"]);
+    expect((await bundle(["function.engineering"])).mcps.map((mcp) => mcp.name)).toEqual([
+      "scoped",
+    ]);
     expect((await bundle(["core"])).mcps).toEqual([]);
   });
 
@@ -602,7 +612,10 @@ describe("explicit skills and inline servers", () => {
   it("loads a skill from its own source, by the name→path convention", async () => {
     await writeSourceSkill(`skills/${READWISE}`, READWISE, ["env: [READWISE_TOKEN]"]);
 
-    const explicit = await bundle([], ["skills:", `  - name: ${READWISE}`, `    source: ${SOURCE}`]);
+    const explicit = await bundle(
+      [],
+      ["skills:", `  - name: ${READWISE}`, `    source: ${SOURCE}`],
+    );
 
     expect(explicit.skills).toHaveLength(1);
     expect(explicit.skills[0]).toMatchObject({
@@ -628,7 +641,10 @@ describe("explicit skills and inline servers", () => {
   it("closes a source skill over `requires` against the catalogs too", async () => {
     await writeSourceSkill(`skills/${READWISE}`, READWISE, [`requires: [${CORE_SKILL}]`]);
 
-    const explicit = await bundle([], ["skills:", `  - name: ${READWISE}`, `    source: ${SOURCE}`]);
+    const explicit = await bundle(
+      [],
+      ["skills:", `  - name: ${READWISE}`, `    source: ${SOURCE}`],
+    );
 
     expect(explicit.skills.map((skill) => skill.name)).toEqual([CORE_SKILL, READWISE]);
   });
@@ -658,7 +674,13 @@ describe("explicit skills and inline servers", () => {
 
     const explicit = await bundle(
       ["core"],
-      ["mcps:", "  - name: custom", "    transport:", "      stdio:", "        command: custom-mcp"],
+      [
+        "mcps:",
+        "  - name: custom",
+        "    transport:",
+        "      stdio:",
+        "        command: custom-mcp",
+      ],
     );
 
     expect(explicit.mcps.map((mcp) => mcp.name)).toEqual(["custom"]);
@@ -827,7 +849,13 @@ describe("selection reasons", () => {
   it("reports an inline server as explicit", async () => {
     const inline = await bundle(
       [],
-      ["mcps:", "  - name: custom", "    transport:", "      stdio:", "        command: custom-mcp"],
+      [
+        "mcps:",
+        "  - name: custom",
+        "    transport:",
+        "      stdio:",
+        "        command: custom-mcp",
+      ],
     );
 
     expect(inline.reasons.mcps.get("custom")).toEqual({ kind: "explicit" });
@@ -1042,7 +1070,9 @@ describe("unknown held scopes", () => {
     const result = await cli("resolve");
 
     expect(result.code).toBe(ExitCode.Resolution);
-    expect(result.stderr).toContain(`unknown scope "marmalade" (ambit.yml line ${FIRST_SCOPE_LINE})`);
+    expect(result.stderr).toContain(
+      `unknown scope "marmalade" (ambit.yml line ${FIRST_SCOPE_LINE})`,
+    );
     expect(result.stderr).toContain("scopes.yml");
     expect(result.stderr).not.toContain("did you mean");
   });
@@ -1110,9 +1140,19 @@ describe("ambit resolve", () => {
     const result = await cli("resolve");
     expect(result.code).toBe(ExitCode.Success);
     expect(result.stdout).toBe(
-      ["scopes (0)", "  (none)", "", "skills (0)", "  (none)", "", "mcps (0)", "  (none)", "", "env (0)", "  (none)"].join(
-        "\n",
-      ),
+      [
+        "scopes (0)",
+        "  (none)",
+        "",
+        "skills (0)",
+        "  (none)",
+        "",
+        "mcps (0)",
+        "  (none)",
+        "",
+        "env (0)",
+        "  (none)",
+      ].join("\n"),
     );
   });
 

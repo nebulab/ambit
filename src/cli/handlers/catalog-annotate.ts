@@ -79,10 +79,13 @@ function everyFlag(): string {
  * flags were swallowed by a shell.
  */
 function nothingAsked(name: string): AmbitError {
-  return configError(`\`annotate ${name}\` names no change ${at(annotationDirname(name), undefined)}`, [
-    "the command adds and removes entries, so it needs at least one of them",
-    `give one of: ${everyFlag()}`,
-  ]);
+  return configError(
+    `\`annotate ${name}\` names no change ${at(annotationDirname(name), undefined)}`,
+    [
+      "the command adds and removes entries, so it needs at least one of them",
+      `give one of: ${everyFlag()}`,
+    ],
+  );
 }
 
 /**
@@ -109,7 +112,10 @@ function contradiction(flags: AnnotationFlags, value: string, name: string): Amb
  *
  * @throws {AmbitError} exit 2 when no flag was given, or one entry is both added and removed.
  */
-function editsOf(ctx: CommandContext, name: string): Readonly<Partial<Record<AnnotationKey, AnnotationEdit>>> {
+function editsOf(
+  ctx: CommandContext,
+  name: string,
+): Readonly<Partial<Record<AnnotationKey, AnnotationEdit>>> {
   const edits: { -readonly [K in AnnotationKey]?: AnnotationEdit } = {};
 
   for (const flags of ANNOTATION_FLAGS) {

@@ -56,7 +56,9 @@ function compare(a: string, b: string): number {
 
 /** The skill-directory paths the new plan writes; a prior one absent from this set is stale. */
 function plannedPaths(plan: readonly PlannedArtifact[]): ReadonlySet<string> {
-  return new Set(plan.filter((artifact) => artifact.kind === "skill-dir").map((artifact) => artifact.path));
+  return new Set(
+    plan.filter((artifact) => artifact.kind === "skill-dir").map((artifact) => artifact.path),
+  );
 }
 
 /**
@@ -162,7 +164,9 @@ export function remainingArtifacts(
     }
     if (artifact.kind !== "harness-config") continue;
 
-    const keys = (artifact.managedKeys ?? []).filter((key) => !(gone.managedKeys ?? []).includes(key));
+    const keys = (artifact.managedKeys ?? []).filter(
+      (key) => !(gone.managedKeys ?? []).includes(key),
+    );
     if (keys.length > 0) kept.push({ ...artifact, managedKeys: keys });
   }
 

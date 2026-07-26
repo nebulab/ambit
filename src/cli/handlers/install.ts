@@ -57,7 +57,10 @@ function toJson(result: InstallResult): Readonly<Record<string, unknown>> {
 
 function toText(result: InstallResult): readonly string[] {
   return [
-    ...section("harnesses", result.harnesses.map((harness) => [harness])),
+    ...section(
+      "harnesses",
+      result.harnesses.map((harness) => [harness]),
+    ),
     ...section("artifacts", artifactRows(result.artifacts)),
   ];
 }
@@ -75,7 +78,10 @@ function previewJson(preview: InstallPreview): Readonly<Record<string, unknown>>
 
 function previewText(preview: InstallPreview): readonly string[] {
   return [
-    ...section("harnesses", preview.harnesses.map((harness) => [harness])),
+    ...section(
+      "harnesses",
+      preview.harnesses.map((harness) => [harness]),
+    ),
     ...section("artifacts", artifactRows(preview.artifacts)),
     ...section("pruned", removalRows(preview.pruned)),
     ...section("files", [

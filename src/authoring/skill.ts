@@ -36,7 +36,12 @@ import {
 } from "../model/catalog.js";
 import { assertRegisteredScopes } from "./scope.js";
 import type { CatalogChange, EditOptions, EditResult } from "./editor.js";
-import { CatalogDocument, applyCatalogEdit, skillDirectoryPath, skillDocumentPath } from "./editor.js";
+import {
+  CatalogDocument,
+  applyCatalogEdit,
+  skillDirectoryPath,
+  skillDocumentPath,
+} from "./editor.js";
 import type { AmbitError } from "../errors.js";
 import { at, configError, resolutionError } from "../errors.js";
 import { emitYaml } from "../model/yaml.js";
@@ -184,10 +189,13 @@ function requires(skill: CatalogSkill): string {
  * the reader is told to do by hand.
  */
 function stillRequired(name: string, requirers: readonly string[]): AmbitError {
-  return resolutionError(`skill "${name}" is still required ${at(skillDocumentPath(name), undefined)}`, [
-    ...requirers,
-    `clear it from each with \`ambit catalog annotate <skill> --remove-requires ${name}\`, or rename it with \`ambit catalog skill mv ${name} <new>\``,
-  ]);
+  return resolutionError(
+    `skill "${name}" is still required ${at(skillDocumentPath(name), undefined)}`,
+    [
+      ...requirers,
+      `clear it from each with \`ambit catalog annotate <skill> --remove-requires ${name}\`, or rename it with \`ambit catalog skill mv ${name} <new>\``,
+    ],
+  );
 }
 
 /**

@@ -77,7 +77,9 @@ function compare(a: string, b: string): number {
 function artifactJson(artifact: OwnedArtifact): Readonly<Record<string, unknown>> {
   return {
     kind: artifact.kind,
-    ...(artifact.managedKeys !== undefined && { managedKeys: [...artifact.managedKeys].sort(compare) }),
+    ...(artifact.managedKeys !== undefined && {
+      managedKeys: [...artifact.managedKeys].sort(compare),
+    }),
     ...(artifact.mode !== undefined && { mode: artifact.mode }),
     path: artifact.path,
   };
@@ -126,7 +128,10 @@ function parseArtifact(value: unknown, file: string, index: number): OwnedArtifa
   }
 
   const mode = value.mode;
-  if (mode !== undefined && (typeof mode !== "string" || !(ARTIFACT_MODES as readonly string[]).includes(mode))) {
+  if (
+    mode !== undefined &&
+    (typeof mode !== "string" || !(ARTIFACT_MODES as readonly string[]).includes(mode))
+  ) {
     stateError(file, `"${label}.mode" must be one of: ${ARTIFACT_MODES.join(", ")}`);
   }
 

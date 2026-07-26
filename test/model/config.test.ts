@@ -229,7 +229,9 @@ describe("project config", () => {
       const error = rejection("version: 1\nscope:\n  - core\n");
 
       expect(error.format()).toContain(`unknown key "scope" (${FILE} line 2)`);
-      expect(error.format()).toContain("accepted keys: catalogs, harnesses, mcps, scopes, skills, version");
+      expect(error.format()).toContain(
+        "accepted keys: catalogs, harnesses, mcps, scopes, skills, version",
+      );
     });
 
     it("requires a version", () => {
@@ -263,14 +265,18 @@ describe("project config", () => {
 
     it("rejects an unknown key inside a catalog entry", () => {
       expect(
-        rejection("version: 1\ncatalogs:\n  - name: c\n    source: a/b\n    branch: main\n").format(),
+        rejection(
+          "version: 1\ncatalogs:\n  - name: c\n    source: a/b\n    branch: main\n",
+        ).format(),
       ).toContain('unknown key "catalogs[0].branch"');
     });
 
     it("rejects two `skills` entries naming the same skill, naming both lines", () => {
       // Resolution looks each name up once, so a repeat is never a merge — and a bare name beside
       // a mapping for the same name is two answers to which source provides it.
-      const error = rejection("version: 1\nskills:\n  - a.b\n  - name: a.b\n    source: path:../a\n");
+      const error = rejection(
+        "version: 1\nskills:\n  - a.b\n  - name: a.b\n    source: path:../a\n",
+      );
 
       expect(error.format()).toContain(`duplicate skills entry "a.b" (${FILE} line 4)`);
       expect(error.format()).toContain("first declared on line 3");
@@ -299,7 +305,9 @@ describe("project config", () => {
 
     it("rejects an unknown key inside a skill entry", () => {
       expect(
-        rejection("version: 1\nskills:\n  - name: s\n    source: a/b\n    dir: skills/s\n").format(),
+        rejection(
+          "version: 1\nskills:\n  - name: s\n    source: a/b\n    dir: skills/s\n",
+        ).format(),
       ).toContain('unknown key "skills[0].dir"');
     });
 
@@ -355,12 +363,28 @@ describe("project config", () => {
    */
   describe("YAML rules, as seen from a config", () => {
     const CASES: readonly [label: string, text: string, expected: RegExp][] = [
-      ["a duplicate key", "version: 1\nscopes: [a]\nscopes: [b]\n", /duplicate key "scopes" \(ambit\.yml line 3\)/],
-      ["tab indentation", "version: 1\nharnesses:\n\t- claude\n", /tabs for indentation \(ambit\.yml line 3\)/],
-      ["a custom tag", "version: 1\nscopes: !!python/object []\n", /custom YAML tag .* \(ambit\.yml line 2\)/],
+      [
+        "a duplicate key",
+        "version: 1\nscopes: [a]\nscopes: [b]\n",
+        /duplicate key "scopes" \(ambit\.yml line 3\)/,
+      ],
+      [
+        "tab indentation",
+        "version: 1\nharnesses:\n\t- claude\n",
+        /tabs for indentation \(ambit\.yml line 3\)/,
+      ],
+      [
+        "a custom tag",
+        "version: 1\nscopes: !!python/object []\n",
+        /custom YAML tag .* \(ambit\.yml line 2\)/,
+      ],
       ["an empty document", "", /ambit\.yml is empty/],
       ["a non-mapping root", "- version: 1\n", /root is not a mapping \(ambit\.yml line 1\)/],
-      ["an unknown key", "version: 1\nharness: claude\n", /unknown key "harness" \(ambit\.yml line 2\)/],
+      [
+        "an unknown key",
+        "version: 1\nharness: claude\n",
+        /unknown key "harness" \(ambit\.yml line 2\)/,
+      ],
       ["an explicit null", "version: null\n", /"version" must not be null \(ambit\.yml line 1\)/],
       [
         "a ref that parsed as a number",
@@ -390,7 +414,10 @@ describe("project config", () => {
     it("loads ambit.yml", async () => {
       await writeFile(path.join(dir, "ambit.yml"), "version: 1\nscopes: [core]\n", "utf8");
 
-      expect(await findConfigFile(dir)).toEqual({ path: path.join(dir, "ambit.yml"), file: "ambit.yml" });
+      expect(await findConfigFile(dir)).toEqual({
+        path: path.join(dir, "ambit.yml"),
+        file: "ambit.yml",
+      });
       expect((await loadProjectConfig(dir)).scopes).toEqual(["core"]);
     });
 
@@ -424,7 +451,9 @@ describe("project config", () => {
       const error = await loadProjectConfig(dir).catch((cause: unknown) => cause);
 
       expect(error).toBeInstanceOf(AmbitError);
-      expect((error as AmbitError).format()).toContain('"scopes" must be a sequence of strings (ambit.yaml line 2)');
+      expect((error as AmbitError).format()).toContain(
+        '"scopes" must be a sequence of strings (ambit.yaml line 2)',
+      );
     });
   });
 });

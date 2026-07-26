@@ -40,7 +40,9 @@ function load(text: string) {
 describe("YAML loader", () => {
   it("reads a mapping into positioned, typed accessors", () => {
     const root = load(
-      ["version: 1", "name: acme", "scopes:", "  - core", "  - function.engineering", ""].join("\n"),
+      ["version: 1", "name: acme", "scopes:", "  - core", "  - function.engineering", ""].join(
+        "\n",
+      ),
     );
 
     expect(root.file).toBe(FILE);
@@ -90,9 +92,7 @@ describe("YAML loader", () => {
   it("rejects tabs used for indentation", () => {
     const error = rejection(() => load("version: 1\nharnesses:\n\t- claude\n"));
 
-    expect(error.format()).toContain(
-      `YAML does not permit tabs for indentation (${FILE} line 3)`,
-    );
+    expect(error.format()).toContain(`YAML does not permit tabs for indentation (${FILE} line 3)`);
   });
 
   it("rejects custom tags, shorthand and local alike", () => {
@@ -105,7 +105,7 @@ describe("YAML loader", () => {
   });
 
   it("accepts the core schema's own tags", () => {
-    expect(load('ref: !!str 1234567\n').requireString("ref")).toBe("1234567");
+    expect(load("ref: !!str 1234567\n").requireString("ref")).toBe("1234567");
   });
 
   it("rejects an empty document rather than reading it as an empty mapping", () => {
@@ -117,7 +117,9 @@ describe("YAML loader", () => {
     expect(rejection(() => load("- core\n- other\n")).format()).toContain(
       `root is not a mapping (${FILE} line 1)`,
     );
-    expect(rejection(() => load("hello\n")).format()).toContain("found a string at the document root");
+    expect(rejection(() => load("hello\n")).format()).toContain(
+      "found a string at the document root",
+    );
   });
 
   it("rejects a non-string mapping key", () => {
@@ -199,7 +201,9 @@ describe("YAML loader", () => {
 
   describe("unknown keys", () => {
     it("rejects them, listing what is accepted", () => {
-      const error = rejection(() => load("version: 1\nscope: core\n").rejectUnknownKeys(["scopes", "version"]));
+      const error = rejection(() =>
+        load("version: 1\nscope: core\n").rejectUnknownKeys(["scopes", "version"]),
+      );
 
       expect(error.format()).toContain(`unknown key "scope" (${FILE} line 2)`);
       expect(error.format()).toContain("accepted keys: scopes, version");
@@ -248,7 +252,9 @@ describe("YAML loader", () => {
     });
 
     it("rejects a non-mapping in a list of mappings", () => {
-      const error = rejection(() => load("catalogs:\n  - acme/skills\n").optionalMappingList("catalogs"));
+      const error = rejection(() =>
+        load("catalogs:\n  - acme/skills\n").optionalMappingList("catalogs"),
+      );
 
       expect(error.format()).toContain(`"catalogs[0]" must be a mapping (${FILE} line 2)`);
     });
@@ -263,7 +269,9 @@ describe("YAML loader", () => {
     it("rejects an entry that is neither a string nor a mapping", () => {
       const error = rejection(() => load("skills:\n  - [nested]\n").optionalEntryList("skills"));
 
-      expect(error.format()).toContain(`"skills[0]" must be a string or a mapping (${FILE} line 2)`);
+      expect(error.format()).toContain(
+        `"skills[0]" must be a string or a mapping (${FILE} line 2)`,
+      );
     });
 
     it("rejects a scalar where a sequence belongs", () => {
@@ -273,9 +281,9 @@ describe("YAML loader", () => {
     });
 
     it("rejects a scalar where a mapping belongs", () => {
-      expect(rejection(() => load("transport: stdio\n").requireMapping("transport")).format()).toContain(
-        `"transport" must be a mapping (${FILE} line 1)`,
-      );
+      expect(
+        rejection(() => load("transport: stdio\n").requireMapping("transport")).format(),
+      ).toContain(`"transport" must be a mapping (${FILE} line 1)`);
     });
   });
 
@@ -302,7 +310,15 @@ describe("YAML loader", () => {
 
     it("parses the block under the same rules as a file", () => {
       const root = frontmatter(
-        ["---", "name: acme.sales.use-close", "scopes: [function.sales]", "---", "", "# Close", ""].join("\n"),
+        [
+          "---",
+          "name: acme.sales.use-close",
+          "scopes: [function.sales]",
+          "---",
+          "",
+          "# Close",
+          "",
+        ].join("\n"),
       );
 
       expect(root.keys()).toEqual(["name", "scopes"]);
@@ -410,8 +426,18 @@ describe("YAML loader", () => {
  */
 describe("YAML emitter", () => {
   it("sorts keys at every depth, whatever order they were built in", () => {
-    expect(emitYaml({ version: 1, catalogs: { personal: { source: "b" }, company: { source: "a" } } })).toBe(
-      ["catalogs:", "  company:", "    source: a", "  personal:", "    source: b", "version: 1", ""].join("\n"),
+    expect(
+      emitYaml({ version: 1, catalogs: { personal: { source: "b" }, company: { source: "a" } } }),
+    ).toBe(
+      [
+        "catalogs:",
+        "  company:",
+        "    source: a",
+        "  personal:",
+        "    source: b",
+        "version: 1",
+        "",
+      ].join("\n"),
     );
   });
 

@@ -286,7 +286,9 @@ function byEntryName(entries: readonly CatalogEntry[]): readonly CatalogEntry[] 
 /** Directory entries in name order, so a catalog parses identically whatever the filesystem says. */
 async function sortedEntries(dir: string): Promise<readonly CatalogEntry[]> {
   const entries = await readdir(dir, { withFileTypes: true });
-  return byEntryName(entries.map((entry) => ({ name: entry.name, directory: entry.isDirectory() })));
+  return byEntryName(
+    entries.map((entry) => ({ name: entry.name, directory: entry.isDirectory() })),
+  );
 }
 
 /**
@@ -517,11 +519,7 @@ async function findMcpFiles(
   });
 }
 
-async function parseMcpFile(
-  files: CatalogFiles,
-  stem: string,
-  file: string,
-): Promise<CatalogMcp> {
+async function parseMcpFile(files: CatalogFiles, stem: string, file: string): Promise<CatalogMcp> {
   const mapping = await files.mapping(file);
   const entity = parseMcpEntity(mapping);
 
@@ -555,10 +553,7 @@ function inSource(subject: string, root: string, error: unknown): unknown {
  * same relative path anyway.
  */
 function fromCatalog(name: string, problem: AmbitError): AmbitError {
-  return new AmbitError(problem.code, problem.message, [
-    `in catalog "${name}"`,
-    ...problem.detail,
-  ]);
+  return new AmbitError(problem.code, problem.message, [`in catalog "${name}"`, ...problem.detail]);
 }
 
 /**
@@ -581,7 +576,9 @@ export async function parseCatalogDirectory(
 ): Promise<Catalog> {
   const collect = options.collect;
   const collectFromCatalog =
-    collect === undefined ? undefined : (problem: AmbitError) => collect(fromCatalog(name, problem));
+    collect === undefined
+      ? undefined
+      : (problem: AmbitError) => collect(fromCatalog(name, problem));
   const files = new CatalogFiles(root, options.overlay ?? NO_OVERLAY);
 
   try {

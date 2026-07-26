@@ -190,7 +190,11 @@ export async function planInstall(
   // `process.env` is read once, here, so every adapter interpolates against the same environment,
   // the cache is looked for in one place, and nothing deeper down reaches for ambient
   // state of its own.
-  const context: SourceContext = { projectDir, env: process.env, offline: options.offline === true };
+  const context: SourceContext = {
+    projectDir,
+    env: process.env,
+    offline: options.offline === true,
+  };
 
   const loaded = await loadCatalogs(config, context);
   const catalogs = mergeCatalogs(loaded);

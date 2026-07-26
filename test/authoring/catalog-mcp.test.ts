@@ -466,7 +466,9 @@ describe("ambit catalog mcp rm", () => {
   it("refuses while a skill requires it, naming the requirer", async () => {
     const result = await refused(ExitCode.Resolution, "rm", REQUIRED);
 
-    expect(result.stderr).toContain(`MCP server "${REQUIRED}" is still required (${REQUIRED_FILE})`);
+    expect(result.stderr).toContain(
+      `MCP server "${REQUIRED}" is still required (${REQUIRED_FILE})`,
+    );
     expect(result.stderr).toContain(`skill "${REQUIRER}" requires it (${REQUIRER_FILE})`);
     // The next step names the command that clears a `requires` entry, not the hand-edit that
     // predated it — and the requirement keeps its `mcp.` prefix while the requirer, always

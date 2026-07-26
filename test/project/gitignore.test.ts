@@ -141,18 +141,20 @@ describe("rewriting a block that is already there", () => {
   it("replaces the block in place, disturbing nothing above or below it", () => {
     const surrounded = `${INSTALLED}\n# mine\ncoverage/\n`;
 
-    expect(lines(updateGitignoreText(surrounded, [".ambit/", `${SKILLS_DIR}/acme.other`]))).toEqual([
-      "node_modules/",
-      "",
-      expect.stringContaining(BLOCK_BEGIN),
-      ".ambit/",
-      `${SKILLS_DIR}/acme.other`,
-      BLOCK_END,
-      "",
-      "# mine",
-      "coverage/",
-      "",
-    ]);
+    expect(lines(updateGitignoreText(surrounded, [".ambit/", `${SKILLS_DIR}/acme.other`]))).toEqual(
+      [
+        "node_modules/",
+        "",
+        expect.stringContaining(BLOCK_BEGIN),
+        ".ambit/",
+        `${SKILLS_DIR}/acme.other`,
+        BLOCK_END,
+        "",
+        "# mine",
+        "coverage/",
+        "",
+      ],
+    );
   });
 
   it("drops a path the new install no longer owns", () => {
@@ -238,7 +240,9 @@ describe("removing the block", () => {
   it("exits 2 rather than guessing at an unterminated block", () => {
     const orphaned = `dist/\n${BLOCK_BEGIN}\n.ambit/\ncoverage/\n`;
 
-    expect(rejection(() => removeGitignoreText(orphaned)).message).toContain("unterminated ambit block");
+    expect(rejection(() => removeGitignoreText(orphaned)).message).toContain(
+      "unterminated ambit block",
+    );
   });
 });
 

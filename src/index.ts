@@ -293,7 +293,13 @@ export {
 } from "./project/gitignore.js";
 export { INIT_FILENAME, INIT_SCOPE, initProject, scaffoldConfig } from "./project/init.js";
 export type { InitOptions, InitResult } from "./project/init.js";
-export { ADAPTERS, adaptersFor, installProject, planInstall, previewInstall } from "./project/install.js";
+export {
+  ADAPTERS,
+  adaptersFor,
+  installProject,
+  planInstall,
+  previewInstall,
+} from "./project/install.js";
 export type {
   AdapterPlan,
   InstallOptions,
@@ -316,8 +322,19 @@ export { authorizePlan, ownedKeys } from "./project/ownership.js";
 export type { OwnershipOptions } from "./project/ownership.js";
 export { planPrune, pruneArtifacts, remainingArtifacts } from "./project/prune.js";
 export type { PrunedArtifact } from "./project/prune.js";
-export { ARTIFACT_STATES, isClean, projectStatus, statusDrift, statusOfPlan } from "./project/status.js";
-export type { ArtifactState, ProjectStatus, StatusArtifact, StatusOptions } from "./project/status.js";
+export {
+  ARTIFACT_STATES,
+  isClean,
+  projectStatus,
+  statusDrift,
+  statusOfPlan,
+} from "./project/status.js";
+export type {
+  ArtifactState,
+  ProjectStatus,
+  StatusArtifact,
+  StatusOptions,
+} from "./project/status.js";
 
 // ── cli — presentation and dispatch ───────────────────────────────────────────────────────────
 export {

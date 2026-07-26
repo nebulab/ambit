@@ -217,13 +217,7 @@ describe("ambit doctor on an incomplete environment", () => {
       `env/fail: unset environment variable "${FIGMA_VAR}"`,
       `env/fail: unset environment variable "${SCOPED_VAR}"`,
     ]);
-    expect(await checks()).toEqual([
-      "env=fail",
-      "lock=ok",
-      "ownership=ok",
-      "drift=ok",
-      "mode=ok",
-    ]);
+    expect(await checks()).toEqual(["env=fail", "lock=ok", "ownership=ok", "drift=ok", "mode=ok"]);
   });
 
   it("names the skill that wants the variable, and how to satisfy it", async () => {

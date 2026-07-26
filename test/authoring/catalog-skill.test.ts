@@ -282,11 +282,19 @@ describe("ambit catalog skill new", () => {
     await succeeds("new", JANE, "--description", "1.5");
 
     expect(await read(JANE_FILE)).toContain('description: "1.5"');
-    expect((await parsed()).skills.find((candidate) => candidate.name === JANE)?.description).toBe("1.5");
+    expect((await parsed()).skills.find((candidate) => candidate.name === JANE)?.description).toBe(
+      "1.5",
+    );
   });
 
   it("refuses a scope the registry does not hold, naming the nearest one it does", async () => {
-    const result = await refused(ExitCode.Resolution, "new", JANE, "--scope", "function.enginering");
+    const result = await refused(
+      ExitCode.Resolution,
+      "new",
+      JANE,
+      "--scope",
+      "function.enginering",
+    );
 
     expect(result.stderr).toContain('unknown scope "function.enginering" (scopes.yml)');
     expect(result.stderr).toContain('did you mean "function.engineering"?');
@@ -306,7 +314,14 @@ describe("ambit catalog skill new", () => {
   });
 
   it("prints what it created, which path that took, and what is left to do", async () => {
-    const result = await succeeds("new", JANE, "--description", JANE_DESCRIPTION, "--scope", "core");
+    const result = await succeeds(
+      "new",
+      JANE,
+      "--description",
+      JANE_DESCRIPTION,
+      "--scope",
+      "core",
+    );
 
     expect(result.stdout).toBe(
       [
@@ -356,7 +371,9 @@ describe("ambit catalog skill rm", () => {
 
     await succeeds("rm", BRIEF);
 
-    expect(Object.keys(await snapshot()).filter((file) => file.startsWith(`${BRIEF_DIR}/`))).toEqual([]);
+    expect(
+      Object.keys(await snapshot()).filter((file) => file.startsWith(`${BRIEF_DIR}/`)),
+    ).toEqual([]);
     await validates();
   });
 

@@ -41,7 +41,12 @@ function toText(status: ProjectStatus): readonly string[] {
   return [
     ...section(
       "artifacts",
-      status.artifacts.map((artifact) => [artifact.path, artifact.kind, artifact.state, artifact.detail]),
+      status.artifacts.map((artifact) => [
+        artifact.path,
+        artifact.kind,
+        artifact.state,
+        artifact.detail,
+      ]),
     ),
   ];
 }

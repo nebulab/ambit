@@ -288,9 +288,7 @@ ambit:
     );
 
     const catalog = await parseCatalogDirectory(CATALOG_NAME, "path:../catalog", catalogDir);
-    expect(catalog.skills.map((skill) => skill.name)).toContain(
-      "acme.engineering.use-code-review",
-    );
+    expect(catalog.skills.map((skill) => skill.name)).toContain("acme.engineering.use-code-review");
   });
 
   it("parses identically whatever order the filesystem reports", async () => {
@@ -321,7 +319,9 @@ description: x
     expect(error.message).toContain('skill name "acme.engineering.wrong" does not match its path');
     // The line is the one the reader will find `name` on in the whole document, not in the block.
     expect(error.message).toContain(`${CODE_REVIEW} line 2`);
-    expect(error.detail.join("\n")).toContain('derives the name "acme.engineering.use-code-review"');
+    expect(error.detail.join("\n")).toContain(
+      'derives the name "acme.engineering.use-code-review"',
+    );
   });
 
   it("rejects a key under `ambit:` that §3.2 does not define, since that block is ambit's", async () => {
@@ -352,9 +352,7 @@ ambit: [function.engineering]
 `,
     );
 
-    expect((await rejection()).message).toBe(
-      `"ambit" must be a mapping (${CODE_REVIEW} line 4)`,
-    );
+    expect((await rejection()).message).toBe(`"ambit" must be a mapping (${CODE_REVIEW} line 4)`);
   });
 
   it("positions a frontmatter error at its line in the document", async () => {
@@ -386,7 +384,7 @@ description: y
   it("rejects frontmatter that is not YAML", async () => {
     await writeCatalogFile(CODE_REVIEW, '---json\n{"name": "x"}\n---\n');
 
-    expect((await rejection()).message).toContain("declares its frontmatter as \"json\"");
+    expect((await rejection()).message).toContain('declares its frontmatter as "json"');
   });
 
   it("rejects an MCP entity whose name disagrees with its filename", async () => {
@@ -485,8 +483,7 @@ describe("ambit catalog", () => {
       skills: {
         "acme.commons.use-company-context": {
           catalog: CATALOG_NAME,
-          description:
-            "Canonical context about Acme — what it sells, to whom, and how it works.",
+          description: "Canonical context about Acme — what it sells, to whom, and how it works.",
           env: [],
           path: "skills/acme/commons/use-company-context",
           requires: [],
@@ -825,7 +822,16 @@ describe("the flag rules Commander enforces before a handler runs", () => {
     const stubbed = stub("catalog scope add");
 
     const result = await invoke(
-      ["catalog", "scope", "add", "person.jane", "--description", "Jane's own things", "--catalog", catalogDir],
+      [
+        "catalog",
+        "scope",
+        "add",
+        "person.jane",
+        "--description",
+        "Jane's own things",
+        "--catalog",
+        catalogDir,
+      ],
       stubbed.handlers,
     );
 
@@ -975,7 +981,9 @@ describe("multi-catalog merge and shadowing", () => {
 
     expect(result.code).toBe(ExitCode.Resolution);
     expect(result.stderr).toContain('conflicting descriptions for scope "core" (scopes.yml)');
-    expect(result.stderr).toContain(`catalog "${CATALOG_NAME}" describes it as "${CORE_DESCRIPTION}"`);
+    expect(result.stderr).toContain(
+      `catalog "${CATALOG_NAME}" describes it as "${CORE_DESCRIPTION}"`,
+    );
     expect(result.stderr).toContain(`catalog "${SECOND}" describes it as "Everything, all of it"`);
     expect(result.stderr).toContain("make the two descriptions identical");
   });

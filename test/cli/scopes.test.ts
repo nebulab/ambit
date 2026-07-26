@@ -49,7 +49,10 @@ async function writeProfile(
 ): Promise<void> {
   const list = scopes.length === 0 ? "[]" : `\n${scopes.map((scope) => `  - ${scope}`).join("\n")}`;
   const entries = catalogs
-    .map((name) => `  - name: ${name}\n    source: path:../${name === CATALOG_NAME ? "catalog" : name}\n`)
+    .map(
+      (name) =>
+        `  - name: ${name}\n    source: path:../${name === CATALOG_NAME ? "catalog" : name}\n`,
+    )
     .join("");
   await writeFile(
     path.join(projectDir, "ambit.yml"),

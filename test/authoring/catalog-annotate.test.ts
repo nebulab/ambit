@@ -241,10 +241,7 @@ describe("ambit catalog annotate, on a skill", () => {
     // One substitution, in a file carrying `allowed-tools`, a comment, a flow list, a block list, and
     // prose: everything rule 2 protects is asserted by the equality rather than by five assertions.
     expect(await read(CLOSE_SKILL_FILE)).toBe(
-      CLOSE_SKILL_TEXT.replace(
-        "env: [CLOSE_API_KEY]",
-        "env: [CLOSE_API_KEY, CLOSE_BASE_URL]",
-      ),
+      CLOSE_SKILL_TEXT.replace("env: [CLOSE_API_KEY]", "env: [CLOSE_API_KEY, CLOSE_BASE_URL]"),
     );
     await validates();
   });
@@ -344,7 +341,12 @@ describe("ambit catalog annotate, on an MCP entity", () => {
 
 describe("ambit catalog annotate, refusals", () => {
   it("refuses an added scope the registry does not hold, suggesting the nearest one", async () => {
-    const result = await refused(ExitCode.Resolution, CORE_SKILL, "--add-scope", "function.enginering");
+    const result = await refused(
+      ExitCode.Resolution,
+      CORE_SKILL,
+      "--add-scope",
+      "function.enginering",
+    );
 
     expect(result.stderr).toContain('unknown scope "function.enginering" (scopes.yml)');
     expect(result.stderr).toContain(`did you mean "${ENGINEERING}"?`);

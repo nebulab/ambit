@@ -175,7 +175,10 @@ function asString(value: unknown): string {
 
 /** What git said last, which is where its `fatal:` line lands. */
 function lastLine(text: string): string {
-  const lines = text.split("\n").map((line) => line.trim()).filter((line) => line !== "");
+  const lines = text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line !== "");
   return lines[lines.length - 1] ?? "";
 }
 
@@ -226,8 +229,12 @@ async function runGit(
 
 /** The error for a git command that failed, carrying git's own last word. */
 function gitFailed(summary: string, outcome: GitOutcome, advice: string): never {
-  const said = lastLine(outcome.stderr) === "" ? lastLine(outcome.stdout) : lastLine(outcome.stderr);
-  throw networkError(summary, [said === "" ? "git reported no reason" : `git said: ${said}`, advice]);
+  const said =
+    lastLine(outcome.stderr) === "" ? lastLine(outcome.stdout) : lastLine(outcome.stderr);
+  throw networkError(summary, [
+    said === "" ? "git reported no reason" : `git said: ${said}`,
+    advice,
+  ]);
 }
 
 /**
@@ -247,7 +254,10 @@ async function clone(repo: string, request: GitFetchRequest): Promise<void> {
   await rm(incoming, { recursive: true, force: true });
   await mkdir(path.dirname(repo), { recursive: true });
 
-  const outcome = await runGit(["clone", "--mirror", "--quiet", "--", request.url, incoming], request);
+  const outcome = await runGit(
+    ["clone", "--mirror", "--quiet", "--", request.url, incoming],
+    request,
+  );
   if (!outcome.ok) {
     await rm(incoming, { recursive: true, force: true });
     gitFailed(

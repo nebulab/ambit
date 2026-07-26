@@ -120,9 +120,14 @@ async function writeMcp(
 ): Promise<void> {
   await writeFile(
     path.join(catalogDir, "mcps", `${name}${extension}`),
-    [`name: ${name}`, ...annotations, "transport:", "  stdio:", "    command: fixture-mcp", ""].join(
-      "\n",
-    ),
+    [
+      `name: ${name}`,
+      ...annotations,
+      "transport:",
+      "  stdio:",
+      "    command: fixture-mcp",
+      "",
+    ].join("\n"),
     "utf8",
   );
 }
@@ -263,14 +268,17 @@ describe("ambit validate: unregistered scopes", () => {
   it("cites the config file for an entity the project declares inline, which has no file", async () => {
     // An inline `mcps` entry (§3.1) is a document ambit never wrote and never will; `ambit.yml` is
     // where a reader goes to change it, so that is what the problem names.
-    await writeProfile(["core"], [
-      "mcps:",
-      "  - name: custom",
-      "    scopes: [marketing]",
-      "    transport:",
-      "      stdio:",
-      "        command: fixture-mcp",
-    ]);
+    await writeProfile(
+      ["core"],
+      [
+        "mcps:",
+        "  - name: custom",
+        "    scopes: [marketing]",
+        "    transport:",
+        "      stdio:",
+        "        command: fixture-mcp",
+      ],
+    );
 
     const found = await report("validate");
 
@@ -287,7 +295,9 @@ describe("ambit validate: unregistered scopes", () => {
 
     const result = await cli("validate");
 
-    expect(result.stdout).toContain("register it in a catalog's scopes.yml, or correct the spelling");
+    expect(result.stdout).toContain(
+      "register it in a catalog's scopes.yml, or correct the spelling",
+    );
     expect(result.stdout).not.toContain("did you mean");
   });
 
@@ -377,7 +387,9 @@ describe("ambit validate: requirements and cycles", () => {
     const found = await report("validate");
 
     expect(found.problems).toHaveLength(1);
-    expect(found.problems[0]?.detail[0]).toBe("acme.cycle.use-a → acme.cycle.use-b → acme.cycle.use-a");
+    expect(found.problems[0]?.detail[0]).toBe(
+      "acme.cycle.use-a → acme.cycle.use-b → acme.cycle.use-a",
+    );
   });
 
   it("reports a dangling requirement and a cycle from one run", async () => {
@@ -472,7 +484,9 @@ describe("ambit validate: shadowing", () => {
 
     expect(found.valid).toBe(false);
     expect(found.problems).toHaveLength(FIXTURE_SKILLS + FIXTURE_MCPS);
-    expect(new Set(found.problems.map((problem) => problem.kind))).toEqual(new Set(["shadowed-name"]));
+    expect(new Set(found.problems.map((problem) => problem.kind))).toEqual(
+      new Set(["shadowed-name"]),
+    );
     expect(found.problems[0]).toMatchObject({
       message: `shadowed skill "acme.commons.use-company-context" (catalog "${CATALOG_NAME}")`,
       detail: [
@@ -509,10 +523,10 @@ describe("ambit validate: shadowing", () => {
  */
 describe("ambit validate: the project's own config", () => {
   it("lists every mistyped held scope and every unknown explicit skill in one run", async () => {
-    await writeProfile(["core", "zeta.unknown", "alpha.unknown"], [
-      "skills:",
-      "  - acme.absent.use-nothing",
-    ]);
+    await writeProfile(
+      ["core", "zeta.unknown", "alpha.unknown"],
+      ["skills:", "  - acme.absent.use-nothing"],
+    );
 
     const resolved = await cli("resolve");
     const found = await report("validate");
@@ -542,17 +556,18 @@ describe("ambit validate: the project's own config", () => {
       ["---", "name: readwise-cli", "---", "", "# fixture", ""].join("\n"),
       "utf8",
     );
-    await writeProfile(["core"], [
-      "skills:",
-      "  - name: readwise-cli",
-      "    source: path:../extra",
-    ]);
+    await writeProfile(
+      ["core"],
+      ["skills:", "  - name: readwise-cli", "    source: path:../extra"],
+    );
 
     const result = await cli("validate");
 
     // Folded into the merged catalog, so it is neither an unknown name nor an unregistered scope.
     expect(result.code, result.stderr).toBe(ExitCode.Success);
-    expect(result.stdout).toContain(`checked ${FIXTURE_SCOPES} scopes, ${FIXTURE_SKILLS + 1} skills`);
+    expect(result.stdout).toContain(
+      `checked ${FIXTURE_SCOPES} scopes, ${FIXTURE_SKILLS + 1} skills`,
+    );
   });
 
   it("reports nothing about a held scope registered by any configured catalog", async () => {

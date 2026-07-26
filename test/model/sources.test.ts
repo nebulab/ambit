@@ -149,7 +149,9 @@ describe("the cache location", () => {
   });
 
   it("falls back to ~/.cache", () => {
-    expect(cacheRoot({ HOME: "/home/jane" })).toBe(path.join("/home/jane", ".cache", CACHE_DIRNAME));
+    expect(cacheRoot({ HOME: "/home/jane" })).toBe(
+      path.join("/home/jane", ".cache", CACHE_DIRNAME),
+    );
   });
 
   it("ignores an XDG_CACHE_HOME set to nothing", () => {

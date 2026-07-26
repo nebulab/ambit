@@ -90,10 +90,13 @@ function transportRefusal(name: string, summary: string): AmbitError {
 
 /** The error for a flag belonging to the transport kind this invocation did not ask for. */
 function flagBelongsElsewhere(flag: string, kind: string): AmbitError {
-  return configError(`\`--${flag}\` belongs to the ${kind} transport ${at(MCPS_DIRNAME, undefined)}`, [
-    `this invocation names a different kind, so \`--${flag}\` would be written nowhere`,
-    `drop \`--${flag}\`, or name the ${kind} transport instead`,
-  ]);
+  return configError(
+    `\`--${flag}\` belongs to the ${kind} transport ${at(MCPS_DIRNAME, undefined)}`,
+    [
+      `this invocation names a different kind, so \`--${flag}\` would be written nowhere`,
+      `drop \`--${flag}\`, or name the ${kind} transport instead`,
+    ],
+  );
 }
 
 /** The error for a `--header` argv entry that is not a `key=value` pair. */

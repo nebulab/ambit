@@ -16,7 +16,11 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { buildFixtureCatalog } from "../../scripts/fixture-catalog.js";
 import type { Catalog } from "../../src/model/catalog.js";
-import { mergeCatalogs, mergeConfigEntities, parseCatalogDirectory } from "../../src/model/catalog.js";
+import {
+  mergeCatalogs,
+  mergeConfigEntities,
+  parseCatalogDirectory,
+} from "../../src/model/catalog.js";
 import { loadProjectConfig } from "../../src/model/config.js";
 import { ExitCode } from "../../src/errors.js";
 import { LOCK_FILENAME, buildLock, serializeLock } from "../../src/project/lock.js";
@@ -200,7 +204,11 @@ describe("ambit.lock", () => {
   it("names the source, not a catalog, for a skill that carries its own", async () => {
     const source = path.join(root, "extra", "skills", "readwise-cli");
     await mkdir(source, { recursive: true });
-    await writeFile(path.join(source, "SKILL.md"), "---\nname: readwise-cli\n---\n\n# rw\n", "utf8");
+    await writeFile(
+      path.join(source, "SKILL.md"),
+      "---\nname: readwise-cli\n---\n\n# rw\n",
+      "utf8",
+    );
     await writeProfile([], ["skills:", "  - name: readwise-cli", "    source: path:../extra"]);
 
     await cli("install");
@@ -229,9 +237,9 @@ describe("ambit.lock", () => {
     expect(entry.requireString("commit")).toBe("1234567");
     expect(entry.requireString("ref")).toBe("1e5");
     // Every catalog skill inherits it, so the same quoting has to hold there too.
-    expect(
-      lock.requireMapping("skills").requireMapping(CORE_SKILL).requireString("commit"),
-    ).toBe("1234567");
+    expect(lock.requireMapping("skills").requireMapping(CORE_SKILL).requireString("commit")).toBe(
+      "1234567",
+    );
   });
 });
 
@@ -274,7 +282,10 @@ describe("ambit install --frozen", () => {
     await cli("install");
     // Reformatting is drift too: `--frozen` is asked whether install would rewrite the file, and a
     // lock ambit did not emit is one ambit would rewrite.
-    await writeFile(path.join(projectDir, LOCK_FILENAME), (await readLock()).replace(/\n/g, "\n\n"));
+    await writeFile(
+      path.join(projectDir, LOCK_FILENAME),
+      (await readLock()).replace(/\n/g, "\n\n"),
+    );
 
     expect((await cli("install", "--frozen")).code).toBe(ExitCode.Drift);
   });

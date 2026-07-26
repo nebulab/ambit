@@ -18,8 +18,17 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { FIXTURE_CATALOG_FILES, FIXTURE_MARKER, buildFixtureCatalog } from "../../scripts/fixture-catalog.js";
-import { CatalogDocument, applyCatalogEdit, mcpDocumentPath, skillDocumentPath } from "../../src/authoring/editor.js";
+import {
+  FIXTURE_CATALOG_FILES,
+  FIXTURE_MARKER,
+  buildFixtureCatalog,
+} from "../../scripts/fixture-catalog.js";
+import {
+  CatalogDocument,
+  applyCatalogEdit,
+  mcpDocumentPath,
+  skillDocumentPath,
+} from "../../src/authoring/editor.js";
 import { AmbitError, ExitCode } from "../../src/errors.js";
 import { isValid, validateCatalogDirectory } from "../../src/resolution/validate.js";
 
@@ -192,7 +201,14 @@ describe("the catalog editor: round-tripping", () => {
     );
     const document = await CatalogDocument.open(catalogDir, "scopes.yml");
 
-    document.renameKeys(["scopes"], new Map([["a", "a.b"], ["a.b", "a.b.b"], ["absent", "x"]]));
+    document.renameKeys(
+      ["scopes"],
+      new Map([
+        ["a", "a.b"],
+        ["a.b", "a.b.b"],
+        ["absent", "x"],
+      ]),
+    );
 
     expect(document.text()).toBe(
       [
@@ -239,7 +255,9 @@ describe("the catalog editor: writing", () => {
 
     await applyCatalogEdit(catalogDir, [document.change()]);
 
-    expect(Object.keys(await snapshot()).filter((file) => file.includes(".ambit-incoming"))).toEqual([]);
+    expect(
+      Object.keys(await snapshot()).filter((file) => file.includes(".ambit-incoming")),
+    ).toEqual([]);
   });
 
   it("reports every changed file in path order, with the bytes it holds now", async () => {
@@ -384,9 +402,7 @@ describe("the catalog editor: refusals", () => {
     );
 
     expect(error.message).toBe("refusing to write: the result would not validate");
-    expect(error.detail).toContain(
-      `unregistered scope "function.sails" (${ANNOTATED_SKILL_PATH})`,
-    );
+    expect(error.detail).toContain(`unregistered scope "function.sails" (${ANNOTATED_SKILL_PATH})`);
     expect(await read(ANNOTATED_SKILL_PATH)).toBe(ANNOTATED_SKILL);
   });
 

@@ -449,7 +449,9 @@ export function buildCommand(
   // the key its handler and its rule are both filed under, so bare `ambit catalog` and
   // `ambit catalog dump` cannot be given different behaviour.
   const invoked = spec.defaultSubcommand === undefined ? name : `${name} ${spec.defaultSubcommand}`;
-  const command = new Command(spec.name).description(spec.summary).helpOption("--help", "show usage");
+  const command = new Command(spec.name)
+    .description(spec.summary)
+    .helpOption("--help", "show usage");
 
   for (const [argSpec, description] of spec.args ?? []) command.argument(argSpec, description);
   for (const option of spec.options ?? []) command.addOption(option);
