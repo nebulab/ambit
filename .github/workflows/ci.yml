@@ -1,0 +1,58 @@
+# Runs the four checks PROMPT.md §4 requires of every iteration — lint, typecheck, test, build —
+# on every pull request and every push to `main`.
+#
+# Two decisions worth knowing:
+#
+#   - AMBIT_SKIP_NETWORK_TESTS is deliberately NOT set. Actions sets CI=true itself, and that is
+#     exactly what makes test/dotagents.test.ts mandatory here rather than skippable: the
+#     compatibility promise (spec §7) is the guarantee most likely to rot, so it has to be able to
+#     fail. A registry blip therefore costs ~70s before it reports. That is the intended trade.
+#   - The matrix is Node 20 and 22: 20 is the `engines` floor and 22 is what the scaffolded catalog
+#     workflow pins, so both numbers ambit puts its name to are exercised.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A new push to a branch makes the previous run's answer stale; on `main` runs are left alone so
+# every commit on the default branch has a recorded verdict.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    name: node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["20", "22"]
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      # `npm ci` installs exactly what package-lock.json pins, which is what makes a CI run
+      # reproducible in the same sense `ambit install --frozen` is.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build

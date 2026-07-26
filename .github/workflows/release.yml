@@ -1,0 +1,74 @@
+# Publishes to npm when a version tag is pushed. Wired and never fired: cutting the first release is
+# `npm version <x.y.z>` (or an edit to `package.json`) plus `git tag vX.Y.Z && git push --tags`.
+#
+# Four decisions worth knowing:
+#
+#   - **The tag is checked against `package.json`, and a disagreement fails before anything is
+#     published.** A tag is the only thing this workflow is given, and `--version` reads
+#     `package.json` (`src/version.ts`), so the two must agree or the release would announce one
+#     version and install another.
+#   - **The four checks run again here** even though `ci.yml` already ran them on `main`. A tag can
+#     point at any commit, and publishing bytes nothing verified is the one failure mode that cannot
+#     be taken back — npm does not allow republishing a version.
+#   - **`--provenance` with `id-token: write`** attests, to the public transparency log, which
+#     workflow in which commit built the tarball. This is a public package that runs on other
+#     people's machines through `npx`, so the attestation is worth the permission. It requires
+#     `repository` in `package.json`, which is why that field is there.
+#   - **`--access public`** is needed because `@nebulab/ambit` is scoped, and npm defaults a scoped
+#     package to restricted. Harmless on later releases.
+#
+# `prepublishOnly` (`npm run build`) means npm builds `dist/` itself as part of `npm publish`; the
+# explicit build step above it is the check, not the thing being packed.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Check out the tag
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          # Writes the .npmrc that makes NODE_AUTH_TOKEN below the credential for this registry.
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check the tag against package.json
+        run: |
+          tagged="${GITHUB_REF_NAME#v}"
+          declared="$(node -p "require('./package.json').version")"
+          if [ "$tagged" != "$declared" ]; then
+            echo "tag ${GITHUB_REF_NAME} does not match package.json version ${declared}" >&2
+            echo "next: retag, or set the version in package.json and commit it" >&2
+            exit 1
+          fi
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Publish to npm
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

@@ -883,10 +883,22 @@ mutation ends by re-validating.
   commands alike — and, prominently, the descendants-only rule with the sibling-vs-child
   modeling guidance from §2, since that's the thing catalog authors get wrong.
 
-- [ ] **A29 — CI and npm publish.**
+- [x] **A29 — CI and npm publish.**
   **Depends:** A28
-  **Done when:** CI runs lint, tests, and a build on every PR; a tagged release publishes to
-  npm; `npx @<org>/ambit@latest --version` works from a clean machine.
+  **Done when:** CI runs lint, typecheck, tests, and a build on every PR and on every push to
+  `main`; a tag-triggered release workflow exists that would publish to npm, wired but not
+  fired; the package carries a `LICENSE` and a real version; and the publish is proved without
+  publishing — `npm pack --dry-run` and `npm publish --dry-run` succeed, and the tarball holds
+  `dist/`, `README.md` and `LICENSE` and none of the tests, fixtures, or plan documents.
+  > **Left to a human, deliberately:** the two clauses that require an irreversible act — the
+  > actual `npm publish` of the first version and the `npx @nebulab/ambit@latest --version`
+  > check that can only follow it. Both were withdrawn from this task on the user's explicit
+  > call, not because anything blocked them: a published version cannot be unpublished and a
+  > version tag cannot be moved once anyone has fetched it, so who fires the first release is a
+  > decision an iteration should not make on its own. Everything that decision needs is in
+  > place — `.github/workflows/release.yml` fires on a `v*` tag and refuses a tag disagreeing
+  > with `package.json` — and NOTES.md holds the release runbook and the two things to settle
+  > first (the npm org for the `@nebulab` scope, and the `LICENSE` copyright holder).
 
 ---
 

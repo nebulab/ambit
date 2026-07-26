@@ -1,14 +1,20 @@
 {
   "name": "@nebulab/ambit",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "A deterministic dependency manager for AI-agent capabilities: skills and MCP servers, selected by scope.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aldesantis/ambit.git"
+  },
+  "homepage": "https://github.com/aldesantis/ambit#readme",
+  "bugs": "https://github.com/aldesantis/ambit/issues",
   "type": "module",
   "engines": {
     "node": ">=20"
   },
   "bin": {
-    "ambit": "./dist/cli.js"
+    "ambit": "dist/cli.js"
   },
   "files": [
     "dist"
