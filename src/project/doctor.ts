@@ -17,8 +17,10 @@
  * must not fail an install, and the same logic makes a materialization mode a warning here: `--copy`
  * and `--link` are per-run choices, both put identical bytes in front of the harness, and
  * failing on one would leave anyone who uses the flag with a `doctor` that can never pass — the
- * objection `status` already answered by ignoring mode entirely. A variable the environment does not
- * have is a failure, though: install cannot refuse it, which is precisely why this command must.
+ * objection `status` already answered by ignoring mode entirely. A limitation of the harness itself
+ * goes the same way, for the same reason: ambit wrote everything it owns and cannot write the rest.
+ * A variable the environment does not have is a failure, though: install cannot refuse it, which is
+ * precisely why this command must.
  *
  * One resolution answers everything. `planInstall` produces the bundle, the artifacts, the prior
  * state and the lock bytes, and `statusOfPlan` turns those into the same verdicts `ambit status`
@@ -32,6 +34,7 @@ import type {
   PlannedCatalogDir,
   PlannedHarnessConfig,
 } from "../harness/adapter.js";
+import { codex } from "../harness/definitions.js";
 import { referencedNames } from "../harness/env.js";
 import { gitignoreStatus } from "./gitignore.js";
 import type { MergedMcp } from "../model/catalog.js";
@@ -48,10 +51,11 @@ import { statusOfPlan } from "./status.js";
  *
  * A declared order rather than an alphabetical one, because it is an argument: the environment
  * around the project first, then the record of the last install, then what that record and the
- * project disagree about, and last the one thing that is merely unusual. A fixed order is all
+ * project disagree about, and last the two that are merely worth knowing — which mode a directory
+ * landed in, and what a harness needs that ambit is not allowed to write. A fixed order is all
  * determinism needs.
  */
-export const DOCTOR_CHECKS = ["env", "lock", "ownership", "drift", "mode"] as const;
+export const DOCTOR_CHECKS = ["env", "lock", "ownership", "drift", "mode", "harness"] as const;
 
 export type DoctorCheck = (typeof DOCTOR_CHECKS)[number];
 
@@ -119,6 +123,9 @@ function sortedUnique(values: readonly string[]): readonly string[] {
   return [...new Set(values)].sort(compare);
 }
 
+/** The line a Codex user has to have in their own config for any hook ambit writes to run. */
+const CODEX_HOOKS_FEATURE = "[features] codex_hooks = true";
+
 function fail(check: DoctorCheck, message: string, detail: readonly string[]): DoctorFinding {
   return { check, severity: "fail", message, detail };
 }
@@ -129,7 +136,7 @@ function warn(check: DoctorCheck, message: string, detail: readonly string[]): D
 
 /** What wants one environment variable, and whether install left a placeholder waiting for it. */
 interface EnvDemand {
-  /** One line per declarer, in a fixed order: skills, then servers, then config references. */
+  /** One line per declarer, in a fixed order: skills, servers, hooks, then config references. */
   readonly wanted: string[];
 }
 
@@ -178,11 +185,17 @@ function entityReferences(mcp: MergedMcp): readonly string[] {
 /**
  * Who wants each environment variable the bundle needs.
  *
- * Three routes, all of them reported, because they say different things about where the variable is
+ * Four routes, all of them reported, because they say different things about where the variable is
  * read: a skill's `env` is something the agent reads at runtime, a server's `env` is something that
- * server reads, and a reference in a config file is one the harness expands when it spawns the server.
- * The fix is the same for all three — set the variable — because ambit puts references into these
- * files rather than values, so nothing needs reinstalling once it is set.
+ * server reads, a hook's `env` is something the command the harness spawns reads, and a reference in a
+ * config file is one the harness expands when it spawns the server. The fix is the same for all four —
+ * set the variable — because ambit puts references into these files rather than values, so nothing
+ * needs reinstalling once it is set.
+ *
+ * A hook contributes through its `env` alone, and never a config-reference line: a `${VAR}` inside a
+ * hook's `command` is left intact for the shell the harness spawns rather than rewritten into a
+ * harness's own reference syntax (`HookEntity.command`), so there is no reference in the file for a
+ * harness to expand.
  */
 function envDemands(
   bundle: Bundle,
@@ -199,6 +212,12 @@ function envDemands(
   for (const mcp of bundle.mcps) {
     for (const variable of sortedUnique(mcp.env)) {
       demandOf(demands, variable).wanted.push(`MCP server "${mcp.name}" declares it in \`env\``);
+    }
+  }
+
+  for (const hook of bundle.hooks) {
+    for (const variable of sortedUnique(hook.env)) {
+      demandOf(demands, variable).wanted.push(`hook "${hook.name}" declares it in \`env\``);
     }
   }
 
@@ -419,6 +438,33 @@ async function modeFindings(
   return findings;
 }
 
+/**
+ * What a configured harness needs that ambit is not allowed to write.
+ *
+ * One finding today, and it is Codex's: hooks there are experimental and only read when a user's own
+ * `config.toml` carries `[features] codex_hooks = true`. That file is user-level rather than the
+ * project's, so ambit writes `.codex/hooks.json` correctly and the hooks still never fire — the one
+ * failure mode nothing else in this command can see, since every artifact is exactly as planned.
+ *
+ * A warning rather than a failure, for the reason the module comment gives: the flag is a legitimate
+ * thing to have set, ambit cannot tell whether it is, and a failure would leave anyone on Codex with a
+ * `doctor` that can never pass. Only raised when the project actually selects a hook — a Codex project
+ * with no hooks is not waiting on anything.
+ */
+function harnessFindings(bundle: Bundle, harnesses: readonly string[]): readonly DoctorFinding[] {
+  const layout = codex.hooks;
+  if (layout === undefined || bundle.hooks.length === 0) return [];
+  if (!harnesses.includes(codex.name)) return [];
+
+  return [
+    warn("harness", `${codex.name} runs hooks only with \`${CODEX_HOOKS_FEATURE}\` set`, [
+      `this project selects ${bundle.hooks.length === 1 ? "a hook" : "hooks"}, and ambit writes them to ${layout.file}`,
+      `${codex.name}'s hooks are experimental, and the flag enabling them is user-level config ambit must not write`,
+      `set \`${CODEX_HOOKS_FEATURE}\` in your own ${codex.name} config to have them run`,
+    ]),
+  ];
+}
+
 /** Each check's verdict, derived from its findings so the two halves cannot disagree. */
 function checkResults(findings: readonly DoctorFinding[]): readonly CheckResult[] {
   return DOCTOR_CHECKS.map((check) => {
@@ -454,6 +500,7 @@ export async function diagnoseProject(
     ...ownershipFindings(status.artifacts),
     ...(await driftFindings(projectDir, planned.artifacts, status.artifacts)),
     ...(await modeFindings(planned.artifacts, status.artifacts)),
+    ...harnessFindings(planned.bundle, planned.harnesses),
   ];
 
   return { checks: checkResults(findings), findings };

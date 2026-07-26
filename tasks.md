@@ -269,7 +269,7 @@ and writing the current one (§5).
 
 ## 13. `doctor`, `audit`, `tree`
 
-- [ ] The remaining reports.
+- [x] The remaining reports.
 
 **Do** — `doctor` checks hook `env` vars through the existing `env` check and adds one **warning**
 when `codex` is configured and hooks are selected (Codex needs `[features] codex_hooks = true`, which
@@ -279,6 +279,22 @@ on `ScopeSelection:40` and in `selectionSize`.
 
 **Done when** — `test/golden/catalog-tree.json` regenerated (every node's counts change — read the
 diff), plus tests for the doctor warning and the audit finding.
+
+> found (task 13): the codex warning needed a home, and none of `env`/`lock`/`ownership`/`drift`/`mode`
+> is one — a feature flag in a user's own config is not an environment variable and not drift — so
+> `DOCTOR_CHECKS` gains a sixth check, `harness`, for what a configured harness needs that ambit is not
+> allowed to write. It sits last, beside `mode`: the two warning-only checks. §6's undocumented VS Code
+> placeholder (task 10's note) is where a second finding would go if it ever bites.
+>
+> The `catalog-tree.json` diff is 8 added lines and no changed count: one `"hooks": []` per `direct` and
+> `inherited` on each of the four nodes. Counts cannot move until the fixture catalog holds a hook, which
+> is task 15 — so the golden is worth re-reading then, and the tree's invariant test now asserts the hook
+> namespace too, vacuously until it does.
+>
+> `unreachable-hook`'s last detail line names a file to edit — a scope in the hook's own `HOOK.yml` —
+> where the skill and MCP findings name `ambit catalog annotate` and `ambit catalog <kind> rm`, because
+> neither command exists for a hook until task 14. Swap it there;
+> `test/authoring/catalog-audit.test.ts` pins the text.
 
 > note (task 8): `audit`'s dead-scope rule already counts hook declarations, through a local
 > `scopesHooksDeclare` in `audit.ts` — a scope only a hook declared read as unused, which was live the

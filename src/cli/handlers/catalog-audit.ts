@@ -34,6 +34,7 @@ function findingJson(finding: AuditFinding): Readonly<Record<string, unknown>> {
 function toJson(report: AuditReport): Readonly<Record<string, unknown>> {
   return {
     audited: {
+      hooks: report.audited.hooks,
       mcps: report.audited.mcps,
       scopes: report.audited.scopes,
       skills: report.audited.skills,
@@ -62,7 +63,7 @@ function findingLines(findings: readonly AuditFinding[]): readonly string[] {
 function toText(report: AuditReport): readonly string[] {
   const { audited } = report;
   return [
-    `audited ${count(audited.scopes, "scope")}, ${count(audited.skills, "skill")}, ${count(audited.mcps, "mcp")}`,
+    `audited ${count(audited.scopes, "scope")}, ${count(audited.skills, "skill")}, ${count(audited.mcps, "mcp")}, ${count(audited.hooks, "hook")}`,
     "",
     ...findingLines(report.findings),
   ];

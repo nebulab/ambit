@@ -87,13 +87,33 @@ interface JsonFinding {
 }
 
 interface JsonReport {
-  audited: { mcps: number; scopes: number; skills: number };
+  audited: { hooks: number; mcps: number; scopes: number; skills: number };
   findings: readonly JsonFinding[];
   tidy: boolean;
 }
 
 async function auditJson(dir: string): Promise<JsonReport> {
   return JSON.parse((await audit(dir, "--json")).stdout) as JsonReport;
+}
+
+/**
+ * Hand-writes a hook, since `catalog hook new` does not exist yet — the rest of this suite goes
+ * through the authoring commands and this is the one thing that cannot.
+ */
+async function writeHook(dir: string, name: string, scopes: readonly string[]): Promise<void> {
+  const target = path.join(dir, "hooks", name, "HOOK.yml");
+  await mkdir(path.dirname(target), { recursive: true });
+  await writeFile(
+    target,
+    [
+      `name: ${name}`,
+      `scopes: [${scopes.join(", ")}]`,
+      "event: Stop",
+      "command: npx notify",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
 }
 
 /**
@@ -160,7 +180,7 @@ describe("ambit catalog audit", () => {
 
     expect(result.stdout).toBe(
       [
-        "audited 2 scopes, 2 skills, 2 mcps",
+        "audited 2 scopes, 2 skills, 2 mcps, 0 hooks",
         "",
         "findings (3)",
         `  unused scope "${DEAD_SCOPE}" (scopes.yml)`,
@@ -268,7 +288,7 @@ describe("ambit catalog audit --check", () => {
 
     expect(result.code, result.stderr).toBe(ExitCode.Success);
     expect(result.stdout).toBe(
-      ["audited 4 scopes, 4 skills, 2 mcps", "", "findings (0)", "  (none)"].join("\n"),
+      ["audited 4 scopes, 4 skills, 2 mcps, 0 hooks", "", "findings (0)", "  (none)"].join("\n"),
     );
   });
 });
@@ -277,7 +297,7 @@ describe("ambit catalog audit --json", () => {
   it("carries what was audited, every finding, and the verdict", async () => {
     const report = await auditJson(authored);
 
-    expect(report.audited).toEqual({ mcps: 2, scopes: 2, skills: 2 });
+    expect(report.audited).toEqual({ hooks: 0, mcps: 2, scopes: 2, skills: 2 });
     expect(report.tidy).toBe(false);
     expect(report.findings.map((found) => ({ kind: found.kind, message: found.message }))).toEqual([
       { kind: "dead-scope", message: `unused scope "${DEAD_SCOPE}" (scopes.yml)` },
@@ -323,26 +343,6 @@ describe("what makes a registered scope dead", () => {
     ]);
   });
 
-  /**
-   * Hand-writes a hook, since `catalog hook new` does not exist yet — the rest of this suite goes
-   * through the authoring commands and this is the one thing that cannot.
-   */
-  async function writeHook(dir: string, name: string, scopes: readonly string[]): Promise<void> {
-    const target = path.join(dir, "hooks", name, "HOOK.yml");
-    await mkdir(path.dirname(target), { recursive: true });
-    await writeFile(
-      target,
-      [
-        `name: ${name}`,
-        `scopes: [${scopes.join(", ")}]`,
-        "event: Stop",
-        "command: npx notify",
-        "",
-      ].join("\n"),
-      "utf8",
-    );
-  }
-
   it("reports no finding for a scope only a hook declares", async () => {
     // A hook is a third thing a scope selects, so a scope that selects one is not dead — telling
     // someone to unregister the scope their hook is reached by would be advice that breaks it.
@@ -366,8 +366,10 @@ describe("what makes a registered scope dead", () => {
     await author(fixture, "scope", "add", "person.jane", "--description", "Jane's own things");
     await writeHook(fixture, "notify", ["person.janet"]);
 
+    // The hook itself is now unreachable too, which is the other half of the same fact.
     expect((await auditJson(fixture)).findings.map((found) => found.message)).toEqual([
       'unused scope "person.jane" (scopes.yml)',
+      'unreachable hook "notify" (hooks/notify/HOOK.yml)',
     ]);
   });
 
@@ -393,5 +395,69 @@ describe("what makes a registered scope dead", () => {
     expect((await auditJson(fixture)).findings.map((found) => found.message)).toEqual([
       'unreachable MCP server "scoped" (mcps/scoped.yaml)',
     ]);
+  });
+});
+
+/**
+ * The third namespace, and the one where "unreachable" is decided in a single step: a hook carries no
+ * `requires` of its own, so it is always a leaf of the closure — reached by a registered scope of its
+ * own, or by a reachable skill's `hook.<name>`, and by nothing else.
+ */
+describe("what makes a hook unreachable", () => {
+  const NOTIFY = "notify";
+  const HOOK_DOCUMENT = `hooks/${NOTIFY}/HOOK.yml`;
+
+  let fixture: string;
+
+  beforeEach(async () => {
+    fixture = await buildFixtureCatalog(path.join(root, "fixture"));
+  });
+
+  it("reports a hook no scope selects, naming its document and the requirement that would reach it", async () => {
+    await writeHook(fixture, NOTIFY, []);
+
+    const report = await auditJson(fixture);
+    expect(report.audited.hooks).toBe(1);
+    expect(report.findings).toEqual([
+      {
+        kind: "unreachable-hook",
+        message: `unreachable hook "${NOTIFY}" (${HOOK_DOCUMENT})`,
+        detail: [
+          `no registered scope selects it, and nothing reachable requires \`hook.${NOTIFY}\``,
+          "no profile can select it, so no harness is ever configured to run it",
+          `add a registered scope to its \`scopes\`, or remove hooks/${NOTIFY}`,
+        ],
+      },
+    ]);
+  });
+
+  it("treats a hook nothing declares but a reachable skill requires as reachable", async () => {
+    // The `requires` closure is the way a hook reaches a project without being named — the whole
+    // point of `hook.<name>`, so reporting it as dead weight would report the intended shape.
+    await writeHook(fixture, NOTIFY, []);
+    await author(fixture, "annotate", "code-review", "--add-requires", `hook.${NOTIFY}`);
+
+    expect((await auditJson(fixture)).findings).toEqual([]);
+  });
+
+  it("reports a hook only an unreachable skill requires", async () => {
+    // Reachability is transitive on the way in: the requirer declares no registered scope, so
+    // nothing can select the skill and nothing can therefore pull the hook in behind it.
+    await writeHook(fixture, NOTIFY, []);
+    await author(fixture, "skill", "new", ORPHAN_SKILL, "--description", "Nothing points at this.");
+    await author(fixture, "annotate", ORPHAN_SKILL, "--add-requires", `hook.${NOTIFY}`);
+
+    expect((await auditJson(fixture)).findings.map((found) => found.kind)).toEqual([
+      "unreachable-skill",
+      "unreachable-hook",
+    ]);
+  });
+
+  it("stops reporting it once a registered scope declares it", async () => {
+    await writeHook(fixture, NOTIFY, ["core"]);
+
+    const report = await auditJson(fixture);
+    expect(report.findings).toEqual([]);
+    expect(report.tidy).toBe(true);
   });
 });

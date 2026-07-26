@@ -351,7 +351,7 @@ refused, with the same message and exit code.
 | `ambit prune`                                         | Remove owned artifacts not in the current bundle.                                                                                                                  |
 | `ambit clean`                                         | Remove everything ambit owns.                                                                                                                                      |
 | `ambit validate`                                      | Validate everything this project configures, for CI. One catalog on its own is `ambit catalog validate`.                                                           |
-| `ambit doctor`                                        | Check env vars, the lock, ownership, drift, and materialization mode.                                                                                              |
+| `ambit doctor`                                        | Check env vars, the lock, ownership, drift, materialization mode, and harness limits.                                                                              |
 
 ### Authoring commands
 

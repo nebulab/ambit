@@ -4,12 +4,14 @@
       "children": {},
       "description": "The universal floor — context everyone needs",
       "direct": {
+        "hooks": [],
         "mcps": [],
         "skills": [
           "company-context"
         ]
       },
       "inherited": {
+        "hooks": [],
         "mcps": [],
         "skills": []
       }
@@ -20,12 +22,14 @@
           "children": {},
           "description": "Browser-side work: components, styling, accessibility",
           "direct": {
+            "hooks": [],
             "mcps": [],
             "skills": [
               "design-tokens"
             ]
           },
           "inherited": {
+            "hooks": [],
             "mcps": [],
             "skills": []
           }
@@ -33,6 +37,7 @@
       },
       "description": "Building and shipping software",
       "direct": {
+        "hooks": [],
         "mcps": [
           "scoped"
         ],
@@ -41,6 +46,7 @@
         ]
       },
       "inherited": {
+        "hooks": [],
         "mcps": [],
         "skills": [
           "design-tokens"
@@ -51,12 +57,14 @@
       "children": {},
       "description": "The Acme engagement",
       "direct": {
+        "hooks": [],
         "mcps": [],
         "skills": [
           "acme-brief"
         ]
       },
       "inherited": {
+        "hooks": [],
         "mcps": [],
         "skills": []
       }

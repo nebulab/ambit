@@ -42,14 +42,25 @@ const ENGINEERING_TARGET = `${SKILLS_DIR}/${ENGINEERING_SKILL}`;
 const FIGMA_VAR = "ACME_FIGMA_TOKEN";
 const SCOPED_VAR = "SCOPED_API_KEY";
 
+/** The inline hook the harness cases declare, and the variable one of them has it want. */
+const HOOK = "notify";
+const HOOK_VAR = "NOTIFY_WEBHOOK";
+
+const HOOK_LINES: readonly string[] = [
+  `  - name: ${HOOK}`,
+  "    event: Stop",
+  "    command: ./bin/notify",
+];
+
 /** What a healthy project reports: every check named, and both finding lists explicitly empty. */
 const HEALTHY_REPORT = [
-  "checks (5)",
+  "checks (6)",
   "  env        ok",
   "  lock       ok",
   "  ownership  ok",
   "  drift      ok",
   "  mode       ok",
+  "  harness    ok",
   "",
   "failures (0)",
   "  (none)",
@@ -72,6 +83,32 @@ catalogs:
   - name: ${CATALOG_NAME}
     source: path:../catalog
 scopes: ${list}
+`,
+    "utf8",
+  );
+}
+
+/**
+ * A profile holding no scopes, the `harnesses` given, and `hooks` as written — `[]` for a project
+ * that configures a harness and selects no hook at all.
+ *
+ * The hooks are inline rather than out of the fixture catalog, which holds none: a hook needs no
+ * catalog to reach a bundle, and what these cases are about is the harness the project configures.
+ */
+async function writeHookProfile(
+  harnesses: readonly string[],
+  hooks: readonly string[] = HOOK_LINES,
+): Promise<void> {
+  const declared = hooks.length === 0 ? " []" : `\n${hooks.join("\n")}`;
+  await writeFile(
+    path.join(projectDir, "ambit.yml"),
+    `version: 1
+catalogs:
+  - name: ${CATALOG_NAME}
+    source: path:../catalog
+harnesses: [${harnesses.join(", ")}]
+scopes: []
+hooks:${declared}
 `,
     "utf8",
   );
@@ -190,6 +227,7 @@ describe("ambit doctor on a healthy project", () => {
         { check: "ownership", status: "ok" },
         { check: "drift", status: "ok" },
         { check: "mode", status: "ok" },
+        { check: "harness", status: "ok" },
       ],
       findings: [],
       healthy: true,
@@ -218,7 +256,14 @@ describe("ambit doctor on an incomplete environment", () => {
       `env/fail: unset environment variable "${FIGMA_VAR}"`,
       `env/fail: unset environment variable "${SCOPED_VAR}"`,
     ]);
-    expect(await checks()).toEqual(["env=fail", "lock=ok", "ownership=ok", "drift=ok", "mode=ok"]);
+    expect(await checks()).toEqual([
+      "env=fail",
+      "lock=ok",
+      "ownership=ok",
+      "drift=ok",
+      "mode=ok",
+      "harness=ok",
+    ]);
   });
 
   it("names the skill that wants the variable, and how to satisfy it", async () => {
@@ -398,7 +443,14 @@ describe("ambit doctor on a project installed with `--copy`", () => {
       `mode/warn: ${CORE_TARGET} is installed as a copy`,
       `mode/warn: ${FRONTEND_TARGET} is installed as a copy`,
     ]);
-    expect(await checks()).toEqual(["env=ok", "lock=ok", "ownership=ok", "drift=ok", "mode=warn"]);
+    expect(await checks()).toEqual([
+      "env=ok",
+      "lock=ok",
+      "ownership=ok",
+      "drift=ok",
+      "mode=warn",
+      "harness=ok",
+    ]);
   });
 
   it("says why, and how to keep it — nothing persists a mode between runs", async () => {
@@ -421,6 +473,90 @@ describe("ambit doctor on a project installed with `--copy`", () => {
   });
 });
 
+/**
+ * A hook's `env` is the fourth route into the one check that reads the environment, and it is the only
+ * one of the four with nothing in a config file behind it: a `${VAR}` in a hook's `command` is left for
+ * the shell the harness spawns, so the declaration is all there is to report.
+ */
+describe("ambit doctor on a hook's `env`", () => {
+  beforeEach(async () => {
+    await writeHookProfile(["claude"], [...HOOK_LINES, `    env: [${HOOK_VAR}]`]);
+    vi.stubEnv(HOOK_VAR, undefined);
+    expect((await cli("install")).code).toBe(ExitCode.Success);
+  });
+
+  it("fails on a variable a selected hook declares and the environment does not have", async () => {
+    expect((await cli("doctor")).code).toBe(ExitCode.Doctor);
+    expect(await findings()).toEqual([`env/fail: unset environment variable "${HOOK_VAR}"`]);
+    expect(await detailOf(HOOK_VAR)).toEqual([
+      `hook "${HOOK}" declares it in \`env\``,
+      `set ${HOOK_VAR} in the environment the agent runs in`,
+    ]);
+  });
+
+  it("goes quiet once it is set, without a reinstall", async () => {
+    vi.stubEnv(HOOK_VAR, "https://hooks.example/notify");
+
+    expect(isHealthy(await diagnoseProject(projectDir))).toBe(true);
+  });
+});
+
+/**
+ * §7's one harness finding: Codex reads hooks only when a user's own config carries
+ * `[features] codex_hooks = true`, and that file is not one ambit writes. So ambit can write
+ * `.codex/hooks.json` exactly as planned — every other check `ok` — and the hooks still never run,
+ * which is the one failure mode nothing else in this command can see.
+ */
+describe("ambit doctor on a project configuring codex", () => {
+  it("warns that codex needs the feature flag, and still exits 0", async () => {
+    await writeHookProfile(["codex"]);
+    expect((await cli("install")).code).toBe(ExitCode.Success);
+
+    const result = await cli("doctor");
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+    expect(await findings()).toEqual([
+      "harness/warn: codex runs hooks only with `[features] codex_hooks = true` set",
+    ]);
+    expect(await checks()).toEqual([
+      "env=ok",
+      "lock=ok",
+      "ownership=ok",
+      "drift=ok",
+      "mode=ok",
+      "harness=warn",
+    ]);
+  });
+
+  it("names the file ambit wrote, and says the flag is not ambit's to write", async () => {
+    await writeHookProfile(["codex"]);
+    expect((await cli("install")).code).toBe(ExitCode.Success);
+
+    expect(await detailOf("codex_hooks")).toEqual([
+      "this project selects a hook, and ambit writes them to .codex/hooks.json",
+      "codex's hooks are experimental, and the flag enabling them is user-level config ambit must not write",
+      "set `[features] codex_hooks = true` in your own codex config to have them run",
+    ]);
+  });
+
+  it("says nothing when codex is configured and no hook is selected", async () => {
+    // Nothing is waiting on the flag, so a project that configures codex for its MCP servers alone
+    // has no reason to hear about it.
+    await writeHookProfile(["codex"], []);
+    expect((await cli("install")).code).toBe(ExitCode.Success);
+
+    expect(await findings()).toEqual([]);
+    expect(await checks()).toContain("harness=ok");
+  });
+
+  it("says nothing when hooks are selected and codex is not configured", async () => {
+    await writeHookProfile(["claude"]);
+    expect((await cli("install")).code).toBe(ExitCode.Success);
+
+    expect(await findings()).toEqual([]);
+    expect((await cli("doctor")).code).toBe(ExitCode.Success);
+  });
+});
+
 describe("ambit doctor before an install", () => {
   it("reports the missing lock and every missing artifact, and exits 6", async () => {
     vi.stubEnv(FIGMA_VAR, "figma-token");
@@ -435,6 +571,7 @@ describe("ambit doctor before an install", () => {
       "ownership=ok",
       "drift=fail",
       "mode=ok",
+      "harness=ok",
     ]);
     // The lock, both managed blocks, three missing skills, the skills link, and `.mcp.json`.
     expect(doctorFailures(await diagnoseProject(projectDir))).toHaveLength(8);
