@@ -70,7 +70,6 @@ export {
   arraySectionDriver,
   driverFor,
   entryDigest,
-  jsonArrayDriver,
   jsonDriver,
   jsoncDriver,
   managedKey,

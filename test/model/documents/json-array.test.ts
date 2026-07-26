@@ -17,8 +17,10 @@ import {
   arrayEntryKey,
   arraySectionDriver,
   entryDigest,
-  jsonArrayDriver,
 } from "../../../src/model/documents/json-array.js";
+
+/** The driver as every harness but Cursor gets it: nothing to seed at the document's root. */
+const driver = arraySectionDriver();
 
 const SECTION = "hooks";
 const FILE = ".claude/settings.json";
@@ -80,7 +82,7 @@ const HANDWRITTEN = `{
 `;
 
 function merge(text: string | undefined, ...entries: readonly ConfigEntry[]): string {
-  return jsonArrayDriver.mergeSection(text, SECTION, entries, FILE);
+  return driver.mergeSection(text, SECTION, entries, FILE);
 }
 
 function parsed(text: string | undefined): Record<string, unknown> {
@@ -217,7 +219,7 @@ describe("removing hooks", () => {
   it("drops only the matching digests and leaves the foreign entry in place", () => {
     const once = merge(HANDWRITTEN, FORMAT, GREET);
 
-    const removed = jsonArrayDriver.removeKeys(once, SECTION, [FORMAT.key, GREET.key], FILE);
+    const removed = driver.removeKeys(once, SECTION, [FORMAT.key, GREET.key], FILE);
 
     expect(hooksOf(removed).PostToolUse).toEqual([
       { matcher: "Write", hooks: [{ type: "command", command: "./mine.sh" }] },
@@ -232,7 +234,7 @@ describe("removing hooks", () => {
   it("leaves an emptied event array behind rather than deleting it", () => {
     const once = merge(HANDWRITTEN, GREET);
 
-    const removed = jsonArrayDriver.removeKeys(once, SECTION, [GREET.key], FILE);
+    const removed = driver.removeKeys(once, SECTION, [GREET.key], FILE);
 
     // The array is a container ambit created but does not own the way it owns the entries in it, and a
     // person may be about to put a hook of their own in it — the stance the map driver takes on `{}`.
@@ -242,12 +244,10 @@ describe("removing hooks", () => {
   it("reports nothing to do rather than rewriting a file it would not change", () => {
     // Each of these is a prune that must leave the file byte-identical: an entry already gone, an
     // event array that never existed, a file with no hooks at all, and a file that is not there.
-    expect(jsonArrayDriver.removeKeys(HANDWRITTEN, SECTION, [FORMAT.key], FILE)).toBeUndefined();
-    expect(jsonArrayDriver.removeKeys(HANDWRITTEN, SECTION, [GREET.key], FILE)).toBeUndefined();
-    expect(jsonArrayDriver.removeKeys('{"model": "opus"}\n', SECTION, [FORMAT.key], FILE)).toBe(
-      undefined,
-    );
-    expect(jsonArrayDriver.removeKeys(undefined, SECTION, [FORMAT.key], FILE)).toBeUndefined();
+    expect(driver.removeKeys(HANDWRITTEN, SECTION, [FORMAT.key], FILE)).toBeUndefined();
+    expect(driver.removeKeys(HANDWRITTEN, SECTION, [GREET.key], FILE)).toBeUndefined();
+    expect(driver.removeKeys('{"model": "opus"}\n', SECTION, [FORMAT.key], FILE)).toBe(undefined);
+    expect(driver.removeKeys(undefined, SECTION, [FORMAT.key], FILE)).toBeUndefined();
   });
 });
 
@@ -255,7 +255,7 @@ describe("reading the section", () => {
   it("derives every key from the file alone, foreign entries included", () => {
     // Nothing here knows a hook's name, and nothing needs to: the digest is the identity, so the keys
     // ownership compares a plan against are readable off any settings file, however it was written.
-    expect(jsonArrayDriver.sectionKeys(HANDWRITTEN, SECTION, FILE)).toEqual(
+    expect(driver.sectionKeys(HANDWRITTEN, SECTION, FILE)).toEqual(
       new Set([
         arrayEntryKey("PostToolUse", {
           matcher: "Write",
@@ -269,26 +269,20 @@ describe("reading the section", () => {
   });
 
   it("names ambit's entry once it is merged in", () => {
-    expect(jsonArrayDriver.sectionKeys(merge(HANDWRITTEN, FORMAT), SECTION, FILE)).toContain(
-      FORMAT.key,
-    );
+    expect(driver.sectionKeys(merge(HANDWRITTEN, FORMAT), SECTION, FILE)).toContain(FORMAT.key);
   });
 
   it("reads an absent file, an absent section and an unusable one as holding none", () => {
-    expect(jsonArrayDriver.sectionKeys(undefined, SECTION, FILE)).toEqual(new Set());
-    expect(jsonArrayDriver.sectionKeys('{"model": "opus"}', SECTION, FILE)).toEqual(new Set());
-    expect(jsonArrayDriver.sectionKeys('{"hooks": []}', SECTION, FILE)).toEqual(new Set());
-    expect(jsonArrayDriver.sectionKeys('{"hooks": {"Stop": "nope"}}', SECTION, FILE)).toEqual(
-      new Set(),
-    );
+    expect(driver.sectionKeys(undefined, SECTION, FILE)).toEqual(new Set());
+    expect(driver.sectionKeys('{"model": "opus"}', SECTION, FILE)).toEqual(new Set());
+    expect(driver.sectionKeys('{"hooks": []}', SECTION, FILE)).toEqual(new Set());
+    expect(driver.sectionKeys('{"hooks": {"Stop": "nope"}}', SECTION, FILE)).toEqual(new Set());
   });
 });
 
 describe("whether an entry is already what install would write", () => {
   it("says yes for the entry install wrote", () => {
-    expect(jsonArrayDriver.entryMatches(merge(HANDWRITTEN, FORMAT), SECTION, FORMAT, FILE)).toBe(
-      true,
-    );
+    expect(driver.entryMatches(merge(HANDWRITTEN, FORMAT), SECTION, FORMAT, FILE)).toBe(true);
   });
 
   it("says no for an absent file, an absent entry, and one edited by hand", () => {
@@ -297,9 +291,9 @@ describe("whether an entry is already what install would write", () => {
       "npx prettier --check",
     );
 
-    expect(jsonArrayDriver.entryMatches(undefined, SECTION, FORMAT, FILE)).toBe(false);
-    expect(jsonArrayDriver.entryMatches(HANDWRITTEN, SECTION, FORMAT, FILE)).toBe(false);
-    expect(jsonArrayDriver.entryMatches(edited, SECTION, FORMAT, FILE)).toBe(false);
+    expect(driver.entryMatches(undefined, SECTION, FORMAT, FILE)).toBe(false);
+    expect(driver.entryMatches(HANDWRITTEN, SECTION, FORMAT, FILE)).toBe(false);
+    expect(driver.entryMatches(edited, SECTION, FORMAT, FILE)).toBe(false);
   });
 });
 
@@ -336,12 +330,31 @@ describe("root defaults", () => {
 
 describe("selecting the driver", () => {
   it("takes the shape, since the format cannot tell the two JSON files apart", () => {
-    expect(driverFor("json", "array")).toBe(jsonArrayDriver);
+    // An array-section driver is built per call — it carries the caller's root defaults — so the claim
+    // is what it writes rather than which object it is.
+    expect(driverFor("json", "array").mergeSection(undefined, SECTION, [FORMAT], FILE)).toBe(
+      merge(undefined, FORMAT),
+    );
     expect(driverFor("json", "map")).toBe(jsonDriver);
   });
 
   it("reads an absent shape as a map, exactly as an absent format reads as json", () => {
     expect(driverFor("json")).toBe(jsonDriver);
+  });
+
+  it("hands the root defaults it is given to the driver it builds", () => {
+    // The route Cursor's `version: 1` travels: a profile's layout declares it, the planned artifact
+    // carries it, and `applyHarnessConfig` passes it here — nothing else in ambit seeds a root key.
+    const merged = driverFor("json", "array", { version: 1 }).mergeSection(
+      undefined,
+      SECTION,
+      [FORMAT],
+      FILE,
+    );
+
+    expect(parsed(merged).version).toBe(1);
+    // And an absent argument seeds nothing, which is what Claude's and Codex's files want.
+    expect(parsed(merge(undefined, FORMAT)).version).toBeUndefined();
   });
 
   it("refuses a format with no array-section driver", () => {
@@ -386,8 +399,8 @@ describe("what it refuses", () => {
 
     expect(error.code).toBe(ExitCode.Internal);
     expect(error.message).toBe(`cannot address "PostToolUse" in ${FILE}`);
-    expect(
-      caught(() => jsonArrayDriver.removeKeys(HANDWRITTEN, SECTION, ["Stop"], FILE)).code,
-    ).toBe(ExitCode.Internal);
+    expect(caught(() => driver.removeKeys(HANDWRITTEN, SECTION, ["Stop"], FILE)).code).toBe(
+      ExitCode.Internal,
+    );
   });
 });

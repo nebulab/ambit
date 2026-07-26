@@ -168,8 +168,8 @@ export function adaptersFor(harnesses: readonly string[]): readonly HarnessAdapt
  *
  * A path, for anything owned as a path. For a config file the path is not enough, because ambit owns
  * *keys* there rather than the file: two harnesses writing different entries into one document both
- * have to write, so identity is the whole write — the section, the driver it goes through, and the
- * entries themselves.
+ * have to write, so identity is the whole write — the section, the driver it goes through, the root
+ * keys it seeds, and the entries themselves.
  */
 function identityOf(artifact: PlannedArtifact): string {
   if (artifact.kind !== "harness-config") return artifact.path;
@@ -178,6 +178,7 @@ function identityOf(artifact: PlannedArtifact): string {
     artifact.section,
     artifact.format,
     artifact.shape,
+    artifact.rootDefaults,
     artifact.entries,
   ]);
 }

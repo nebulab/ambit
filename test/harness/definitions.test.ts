@@ -25,6 +25,7 @@ import type { HarnessProfile } from "../../src/harness/profile.js";
 import { SHARED_SKILLS_DIR } from "../../src/harness/profile.js";
 import type { MergedMcp } from "../../src/model/catalog.js";
 import type { HookEntity } from "../../src/model/hook-entity.js";
+import { HOOK_EVENTS } from "../../src/model/hook-entity.js";
 
 /** Where Claude Code and Cursor read skills, and so the one link ambit plans. */
 const CLAUDE_SKILLS_LINK = ".claude/skills";
@@ -306,10 +307,11 @@ describe("a credential in a stdio server's arguments", () => {
 /**
  * The hook each profile emits.
  *
- * Two harnesses express hooks in this build, and they express them in the *same file* — so the claims
- * are the entry's exact shape, its key order, and that the two render one entry rather than two. Key
- * order is load-bearing here in a way it is not for a server: the managed key is a digest of these
- * bytes, so reordering them renames every hook every project owns.
+ * Three harnesses express hooks in this build, in two shapes: Claude and VS Code share one file and one
+ * entry, and Cursor shares nothing with either. So the claims are each entry's exact shape, its key
+ * order, and which harnesses render the same bytes. Key order is load-bearing here in a way it is not
+ * for a server: the managed key is a digest of these bytes, so reordering them renames every hook every
+ * project owns.
  */
 describe("the hook each profile emits", () => {
   const PROJECT: ProjectPaths = { root: "/tmp/ambit-project" };
@@ -334,7 +336,7 @@ describe("the hook each profile emits", () => {
     command: "./bin/greet",
   };
 
-  it("gives Claude and VS Code one shared file, and the other three no hooks at all", () => {
+  it("gives Claude and VS Code one shared file, and the other two no hooks at all", () => {
     const layout = {
       file: ".claude/settings.json",
       section: "hooks",
@@ -345,9 +347,36 @@ describe("the hook each profile emits", () => {
     expect(claude.hooks).toEqual(layout);
     // The same file, so a project configuring both writes it once.
     expect(vscode.hooks).toEqual(layout);
+    // No `events`: both read ambit's own PascalCase spellings, and no `rootDefaults` either — the file
+    // is a person's, and ambit adds no key to it beyond the hooks it was asked for.
     expect(codex.hooks).toBeUndefined();
-    expect(cursor.hooks).toBeUndefined();
     expect(opencode.hooks).toBeUndefined();
+  });
+
+  it("gives Cursor a file of its own, a `version` to seed, and its own event names", () => {
+    expect(cursor.hooks).toEqual({
+      file: ".cursor/hooks.json",
+      section: "hooks",
+      format: "json",
+      shape: "array",
+      rootDefaults: { version: 1 },
+      events: {
+        SessionStart: "sessionStart",
+        UserPromptSubmit: "userPromptSubmit",
+        PreToolUse: "preToolUse",
+        PostToolUse: "postToolUse",
+        Stop: "stop",
+        SubagentStop: "subagentStop",
+        PreCompact: "preCompact",
+        SessionEnd: "sessionEnd",
+      },
+    });
+  });
+
+  it("spells every event ambit knows, so no hook lands in an array Cursor never reads", () => {
+    // Total over the vocabulary rather than nearly so: a missing spelling would write an entry into an
+    // array named the Claude way, which Cursor would ignore in silence.
+    expect(Object.keys(cursor.hooks?.events ?? {})).toEqual([...HOOK_EVENTS]);
   });
 
   it("pairs a layout with a renderer, so a profile carries both or neither", () => {
@@ -378,6 +407,27 @@ describe("the hook each profile emits", () => {
     // Byte equality, not structural: the digest that identifies the entry is taken over exactly these
     // bytes, so two renderings that differ only in key order would be two entries in one array.
     expect(JSON.stringify(vscode.hookConfig?.(HOOK, PROJECT))).toBe(
+      JSON.stringify(claude.hookConfig?.(HOOK, PROJECT)),
+    );
+  });
+
+  it("writes Cursor's flat entry, which nests nothing and carries no matcher", () => {
+    const emitted = cursor.hookConfig?.(HOOK, PROJECT);
+
+    // Cursor has no field for a tool `matcher`, so `Bash` is dropped rather than written through into a
+    // key the harness would ignore — and no inner `hooks` array, because one entry is one command.
+    expect(emitted).toEqual({ command: "./bin/block-rm", timeout: 30 });
+    expect(Object.keys(emitted as object)).toEqual(["command", "timeout"]);
+  });
+
+  it("omits a `timeout` a Cursor hook does not declare", () => {
+    expect(cursor.hookConfig?.(BARE, PROJECT)).toEqual({ command: "./bin/greet" });
+  });
+
+  it("renders Cursor's entry differently from Claude's, which is why the files stay separate", () => {
+    // Not a detail: the two renderings have different digests, so `planFor` cannot collapse them and a
+    // project on both harnesses gets two artifacts rather than one written twice.
+    expect(JSON.stringify(cursor.hookConfig?.(HOOK, PROJECT))).not.toBe(
       JSON.stringify(claude.hookConfig?.(HOOK, PROJECT)),
     );
   });

@@ -225,6 +225,3 @@ export function arraySectionDriver(rootDefaults: JsonObject = EMPTY): DocumentDr
     },
   };
 }
-
-/** The driver `driverFor` hands out: no root defaults, which is what Claude's and Codex's files want. */
-export const jsonArrayDriver: DocumentDriver = arraySectionDriver();

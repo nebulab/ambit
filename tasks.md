@@ -113,7 +113,7 @@ naming the key, project untouched; `--adopt` takes it over and a later `prune` r
 
 ## 5. `cursor`
 
-- [ ] `.cursor/hooks.json`.
+- [x] `.cursor/hooks.json`.
 
 **Slice** — a second, differently-shaped harness. Cursor is where the neutral vocabulary earns itself.
 

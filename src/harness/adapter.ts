@@ -10,7 +10,12 @@
  * the only form that survives the project being moved — and its absolute `target`, so `apply`
  * writes exactly what `plan` decided and never re-derives a location.
  */
-import type { ConfigEntry, DocumentFormat, DocumentShape } from "../model/documents/index.js";
+import type {
+  ConfigEntry,
+  DocumentFormat,
+  DocumentShape,
+  JsonObject,
+} from "../model/documents/index.js";
 import type { Bundle } from "../resolution/resolve.js";
 import type { ArtifactMode, OwnedArtifact, State } from "../model/state.js";
 
@@ -99,6 +104,14 @@ export interface PlannedHarnessConfig {
    * is.
    */
   readonly shape?: DocumentShape;
+  /**
+   * Root keys the file should carry beside the managed section — Cursor's `version: 1`.
+   *
+   * Seeded only where the document lacks the key, so ambit adds one creating the file and never
+   * overwrites a value someone else wrote. Not recorded in state, unlike `shape`: a removal applies no
+   * defaults, so prune and clean need nothing but the shape to edit this file.
+   */
+  readonly rootDefaults?: JsonObject;
   /** What ambit puts there, sorted by key. */
   readonly entries: readonly ConfigEntry[];
   /** `<section>.<key>` for each entry — what state records as owned. */

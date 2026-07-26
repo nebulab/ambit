@@ -1,7 +1,7 @@
 /** The document drivers, keyed by the format a harness profile names and the shape of its section. */
-import type { DocumentDriver, DocumentFormat, DocumentShape } from "./format.js";
+import type { DocumentDriver, DocumentFormat, DocumentShape, JsonObject } from "./format.js";
 import { jsonDriver } from "./json.js";
-import { jsonArrayDriver } from "./json-array.js";
+import { arraySectionDriver } from "./json-array.js";
 import { jsoncDriver } from "./jsonc.js";
 import { tomlDriver } from "./toml.js";
 import { AmbitError, ExitCode } from "../../errors.js";
@@ -21,13 +21,7 @@ export {
   readDocumentText,
 } from "./format.js";
 export { jsonDriver, parseJsonDocument, serializeJsonDocument } from "./json.js";
-export {
-  DIGEST_LENGTH,
-  arrayEntryKey,
-  arraySectionDriver,
-  entryDigest,
-  jsonArrayDriver,
-} from "./json-array.js";
+export { DIGEST_LENGTH, arrayEntryKey, arraySectionDriver, entryDigest } from "./json-array.js";
 export { jsoncDriver } from "./jsonc.js";
 export { tomlDriver } from "./toml.js";
 
@@ -41,9 +35,14 @@ const MAP_DRIVERS: Readonly<Record<DocumentFormat, DocumentDriver>> = {
  * Only JSON, because every file with an array-shaped section is JSON: Claude's `settings.json`,
  * Cursor's `hooks.json`, Codex's `hooks.json`. Partial rather than padded out with drivers that would
  * write JSON into a `.toml`, so a pairing nothing supports is a refusal and not silent corruption.
+ *
+ * Factories rather than instances, because an array-section driver carries the root defaults of the
+ * harness whose file it is about to edit — Cursor's `version: 1` — and those are the caller's to name.
  */
-const ARRAY_DRIVERS: Readonly<Partial<Record<DocumentFormat, DocumentDriver>>> = {
-  json: jsonArrayDriver,
+const ARRAY_DRIVERS: Readonly<
+  Partial<Record<DocumentFormat, (rootDefaults?: JsonObject) => DocumentDriver>>
+> = {
+  json: arraySectionDriver,
 };
 
 /**
@@ -54,11 +53,17 @@ const ARRAY_DRIVERS: Readonly<Partial<Record<DocumentFormat, DocumentDriver>>> =
  * up. An absent `shape` reads as `"map"`, exactly as an absent `format` reads as `json`: both fields
  * were added after artifacts were being recorded, and every one of those was a name-keyed JSON map.
  *
+ * @param rootDefaults root keys to seed where the document lacks them, for an array-shaped section.
+ *   Absent for every caller that only reads or removes: defaults belong to writing a document.
  * @throws {AmbitError} exit 1 for a format with no array-section driver. Nothing in ambit plans one,
  *   so reaching it is a bug rather than something a person did — and answering with the map driver
  *   would mean editing a hooks file as if its arrays were tables.
  */
-export function driverFor(format: DocumentFormat, shape: DocumentShape = "map"): DocumentDriver {
+export function driverFor(
+  format: DocumentFormat,
+  shape: DocumentShape = "map",
+  rootDefaults?: JsonObject,
+): DocumentDriver {
   if (shape === "map") return MAP_DRIVERS[format];
 
   const driver = ARRAY_DRIVERS[format];
@@ -68,5 +73,5 @@ export function driverFor(format: DocumentFormat, shape: DocumentShape = "map"):
       "this is a bug in ambit; nothing a project can hold selects this pairing",
     ]);
   }
-  return driver;
+  return driver(rootDefaults);
 }

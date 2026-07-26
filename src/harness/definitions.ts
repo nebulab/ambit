@@ -12,7 +12,8 @@
  * Two families on the hooks side as well, and along a different seam: VS Code reads Claude's own
  * `.claude/settings.json`, so the two share a file and a renderer where they share nothing on the MCP
  * side. A project configuring both writes that file once, exactly as one configuring Claude and Cursor
- * plans one skills link.
+ * plans one skills link. Cursor is the other family, and shares nothing with either — its own file, its
+ * own event names, its own entry shape.
  */
 import type { HarnessProfile, HookLayout } from "./profile.js";
 import type { EnvRefStyle } from "./env.js";
@@ -25,7 +26,7 @@ import {
   translateRefs,
 } from "./env.js";
 import type { MergedMcp } from "../model/catalog.js";
-import type { HookEntity } from "../model/hook-entity.js";
+import type { HookEntity, HookEvent } from "../model/hook-entity.js";
 
 /** Where Claude Code and Cursor look for skills. */
 const CLAUDE_SKILLS_LINK = ".claude/skills";
@@ -68,6 +69,61 @@ function claudeHook(hook: HookEntity): unknown {
         ...(hook.timeout !== undefined && { timeout: hook.timeout }),
       },
     ],
+  };
+}
+
+/**
+ * How Cursor spells each of ambit's events: the same names, camelCased.
+ *
+ * The one harness that needs a map at all — Claude, VS Code and Codex read the PascalCase spellings
+ * verbatim. Written out rather than derived from the neutral name, because the mapping is a fact about
+ * Cursor rather than a rule: the record is total over {@link HookEvent}, so an event added to the
+ * vocabulary is a type error here until someone has looked up what Cursor calls it.
+ */
+const CURSOR_EVENTS: Readonly<Record<HookEvent, string>> = {
+  SessionStart: "sessionStart",
+  UserPromptSubmit: "userPromptSubmit",
+  PreToolUse: "preToolUse",
+  PostToolUse: "postToolUse",
+  Stop: "stop",
+  SubagentStop: "subagentStop",
+  PreCompact: "preCompact",
+  SessionEnd: "sessionEnd",
+};
+
+/**
+ * Where Cursor keeps its hooks: a file of its own, and a `version` beside them.
+ *
+ * The `version` is `rootDefaults` rather than something the renderer writes, because it is the
+ * document's and not an entry's: ambit seeds it creating the file and leaves a `version: 2` someone
+ * else wrote exactly where it is — where the tool ambit replaces forces it back to `1`, having claimed
+ * the whole document.
+ */
+const CURSOR_HOOKS: HookLayout = {
+  file: ".cursor/hooks.json",
+  section: "hooks",
+  format: "json",
+  shape: "array",
+  rootDefaults: { version: 1 },
+  events: CURSOR_EVENTS,
+};
+
+/**
+ * One hook, Cursor-shaped: a flat entry naming the command, in the array for its camelCased event.
+ *
+ * Two things go missing on the way here, and both are the harness's doing. Cursor nests nothing — one
+ * entry is one command, so there is no inner `hooks` array to build — and it has no field for a tool
+ * `matcher`, so a matcher is **dropped**. Which is why declaring one on an unmatchable event is an
+ * error at parse time: that is the case where a person would be surprised, whereas a `matcher` reaching
+ * Cursor is a filter Cursor simply cannot express, and dropping it installs the hook unfiltered rather
+ * than not at all.
+ *
+ * Key order here is the digest's input, so it is fixed in this one place and read off nowhere else.
+ */
+function cursorHook(hook: HookEntity): unknown {
+  return {
+    command: hook.command,
+    ...(hook.timeout !== undefined && { timeout: hook.timeout }),
   };
 }
 
@@ -145,7 +201,13 @@ export const claude: HarnessProfile = {
   hookConfig: claudeHook,
 };
 
-/** Cursor. Infers the transport from the presence of `url`, so it wants no `type`. */
+/**
+ * Cursor. Infers the transport from the presence of `url`, so it wants no `type`.
+ *
+ * The harness that makes the neutral vocabulary pay for itself: its hooks live in their own file, under
+ * its own event names, in an entry shaped nothing like Claude's. All of which is stated here — a layout,
+ * a map and a renderer — and none of which the install path knows about.
+ */
 export const cursor: HarnessProfile = {
   name: "cursor",
   skillsLink: CLAUDE_SKILLS_LINK,
@@ -157,6 +219,8 @@ export const cursor: HarnessProfile = {
     const headers = headersFor(remote, namespacedRef);
     return { url: url(remote, namespacedRef), ...(headers !== undefined && { headers }) };
   },
+  hooks: CURSOR_HOOKS,
+  hookConfig: cursorHook,
 };
 
 /**

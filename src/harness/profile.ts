@@ -37,7 +37,7 @@ import {
 } from "../model/documents/index.js";
 import { configError } from "../errors.js";
 import type { MergedMcp, MergedSkill } from "../model/catalog.js";
-import type { HookEntity } from "../model/hook-entity.js";
+import type { HookEntity, HookEvent } from "../model/hook-entity.js";
 import type { Bundle } from "../resolution/resolve.js";
 import type { ArtifactMode, State } from "../model/state.js";
 import { ownedPaths } from "../model/state.js";
@@ -73,10 +73,10 @@ export interface McpLayout {
 /**
  * Where a harness reads its hooks from.
  *
- * Two fields wider than {@link McpLayout}, because a hooks section is not a table keyed by name.
+ * Three fields wider than {@link McpLayout}, because a hooks section is not a table keyed by name.
  * `shape` picks the driver, which the format cannot do on its own — `.mcp.json` and
- * `.claude/settings.json` are both JSON — and `rootDefaults` names the keys a harness expects beside
- * its hooks in a file ambit may be the one to create.
+ * `.claude/settings.json` are both JSON — `rootDefaults` names the keys a harness expects beside its
+ * hooks in a file ambit may be the one to create, and `events` says how it spells them.
  */
 export interface HookLayout {
   /** Project-relative path to the config file. */
@@ -91,10 +91,21 @@ export interface HookLayout {
    * Root keys the file should carry beside its hooks — Cursor's `version: 1`.
    *
    * `arraySectionDriver` seeds them only where the document lacks the key, so ambit adds one creating
-   * the file and never overwrites a value someone else wrote. No harness ambit currently writes hooks
-   * for declares any, which is why nothing between here and the driver carries them yet.
+   * the file and never overwrites a value someone else wrote. {@link planHookConfig} carries them onto
+   * the artifact, and only a merge applies them: pruning takes entries out and adds no keys.
    */
   readonly rootDefaults?: JsonObject;
+  /**
+   * How this harness spells each event, where it does not spell it the way ambit does.
+   *
+   * Absent means Claude's PascalCase verbatim, which is what Claude, VS Code and Codex read. Cursor is
+   * the one harness needing a map, and it belongs to the layout rather than to the renderer because it
+   * names *which array* an entry joins — the same kind of statement as the file and the section.
+   *
+   * Total over {@link HookEvent} where it is declared, so widening the vocabulary is a type error
+   * until every mapping harness has a spelling for the new event rather than a silently missing array.
+   */
+  readonly events?: Readonly<Record<HookEvent, string>>;
 }
 
 /** One agent tool's layout. */
@@ -226,6 +237,10 @@ function planMcpConfig(
  * The key is the entry's own content digest, because an event's array carries no name to key on. So
  * the value is rendered once and both the key and the entry are read off that one rendering: a digest
  * of anything other than the bytes being written would name an entry nothing can find again.
+ *
+ * Its other half is the event *as this harness spells it*, and for the same reason: the key has to name
+ * the array the entry actually sits in, or `sectionKeys` reading the file back would not recognize what
+ * ambit just wrote and every install would append the hook again.
  */
 function planHookConfig(
   profile: HarnessProfile,
@@ -239,7 +254,7 @@ function planHookConfig(
   // `hooks` arrives sorted by name, so the entries — and the managed keys state records — are too.
   const entries: readonly ConfigEntry[] = hooks.map((hook) => {
     const value = render(hook, project);
-    return { key: arrayEntryKey(hook.event, value), value };
+    return { key: arrayEntryKey(layout.events?.[hook.event] ?? hook.event, value), value };
   });
 
   return {
@@ -249,6 +264,7 @@ function planHookConfig(
     section: layout.section,
     format: layout.format,
     shape: layout.shape,
+    ...(layout.rootDefaults !== undefined && { rootDefaults: layout.rootDefaults }),
     entries,
     managedKeys: entries.map((entry) => managedKey(layout.section, entry.key)),
   };
@@ -343,9 +359,13 @@ async function applySkillsLink(
  * Read-modify-write rather than a plain write, and it happens whether or not the file is owned: ambit
  * owns keys here, not the document, so a hand-maintained config is a normal input rather than a
  * conflict.
+ *
+ * The only site that passes `rootDefaults`, because it is the only one that *writes* a document rather
+ * than reading or emptying one: prune, clean and status all build their driver from state, which
+ * records the shape and no defaults.
  */
 async function applyHarnessConfig(artifact: PlannedHarnessConfig): Promise<AppliedArtifact> {
-  const driver = driverFor(artifact.format, artifact.shape);
+  const driver = driverFor(artifact.format, artifact.shape, artifact.rootDefaults);
   const text = await readDocumentText(artifact.target, artifact.path);
   const merged = driver.mergeSection(text, artifact.section, artifact.entries, artifact.path);
 

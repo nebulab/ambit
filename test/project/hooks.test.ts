@@ -7,6 +7,9 @@
  * So the claims below are measured in bytes rather than in behaviour, and the coexistence case is
  * asserted as whole-file text at every step of a full install → install → prune → clean cycle.
  *
+ * `.cursor/hooks.json` then says the same claims hold for a harness shaped differently in every respect
+ * one can be — a file of its own, its own event names, and a root key ambit seeds but does not own.
+ *
  * No catalog anywhere in here: an inline hook is selected because it was declared, so a project needs
  * nothing else to walk the entire path — and a test that resolves nothing cannot be reading some
  * fixture's hooks by accident.
@@ -86,9 +89,14 @@ async function cli(
   return { code, stdout: out.join("\n"), stderr: err.join("\n") };
 }
 
+/** One of the project's files as bytes. */
+async function fileText(relative: string): Promise<string> {
+  return readFile(path.join(projectDir, relative), "utf8");
+}
+
 /** The settings file as bytes. */
 async function settingsText(): Promise<string> {
-  return readFile(path.join(projectDir, SETTINGS), "utf8");
+  return fileText(SETTINGS);
 }
 
 /** The settings file parsed, for the claims that are about content rather than bytes. */
@@ -375,5 +383,147 @@ describe("a hand-written entry identical to one ambit would install", () => {
 
     expect(await settings()).toEqual({ hooks: { PostToolUse: [] } });
     expect(await stateArtifacts()).toEqual([]);
+  });
+});
+
+/**
+ * Cursor, which is where the neutral vocabulary earns itself.
+ *
+ * A second harness that differs in every respect one can: its own file, its own spelling of every
+ * event, an entry that nests nothing and has nowhere to put a `matcher`, and a `version` beside the
+ * hooks that ambit seeds and a person owns. None of which the install path knows — it is the same code
+ * that wrote Claude's file above, reading a different profile.
+ */
+describe("an inline hook installed into .cursor/hooks.json", () => {
+  const HOOKS_JSON = ".cursor/hooks.json";
+
+  /** A hook with nothing optional on it, so an event is the only thing varying below. */
+  const WATCH_ENTRY = { command: "./bin/watch" };
+
+  function watchHook(event: string): readonly string[] {
+    return ["- name: watch", `  event: ${event}`, `  command: ${WATCH_ENTRY.command}`];
+  }
+
+  /**
+   * Every event ambit knows, and what Cursor calls it.
+   *
+   * Written out rather than read off the profile: the map is the claim, so a test that imported it
+   * would agree with any spelling the profile happened to hold.
+   */
+  const EVENTS: readonly (readonly [string, string])[] = [
+    ["SessionStart", "sessionStart"],
+    ["UserPromptSubmit", "userPromptSubmit"],
+    ["PreToolUse", "preToolUse"],
+    ["PostToolUse", "postToolUse"],
+    ["Stop", "stop"],
+    ["SubagentStop", "subagentStop"],
+    ["PreCompact", "preCompact"],
+    ["SessionEnd", "sessionEnd"],
+  ];
+
+  it.each(EVENTS)("puts a %s hook in Cursor's `%s` array", async (event, spelling) => {
+    await writeProfile(watchHook(event), ["cursor"]);
+
+    const result = await cli("install");
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+
+    // `version` first, because ambit created the file and Cursor's own documentation writes it there.
+    expect(await fileText(HOOKS_JSON)).toBe(
+      `${JSON.stringify({ version: 1, hooks: { [spelling]: [WATCH_ENTRY] } }, null, 2)}\n`,
+    );
+    // And the managed key names the array the entry actually sits in. If it named the PascalCase event
+    // instead, `sectionKeys` would not recognize what ambit just wrote and the next install would
+    // append the hook a second time.
+    expect(await stateArtifacts()).toEqual([
+      {
+        path: HOOKS_JSON,
+        kind: "harness-config",
+        format: "json",
+        shape: "array",
+        managedKeys: [managedKey("hooks", arrayEntryKey(spelling, WATCH_ENTRY))],
+      },
+    ]);
+  });
+
+  it("changes no bytes on a second install, and reports no drift", async () => {
+    await writeProfile(watchHook("PreCompact"), ["cursor"]);
+    await cli("install");
+    const written = await fileText(HOOKS_JSON);
+
+    expect((await cli("install")).code).toBe(ExitCode.Success);
+
+    expect(await fileText(HOOKS_JSON)).toBe(written);
+    expect((await cli("status", "--check")).code).toBe(ExitCode.Success);
+  });
+
+  it("drops a `matcher`, which Cursor has no field for", async () => {
+    await writeProfile(
+      ["- name: guard", "  event: PreToolUse", "  matcher: Bash", "  command: ./bin/guard"],
+      ["cursor"],
+    );
+
+    expect((await cli("install")).code).toBe(ExitCode.Success);
+
+    // Written through, `matcher` would be a key Cursor ignores — so the hook would silently run on
+    // every tool while the file claimed otherwise. Dropped, it runs unfiltered and says so.
+    const written = await fileText(HOOKS_JSON);
+    expect(JSON.parse(written)).toEqual({
+      version: 1,
+      hooks: { preToolUse: [{ command: "./bin/guard" }] },
+    });
+    expect(written).not.toContain("Bash");
+    expect(written).not.toContain("matcher");
+  });
+
+  it("leaves the whole document alone but for the array it appends to", async () => {
+    // A `version` a person raised themselves, and a hook of their own on the event ambit writes to.
+    // dotagents replaces this file's `hooks` root and forces `version` back to 1; ambit owns one entry.
+    const HANDWRITTEN = `${JSON.stringify(
+      { version: 2, hooks: { stop: [{ command: "./bin/mine" }] } },
+      null,
+      2,
+    )}\n`;
+    await writeProfile(watchHook("Stop"), ["cursor"]);
+    await mkdir(path.join(projectDir, ".cursor"), { recursive: true });
+    await writeFile(path.join(projectDir, HOOKS_JSON), HANDWRITTEN, "utf8");
+
+    expect((await cli("install")).code).toBe(ExitCode.Success);
+
+    const installed = `${JSON.stringify(
+      { version: 2, hooks: { stop: [{ command: "./bin/mine" }, WATCH_ENTRY] } },
+      null,
+      2,
+    )}\n`;
+    expect(await fileText(HOOKS_JSON)).toBe(installed);
+
+    // And `clean` gives back exactly what they wrote, `version: 2` included.
+    expect((await cli("clean")).code).toBe(ExitCode.Success);
+    expect(await fileText(HOOKS_JSON)).toBe(HANDWRITTEN);
+  });
+});
+
+/**
+ * Claude and Cursor together: two harnesses, two files, two renderings.
+ *
+ * The counterpart of the Claude/VS Code case above. There the two shared a file because they render one
+ * entry; here they render different entries into different files, so `planFor` collapses nothing.
+ */
+describe("claude and cursor together", () => {
+  it("writes each harness its own file, in that harness's own shape", async () => {
+    await writeProfile(NOTIFY_HOOK, ["claude", "cursor"]);
+
+    const result = await cli("install");
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+
+    expect(await settings()).toEqual({ hooks: { Stop: [NOTIFY_ENTRY] } });
+    expect(JSON.parse(await fileText(".cursor/hooks.json"))).toEqual({
+      version: 1,
+      hooks: { stop: [{ command: "./bin/notify" }] },
+    });
+    expect((await stateArtifacts()).map((artifact) => artifact.path)).toEqual([
+      SETTINGS,
+      ".cursor/hooks.json",
+    ]);
+    expect((await cli("status", "--check")).code).toBe(ExitCode.Success);
   });
 });
