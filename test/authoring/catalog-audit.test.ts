@@ -97,8 +97,11 @@ async function auditJson(dir: string): Promise<JsonReport> {
 }
 
 /**
- * Hand-writes a hook, since `catalog hook new` does not exist yet — the rest of this suite goes
- * through the authoring commands and this is the one thing that cannot.
+ * Hand-writes a hook, rather than going through `catalog hook new` like the rest of this suite.
+ *
+ * That command declares no scopes, and `catalog annotate` checks an added one against the registry —
+ * so a hook declaring the scope these cases need, registered or not, is the one thing the authoring
+ * commands cannot produce.
  */
 async function writeHook(dir: string, name: string, scopes: readonly string[]): Promise<void> {
   const target = path.join(dir, "hooks", name, "HOOK.yml");
@@ -425,7 +428,7 @@ describe("what makes a hook unreachable", () => {
         detail: [
           `no registered scope selects it, and nothing reachable requires \`hook.${NOTIFY}\``,
           "no profile can select it, so no harness is ever configured to run it",
-          `add a registered scope to its \`scopes\`, or remove hooks/${NOTIFY}`,
+          `give it a scope with \`ambit catalog annotate hook.${NOTIFY} --add-scope <scope>\`, or remove it with \`ambit catalog hook rm ${NOTIFY}\``,
         ],
       },
     ]);

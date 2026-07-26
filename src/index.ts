@@ -219,7 +219,7 @@ export {
 export type { EnvRefStyle } from "./harness/env.js";
 
 // ── authoring — the `ambit catalog …` command family ──────────────────────────────────────────
-export { annotate, annotationDirname, isMcpTarget } from "./authoring/annotate.js";
+export { annotate, annotationDirname, isHookTarget, isMcpTarget } from "./authoring/annotate.js";
 export type {
   AnnotateOptions,
   AnnotateResult,
@@ -244,6 +244,8 @@ export {
   CatalogDocument,
   applyCatalogEdit,
   catalogFilePath,
+  hookDirectoryPath,
+  hookDocumentPath,
   mcpDocumentPath,
   skillDirectoryPath,
   skillDocumentPath,
@@ -256,6 +258,15 @@ export type {
   EditResult,
   EditedFile,
 } from "./authoring/editor.js";
+export { newHook, removeHook, unknownHook } from "./authoring/hook.js";
+export type {
+  HookDeclaration,
+  HookEdit,
+  HookNewOptions,
+  HookNewResult,
+  HookRemoveResult,
+  HookSummary,
+} from "./authoring/hook.js";
 export {
   CATALOG_INIT_SCOPE,
   CATALOG_KEEP_FILENAME,

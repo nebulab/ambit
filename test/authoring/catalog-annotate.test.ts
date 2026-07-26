@@ -20,7 +20,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { FIXTURE_CATALOG_FILES, buildFixtureCatalog } from "../../scripts/fixture-catalog.js";
-import type { Catalog, CatalogSkill } from "../../src/model/catalog.js";
+import type { Catalog, CatalogHook, CatalogSkill } from "../../src/model/catalog.js";
 import { parseCatalogDirectory } from "../../src/model/catalog.js";
 import { ExitCode } from "../../src/errors.js";
 import type { McpEntity } from "../../src/model/mcp-entity.js";
@@ -47,6 +47,21 @@ const UNSCOPED_MCP_FILE = "mcps/fixture.yml";
 const CORE_SCOPE = "core";
 const ENGINEERING = "function.engineering";
 const PROJECT_SCOPE = "project.acme";
+
+/**
+ * A hook, hand-written rather than authored: `catalog hook new` declares no scopes, and these cases
+ * are about a `scopes` key an author already wrote — comment included, since that is what rule 2
+ * protects.
+ */
+const HOOK = "notify";
+const HOOK_FILE = "hooks/notify/HOOK.yml";
+
+const HOOK_TEXT = `name: notify
+# Nothing selects it yet.
+scopes: []
+event: Stop
+command: npx --yes @acme/notify
+`;
 
 /** A skill carrying a harness key ambit knows nothing about, a comment, and a body. */
 const CLOSE_SKILL = "close-crm";
@@ -155,6 +170,15 @@ async function skill(name: string): Promise<CatalogSkill | undefined> {
 
 async function server(name: string): Promise<McpEntity | undefined> {
   return (await parsed()).mcps.find((candidate) => candidate.name === name);
+}
+
+async function catalogHook(name: string): Promise<CatalogHook | undefined> {
+  return (await parsed()).hooks.find((candidate) => candidate.name === name);
+}
+
+/** Writes the hook the hook cases annotate. */
+async function writeHook(text: string): Promise<void> {
+  await write(HOOK_FILE, text);
 }
 
 /** `ambit catalog validate` against the catalog: what every mutation has to leave passing. */
@@ -335,6 +359,63 @@ describe("ambit catalog annotate, on an MCP entity", () => {
     );
     expect(result.stderr).toContain(
       `ambit catalog annotate <skill> --add-requires mcp.${SCOPED_MCP}`,
+    );
+  });
+});
+
+describe("ambit catalog annotate, on a hook", () => {
+  it("adds and removes a hook's scopes, leaving every other byte of the document alone", async () => {
+    await writeHook(HOOK_TEXT);
+
+    await succeeds(`hook.${HOOK}`, "--add-scope", CORE_SCOPE);
+
+    // A `HOOK.yml` is ambit's own document end to end, so its annotations sit at the top level rather
+    // than under `ambit:` — and the comment the author wrote above them still has to survive.
+    expect(await read(HOOK_FILE)).toBe(HOOK_TEXT.replace("scopes: []", `scopes: [${CORE_SCOPE}]`));
+    expect((await catalogHook(HOOK))?.scopes).toEqual([CORE_SCOPE]);
+    await validates();
+  });
+
+  it("adds an `env` var to a hook that declares none", async () => {
+    await writeHook(HOOK_TEXT);
+
+    await succeeds(`hook.${HOOK}`, "--add-env", "NOTIFY_TOKEN");
+
+    expect((await catalogHook(HOOK))?.env).toEqual(["NOTIFY_TOKEN"]);
+    await validates();
+  });
+
+  it("refuses a `requires` edit, naming the flag that does what was meant", async () => {
+    await writeHook(HOOK_TEXT);
+
+    const result = await refused(ExitCode.Config, `hook.${HOOK}`, "--add-requires", CORE_SKILL);
+
+    expect(result.stderr).toContain(`hook "${HOOK}" declares no requirements (${HOOK_FILE})`);
+    expect(result.stderr).toContain(`ambit catalog annotate <skill> --add-requires hook.${HOOK}`);
+  });
+
+  it("refuses a hook the catalog does not provide", async () => {
+    const result = await refused(ExitCode.Resolution, "hook.absent", "--add-scope", CORE_SCOPE);
+
+    expect(result.stderr).toContain('unknown hook "absent" (hooks/absent/HOOK.yml)');
+  });
+
+  it("names the subject a hook, and leaves `requires` out of what it declares", async () => {
+    await writeHook(HOOK_TEXT);
+
+    const result = await succeeds(`hook.${HOOK}`, "--add-scope", CORE_SCOPE);
+
+    expect(result.stdout).toBe(
+      [
+        `hook ${HOOK}`,
+        "",
+        "declares (2)",
+        `  scopes  ${CORE_SCOPE}`,
+        "  env     -",
+        "",
+        "files (1)",
+        `  ${HOOK_FILE}  updated`,
+      ].join("\n"),
     );
   });
 });

@@ -303,7 +303,7 @@ diff), plus tests for the doctor warning and the audit finding.
 
 ## 14. Authoring
 
-- [ ] `ambit catalog hook new|rm` and `catalog annotate hook.<name>`.
+- [x] `ambit catalog hook new|rm` and `catalog annotate hook.<name>`.
 
 **Do** — `src/authoring/hook.ts` modelled on `authoring/skill.ts` (a directory) rather than
 `authoring/mcp.ts` (a file): `newHook` writes `HOOK.yml` through `emitYaml`; `removeHook` refuses while
@@ -314,6 +314,27 @@ exports the new symbols explicitly. `catalog init` scaffolds `hooks/.gitkeep` be
 
 **Done when** — `test/authoring/catalog-hook.test.ts`, an update to `test/authoring/catalog-init.test.ts`,
 the `catalog annotate` subject test, and the new `SURFACES` rows.
+
+> found (task 14): the surface is `hook new <name> --event --command [--matcher --description --timeout
+--env]` and `hook rm <name>` — **no `--scope`**, following `mcp new` rather than `skill new`: a hook is
+> a config leaf like a server, so it is reachable only through `requires` until someone annotates it, and
+> the `next:` line plus `unreachable-hook`'s new last line both point at
+> `catalog annotate hook.<name> --add-scope`. `--event` and `--command` are mandatory through
+> `catalogHookNewRule` (the `catalogMcpNewRule` precedent), so `newHook` takes a typed `HookEvent`.
+>
+> Two rules are deliberately _not_ restated in the command: a `matcher` on a non-matchable event, and a
+> `command` naming a script the directory does not hold. Both are the parser's, and the editor validates
+> the pending `HOOK.yml` through the overlay before writing, so both refuse at exit 2 with nothing
+> written. A hook that ships a script is therefore authored the other way round — write
+> `hooks/<name>/<script>` first, then `hook new … --command <script>`.
+>
+> `annotate` now reads its subject prefix through `requirementTarget`, which its own doc already claimed
+> was the one function that reads them, and `annotationDirname` maps the kind to a dirname. `isMcpTarget`
+> stays exported, now defined over it, with `isHookTarget` beside it.
+>
+> The `SURFACES` rows are `catalog hook new … --dry-run` and its `--json` — the first authoring mutation
+> in that table, safe there for the same reason `install --dry-run` is. Its guard describe now snapshots
+> the catalog as well as the project.
 
 ## 15. Fixture catalog
 

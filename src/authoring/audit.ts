@@ -270,7 +270,7 @@ function unreachableHookFindings(catalog: Catalog, reachable: Reachable): readon
         [
           `no registered scope selects it, and nothing reachable requires \`${HOOK_REQUIREMENT_PREFIX}${hook.name}\``,
           "no profile can select it, so no harness is ever configured to run it",
-          `add a registered scope to its \`scopes\`, or remove ${hook.path}`,
+          `give it a scope with \`ambit catalog annotate ${HOOK_REQUIREMENT_PREFIX}${hook.name} --add-scope <scope>\`, or remove it with \`ambit catalog hook rm ${hook.name}\``,
         ],
       ),
     );

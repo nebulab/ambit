@@ -36,7 +36,13 @@ import { mkdir, readFile, readdir, rename, rm, rmdir, stat, writeFile } from "no
 import path from "node:path";
 
 import type { CatalogOverlay } from "../model/catalog.js";
-import { MCPS_DIRNAME, SKILLS_DIRNAME, SKILL_FILENAME } from "../model/catalog.js";
+import {
+  HOOKS_DIRNAME,
+  HOOK_FILENAME,
+  MCPS_DIRNAME,
+  SKILLS_DIRNAME,
+  SKILL_FILENAME,
+} from "../model/catalog.js";
 import type { AmbitError } from "../errors.js";
 import { configError, resolutionError } from "../errors.js";
 import type { ValidationReport } from "../resolution/validate.js";
@@ -55,11 +61,13 @@ const INCOMING_SUFFIX = ".ambit-incoming";
 const MARKDOWN_EXTENSION = ".md";
 
 /**
- * What catalog parsing reads inside a directory: a skill's `SKILL.md`, and the YAML an entity or the
- * registry is written as.
+ * What catalog parsing reads inside a directory: a skill's `SKILL.md`, and the YAML an entity, a hook
+ * or the registry is written as. A hook's `HOOK.yml` needs no name of its own here, since it ends in
+ * one of the extensions already listed.
  *
- * Everything else a skill directory holds is opaque to ambit, so a moved tree only has to describe
- * *these* files to validation — which is also what keeps a binary asset from being read at all.
+ * Everything else a skill or hook directory holds is opaque to ambit — a reference PDF, a hook's
+ * script — so a moved tree only has to describe *these* files to validation, which is also what keeps
+ * a binary asset from being read at all.
  */
 const PARSED_FILENAMES: readonly string[] = [SKILL_FILENAME];
 const PARSED_EXTENSIONS: readonly string[] = [".yml", ".yaml"];
@@ -157,6 +165,21 @@ export function skillDirectoryPath(name: string): string {
 /** Where a skill's document sits in a catalog, from its name. */
 export function skillDocumentPath(name: string): string {
   return `${skillDirectoryPath(name)}/${SKILL_FILENAME}`;
+}
+
+/**
+ * Where a hook's directory sits in a catalog, from its name.
+ *
+ * The same name↔path convention a skill's is, under `hooks/` instead — a hook is always a directory,
+ * because it may ship a script beside its own document.
+ */
+export function hookDirectoryPath(name: string): string {
+  return `${HOOKS_DIRNAME}/${name.replaceAll(".", "/")}`;
+}
+
+/** Where a hook's document sits in a catalog, from its name. */
+export function hookDocumentPath(name: string): string {
+  return `${hookDirectoryPath(name)}/${HOOK_FILENAME}`;
 }
 
 /** Where an MCP entity's document sits in a catalog, from its name. */

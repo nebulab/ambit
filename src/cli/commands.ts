@@ -172,7 +172,10 @@ const CATALOG_SUBCOMMANDS: readonly CommandSpec[] = [
         options: [
           new Option("--description <text>", "what the skill is for"),
           repeatable("--scope <scope>", "a scope the skill is selected by"),
-          repeatable("--requires <name>", "a skill, or `mcp.<name>`, the skill needs"),
+          repeatable(
+            "--requires <name>",
+            "a skill, or `mcp.<name>` or `hook.<name>`, the skill needs",
+          ),
           repeatable("--env <var>", "an environment variable the skill needs"),
         ],
       },
@@ -226,9 +229,43 @@ const CATALOG_SUBCOMMANDS: readonly CommandSpec[] = [
     ],
   },
   {
+    name: "hook",
+    summary: "maintain a hook directory",
+    subcommands: [
+      {
+        name: "new",
+        summary: "create a hook directory and its HOOK.yml",
+        args: [["<name>", "hook name"]],
+        subject: "catalog",
+        mutating: true,
+        // `--event` and `--command` are mandatory, and `--event` names one of a fixed set — both
+        // through `catalogHookNewRule` rather than `.makeOptionMandatory()`, which names no file and
+        // lists no supported events.
+        options: [
+          new Option("--event <event>", "the harness event the hook fires on"),
+          new Option("--command <command>", "a command line, or a script the hook ships"),
+          new Option(
+            "--matcher <tool>",
+            "a tool-name filter, for a PreToolUse or PostToolUse hook",
+          ),
+          new Option("--description <text>", "what the hook does"),
+          new Option("--timeout <seconds>", "how long the harness waits for it"),
+          repeatable("--env <var>", "an environment variable the hook needs"),
+        ],
+      },
+      {
+        name: "rm",
+        summary: "delete a hook nothing requires",
+        args: [["<name>", "hook name"]],
+        subject: "catalog",
+        mutating: true,
+      },
+    ],
+  },
+  {
     name: "annotate",
-    summary: "change a skill or MCP's scopes, requires, or env",
-    args: [["<name>", "skill name, or `mcp.<name>` for a server"]],
+    summary: "change a skill, MCP or hook's scopes, requires, or env",
+    args: [["<name>", "skill name, `mcp.<name>` for a server, or `hook.<name>` for a hook"]],
     subject: "catalog",
     mutating: true,
     // At least one flag, and never one entry both added and removed — `catalogAnnotateRule`, since
