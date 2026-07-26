@@ -169,12 +169,13 @@ interface Declarers {
 /**
  * Everything declaring `scope`.
  *
- * An entity is named by the file it is actually written as ({@link mcpDocumentFile}), not by the `.yml`
- * ambit would have chosen: this list *is* the refusal's list of files to edit, and a catalog spelling an
- * entity `.yaml` has no `.yml` for the reader to open (spec §6). That is what makes this async — one
- * `stat` per declaring entity, in the catalog's own name order.
+ * An entity is named by the file it is actually written as (`CatalogMcp.file`), not by the `.yml` ambit
+ * would have chosen: this list *is* the refusal's list of files to edit, and a catalog spelling an entity
+ * `.yaml` has no `.yml` for the reader to open (spec §6). Parsing already resolved that, so the answer is
+ * read off the entity rather than looked for on disk — which is what keeps this synchronous, and what
+ * keeps the refusal citing exactly the file the catalog was parsed from.
  */
-async function declarersOf(root: string, catalog: Catalog, scope: string): Promise<Declarers> {
+function declarersOf(catalog: Catalog, scope: string): Declarers {
   const declaring = <T extends { readonly scopes: readonly string[] }>(items: readonly T[]): T[] =>
     items.filter((item) => item.scopes.includes(scope));
 
@@ -183,9 +184,7 @@ async function declarersOf(root: string, catalog: Catalog, scope: string): Promi
   );
 
   const servers = declaring(catalog.mcps);
-  for (const mcp of servers) {
-    lines.push(declares("MCP server", mcp.name, await mcpDocumentFile(root, mcp.name)));
-  }
+  lines.push(...servers.map((mcp) => declares("MCP server", mcp.name, mcp.file)));
 
   return { lines, servers: servers.length > 0 };
 }
@@ -282,7 +281,7 @@ export async function removeScope(
   const catalog = await readCatalog(root);
   assertRegistered(catalog, scope);
 
-  const declarers = await declarersOf(root, catalog, scope);
+  const declarers = declarersOf(catalog, scope);
   if (declarers.lines.length > 0) throw stillDeclared(scope, declarers);
 
   const registry = await CatalogDocument.open(root, SCOPES_FILENAME);
