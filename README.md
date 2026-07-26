@@ -797,14 +797,15 @@ diff (1)
     ...
 ```
 
-The three verbs are deliberately not symmetric. `scope add` is **declarative** — it makes the registry
-say what it was asked whether or not the entry existed, so re-running it writes nothing and re-running
-it with new words is how you correct a description. `scope rm` unregisters one entry, never a
-descendant, and refuses while any skill or server still declares it, naming every declarer with its
-file. `scope mv` renames the scope **and its whole registered subtree**, rewriting every declarer in
-the same edit — because a rename has to move exactly the scopes a held one would reach, or renaming
-would silently change what holding a scope selects. It closes by telling you to update each project's
-`ambit.yml`, since a catalog command edits none.
+The three verbs are deliberately not symmetric. `scope add` **registers, it does not reword** — a name
+the registry already holds is refused (exit 3, nothing written), because overwriting the entry would
+redefine a scope every project holding it already names. No command rewords a registered scope, so the
+refusal tells you to edit that entry's `description` in `scopes.yml` by hand. `scope rm` unregisters
+one entry, never a descendant, and refuses while any skill or server still declares it, naming every
+declarer with its file. `scope mv` renames the scope **and its whole registered subtree**, rewriting
+every declarer in the same edit — because a rename has to move exactly the scopes a held one would
+reach, or renaming would silently change what holding a scope selects. It closes by telling you to
+update each project's `ambit.yml`, since a catalog command edits none.
 
 `skill mv` moves the directory with `rename`, so a skill's `references/logo.png` survives, and rewrites
 the moved document's `name` and every `requires` naming the old name in the same edit. Neither `rm` nor

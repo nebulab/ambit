@@ -156,29 +156,42 @@ describe("ambit catalog scope add", () => {
     });
   });
 
-  it("writes nothing at all the second time, and says so", async () => {
-    const first = await succeeds("add", JANE, "--description", JANE_DESCRIPTION);
+  it("refuses a name the registry already holds, rather than redefining it", async () => {
+    const result = await refused(
+      ExitCode.Resolution,
+      "add",
+      PARENT,
+      "--description",
+      "Shipping client software",
+    );
+
+    expect(result.stderr).toContain(`scope "${PARENT}" is already registered (${REGISTRY})`);
+    // The next step is hand-editing, because no command rewords a registered scope.
+    expect(result.stderr).toContain(`edit its \`description\` in ${REGISTRY} by hand`);
+    expect((await registeredScopes())[PARENT]).toBe("Building and shipping software");
+  });
+
+  it("refuses the second time it is given the same scope, leaving the first entry alone", async () => {
+    await succeeds("add", JANE, "--description", JANE_DESCRIPTION);
     const after = await read(REGISTRY);
 
-    const second = await succeeds("add", JANE, "--description", JANE_DESCRIPTION);
+    const result = await refused(ExitCode.Resolution, "add", JANE, "--description", "Something else");
 
-    expect(first.stdout).toContain("files (1)");
-    expect(second.stdout).toContain("files (0)");
-    // Still "registered", not "would register": a no-op run is not a preview.
-    expect(second.stdout).toContain("registered (1)");
+    expect(result.stderr).toContain(`scope "${JANE}" is already registered (${REGISTRY})`);
     expect(await read(REGISTRY)).toBe(after);
   });
 
-  it("gives an existing scope the description it is asked for, since nothing else edits one", async () => {
-    await succeeds("add", PARENT, "--description", "Shipping client software");
-
-    expect((await registeredScopes())[PARENT]).toBe("Shipping client software");
-    expect(await read(REGISTRY)).toBe(
-      fixture(REGISTRY).replace(
-        "description: Building and shipping software",
-        "description: Shipping client software",
-      ),
+  it("refuses an existing name under --dry-run too, printing no diff", async () => {
+    const result = await refused(
+      ExitCode.Resolution,
+      "add",
+      PARENT,
+      "--description",
+      "Shipping client software",
+      "--dry-run",
     );
+
+    expect(result.stderr).toContain(`scope "${PARENT}" is already registered (${REGISTRY})`);
   });
 
   it("quotes a description that would otherwise come back as something else", async () => {
