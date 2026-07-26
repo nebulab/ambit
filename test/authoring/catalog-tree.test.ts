@@ -38,8 +38,8 @@ const GOLDEN_FILE = path.join(
   "catalog-tree.json",
 );
 
-const CODE_REVIEW = "acme/engineering/use-code-review";
-const DESIGN_TOKENS = "acme/engineering/frontend/use-design-tokens";
+const CODE_REVIEW = "code-review";
+const DESIGN_TOKENS = "design-tokens";
 
 /** The fixture's four registered scopes, as `scopes.yml` names them. */
 const ENGINEERING = "function.engineering";
@@ -181,16 +181,16 @@ describe("ambit catalog tree", () => {
 
     expect(scopes[ENGINEERING]?.direct).toEqual({
       mcps: ["scoped"],
-      skills: ["acme.engineering.use-code-review"],
+      skills: ["code-review"],
     });
     // The nested skill: selected by holding the parent, and declared by neither.
     expect(scopes[ENGINEERING]?.inherited).toEqual({
       mcps: [],
-      skills: ["acme.engineering.frontend.use-design-tokens"],
+      skills: ["design-tokens"],
     });
     expect(scopes[ENGINEERING]?.children[FRONTEND]?.direct).toEqual({
       mcps: [],
-      skills: ["acme.engineering.frontend.use-design-tokens"],
+      skills: ["design-tokens"],
     });
     expect(scopes[ENGINEERING]?.children[FRONTEND]?.inherited).toEqual({ mcps: [], skills: [] });
   });
@@ -209,7 +209,7 @@ describe("ambit catalog tree", () => {
     expect(scopes.function?.direct).toEqual({ mcps: [], skills: [] });
     expect(scopes.function?.inherited).toEqual({
       mcps: ["scoped"],
-      skills: ["acme.engineering.frontend.use-design-tokens", "acme.engineering.use-code-review"],
+      skills: ["code-review", "design-tokens"],
     });
   });
 
@@ -230,10 +230,7 @@ describe("ambit catalog tree", () => {
     await writeSkill(DESIGN_TOKENS, [ENGINEERING, FRONTEND]);
 
     const scopes = await treeJson();
-    expect(scopes[ENGINEERING]?.direct.skills).toEqual([
-      "acme.engineering.frontend.use-design-tokens",
-      "acme.engineering.use-code-review",
-    ]);
+    expect(scopes[ENGINEERING]?.direct.skills).toEqual(["code-review", "design-tokens"]);
     expect(scopes[ENGINEERING]?.inherited).toEqual({ mcps: [], skills: [] });
     expect(row((await tree()).stdout, ENGINEERING)).toContain("3 direct  0 inherited");
   });
@@ -257,7 +254,7 @@ describe("ambit catalog tree", () => {
 
     const scopes = await treeJson();
     expect(scopes[ENGINEERING]?.direct).toEqual({ mcps: ["scoped"], skills: [] });
-    expect(JSON.stringify(scopes)).not.toContain("acme.engineering.use-code-review");
+    expect(JSON.stringify(scopes)).not.toContain("code-review");
   });
 
   it("exits 2 when the directory is not a catalog", async () => {

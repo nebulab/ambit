@@ -26,30 +26,38 @@ import { run } from "../../src/cli/program.js";
 import { emitYaml } from "../../src/model/yaml.js";
 
 /** The fixture's required skill, its requirer, and the name the rename gives the first. */
-const CORE = "acme.commons.use-company-context";
-const CORE_DIR = "skills/acme/commons/use-company-context";
+const CORE = "company-context";
+const CORE_DIR = "skills/company-context";
 const CORE_FILE = `${CORE_DIR}/SKILL.md`;
-const RENAMED_CORE = "acme.commons.use-context";
-const RENAMED_CORE_DIR = "skills/acme/commons/use-context";
+const RENAMED_CORE = "context";
+const RENAMED_CORE_DIR = "skills/context";
 const RENAMED_CORE_FILE = `${RENAMED_CORE_DIR}/SKILL.md`;
 
-const BRIEF = "acme.projects.use-acme-brief";
-const BRIEF_DIR = "skills/acme/projects/use-acme-brief";
+const BRIEF = "acme-brief";
+const BRIEF_DIR = "skills/acme-brief";
 const BRIEF_FILE = `${BRIEF_DIR}/SKILL.md`;
 
-const REVIEW = "acme.engineering.use-code-review";
-const REVIEW_DIR = "skills/acme/engineering/use-code-review";
+const REVIEW = "code-review";
+const REVIEW_DIR = "skills/code-review";
 
-/** Every file `mv acme.commons.use-company-context` reports, in the path order it reports them. */
-const RENAMED_FILES = [RENAMED_CORE_FILE, BRIEF_FILE];
+/** Every file `mv company-context` reports, in the path order it reports them. */
+const RENAMED_FILES = [BRIEF_FILE, RENAMED_CORE_FILE];
 
-const JANE = "jane.use-notes";
-const JANE_DIR = "skills/jane/use-notes";
+const JANE = "jane-notes";
+const JANE_DIR = "skills/jane-notes";
 const JANE_FILE = `${JANE_DIR}/SKILL.md`;
 const JANE_DESCRIPTION = "Jane's notes";
 
 /** Bytes no parser of ambit's will read, so a move must carry them rather than re-encode them. */
 const OPAQUE = Buffer.from([0x00, 0xff, 0xfe, 0x0a]);
+
+/**
+ * A nested skill, which is the one shape where a name carries a `.`: it is the path under `skills/`
+ * with the separators swapped, so this one lives at `skills/personal/notes/SKILL.md`. The two tests
+ * about namespace directories create it themselves, since a flat catalog has none to prune.
+ */
+const NESTED = "personal.notes";
+const NESTED_NAMESPACE_DIR = "skills/personal";
 
 let root: string;
 let catalogDir: string;
@@ -308,9 +316,9 @@ describe("ambit catalog skill new", () => {
   });
 
   it("refuses a name that could not be a path under skills/", async () => {
-    const result = await refused(ExitCode.Config, "new", "jane..use-notes");
+    const result = await refused(ExitCode.Config, "new", "jane..notes");
 
-    expect(result.stderr).toContain('invalid skill name "jane..use-notes" (skills)');
+    expect(result.stderr).toContain('invalid skill name "jane..notes" (skills)');
   });
 
   it("prints what it created, which path that took, and what is left to do", async () => {
@@ -378,11 +386,12 @@ describe("ambit catalog skill rm", () => {
   });
 
   it("prunes the namespace directory it emptied, and stops at the catalog's own layout", async () => {
-    await succeeds("rm", BRIEF);
+    await succeeds("new", NESTED, "--scope", "core");
+
+    await succeeds("rm", NESTED);
 
     const remaining = await directories();
-    expect(remaining).not.toContain("skills/acme/projects");
-    expect(remaining).toContain("skills/acme");
+    expect(remaining).not.toContain(NESTED_NAMESPACE_DIR);
     expect(remaining).toContain("skills");
   });
 
@@ -399,11 +408,9 @@ describe("ambit catalog skill rm", () => {
   });
 
   it("refuses a skill the catalog does not provide, without guessing at a near miss", async () => {
-    const result = await refused(ExitCode.Resolution, "rm", "jane.use-nothing");
+    const result = await refused(ExitCode.Resolution, "rm", "jane-nothing");
 
-    expect(result.stderr).toContain(
-      'unknown skill "jane.use-nothing" (skills/jane/use-nothing/SKILL.md)',
-    );
+    expect(result.stderr).toContain('unknown skill "jane-nothing" (skills/jane-nothing/SKILL.md)');
     expect(result.stderr).not.toContain("did you mean");
   });
 
@@ -470,8 +477,8 @@ describe("ambit catalog skill mv", () => {
         "",
         "files (3)",
         `  ${`${CORE_DIR}/`.padEnd(BRIEF_FILE.length)}  moved to ${RENAMED_CORE_DIR}/`,
-        `  ${RENAMED_CORE_FILE.padEnd(BRIEF_FILE.length)}  updated`,
         `  ${BRIEF_FILE}  updated`,
+        `  ${RENAMED_CORE_FILE.padEnd(BRIEF_FILE.length)}  updated`,
         "",
         "next: update `ambit.yml` in every project that lists the old name — a catalog cannot do it for them",
       ].join("\n"),
@@ -512,12 +519,14 @@ describe("ambit catalog skill mv", () => {
   });
 
   it("prunes the namespace it emptied, and creates the one it needs", async () => {
-    await succeeds("mv", CORE, "jane.use-context");
+    await succeeds("new", NESTED, "--scope", "core");
+
+    await succeeds("mv", NESTED, "team.notes");
 
     const remaining = await directories();
-    expect(remaining).toContain("skills/jane/use-context");
-    expect(remaining).not.toContain("skills/acme/commons");
-    expect(remaining).toContain("skills/acme");
+    expect(remaining).toContain("skills/team/notes");
+    expect(remaining).not.toContain(NESTED_NAMESPACE_DIR);
+    expect(remaining).toContain("skills");
   });
 
   it("refuses a name the catalog already provides", async () => {
@@ -527,15 +536,15 @@ describe("ambit catalog skill mv", () => {
   });
 
   it("refuses a new name that could not be a path under skills/", async () => {
-    const result = await refused(ExitCode.Config, "mv", CORE, "jane.");
+    const result = await refused(ExitCode.Config, "mv", CORE, "jane-notes.");
 
-    expect(result.stderr).toContain('invalid skill name "jane."');
+    expect(result.stderr).toContain('invalid skill name "jane-notes."');
   });
 
   it("refuses a directory that holds another skill", async () => {
     await write(`${REVIEW_DIR}/nested/SKILL.md`, `---\nname: ${REVIEW}.nested\n---\n\n# nested\n`);
 
-    const result = await refused(ExitCode.Resolution, "mv", REVIEW, "acme.engineering.use-review");
+    const result = await refused(ExitCode.Resolution, "mv", REVIEW, "review");
 
     expect(result.stderr).toContain(`cannot move skill "${REVIEW}": it holds another skill`);
   });

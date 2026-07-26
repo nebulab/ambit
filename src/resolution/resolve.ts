@@ -576,10 +576,10 @@ export function reasonOf(bundle: Bundle, item: BundleItem): SelectionReason {
 /**
  * The whole chain behind one selected item, root cause first and the item itself last.
  *
- * A reason alone is only half an answer: `required-by:acme.projects.use-acme-brief` prompts the
- * same question one level up, and it is the held scope at the end of the walk that a reader can act
- * on. So the walk follows `required-by` edges backwards until it reaches a root — an explicit entry
- * or a held scope — which terminates because `requires` cycles were rejected during closure.
+ * A reason alone is only half an answer: `required-by:acme-brief` prompts the same question one
+ * level up, and it is the held scope at the end of the walk that a reader can act on. So the walk
+ * follows `required-by` edges backwards until it reaches a root — an explicit entry or a held
+ * scope — which terminates because `requires` cycles were rejected during closure.
  *
  * @throws {AmbitError} exit 1 if the item is not in the bundle, or the chain fails to terminate.
  */

@@ -34,10 +34,10 @@ const CATALOG_NAME = "company";
 const CATALOG_SOURCE = "path:../catalog";
 const SKILLS_DIR = ".agents/skills";
 
-const CORE_SKILL = "acme.commons.use-company-context";
-const ENGINEERING_SKILL = "acme.engineering.use-code-review";
-const FRONTEND_SKILL = "acme.engineering.frontend.use-design-tokens";
-const PROJECT_SKILL = "acme.projects.use-acme-brief";
+const CORE_SKILL = "company-context";
+const ENGINEERING_SKILL = "code-review";
+const FRONTEND_SKILL = "design-tokens";
+const PROJECT_SKILL = "acme-brief";
 
 let root: string;
 let catalogDir: string;
@@ -131,18 +131,18 @@ describe("ambit.lock", () => {
         `    catalog: ${CATALOG_NAME}`,
         "    reason: scope:function.engineering",
         "skills:",
+        `  ${ENGINEERING_SKILL}:`,
+        `    catalog: ${CATALOG_NAME}`,
+        "    path: skills/code-review",
+        "    reason: scope:function.engineering",
         `  ${CORE_SKILL}:`,
         `    catalog: ${CATALOG_NAME}`,
-        "    path: skills/acme/commons/use-company-context",
+        "    path: skills/company-context",
         "    reason: scope:core",
         `  ${FRONTEND_SKILL}:`,
         `    catalog: ${CATALOG_NAME}`,
-        "    path: skills/acme/engineering/frontend/use-design-tokens",
+        "    path: skills/design-tokens",
         "    reason: scope:function.engineering.frontend",
-        `  ${ENGINEERING_SKILL}:`,
-        `    catalog: ${CATALOG_NAME}`,
-        "    path: skills/acme/engineering/use-code-review",
-        "    reason: scope:function.engineering",
         "version: 1",
         "",
       ].join("\n"),

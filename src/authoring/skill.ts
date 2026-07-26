@@ -144,7 +144,7 @@ function assertSkillName(name: string): void {
 
   throw configError(`invalid skill name "${name}" ${at(SKILLS_DIRNAME, undefined)}`, [
     `a skill's name is its path under ${SKILLS_DIRNAME}/, so it is segments joined by \`${NAME_SEPARATOR}\`, none of them empty and none a path of its own`,
-    "name it like `acme.sales.use-close`",
+    "name it like `close-crm`",
   ]);
 }
 

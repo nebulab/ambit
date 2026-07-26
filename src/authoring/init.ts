@@ -132,13 +132,14 @@ each labelled with the *scopes* that should get it.
 
 ## Layout
 
-    ${SCOPES_FILENAME}                            every scope, with a description
-    ${SKILLS_DIRNAME}/<namespace>/<name>/${SKILL_FILENAME}    one directory per skill
-    ${MCPS_DIRNAME}/<name>.yml                       one file per MCP server
+    ${SCOPES_FILENAME}                every scope, with a description
+    ${SKILLS_DIRNAME}/<name>/${SKILL_FILENAME}    one directory per skill
+    ${MCPS_DIRNAME}/<name>.yml           one file per MCP server
 
-A skill's name is its path under \`${SKILLS_DIRNAME}/\` with \`/\` replaced by \`.\`, so
-\`${SKILLS_DIRNAME}/acme/sales/use-close/\` holds the skill \`acme.sales.use-close\`. Nothing else names
-it — which is what keeps this directory a plain skills repo that other tools can read.
+A skill's name is its path under \`${SKILLS_DIRNAME}/\`, so \`${SKILLS_DIRNAME}/close-crm/\` holds the skill \`close-crm\`.
+Nothing else names it — which is what keeps this directory a plain skills repo that other tools
+can read. Nesting a skill is allowed and joins the segments with \`.\`, so
+\`${SKILLS_DIRNAME}/sales/close-crm/\` is \`sales.close-crm\`.
 
 ## A held scope selects its descendants
 

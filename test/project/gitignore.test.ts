@@ -23,7 +23,7 @@ import {
 import type { OwnedArtifact } from "../../src/model/state.js";
 
 const SKILLS_DIR = ".agents/skills";
-const ENTRIES = [".ambit/", `${SKILLS_DIR}/acme.core`];
+const ENTRIES = [".ambit/", `${SKILLS_DIR}/company-context`];
 
 /** The file as lines, which is how every assertion here reads. */
 function lines(text: string | undefined): readonly string[] {
@@ -46,13 +46,16 @@ function rejection(body: () => unknown): AmbitError {
 describe("the managed blocks' contents", () => {
   it("lists every installed skill directory in the shared directory's own file", () => {
     const artifacts: readonly OwnedArtifact[] = [
-      { path: `${SKILLS_DIR}/acme.core`, kind: "skill-dir", mode: "link" },
-      { path: `${SKILLS_DIR}/acme.frontend`, kind: "skill-dir", mode: "copy" },
+      { path: `${SKILLS_DIR}/company-context`, kind: "skill-dir", mode: "link" },
+      { path: `${SKILLS_DIR}/design-tokens`, kind: "skill-dir", mode: "copy" },
     ];
 
     expect(gitignoreBlocks(artifacts)).toEqual([
       { file: GITIGNORE_FILENAME, entries: [".ambit/"] },
-      { file: SHARED_GITIGNORE_FILE, entries: ["/skills/acme.core", "/skills/acme.frontend"] },
+      {
+        file: SHARED_GITIGNORE_FILE,
+        entries: ["/skills/company-context", "/skills/design-tokens"],
+      },
     ]);
   });
 
@@ -66,7 +69,7 @@ describe("the managed blocks' contents", () => {
 
   it("keeps at the root what a nested file cannot reach: the state dir and the skills link", () => {
     const artifacts: readonly OwnedArtifact[] = [
-      { path: `${SKILLS_DIR}/acme.core`, kind: "skill-dir", mode: "link" },
+      { path: `${SKILLS_DIR}/company-context`, kind: "skill-dir", mode: "link" },
       { path: ".claude/skills", kind: "skills-link", mode: "link" },
     ];
 
@@ -89,7 +92,7 @@ describe("the managed blocks' contents", () => {
 
   it("never lists the nested file itself: it is generated, but tracked", () => {
     const artifacts: readonly OwnedArtifact[] = [
-      { path: `${SKILLS_DIR}/acme.core`, kind: "skill-dir", mode: "link" },
+      { path: `${SKILLS_DIR}/company-context`, kind: "skill-dir", mode: "link" },
     ];
 
     for (const block of gitignoreBlocks(artifacts)) {
@@ -100,10 +103,10 @@ describe("the managed blocks' contents", () => {
 
   it("gives a skill directory no trailing slash, so the pattern also covers a symlinked one", () => {
     const artifacts: readonly OwnedArtifact[] = [
-      { path: `${SKILLS_DIR}/acme.core`, kind: "skill-dir", mode: "link" },
+      { path: `${SKILLS_DIR}/company-context`, kind: "skill-dir", mode: "link" },
     ];
 
-    expect(gitignoreBlocks(artifacts)[1]?.entries).not.toContain("/skills/acme.core/");
+    expect(gitignoreBlocks(artifacts)[1]?.entries).not.toContain("/skills/company-context/");
   });
 });
 
@@ -113,13 +116,13 @@ describe("an empty block", () => {
   });
 
   it("takes an existing block back out, so a project that deselected every skill loses the file", () => {
-    const existing = `${BLOCK_BEGIN}\n/skills/acme.core\n${BLOCK_END}\n`;
+    const existing = `${BLOCK_BEGIN}\n/skills/company-context\n${BLOCK_END}\n`;
 
     expect(updateGitignoreText(existing, [], SHARED_GITIGNORE_FILE)).toBe("");
   });
 
   it("leaves lines it does not own behind when it removes the block", () => {
-    const existing = `# theirs\n\n${BLOCK_BEGIN}\n/skills/acme.core\n${BLOCK_END}\n`;
+    const existing = `# theirs\n\n${BLOCK_BEGIN}\n/skills/company-context\n${BLOCK_END}\n`;
 
     expect(updateGitignoreText(existing, [], SHARED_GITIGNORE_FILE)).toBe("# theirs\n");
   });
@@ -129,7 +132,7 @@ describe("writing the block into a file that has none", () => {
   it("creates the whole file when the project has no .gitignore", () => {
     expect(lines(updateGitignoreText(undefined, ENTRIES))).toEqual([
       expect.stringContaining(BLOCK_BEGIN),
-      `${SKILLS_DIR}/acme.core`,
+      `${SKILLS_DIR}/company-context`,
       ".ambit/",
       BLOCK_END,
       "",
@@ -142,7 +145,7 @@ describe("writing the block into a file that has none", () => {
       "dist/",
       "",
       expect.stringContaining(BLOCK_BEGIN),
-      `${SKILLS_DIR}/acme.core`,
+      `${SKILLS_DIR}/company-context`,
       ".ambit/",
       BLOCK_END,
       "",
@@ -154,7 +157,7 @@ describe("writing the block into a file that has none", () => {
       "node_modules/",
       "",
       expect.stringContaining(BLOCK_BEGIN),
-      `${SKILLS_DIR}/acme.core`,
+      `${SKILLS_DIR}/company-context`,
       ".ambit/",
       BLOCK_END,
       "",
@@ -166,7 +169,7 @@ describe("writing the block into a file that has none", () => {
       "dist/",
       "",
       expect.stringContaining(BLOCK_BEGIN),
-      `${SKILLS_DIR}/acme.core`,
+      `${SKILLS_DIR}/company-context`,
       ".ambit/",
       BLOCK_END,
       "",
@@ -182,8 +185,8 @@ describe("writing the block into a file that has none", () => {
   });
 
   it("escapes the glob characters that would make a path match something else", () => {
-    expect(lines(updateGitignoreText(undefined, [`${SKILLS_DIR}/acme[core]`]))).toContain(
-      `${SKILLS_DIR}/acme\\[core]`,
+    expect(lines(updateGitignoreText(undefined, [`${SKILLS_DIR}/weird[name]`]))).toContain(
+      `${SKILLS_DIR}/weird\\[name]`,
     );
   });
 });
@@ -194,26 +197,26 @@ describe("rewriting a block that is already there", () => {
   it("replaces the block in place, disturbing nothing above or below it", () => {
     const surrounded = `${INSTALLED}\n# mine\ncoverage/\n`;
 
-    expect(lines(updateGitignoreText(surrounded, [".ambit/", `${SKILLS_DIR}/acme.other`]))).toEqual(
-      [
-        "node_modules/",
-        "",
-        expect.stringContaining(BLOCK_BEGIN),
-        `${SKILLS_DIR}/acme.other`,
-        ".ambit/",
-        BLOCK_END,
-        "",
-        "# mine",
-        "coverage/",
-        "",
-      ],
-    );
+    expect(
+      lines(updateGitignoreText(surrounded, [".ambit/", `${SKILLS_DIR}/code-review`])),
+    ).toEqual([
+      "node_modules/",
+      "",
+      expect.stringContaining(BLOCK_BEGIN),
+      `${SKILLS_DIR}/code-review`,
+      ".ambit/",
+      BLOCK_END,
+      "",
+      "# mine",
+      "coverage/",
+      "",
+    ]);
   });
 
   it("drops a path the new install no longer owns", () => {
     const narrowed = updateGitignoreText(INSTALLED, [".ambit/"]) ?? "";
 
-    expect(narrowed).not.toContain("acme.core");
+    expect(narrowed).not.toContain("company-context");
     expect(lines(narrowed)).toEqual([
       "node_modules/",
       "",
@@ -233,7 +236,7 @@ describe("rewriting a block that is already there", () => {
 
     expect(lines(updateGitignoreText(older, ENTRIES))).toEqual([
       expect.stringContaining(BLOCK_BEGIN),
-      `${SKILLS_DIR}/acme.core`,
+      `${SKILLS_DIR}/company-context`,
       ".ambit/",
       BLOCK_END,
       "",
@@ -247,7 +250,7 @@ describe("rewriting a block that is already there", () => {
       "node_modules/\r",
       "dist/\r",
       expect.stringContaining(BLOCK_BEGIN),
-      `${SKILLS_DIR}/acme.core`,
+      `${SKILLS_DIR}/company-context`,
       ".ambit/",
       BLOCK_END,
       "",

@@ -7,9 +7,9 @@
     "function.engineering.frontend"
   ],
   "skills": {
-    "acme.engineering.frontend.use-design-tokens": {
+    "design-tokens": {
       "catalog": "company",
-      "path": "skills/acme/engineering/frontend/use-design-tokens"
+      "path": "skills/design-tokens"
     }
   }
 }

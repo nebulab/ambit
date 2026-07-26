@@ -12,13 +12,13 @@
     "function.engineering"
   ],
   "skills": {
-    "acme.engineering.frontend.use-design-tokens": {
+    "code-review": {
       "catalog": "company",
-      "path": "skills/acme/engineering/frontend/use-design-tokens"
+      "path": "skills/code-review"
     },
-    "acme.engineering.use-code-review": {
+    "design-tokens": {
       "catalog": "company",
-      "path": "skills/acme/engineering/use-code-review"
+      "path": "skills/design-tokens"
     }
   }
 }

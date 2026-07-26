@@ -2,7 +2,7 @@
  * Builds the fixture catalog every test resolves against (everything must be
  * testable offline).
  *
- * The catalog is a plain skills repo — skills at `skills/<namespace>/<name>/SKILL.md`, MCP
+ * The catalog is a plain skills repo — skills at `skills/<name>/SKILL.md`, MCP
  * entities at `mcps/<name>.yml`, a `scopes.yml` registry at the root — so it doubles as the
  * subject of the dotagents compatibility test (A26).
  *
@@ -40,7 +40,7 @@ scopes:
 `;
 
 const CORE_SKILL = `---
-name: acme.commons.use-company-context
+name: company-context
 description: Canonical context about Acme — what it sells, to whom, and how it works.
 ambit:
   scopes: [core]
@@ -53,7 +53,7 @@ Selected by the \`core\` scope, and pulled in by \`requires\` from the project s
 `;
 
 const ENGINEERING_SKILL = `---
-name: acme.engineering.use-code-review
+name: code-review
 description: How Acme reviews code — what reviewers look for, and in what order.
 ambit:
   scopes: [function.engineering]
@@ -65,7 +65,7 @@ Selected by \`function.engineering\`, exactly. Holding \`core\` must not reach i
 `;
 
 const FRONTEND_SKILL = `---
-name: acme.engineering.frontend.use-design-tokens
+name: design-tokens
 description: Acme's design tokens — color, spacing, and the type scale.
 ambit:
   scopes: [function.engineering.frontend]
@@ -79,12 +79,12 @@ this scope does not reach back up.
 `;
 
 const PROJECT_SKILL = `---
-name: acme.projects.use-acme-brief
+name: acme-brief
 description: The Acme engagement brief — scope, contacts, and conventions.
 ambit:
   scopes: [project.acme]
   requires:
-    - acme.commons.use-company-context
+    - company-context
     - mcp.fixture
 ---
 
@@ -95,7 +95,7 @@ the only thing that can pull them in.
 `;
 
 const REQUIRED_MCP = `name: fixture
-# No scopes: reachable only because acme.projects.use-acme-brief requires it.
+# No scopes: reachable only because acme-brief requires it.
 
 transport:
   stdio:
@@ -123,10 +123,10 @@ export const FIXTURE_CATALOG_FILES: Readonly<Record<string, string>> = {
   "scopes.yml": SCOPES_YML,
   "mcps/fixture.yml": REQUIRED_MCP,
   "mcps/scoped.yml": SCOPED_MCP,
-  "skills/acme/commons/use-company-context/SKILL.md": CORE_SKILL,
-  "skills/acme/engineering/use-code-review/SKILL.md": ENGINEERING_SKILL,
-  "skills/acme/engineering/frontend/use-design-tokens/SKILL.md": FRONTEND_SKILL,
-  "skills/acme/projects/use-acme-brief/SKILL.md": PROJECT_SKILL,
+  "skills/company-context/SKILL.md": CORE_SKILL,
+  "skills/code-review/SKILL.md": ENGINEERING_SKILL,
+  "skills/design-tokens/SKILL.md": FRONTEND_SKILL,
+  "skills/acme-brief/SKILL.md": PROJECT_SKILL,
 };
 
 async function isEmptyDirectory(dir: string): Promise<boolean> {

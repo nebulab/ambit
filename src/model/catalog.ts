@@ -1,7 +1,7 @@
 /**
  * Catalog parsing.
  *
- * A catalog is a plain skills repo: skills at `skills/<namespace>/<name>/SKILL.md`, MCP
+ * A catalog is a plain skills repo: skills at `skills/<name>/SKILL.md`, MCP
  * entities at `mcps/<name>.yml`, and a `scopes.yml` registry at the root. Nothing here is
  * ambit-specific except one extra frontmatter key and the two extra files, which other tools
  * ignore — that compatibility is a hard requirement.
@@ -471,7 +471,7 @@ async function parseSkill(
   if (relative === "") {
     throw configError(`${SKILLS_DIRNAME}/${SKILL_FILENAME} is not inside a skill directory`, [
       "a skill's name is its path under `skills/`, so it needs at least one directory",
-      `move it to ${SKILLS_DIRNAME}/<namespace>/<name>/${SKILL_FILENAME}`,
+      `move it to ${SKILLS_DIRNAME}/<name>/${SKILL_FILENAME}`,
     ]);
   }
 

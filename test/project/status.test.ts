@@ -23,9 +23,9 @@ const SKILLS_DIR = ".agents/skills";
 const CLAUDE_LINK = ".claude/skills";
 const MCP_FILE = ".mcp.json";
 
-const CORE_SKILL = "acme.commons.use-company-context";
-const ENGINEERING_SKILL = "acme.engineering.use-code-review";
-const FRONTEND_SKILL = "acme.engineering.frontend.use-design-tokens";
+const CORE_SKILL = "company-context";
+const ENGINEERING_SKILL = "code-review";
+const FRONTEND_SKILL = "design-tokens";
 
 /** The fixture's scope-matched http server, and the one only `requires` reaches. */
 const SCOPED_MCP = "scoped";
@@ -150,14 +150,14 @@ describe("ambit status on an installed project", () => {
 
     // The detail column is empty on every row here, so `columns` trims it away and the state ends
     // each line — but the two columns before it are still padded out to their widest cell.
-    const width = FRONTEND_TARGET.length;
+    const width = CORE_TARGET.length;
     const kind = "harness-config".length;
     expect(result.stdout).toBe(
       [
         "artifacts (5)",
-        `  ${CORE_TARGET.padEnd(width)}  ${"skill-dir".padEnd(kind)}  ok`,
-        `  ${FRONTEND_TARGET}  ${"skill-dir".padEnd(kind)}  ok`,
         `  ${ENGINEERING_TARGET.padEnd(width)}  ${"skill-dir".padEnd(kind)}  ok`,
+        `  ${CORE_TARGET}  ${"skill-dir".padEnd(kind)}  ok`,
+        `  ${FRONTEND_TARGET.padEnd(width)}  ${"skill-dir".padEnd(kind)}  ok`,
         `  ${CLAUDE_LINK.padEnd(width)}  ${"skills-link".padEnd(kind)}  ok`,
         `  ${MCP_FILE.padEnd(width)}  harness-config  ok`,
       ].join("\n"),
@@ -184,9 +184,9 @@ describe("ambit status on an installed project", () => {
 
     expect(JSON.parse(result.stdout)).toEqual({
       artifacts: [
+        { kind: "skill-dir", path: ENGINEERING_TARGET, state: "ok" },
         { kind: "skill-dir", path: CORE_TARGET, state: "ok" },
         { kind: "skill-dir", path: FRONTEND_TARGET, state: "ok" },
-        { kind: "skill-dir", path: ENGINEERING_TARGET, state: "ok" },
         { kind: "skills-link", path: CLAUDE_LINK, state: "ok" },
         { kind: "harness-config", path: MCP_FILE, state: "ok" },
       ],
@@ -217,9 +217,9 @@ describe("ambit status after a manual edit", () => {
     expect(result.code, result.stderr).toBe(ExitCode.Success);
     expect(result.stdout).toContain(`modified  SKILL.md differs from its source`);
     expect(await states()).toEqual([
+      `${ENGINEERING_TARGET}=ok`,
       `${CORE_TARGET}=modified`,
       `${FRONTEND_TARGET}=ok`,
-      `${ENGINEERING_TARGET}=ok`,
       `${CLAUDE_LINK}=ok`,
       `${MCP_FILE}=ok`,
     ]);
@@ -246,9 +246,9 @@ describe("ambit status after a manual edit", () => {
     await rm(path.join(projectDir, ENGINEERING_TARGET), { recursive: true });
 
     expect(await states()).toEqual([
+      `${ENGINEERING_TARGET}=missing`,
       `${CORE_TARGET}=ok`,
       `${FRONTEND_TARGET}=ok`,
-      `${ENGINEERING_TARGET}=missing`,
       `${CLAUDE_LINK}=ok`,
       `${MCP_FILE}=ok`,
     ]);
@@ -297,9 +297,9 @@ describe("ambit status after a manual edit", () => {
     });
 
     expect(await states()).toEqual([
+      `${ENGINEERING_TARGET}=ok`,
       `${CORE_TARGET}=ok`,
       `${FRONTEND_TARGET}=ok`,
-      `${ENGINEERING_TARGET}=ok`,
       `${CLAUDE_LINK}=ok`,
       `${MCP_FILE}=ok`,
     ]);
@@ -315,8 +315,8 @@ describe("ambit status after a manual edit", () => {
 
   it("reports a change in the catalog, not only one in the project", async () => {
     await writeFile(
-      path.join(catalogDir, "skills/acme/commons/use-company-context/SKILL.md"),
-      "---\nname: acme.commons.use-company-context\nambit:\n  scopes: [core]\n---\n\n# rewritten upstream\n",
+      path.join(catalogDir, "skills/company-context/SKILL.md"),
+      "---\nname: company-context\nambit:\n  scopes: [core]\n---\n\n# rewritten upstream\n",
       "utf8",
     );
 
@@ -329,14 +329,14 @@ describe("ambit status after a manual edit", () => {
  * so a link is checked for pointing at its source and a copy for holding its bytes.
  */
 describe("ambit status on a symlinked install", () => {
-  const CORE_SOURCE = "skills/acme/commons/use-company-context";
+  const CORE_SOURCE = "skills/company-context";
 
   it("says nothing when the source is edited through the link, which is what linking is for", async () => {
     expect((await cli("install")).code).toBe(ExitCode.Success);
 
     await writeFile(
       path.join(projectDir, CORE_TARGET, "SKILL.md"),
-      "---\nname: acme.commons.use-company-context\nambit:\n  scopes: [core]\n---\n\n# edited in place\n",
+      "---\nname: company-context\nambit:\n  scopes: [core]\n---\n\n# edited in place\n",
       "utf8",
     );
 
@@ -373,9 +373,9 @@ describe("ambit status on a symlinked install", () => {
     // Mode is a per-run choice and both modes put the same bytes in front of the harness, so
     // `--copy` must not leave `status --check` permanently red.
     expect(await states()).toEqual([
+      `${ENGINEERING_TARGET}=ok`,
       `${CORE_TARGET}=ok`,
       `${FRONTEND_TARGET}=ok`,
-      `${ENGINEERING_TARGET}=ok`,
       `${CLAUDE_LINK}=ok`,
       `${MCP_FILE}=ok`,
     ]);
@@ -389,9 +389,9 @@ describe("ambit status before an install", () => {
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     expect(await states()).toEqual([
+      `${ENGINEERING_TARGET}=missing`,
       `${CORE_TARGET}=missing`,
       `${FRONTEND_TARGET}=missing`,
-      `${ENGINEERING_TARGET}=missing`,
       `${CLAUDE_LINK}=missing`,
       `${MCP_FILE}=missing`,
     ]);
@@ -405,9 +405,9 @@ describe("ambit status before an install", () => {
     await writeMcpFile({ mcpServers: { [SCOPED_MCP]: { command: "not ambit's either" } } });
 
     expect(await states()).toEqual([
+      `${ENGINEERING_TARGET}=missing`,
       `${CORE_TARGET}=unowned`,
       `${FRONTEND_TARGET}=missing`,
-      `${ENGINEERING_TARGET}=missing`,
       // Nothing is installed here, so the link is absent like the skills it would point at.
       `${CLAUDE_LINK}=missing`,
       `${MCP_FILE}=unowned`,
@@ -436,9 +436,9 @@ describe("ambit status after the profile narrows", () => {
     await writeProfile(["core"]);
 
     expect(await states()).toEqual([
+      `${ENGINEERING_TARGET}=stale`,
       `${CORE_TARGET}=ok`,
       `${FRONTEND_TARGET}=stale`,
-      `${ENGINEERING_TARGET}=stale`,
       `${CLAUDE_LINK}=ok`,
       `${MCP_FILE}=stale`,
     ]);

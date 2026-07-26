@@ -37,11 +37,11 @@ const CORE = CATALOG_INIT_SCOPE;
 const DEAD_SCOPE = "project.dead";
 
 /** Declares `core`, and requires the one server that is therefore reachable. */
-const BRIEF = "acme.use-brief";
+const BRIEF = "brief";
 const NEEDED = "needed";
 
 /** Declares no scope, and nothing requires either of them. */
-const ORPHAN_SKILL = "acme.use-orphan";
+const ORPHAN_SKILL = "orphan";
 const ORPHAN_MCP = "orphan";
 
 let root: string;
@@ -167,7 +167,7 @@ describe("ambit catalog audit", () => {
         "      no skill and no MCP server declares it, and nothing registered beneath it does either",
         "      holding it selects nothing, so every picker rendering this registry offers a choice with no effect",
         `      declare it with \`ambit catalog annotate <name> --add-scope ${DEAD_SCOPE}\`, or unregister it with \`ambit catalog scope rm ${DEAD_SCOPE}\``,
-        `  unreachable skill "${ORPHAN_SKILL}" (skills/acme/use-orphan/SKILL.md)`,
+        `  unreachable skill "${ORPHAN_SKILL}" (skills/orphan/SKILL.md)`,
         "      it declares no registered scope, and nothing reachable requires it",
         "      no profile can select it, so nothing it says ever reaches an agent",
         `      give it a scope with \`ambit catalog annotate ${ORPHAN_SKILL} --add-scope <scope>\`, or remove it with \`ambit catalog skill rm ${ORPHAN_SKILL}\``,
@@ -206,14 +206,14 @@ describe("ambit catalog audit", () => {
   it("reports a skill only an unreachable skill requires", async () => {
     // Reachability is transitive: a one-step rule would call this pair reachable, and no profile can
     // select either of them.
-    const deep = "acme.use-deep";
+    const deep = "deep";
     await author(authored, "skill", "new", deep, "--description", "Reached only from the orphan.");
     await author(authored, "annotate", ORPHAN_SKILL, "--add-requires", deep);
 
     const messages = (await auditJson(authored)).findings.map((found) => found.message);
     expect(messages.filter((message) => message.startsWith("unreachable skill"))).toEqual([
-      `unreachable skill "${deep}" (skills/acme/use-deep/SKILL.md)`,
-      `unreachable skill "${ORPHAN_SKILL}" (skills/acme/use-orphan/SKILL.md)`,
+      `unreachable skill "${deep}" (skills/deep/SKILL.md)`,
+      `unreachable skill "${ORPHAN_SKILL}" (skills/orphan/SKILL.md)`,
     ]);
   });
 
@@ -283,7 +283,7 @@ describe("ambit catalog audit --json", () => {
       { kind: "dead-scope", message: `unused scope "${DEAD_SCOPE}" (scopes.yml)` },
       {
         kind: "unreachable-skill",
-        message: `unreachable skill "${ORPHAN_SKILL}" (skills/acme/use-orphan/SKILL.md)`,
+        message: `unreachable skill "${ORPHAN_SKILL}" (skills/orphan/SKILL.md)`,
       },
       {
         kind: "unreachable-mcp",

@@ -58,10 +58,10 @@ const EXPECTED_FILES = [
   "mcps/fixture.yml",
   "mcps/scoped.yml",
   "scopes.yml",
-  "skills/acme/commons/use-company-context/SKILL.md",
-  "skills/acme/engineering/frontend/use-design-tokens/SKILL.md",
-  "skills/acme/engineering/use-code-review/SKILL.md",
-  "skills/acme/projects/use-acme-brief/SKILL.md",
+  "skills/company-context/SKILL.md",
+  "skills/design-tokens/SKILL.md",
+  "skills/code-review/SKILL.md",
+  "skills/acme-brief/SKILL.md",
 ].sort();
 
 const SKILL_PATHS = EXPECTED_FILES.filter((file) => file.endsWith("SKILL.md"));
@@ -140,27 +140,22 @@ describe("fixture catalog", () => {
     }
 
     expect(scopesByName).toEqual({
-      "acme.commons.use-company-context": ["core"],
-      "acme.engineering.use-code-review": ["function.engineering"],
-      "acme.engineering.frontend.use-design-tokens": ["function.engineering.frontend"],
-      "acme.projects.use-acme-brief": ["project.acme"],
+      "company-context": ["core"],
+      "code-review": ["function.engineering"],
+      "design-tokens": ["function.engineering.frontend"],
+      "acme-brief": ["project.acme"],
     });
   });
 
   it("has a project skill that reaches a skill and an MCP by requires alone", async () => {
-    const meta = annotations(
-      await readFile(path.join(dir, "skills/acme/projects/use-acme-brief/SKILL.md"), "utf8"),
-    );
+    const meta = annotations(await readFile(path.join(dir, "skills/acme-brief/SKILL.md"), "utf8"));
 
-    expect(meta.requires).toEqual(["acme.commons.use-company-context", "mcp.fixture"]);
+    expect(meta.requires).toEqual(["company-context", "mcp.fixture"]);
   });
 
   it("declares env vars a bundle can be missing", async () => {
     const frontend = annotations(
-      await readFile(
-        path.join(dir, "skills/acme/engineering/frontend/use-design-tokens/SKILL.md"),
-        "utf8",
-      ),
+      await readFile(path.join(dir, "skills/design-tokens/SKILL.md"), "utf8"),
     );
 
     expect(frontend.env).toEqual(["ACME_FIGMA_TOKEN"]);
@@ -209,12 +204,8 @@ describe("fixture catalog", () => {
 
   it("removes stale files left by a previous build", async () => {
     await writeFile(path.join(dir, "scopes.yaml"), "scopes: {}\n", "utf8");
-    await mkdir(path.join(dir, "skills/acme/stale"), { recursive: true });
-    await writeFile(
-      path.join(dir, "skills/acme/stale/SKILL.md"),
-      "---\nname: stale\n---\n",
-      "utf8",
-    );
+    await mkdir(path.join(dir, "skills/stale"), { recursive: true });
+    await writeFile(path.join(dir, "skills/stale/SKILL.md"), "---\nname: stale\n---\n", "utf8");
 
     await buildFixtureCatalog(dir);
 

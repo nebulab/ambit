@@ -36,7 +36,7 @@ import type { YamlMapping } from "../../src/model/yaml.js";
 import { parseYamlMapping } from "../../src/model/yaml.js";
 
 const CATALOG_NAME = "company";
-const CORE_SKILL = "acme.commons.use-company-context";
+const CORE_SKILL = "company-context";
 const SKILLS_DIR = ".agents/skills";
 
 /** Selects three skills and the `scoped` server, so the comparison covers every artifact kind. */

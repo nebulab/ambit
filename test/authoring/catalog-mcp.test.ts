@@ -28,8 +28,8 @@ import { emitYaml } from "../../src/model/yaml.js";
 /** The fixture's own two servers: one nothing may remove, one nothing requires. */
 const REQUIRED = "fixture";
 const REQUIRED_FILE = "mcps/fixture.yml";
-const REQUIRER = "acme.projects.use-acme-brief";
-const REQUIRER_FILE = "skills/acme/projects/use-acme-brief/SKILL.md";
+const REQUIRER = "acme-brief";
+const REQUIRER_FILE = "skills/acme-brief/SKILL.md";
 
 const FREE = "scoped";
 const FREE_FILE = "mcps/scoped.yml";

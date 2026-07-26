@@ -38,17 +38,17 @@ const FIXTURE_DOCUMENTS = Object.keys(FIXTURE_CATALOG_FILES)
   .sort();
 
 /** A skill carrying a harness key ambit knows nothing about, a comment, and a body. */
-const ANNOTATED_SKILL_PATH = skillDocumentPath("acme.sales.use-close");
+const ANNOTATED_SKILL_PATH = skillDocumentPath("close-crm");
 
 const ANNOTATED_SKILL = `---
-name: acme.sales.use-close
+name: close-crm
 description: Calls the Close CRM REST API.
 # Bash stays out of this one: the skill only ever reads.
 allowed-tools: [Read, Grep]
 ambit:
   scopes: [core]
   requires:
-    - acme.commons.use-company-context
+    - company-context
   env: [CLOSE_API_KEY]
 ---
 
@@ -293,10 +293,10 @@ describe("the catalog editor: writing", () => {
   });
 
   it("creates a file, and validates it as part of the catalog it is joining", async () => {
-    const file = skillDocumentPath("acme.sales.use-pipeline");
+    const file = skillDocumentPath("pipeline");
     const text = [
       "---",
-      "name: acme.sales.use-pipeline",
+      "name: pipeline",
       "ambit:",
       "  scopes: [core]",
       "---",
@@ -423,7 +423,7 @@ describe("the catalog editor: refusals", () => {
   });
 
   it("refuses a removal that would leave a requirement dangling", async () => {
-    // `acme.projects.use-acme-brief` requires `mcp.fixture`, so deleting the entity breaks the catalog
+    // `acme-brief` requires `mcp.fixture`, so deleting the entity breaks the catalog
     // even though the file itself is unreferenced from anywhere else.
     const file = mcpDocumentPath("fixture");
     const before = await read(file);
@@ -434,7 +434,7 @@ describe("the catalog editor: refusals", () => {
     );
 
     expect(error.detail).toContain(
-      `unresolvable requirement "mcp.fixture" (skills/acme/projects/use-acme-brief/SKILL.md)`,
+      `unresolvable requirement "mcp.fixture" (skills/acme-brief/SKILL.md)`,
     );
     expect(await read(file)).toBe(before);
   });

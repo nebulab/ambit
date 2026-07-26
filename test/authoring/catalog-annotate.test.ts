@@ -27,15 +27,15 @@ import type { McpEntity } from "../../src/model/mcp-entity.js";
 import { run } from "../../src/cli/program.js";
 
 /** The fixture's `core` skill: one flow-listed scope, nothing else annotated. */
-const CORE_SKILL = "acme.commons.use-company-context";
-const CORE_SKILL_FILE = "skills/acme/commons/use-company-context/SKILL.md";
+const CORE_SKILL = "company-context";
+const CORE_SKILL_FILE = "skills/company-context/SKILL.md";
 
 /** A fixture skill nothing requires and which requires nothing, so pointing at it cannot cycle. */
-const REVIEW_SKILL = "acme.engineering.use-code-review";
+const REVIEW_SKILL = "code-review";
 
 /** The fixture's project skill, the one that already declares every annotation. */
-const PROJECT_SKILL = "acme.projects.use-acme-brief";
-const PROJECT_SKILL_FILE = "skills/acme/projects/use-acme-brief/SKILL.md";
+const PROJECT_SKILL = "acme-brief";
+const PROJECT_SKILL_FILE = "skills/acme-brief/SKILL.md";
 
 /** The fixture's two servers: one scoped, one carrying no `scopes` key at all. */
 const SCOPED_MCP = "scoped";
@@ -49,18 +49,18 @@ const ENGINEERING = "function.engineering";
 const PROJECT_SCOPE = "project.acme";
 
 /** A skill carrying a harness key ambit knows nothing about, a comment, and a body. */
-const CLOSE_SKILL = "acme.sales.use-close";
-const CLOSE_SKILL_FILE = "skills/acme/sales/use-close/SKILL.md";
+const CLOSE_SKILL = "close-crm";
+const CLOSE_SKILL_FILE = "skills/close-crm/SKILL.md";
 
 const CLOSE_SKILL_TEXT = `---
-name: acme.sales.use-close
+name: close-crm
 description: Calls the Close CRM REST API.
 # Bash stays out of this one: the skill only ever reads.
 allowed-tools: [Read, Grep]
 ambit:
   scopes: [core]
   requires:
-    - acme.commons.use-company-context
+    - company-context
   env: [CLOSE_API_KEY]
 ---
 
@@ -353,18 +353,18 @@ describe("ambit catalog annotate, refusals", () => {
   });
 
   it("refuses a requirement nothing in the catalog provides, and writes nothing", async () => {
-    const result = await refused(ExitCode.Resolution, CORE_SKILL, "--add-requires", "acme.absent");
+    const result = await refused(ExitCode.Resolution, CORE_SKILL, "--add-requires", "absent-skill");
 
     // No pre-check here: validation's own message already names the unresolvable requirement, and
     // there is no better advice to add.
     expect(result.stderr).toContain("refusing to write: the result would not validate");
-    expect(result.stderr).toContain('"acme.absent"');
+    expect(result.stderr).toContain('"absent-skill"');
   });
 
   it("refuses a skill the catalog does not provide", async () => {
-    const result = await refused(ExitCode.Resolution, "acme.absent", "--add-scope", CORE_SCOPE);
+    const result = await refused(ExitCode.Resolution, "absent-skill", "--add-scope", CORE_SCOPE);
 
-    expect(result.stderr).toContain('unknown skill "acme.absent" (skills/acme/absent/SKILL.md)');
+    expect(result.stderr).toContain('unknown skill "absent-skill" (skills/absent-skill/SKILL.md)');
   });
 
   it("refuses a server the catalog does not provide", async () => {

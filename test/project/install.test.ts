@@ -55,9 +55,9 @@ const CLAUDE_LINK = ".claude/skills";
 const claudeAdapter = adapterFor(claude);
 const MCP_FILE = ".mcp.json";
 
-const CORE_SKILL = "acme.commons.use-company-context";
-const ENGINEERING_SKILL = "acme.engineering.use-code-review";
-const FRONTEND_SKILL = "acme.engineering.frontend.use-design-tokens";
+const CORE_SKILL = "company-context";
+const ENGINEERING_SKILL = "code-review";
+const FRONTEND_SKILL = "design-tokens";
 
 /** The fixture's scope-matched http server, and the one only `requires` reaches. */
 const SCOPED_MCP = "scoped";
@@ -249,9 +249,9 @@ describe("the Claude adapter's plan", () => {
     const plan = claudeAdapter.plan(await bundleFor(), { root: projectDir });
 
     expect(plan.map((artifact) => artifact.path)).toEqual([
+      `${SKILLS_DIR}/${ENGINEERING_SKILL}`,
       `${SKILLS_DIR}/${CORE_SKILL}`,
       `${SKILLS_DIR}/${FRONTEND_SKILL}`,
-      `${SKILLS_DIR}/${ENGINEERING_SKILL}`,
       CLAUDE_LINK,
       MCP_FILE,
     ]);
@@ -261,9 +261,7 @@ describe("the Claude adapter's plan", () => {
       (artifact): artifact is PlannedSkillDir => artifact.kind === "skill-dir",
     );
     expect(skills.map((artifact) => artifact.mode)).toEqual(["link", "link", "link"]);
-    expect(skills[0]?.source).toBe(
-      path.join(catalogDir, "skills/acme/commons/use-company-context"),
-    );
+    expect(skills[0]?.source).toBe(path.join(catalogDir, "skills/code-review"));
     expect(await pathExists(SKILLS_DIR)).toBe(false);
     expect(await pathExists(MCP_FILE)).toBe(false);
   });
@@ -302,11 +300,11 @@ describe("ambit install", () => {
     const result = await cli("install");
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
-    expect(await installedSkills()).toEqual([CORE_SKILL, FRONTEND_SKILL, ENGINEERING_SKILL]);
+    expect(await installedSkills()).toEqual([ENGINEERING_SKILL, CORE_SKILL, FRONTEND_SKILL]);
     expect(await tree(SKILLS_DIR)).toEqual([
+      `${ENGINEERING_SKILL}/SKILL.md`,
       `${CORE_SKILL}/SKILL.md`,
       `${FRONTEND_SKILL}/SKILL.md`,
-      `${ENGINEERING_SKILL}/SKILL.md`,
     ]);
   });
 
@@ -317,10 +315,7 @@ describe("ambit install", () => {
       path.join(projectDir, SKILLS_DIR, CORE_SKILL, "SKILL.md"),
       "utf8",
     );
-    const source = await readFile(
-      path.join(catalogDir, "skills/acme/commons/use-company-context/SKILL.md"),
-      "utf8",
-    );
+    const source = await readFile(path.join(catalogDir, "skills/company-context/SKILL.md"), "utf8");
     expect(installed).toBe(source);
   });
 
@@ -349,9 +344,9 @@ describe("ambit install", () => {
       version: 1,
       harnesses: ["claude"],
       artifacts: [
+        { path: `${SKILLS_DIR}/${ENGINEERING_SKILL}`, kind: "skill-dir", mode: "link" },
         { path: `${SKILLS_DIR}/${CORE_SKILL}`, kind: "skill-dir", mode: "link" },
         { path: `${SKILLS_DIR}/${FRONTEND_SKILL}`, kind: "skill-dir", mode: "link" },
-        { path: `${SKILLS_DIR}/${ENGINEERING_SKILL}`, kind: "skill-dir", mode: "link" },
         { path: CLAUDE_LINK, kind: "skills-link", mode: "link" },
         {
           path: MCP_FILE,
@@ -390,9 +385,9 @@ describe("ambit install", () => {
     await cli("install", "--copy");
 
     expect(await tree(SKILLS_DIR)).toEqual([
+      `${ENGINEERING_SKILL}/SKILL.md`,
       `${CORE_SKILL}/SKILL.md`,
       `${FRONTEND_SKILL}/SKILL.md`,
-      `${ENGINEERING_SKILL}/SKILL.md`,
     ]);
   });
 
@@ -401,16 +396,16 @@ describe("ambit install", () => {
 
     // Both columns but the last are padded out to their longest cell, so the kinds line up down
     // the section and the config file's missing mode reads as a gap rather than a shifted row.
-    const width = `${SKILLS_DIR}/${FRONTEND_SKILL}`.length;
+    const width = `${SKILLS_DIR}/${CORE_SKILL}`.length;
     expect(result.stdout).toBe(
       [
         "harnesses (1)",
         "  claude",
         "",
         "artifacts (5)",
-        `  ${`${SKILLS_DIR}/${CORE_SKILL}`.padEnd(width)}  skill-dir       link`,
-        `  ${SKILLS_DIR}/${FRONTEND_SKILL}  skill-dir       link`,
         `  ${`${SKILLS_DIR}/${ENGINEERING_SKILL}`.padEnd(width)}  skill-dir       link`,
+        `  ${SKILLS_DIR}/${CORE_SKILL}  skill-dir       link`,
+        `  ${`${SKILLS_DIR}/${FRONTEND_SKILL}`.padEnd(width)}  skill-dir       link`,
         `  ${CLAUDE_LINK.padEnd(width)}  skills-link     link`,
         `  ${MCP_FILE.padEnd(width)}  harness-config  -`,
       ].join("\n"),
@@ -422,15 +417,15 @@ describe("ambit install", () => {
 
     expect(JSON.parse(result.stdout)).toEqual({
       artifacts: [
+        { kind: "skill-dir", mode: "link", path: `${SKILLS_DIR}/${ENGINEERING_SKILL}` },
         { kind: "skill-dir", mode: "link", path: `${SKILLS_DIR}/${CORE_SKILL}` },
         { kind: "skill-dir", mode: "link", path: `${SKILLS_DIR}/${FRONTEND_SKILL}` },
-        { kind: "skill-dir", mode: "link", path: `${SKILLS_DIR}/${ENGINEERING_SKILL}` },
         { kind: "skills-link", mode: "link", path: CLAUDE_LINK },
         // No `format`: a report shows what a reader needs, and the path already says which it is.
         { kind: "harness-config", managedKeys: [`mcpServers.${SCOPED_MCP}`], path: MCP_FILE },
       ],
       harnesses: ["claude"],
-      skills: [CORE_SKILL, FRONTEND_SKILL, ENGINEERING_SKILL],
+      skills: [ENGINEERING_SKILL, CORE_SKILL, FRONTEND_SKILL],
     });
     expect(result.stdout).not.toContain(root);
   });
@@ -439,9 +434,9 @@ describe("ambit install", () => {
     const result = await installProject(projectDir);
 
     expect(result.bundle.skills.map((skill) => skill.name)).toEqual([
+      ENGINEERING_SKILL,
       CORE_SKILL,
       FRONTEND_SKILL,
-      ENGINEERING_SKILL,
     ]);
     expect(result.harnesses).toEqual(["claude"]);
   });
@@ -453,8 +448,8 @@ describe("ambit install", () => {
  */
 describe("how a skill's source reaches its target", () => {
   const CORE_TARGET = `${SKILLS_DIR}/${CORE_SKILL}`;
-  const CORE_SOURCE = "skills/acme/commons/use-company-context";
-  const EDITED = "---\nname: acme.commons.use-company-context\nscopes: [core]\n---\n\n# edited\n";
+  const CORE_SOURCE = "skills/company-context";
+  const EDITED = "---\nname: company-context\nscopes: [core]\n---\n\n# edited\n";
 
   /** The skill's file inside the catalog, which a linked install must be the very same file as. */
   async function readSource(): Promise<string> {
@@ -522,9 +517,9 @@ describe("how a skill's source reaches its target", () => {
     expect(await linkAt(CORE_TARGET)).toBeUndefined();
     expect(await recordedMode(CORE_TARGET)).toBe("copy");
     expect(await tree(SKILLS_DIR)).toEqual([
+      `${ENGINEERING_SKILL}/SKILL.md`,
       `${CORE_SKILL}/SKILL.md`,
       `${FRONTEND_SKILL}/SKILL.md`,
-      `${ENGINEERING_SKILL}/SKILL.md`,
     ]);
   });
 
@@ -553,9 +548,7 @@ describe("how a skill's source reaches its target", () => {
     expect(await installedSkills()).toEqual([CORE_SKILL]);
     // The skill ambit stopped selecting is gone from the project and untouched in the catalog.
     expect(await pathExists(`${SKILLS_DIR}/${ENGINEERING_SKILL}`)).toBe(false);
-    expect(
-      await exists(path.join(catalogDir, "skills/acme/engineering/use-code-review/SKILL.md")),
-    ).toBe(true);
+    expect(await exists(path.join(catalogDir, "skills/code-review/SKILL.md"))).toBe(true);
   });
 });
 
@@ -740,9 +733,9 @@ describe(".gitignore", () => {
     expect((await cli("install")).code).toBe(ExitCode.Success);
 
     expect(await managedBlock(SHARED_GITIGNORE_FILE)).toEqual([
+      `/skills/${ENGINEERING_SKILL}`,
       `/skills/${CORE_SKILL}`,
       `/skills/${FRONTEND_SKILL}`,
-      `/skills/${ENGINEERING_SKILL}`,
     ]);
   });
 
@@ -845,7 +838,7 @@ describe(".gitignore", () => {
     expect(result.stderr).toContain(`${GITIGNORE_FILENAME} holds an unterminated ambit block`);
     expect(await readFile(path.join(projectDir, GITIGNORE_FILENAME), "utf8")).toBe(broken);
     // The block is written last, so the skills themselves are installed and the retry is free.
-    expect(await installedSkills()).toEqual([CORE_SKILL, FRONTEND_SKILL, ENGINEERING_SKILL].sort());
+    expect(await installedSkills()).toEqual([ENGINEERING_SKILL, CORE_SKILL, FRONTEND_SKILL].sort());
   });
 });
 
@@ -1024,14 +1017,14 @@ describe("ambit install --dry-run", () => {
       harnesses: ["claude"],
       lockChanged: true,
       pruned: [
-        { kind: "skill-dir", path: `${SKILLS_DIR}/${FRONTEND_SKILL}` },
         { kind: "skill-dir", path: `${SKILLS_DIR}/${ENGINEERING_SKILL}` },
+        { kind: "skill-dir", path: `${SKILLS_DIR}/${FRONTEND_SKILL}` },
         { kind: "harness-config", managedKeys: [`mcpServers.${SCOPED_MCP}`], path: MCP_FILE },
       ],
       skills: [CORE_SKILL],
     });
     expect(await snapshot()).toEqual(before);
-    expect(await installedSkills()).toEqual([CORE_SKILL, FRONTEND_SKILL, ENGINEERING_SKILL]);
+    expect(await installedSkills()).toEqual([ENGINEERING_SKILL, CORE_SKILL, FRONTEND_SKILL]);
   });
 
   it("refuses an unowned target rather than previewing an install that would stop", async () => {
@@ -1165,15 +1158,12 @@ describe("ownership", () => {
 
     // The stray file is gone and SKILL.md is the catalog's, which is what taking ownership means.
     expect(await tree(SKILLS_DIR)).toEqual([
+      `${ENGINEERING_SKILL}/SKILL.md`,
       `${CORE_SKILL}/SKILL.md`,
       `${FRONTEND_SKILL}/SKILL.md`,
-      `${ENGINEERING_SKILL}/SKILL.md`,
     ]);
     expect(await readFile(path.join(projectDir, CORE_TARGET, "SKILL.md"), "utf8")).toBe(
-      await readFile(
-        path.join(catalogDir, "skills/acme/commons/use-company-context/SKILL.md"),
-        "utf8",
-      ),
+      await readFile(path.join(catalogDir, "skills/company-context/SKILL.md"), "utf8"),
     );
     expect(
       parseState(await readStateFile(), STATE_FILENAME).artifacts.map((artifact) => artifact.path),
@@ -1235,7 +1225,7 @@ describe("ownership", () => {
 describe("pruning", () => {
   /** A profile holding both servers, so narrowing to `WIDE` leaves one of them stale. */
   const BOTH_SERVERS = ["function.engineering", "project.acme"];
-  const PROJECT_SKILL = "acme.projects.use-acme-brief";
+  const PROJECT_SKILL = "acme-brief";
   const HANDMADE_SKILL = "hand-written";
 
   /** A skill directory beside ambit's that no state claims. */
@@ -1275,8 +1265,8 @@ describe("pruning", () => {
     const result = await installProject(projectDir);
 
     expect(result.pruned).toEqual([
-      { path: `${SKILLS_DIR}/${FRONTEND_SKILL}`, kind: "skill-dir" },
       { path: `${SKILLS_DIR}/${ENGINEERING_SKILL}`, kind: "skill-dir" },
+      { path: `${SKILLS_DIR}/${FRONTEND_SKILL}`, kind: "skill-dir" },
       { path: MCP_FILE, kind: "harness-config", managedKeys: [`mcpServers.${SCOPED_MCP}`] },
     ]);
   });
@@ -1293,8 +1283,8 @@ describe("pruning", () => {
     // `requires`, which this profile no longer selects.
     expect(Object.keys((await readMcpConfig()).mcpServers as object)).toEqual([SCOPED_MCP]);
     expect(parseState(await readStateFile(), STATE_FILENAME).artifacts).toEqual([
-      { path: `${SKILLS_DIR}/${FRONTEND_SKILL}`, kind: "skill-dir", mode: "link" },
       { path: `${SKILLS_DIR}/${ENGINEERING_SKILL}`, kind: "skill-dir", mode: "link" },
+      { path: `${SKILLS_DIR}/${FRONTEND_SKILL}`, kind: "skill-dir", mode: "link" },
       { path: CLAUDE_LINK, kind: "skills-link", mode: "link" },
       {
         path: MCP_FILE,
@@ -1350,7 +1340,7 @@ describe("pruning", () => {
     await writeProfile([], undefined, ["skills:", `  - ${PROJECT_SKILL}`]);
     await cli("install");
     // The project skill requires the core skill and `mcp.fixture`, so dropping it drops all three.
-    expect(await installedSkills()).toEqual([CORE_SKILL, PROJECT_SKILL]);
+    expect(await installedSkills()).toEqual([PROJECT_SKILL, CORE_SKILL]);
     await writeProfile([]);
 
     const result = await cli("install");
@@ -1424,9 +1414,9 @@ describe("pruning", () => {
 describe("idempotence", () => {
   const PROJECT_FILES = [
     `${STATE_DIRNAME}/${STATE_FILENAME}`,
+    `${SKILLS_DIR}/${ENGINEERING_SKILL}/SKILL.md`,
     `${SKILLS_DIR}/${CORE_SKILL}/SKILL.md`,
     `${SKILLS_DIR}/${FRONTEND_SKILL}/SKILL.md`,
-    `${SKILLS_DIR}/${ENGINEERING_SKILL}/SKILL.md`,
     // The link Claude Code reads through, which is one entry however many skills sit behind it.
     CLAUDE_LINK,
     MCP_FILE,

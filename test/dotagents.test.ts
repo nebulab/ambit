@@ -2,7 +2,7 @@
  * The dotagents compatibility promise, made executable.
  *
  * ambit replaces dotagents, but a catalog must stay a plain skills repo so that dotagents — or
- * skills.sh, or anything else that reads `skills/<namespace>/<name>/SKILL.md` — can install from the
+ * skills.sh, or anything else that reads `skills/<name>/SKILL.md` — can install from the
  * same directory. ambit's additions (`scopes.yml`, `mcps/`, the extra frontmatter keys) are supposed
  * to be additive and ignored. Spec §7 calls that "the guarantee most likely to rot", which is why it
  * is checked by running the real tool instead of by reasoning about it.
@@ -254,7 +254,7 @@ describe("dotagents compatibility", () => {
         "catalog",
         "skill",
         "new",
-        "acme.commons.use-company-context",
+        "company-context",
         "--description",
         "Canonical context about Acme",
         "--scope",
@@ -266,13 +266,13 @@ describe("dotagents compatibility", () => {
         "catalog",
         "skill",
         "new",
-        "acme.projects.use-acme-brief",
+        "acme-brief",
         "--description",
         "The Acme engagement brief",
         "--scope",
         CATALOG_INIT_SCOPE,
         "--requires",
-        "acme.commons.use-company-context",
+        "company-context",
         "--env",
         "ACME_FIGMA_TOKEN",
       );

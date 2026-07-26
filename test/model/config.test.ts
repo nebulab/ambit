@@ -48,7 +48,7 @@ catalogs:
     ref: main
 
 skills:
-  - acme.marketing.use-luma
+  - luma
   - name: readwise-cli
     source: https://github.com/readwiseio/readwise-skills
     path: skills/readwise-cli
@@ -82,7 +82,7 @@ describe("project config", () => {
           ["project.vision-group", 7],
         ]),
         skillLines: new Map([
-          ["acme.marketing.use-luma", 18],
+          ["luma", 18],
           ["readwise-cli", 19],
         ]),
         mcpLines: new Map([
@@ -97,7 +97,7 @@ describe("project config", () => {
         { name: "personal", source: "git@github.com:jane/skills-private.git", ref: "main" },
       ],
       skills: [
-        { kind: "catalog", name: "acme.marketing.use-luma" },
+        { kind: "catalog", name: "luma" },
         {
           kind: "source",
           name: "readwise-cli",
@@ -166,7 +166,7 @@ describe("project config", () => {
       [
         "version: 1",
         "skills:",
-        "  - acme.one",
+        "  - house-style",
         "  - name: two",
         "    source: path:../two",
         "mcps:",
@@ -181,7 +181,7 @@ describe("project config", () => {
 
     expect(config.origin.skillLines).toEqual(
       new Map([
-        ["acme.one", 3],
+        ["house-style", 3],
         ["two", 4],
       ]),
     );

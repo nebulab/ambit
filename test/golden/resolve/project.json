@@ -11,13 +11,13 @@
     "project.acme"
   ],
   "skills": {
-    "acme.commons.use-company-context": {
+    "acme-brief": {
       "catalog": "company",
-      "path": "skills/acme/commons/use-company-context"
+      "path": "skills/acme-brief"
     },
-    "acme.projects.use-acme-brief": {
+    "company-context": {
       "catalog": "company",
-      "path": "skills/acme/projects/use-acme-brief"
+      "path": "skills/company-context"
     }
   }
 }

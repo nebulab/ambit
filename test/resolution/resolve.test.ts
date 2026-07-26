@@ -37,10 +37,10 @@ import type { SourceContext } from "../../src/model/sources.js";
 
 const CATALOG_NAME = "company";
 
-const CORE_SKILL = "acme.commons.use-company-context";
-const ENGINEERING_SKILL = "acme.engineering.use-code-review";
-const FRONTEND_SKILL = "acme.engineering.frontend.use-design-tokens";
-const PROJECT_SKILL = "acme.projects.use-acme-brief";
+const CORE_SKILL = "company-context";
+const ENGINEERING_SKILL = "code-review";
+const FRONTEND_SKILL = "design-tokens";
+const PROJECT_SKILL = "acme-brief";
 
 const GOLDEN_DIR = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -352,8 +352,8 @@ describe("selection by scope", () => {
     const engineering = await bundle(["function.engineering"]);
 
     expect(engineering.skills.map((skill) => skill.name)).toEqual([
-      FRONTEND_SKILL,
       ENGINEERING_SKILL,
+      FRONTEND_SKILL,
     ]);
     expect(engineering.skills.map((skill) => skill.name)).not.toContain(CORE_SKILL);
   });
@@ -362,9 +362,9 @@ describe("selection by scope", () => {
     const both = await bundle(["core", "function.engineering"]);
 
     expect(both.skills.map((skill) => skill.name)).toEqual([
+      ENGINEERING_SKILL,
       CORE_SKILL,
       FRONTEND_SKILL,
-      ENGINEERING_SKILL,
     ]);
   });
 
@@ -426,7 +426,7 @@ describe("the requires closure", () => {
   it("pulls in a required skill and MCP server that match by no held scope", async () => {
     const project = await bundle(["project.acme"]);
 
-    expect(project.skills.map((skill) => skill.name)).toEqual([CORE_SKILL, PROJECT_SKILL]);
+    expect(project.skills.map((skill) => skill.name)).toEqual([PROJECT_SKILL, CORE_SKILL]);
     expect(project.mcps.map((mcp) => mcp.name)).toEqual(["fixture"]);
   });
 
@@ -437,39 +437,33 @@ describe("the requires closure", () => {
   });
 
   it("follows a requirement of a requirement, to fixpoint", async () => {
-    await writeSkill("acme/chain/use-a", ["scopes: [core]", "requires: [acme.chain.use-b]"]);
-    await writeSkill("acme/chain/use-b", ["requires: [acme.chain.use-c]"]);
-    await writeSkill("acme/chain/use-c", []);
+    await writeSkill("chain-a", ["scopes: [core]", "requires: [chain-b]"]);
+    await writeSkill("chain-b", ["requires: [chain-c]"]);
+    await writeSkill("chain-c", []);
 
     expect((await bundle(["core"])).skills.map((skill) => skill.name)).toEqual([
-      "acme.chain.use-a",
-      "acme.chain.use-b",
-      "acme.chain.use-c",
+      "chain-a",
+      "chain-b",
+      "chain-c",
       CORE_SKILL,
     ]);
   });
 
   it("treats a requirement two skills share as a diamond, not a cycle", async () => {
-    await writeSkill("acme/diamond/use-left", [
-      "scopes: [core]",
-      "requires: [acme.diamond.use-shared]",
-    ]);
-    await writeSkill("acme/diamond/use-right", [
-      "scopes: [core]",
-      "requires: [acme.diamond.use-shared]",
-    ]);
-    await writeSkill("acme/diamond/use-shared", []);
+    await writeSkill("diamond-left", ["scopes: [core]", "requires: [diamond-shared]"]);
+    await writeSkill("diamond-right", ["scopes: [core]", "requires: [diamond-shared]"]);
+    await writeSkill("diamond-shared", []);
 
     const resolved = await bundle(["core"]);
 
     expect(
-      resolved.skills.map((skill) => skill.name).filter((name) => name.startsWith("acme.diamond.")),
-    ).toEqual(["acme.diamond.use-left", "acme.diamond.use-right", "acme.diamond.use-shared"]);
+      resolved.skills.map((skill) => skill.name).filter((name) => name.startsWith("diamond-")),
+    ).toEqual(["diamond-left", "diamond-right", "diamond-shared"]);
   });
 
   it("selects a required skill exactly once, however many skills require it", async () => {
-    await writeSkill("acme/twice/use-left", ["scopes: [core]", "requires: [mcp.fixture]"]);
-    await writeSkill("acme/twice/use-right", ["scopes: [core]", "requires: [mcp.fixture]"]);
+    await writeSkill("twice-left", ["scopes: [core]", "requires: [mcp.fixture]"]);
+    await writeSkill("twice-right", ["scopes: [core]", "requires: [mcp.fixture]"]);
 
     expect((await bundle(["core"])).mcps.map((mcp) => mcp.name)).toEqual(["fixture"]);
   });
@@ -478,7 +472,7 @@ describe("the requires closure", () => {
     // Spec §4's validation split: `resolve` hard-validates the selected closure only. This skill
     // declares no scope, so nothing reaches it and its dangling requirement is `validate`'s
     // business (A23), not this bundle's.
-    await writeSkill("acme/broken/use-unselected", ["requires: [acme.absent.use-nothing]"]);
+    await writeSkill("broken-unselected", ["requires: [absent-skill]"]);
 
     const result = await cli("resolve");
 
@@ -488,24 +482,19 @@ describe("the requires closure", () => {
 
 describe("unresolvable requirements", () => {
   it("exits 3 naming the requirer, the missing skill, and the file the edge is in", async () => {
-    await writeSkill("acme/broken/use-dangling", [
-      "scopes: [core]",
-      "requires: [acme.absent.use-nothing]",
-    ]);
+    await writeSkill("broken-dangling", ["scopes: [core]", "requires: [absent-skill]"]);
 
     const result = await cli("resolve");
 
     expect(result.code).toBe(ExitCode.Resolution);
     expect(result.stderr).toContain(
-      'unresolvable requirement "acme.absent.use-nothing" (skills/acme/broken/use-dangling/SKILL.md)',
+      'unresolvable requirement "absent-skill" (skills/broken-dangling/SKILL.md)',
     );
-    expect(result.stderr).toContain(
-      'acme.broken.use-dangling requires a skill named "acme.absent.use-nothing"',
-    );
+    expect(result.stderr).toContain('broken-dangling requires a skill named "absent-skill"');
   });
 
   it("names the MCP entity, not the prefixed requirement, for an `mcp.` target", async () => {
-    await writeSkill("acme/broken/use-dangling-mcp", ["scopes: [core]", "requires: [mcp.absent]"]);
+    await writeSkill("broken-dangling-mcp", ["scopes: [core]", "requires: [mcp.absent]"]);
 
     const result = await cli("resolve");
 
@@ -518,57 +507,49 @@ describe("unresolvable requirements", () => {
 
 describe("requirement cycles", () => {
   it("exits 3 printing the whole path, not just the fact of a cycle", async () => {
-    await writeSkill("acme/cycle/use-a", ["scopes: [core]", "requires: [acme.cycle.use-b]"]);
-    await writeSkill("acme/cycle/use-b", ["requires: [acme.cycle.use-c]"]);
-    await writeSkill("acme/cycle/use-c", ["requires: [acme.cycle.use-a]"]);
+    await writeSkill("cycle-a", ["scopes: [core]", "requires: [cycle-b]"]);
+    await writeSkill("cycle-b", ["requires: [cycle-c]"]);
+    await writeSkill("cycle-c", ["requires: [cycle-a]"]);
 
     const result = await cli("resolve");
 
     expect(result.code).toBe(ExitCode.Resolution);
     expect(result.stderr).toContain("requirement cycle");
-    expect(result.stderr).toContain(
-      "acme.cycle.use-a → acme.cycle.use-b → acme.cycle.use-c → acme.cycle.use-a",
-    );
-    expect(result.stderr).toContain("skills/acme/cycle/use-a/SKILL.md");
+    expect(result.stderr).toContain("cycle-a → cycle-b → cycle-c → cycle-a");
+    expect(result.stderr).toContain("skills/cycle-a/SKILL.md");
     expect(result.stderr).toContain("break the cycle by removing one `requires` edge");
   });
 
   it("reports a skill that requires itself as the one-step cycle it is", async () => {
-    await writeSkill("acme/cycle/use-self", ["scopes: [core]", "requires: [acme.cycle.use-self]"]);
+    await writeSkill("cycle-self", ["scopes: [core]", "requires: [cycle-self]"]);
 
     const result = await cli("resolve");
 
     expect(result.code).toBe(ExitCode.Resolution);
-    expect(result.stderr).toContain("acme.cycle.use-self → acme.cycle.use-self");
+    expect(result.stderr).toContain("cycle-self → cycle-self");
   });
 
   it("reports a cycle reached only through a requirement, not just one held directly", async () => {
-    await writeSkill("acme/cycle/use-entry", ["scopes: [core]", "requires: [acme.cycle.use-b]"]);
-    await writeSkill("acme/cycle/use-b", ["requires: [acme.cycle.use-c]"]);
-    await writeSkill("acme/cycle/use-c", ["requires: [acme.cycle.use-b]"]);
+    await writeSkill("cycle-entry", ["scopes: [core]", "requires: [cycle-b]"]);
+    await writeSkill("cycle-b", ["requires: [cycle-c]"]);
+    await writeSkill("cycle-c", ["requires: [cycle-b]"]);
 
     const result = await cli("resolve");
 
     expect(result.code).toBe(ExitCode.Resolution);
-    expect(result.stderr).toContain("acme.cycle.use-b → acme.cycle.use-c → acme.cycle.use-b");
+    expect(result.stderr).toContain("cycle-b → cycle-c → cycle-b");
   });
 
   it("names the same cycle whatever order a `requires` list is written in", async () => {
-    await writeSkill("acme/cycle/use-a", [
-      "scopes: [core]",
-      "requires: [acme.cycle.use-b, acme.cycle.use-c]",
-    ]);
-    await writeSkill("acme/cycle/use-b", ["requires: [acme.cycle.use-a]"]);
-    await writeSkill("acme/cycle/use-c", ["requires: [acme.cycle.use-a]"]);
+    await writeSkill("cycle-a", ["scopes: [core]", "requires: [cycle-b, cycle-c]"]);
+    await writeSkill("cycle-b", ["requires: [cycle-a]"]);
+    await writeSkill("cycle-c", ["requires: [cycle-a]"]);
     const first = await cli("resolve");
 
-    await writeSkill("acme/cycle/use-a", [
-      "scopes: [core]",
-      "requires: [acme.cycle.use-c, acme.cycle.use-b]",
-    ]);
+    await writeSkill("cycle-a", ["scopes: [core]", "requires: [cycle-c, cycle-b]"]);
     const second = await cli("resolve");
 
-    expect(first.stderr).toContain("acme.cycle.use-a → acme.cycle.use-b → acme.cycle.use-a");
+    expect(first.stderr).toContain("cycle-a → cycle-b → cycle-a");
     expect(second.stderr).toBe(first.stderr);
   });
 });
@@ -598,7 +579,7 @@ describe("explicit skills and inline servers", () => {
   it("closes an explicitly named skill over its own `requires`", async () => {
     const explicit = await bundle([], ["skills:", `  - ${PROJECT_SKILL}`]);
 
-    expect(explicit.skills.map((skill) => skill.name)).toEqual([CORE_SKILL, PROJECT_SKILL]);
+    expect(explicit.skills.map((skill) => skill.name)).toEqual([PROJECT_SKILL, CORE_SKILL]);
     expect(explicit.mcps.map((mcp) => mcp.name)).toEqual(["fixture"]);
     expect(explicit.env).toEqual(["FIXTURE_API_KEY"]);
   });
@@ -606,7 +587,7 @@ describe("explicit skills and inline servers", () => {
   it("selects a skill once when a held scope also reaches it", async () => {
     const both = await bundle(["function.engineering"], ["skills:", `  - ${ENGINEERING_SKILL}`]);
 
-    expect(both.skills.map((skill) => skill.name)).toEqual([FRONTEND_SKILL, ENGINEERING_SKILL]);
+    expect(both.skills.map((skill) => skill.name)).toEqual([ENGINEERING_SKILL, FRONTEND_SKILL]);
   });
 
   it("loads a skill from its own source, by the name→path convention", async () => {
@@ -670,7 +651,7 @@ describe("explicit skills and inline servers", () => {
   it("lets a catalog skill's `requires` reach an inline server", async () => {
     // The point of folding config's declarations into the merged catalog: one namespace, so a
     // requirement does not care which surface defined its target.
-    await writeSkill("acme/inline/use-inline", ["scopes: [core]", "requires: [mcp.custom]"]);
+    await writeSkill("inline", ["scopes: [core]", "requires: [mcp.custom]"]);
 
     const explicit = await bundle(
       ["core"],
@@ -687,13 +668,13 @@ describe("explicit skills and inline servers", () => {
   });
 
   it("exits 3 for a bare name no catalog provides, naming it and its line", async () => {
-    await writeProfile([], ["skills:", "  - acme.absent.use-nothing"]);
+    await writeProfile([], ["skills:", "  - absent-skill"]);
 
     const result = await cli("resolve");
 
     expect(result.code).toBe(ExitCode.Resolution);
     expect(result.stderr).toContain(
-      `unknown skill "acme.absent.use-nothing" (ambit.yml line ${FIRST_EXTRA_LINE + 1})`,
+      `unknown skill "absent-skill" (ambit.yml line ${FIRST_EXTRA_LINE + 1})`,
     );
     expect(result.stderr).toContain("no catalog provides a skill with that name");
     expect(result.stderr).toContain("give the entry its own `source`");
@@ -711,7 +692,7 @@ describe("explicit skills and inline servers", () => {
   });
 
   it("exits 3 rather than letting a source shadow a catalog skill of the same name", async () => {
-    await writeSourceSkill("skills/acme/commons/use-company-context", CORE_SKILL);
+    await writeSourceSkill("skills/company-context", CORE_SKILL);
     await writeProfile([], ["skills:", `  - name: ${CORE_SKILL}`, `    source: ${SOURCE}`]);
 
     const result = await cli("resolve");
@@ -829,12 +810,12 @@ describe("selection reasons", () => {
   });
 
   it("names the first requirer by name, not the first the closure happened to walk", async () => {
-    await writeSkill("acme/twice/use-left", ["scopes: [core]", "requires: [mcp.fixture]"]);
-    await writeSkill("acme/twice/use-right", ["scopes: [core]", "requires: [mcp.fixture]"]);
+    await writeSkill("twice-left", ["scopes: [core]", "requires: [mcp.fixture]"]);
+    await writeSkill("twice-right", ["scopes: [core]", "requires: [mcp.fixture]"]);
 
     expect((await bundle(["core"])).reasons.mcps.get("fixture")).toEqual({
       kind: "required-by",
-      requirer: "acme.twice.use-left",
+      requirer: "twice-left",
     });
   });
 
@@ -883,9 +864,9 @@ describe("ambit resolve --explain", () => {
         "  function.engineering",
         "",
         "skills (3)",
-        `  ${CORE_SKILL.padEnd(FRONTEND_SKILL.length)}  ${CATALOG_NAME}  scope:core`,
-        `  ${FRONTEND_SKILL}  ${CATALOG_NAME}  scope:function.engineering.frontend`,
-        `  ${ENGINEERING_SKILL.padEnd(FRONTEND_SKILL.length)}  ${CATALOG_NAME}  scope:function.engineering`,
+        `  ${ENGINEERING_SKILL.padEnd(CORE_SKILL.length)}  ${CATALOG_NAME}  scope:function.engineering`,
+        `  ${CORE_SKILL}  ${CATALOG_NAME}  scope:core`,
+        `  ${FRONTEND_SKILL.padEnd(CORE_SKILL.length)}  ${CATALOG_NAME}  scope:function.engineering.frontend`,
         "",
         "mcps (1)",
         `  scoped  ${CATALOG_NAME}  scope:function.engineering`,
@@ -1034,10 +1015,10 @@ describe("ambit why", () => {
   });
 
   it("exits 3 for a name nothing provides, and says where to look", async () => {
-    const result = await cli("why", "acme.absent.use-nothing");
+    const result = await cli("why", "absent-skill");
 
     expect(result.code).toBe(ExitCode.Resolution);
-    expect(result.stderr).toContain('unknown skill or MCP server "acme.absent.use-nothing"');
+    expect(result.stderr).toContain('unknown skill or MCP server "absent-skill"');
     expect(result.stderr).toContain("run `ambit catalog` to see what is available");
   });
 });
@@ -1120,9 +1101,9 @@ describe("ambit resolve", () => {
         "",
         // The catalog column is padded out to the widest name, so it lines up down the section.
         "skills (3)",
-        `  ${CORE_SKILL.padEnd(FRONTEND_SKILL.length)}  ${CATALOG_NAME}`,
-        `  ${FRONTEND_SKILL}  ${CATALOG_NAME}`,
-        `  ${ENGINEERING_SKILL.padEnd(FRONTEND_SKILL.length)}  ${CATALOG_NAME}`,
+        `  ${ENGINEERING_SKILL.padEnd(CORE_SKILL.length)}  ${CATALOG_NAME}`,
+        `  ${CORE_SKILL}  ${CATALOG_NAME}`,
+        `  ${FRONTEND_SKILL.padEnd(CORE_SKILL.length)}  ${CATALOG_NAME}`,
         "",
         "mcps (1)",
         `  scoped  ${CATALOG_NAME}`,

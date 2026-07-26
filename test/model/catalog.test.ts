@@ -19,15 +19,15 @@ import { HANDLERS, RULES, run } from "../../src/cli/program.js";
 import type { SourceContext } from "../../src/model/sources.js";
 
 const CATALOG_NAME = "company";
-const CODE_REVIEW = "skills/acme/engineering/use-code-review/SKILL.md";
+const CODE_REVIEW = "skills/code-review/SKILL.md";
 
 /** The fixture's core skill, and the scope it declares — the pair a second catalog collides with. */
-const CORE_SKILL = "acme.commons.use-company-context";
+const CORE_SKILL = "company-context";
 const CORE_DESCRIPTION = "The universal floor — context everyone needs";
 const ENGINEERING_DESCRIPTION = "Building and shipping software";
 
 /** A skill only the second catalog provides, so a merge has something to keep from both. */
-const OWN_SKILL = "jane.use-notes";
+const OWN_SKILL = "jane-notes";
 
 let root: string;
 let catalogDir: string;
@@ -226,35 +226,47 @@ describe("catalog parsing", () => {
       { name: "project.acme", description: "The Acme engagement" },
     ]);
     expect(catalog.skills.map((skill) => skill.name)).toEqual([
-      "acme.commons.use-company-context",
-      "acme.engineering.frontend.use-design-tokens",
-      "acme.engineering.use-code-review",
-      "acme.projects.use-acme-brief",
+      "acme-brief",
+      "code-review",
+      "company-context",
+      "design-tokens",
     ]);
     expect(catalog.mcps.map((mcp) => mcp.name)).toEqual(["fixture", "scoped"]);
   });
 
   it("derives each skill's name and path from its directory", async () => {
     const catalog = await parseCatalogDirectory(CATALOG_NAME, "path:../catalog", catalogDir);
-    const nested = catalog.skills.find(
-      (skill) => skill.name === "acme.engineering.frontend.use-design-tokens",
-    );
+    const frontend = catalog.skills.find((skill) => skill.name === "design-tokens");
 
-    expect(nested).toMatchObject({
-      path: "skills/acme/engineering/frontend/use-design-tokens",
+    expect(frontend).toMatchObject({
+      path: "skills/design-tokens",
       scopes: ["function.engineering.frontend"],
       requires: [],
       env: ["ACME_FIGMA_TOKEN"],
     });
-    expect(nested?.description).toBeTruthy();
+    expect(frontend?.description).toBeTruthy();
+  });
+
+  it("joins a nested skill's path segments with `.`, which is the only way a name carries one", async () => {
+    await writeCatalogFile(
+      "skills/personal/notes/SKILL.md",
+      "---\nname: personal.notes\ndescription: x\n---\n",
+    );
+
+    const catalog = await parseCatalogDirectory(CATALOG_NAME, "path:../catalog", catalogDir);
+
+    expect(catalog.skills.find((skill) => skill.name === "personal.notes")).toMatchObject({
+      path: "skills/personal/notes",
+    });
   });
 
   it("carries `requires` through, MCP prefixes included", async () => {
     const catalog = await parseCatalogDirectory(CATALOG_NAME, "path:../catalog", catalogDir);
 
-    expect(
-      catalog.skills.find((skill) => skill.name === "acme.projects.use-acme-brief")?.requires,
-    ).toEqual(["acme.commons.use-company-context", "mcp.fixture"]);
+    expect(catalog.skills.find((skill) => skill.name === "acme-brief")?.requires).toEqual([
+      "company-context",
+      "mcp.fixture",
+    ]);
   });
 
   it("parses both transport kinds", async () => {
@@ -277,7 +289,7 @@ describe("catalog parsing", () => {
     await writeCatalogFile(
       CODE_REVIEW,
       `---
-name: acme.engineering.use-code-review
+name: code-review
 description: x
 allowed-tools: [Read, Grep]
 ambit:
@@ -287,7 +299,7 @@ ambit:
     );
 
     const catalog = await parseCatalogDirectory(CATALOG_NAME, "path:../catalog", catalogDir);
-    expect(catalog.skills.map((skill) => skill.name)).toContain("acme.engineering.use-code-review");
+    expect(catalog.skills.map((skill) => skill.name)).toContain("code-review");
   });
 
   it("parses identically whatever order the filesystem reports", async () => {
@@ -308,26 +320,24 @@ describe("catalog parsing failures", () => {
     await writeCatalogFile(
       CODE_REVIEW,
       `---
-name: acme.engineering.wrong
+name: wrong-name
 description: x
 ---
 `,
     );
 
     const error = await rejection();
-    expect(error.message).toContain('skill name "acme.engineering.wrong" does not match its path');
+    expect(error.message).toContain('skill name "wrong-name" does not match its path');
     // The line is the one the reader will find `name` on in the whole document, not in the block.
     expect(error.message).toContain(`${CODE_REVIEW} line 2`);
-    expect(error.detail.join("\n")).toContain(
-      'derives the name "acme.engineering.use-code-review"',
-    );
+    expect(error.detail.join("\n")).toContain('derives the name "code-review"');
   });
 
   it("rejects a key under `ambit:` that §3.2 does not define, since that block is ambit's", async () => {
     await writeCatalogFile(
       CODE_REVIEW,
       `---
-name: acme.engineering.use-code-review
+name: code-review
 description: x
 ambit:
   scope: [function.engineering]
@@ -344,7 +354,7 @@ ambit:
     await writeCatalogFile(
       CODE_REVIEW,
       `---
-name: acme.engineering.use-code-review
+name: code-review
 description: x
 ambit: [function.engineering]
 ---
@@ -358,7 +368,7 @@ ambit: [function.engineering]
     await writeCatalogFile(
       CODE_REVIEW,
       `---
-name: acme.engineering.use-code-review
+name: code-review
 description: x
 description: y
 ---
@@ -480,36 +490,36 @@ describe("ambit dump-catalog", () => {
         "project.acme": { description: "The Acme engagement" },
       },
       skills: {
-        "acme.commons.use-company-context": {
+        "company-context": {
           catalog: CATALOG_NAME,
           description: "Canonical context about Acme — what it sells, to whom, and how it works.",
           env: [],
-          path: "skills/acme/commons/use-company-context",
+          path: "skills/company-context",
           requires: [],
           scopes: ["core"],
         },
-        "acme.engineering.frontend.use-design-tokens": {
+        "design-tokens": {
           catalog: CATALOG_NAME,
           description: "Acme's design tokens — color, spacing, and the type scale.",
           env: ["ACME_FIGMA_TOKEN"],
-          path: "skills/acme/engineering/frontend/use-design-tokens",
+          path: "skills/design-tokens",
           requires: [],
           scopes: ["function.engineering.frontend"],
         },
-        "acme.engineering.use-code-review": {
+        "code-review": {
           catalog: CATALOG_NAME,
           description: "How Acme reviews code — what reviewers look for, and in what order.",
           env: [],
-          path: "skills/acme/engineering/use-code-review",
+          path: "skills/code-review",
           requires: [],
           scopes: ["function.engineering"],
         },
-        "acme.projects.use-acme-brief": {
+        "acme-brief": {
           catalog: CATALOG_NAME,
           description: "The Acme engagement brief — scope, contacts, and conventions.",
           env: [],
-          path: "skills/acme/projects/use-acme-brief",
-          requires: ["acme.commons.use-company-context", "mcp.fixture"],
+          path: "skills/acme-brief",
+          requires: ["company-context", "mcp.fixture"],
           scopes: ["project.acme"],
         },
       },
@@ -555,7 +565,7 @@ describe("ambit dump-catalog", () => {
     expect(result.code).toBe(ExitCode.Success);
     expect(result.stdout).toContain(`${CATALOG_NAME}  path:../catalog`);
     expect(result.stdout).toContain("core                           The universal floor");
-    expect(result.stdout).toContain("acme.projects.use-acme-brief");
+    expect(result.stdout).toContain("acme-brief");
     expect(result.stdout).toContain("stdio: npx -y @acme/fixture-mcp");
     expect(result.stdout).toContain("http: https://mcp.invalid/fixture");
   });
@@ -569,7 +579,7 @@ describe("ambit dump-catalog", () => {
   });
 
   it("exits 2 on a skill name that disagrees with its path", async () => {
-    await writeCatalogFile(CODE_REVIEW, "---\nname: acme.engineering.wrong\n---\n");
+    await writeCatalogFile(CODE_REVIEW, "---\nname: wrong-name\n---\n");
 
     const result = await cli("dump-catalog", "--json");
     expect(result.code).toBe(ExitCode.Config);

@@ -111,7 +111,7 @@ async function withReadOrder<T>(order: ReadOrder, body: () => Promise<T>): Promi
 
 const CATALOG_NAME = "company";
 
-const CORE_SKILL = "acme.commons.use-company-context";
+const CORE_SKILL = "company-context";
 
 /**
  * Enough held scopes to select every skill and server the fixture holds, so each surface has as much
@@ -423,15 +423,17 @@ describe("a report of problems is in the same order whatever order directories a
   });
 
   it("lists two skills whose names disagree with their paths in one order", async () => {
-    await writeMismatchedSkill("acme/broken/use-alpha", "acme.broken.wrong-alpha");
-    await writeMismatchedSkill("acme/broken/use-omega", "acme.broken.wrong-omega");
+    await writeMismatchedSkill("broken-alpha", "wrong-alpha");
+    await writeMismatchedSkill("broken-omega", "wrong-omega");
 
     const baseline = await validateBroken("natural");
 
     expect(baseline.code).toBe(ExitCode.Resolution);
     expect(baseline.stdout).toContain("problems (2)");
     // The report is in the order the walk found them, so the sort has to be in the walk.
-    expect(baseline.stdout.indexOf("use-alpha")).toBeLessThan(baseline.stdout.indexOf("use-omega"));
+    expect(baseline.stdout.indexOf("broken-alpha")).toBeLessThan(
+      baseline.stdout.indexOf("broken-omega"),
+    );
     await expectStable(baseline);
   });
 

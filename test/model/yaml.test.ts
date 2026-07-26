@@ -260,9 +260,9 @@ describe("YAML loader", () => {
     });
 
     it("reads a list of strings or mappings, positioning the bare names", () => {
-      const entries = load("skills:\n  - acme.one\n  - name: two\n").optionalEntryList("skills");
+      const entries = load("skills:\n  - house-style\n  - name: two\n").optionalEntryList("skills");
 
-      expect(entries?.[0]).toEqual({ value: "acme.one", line: 2 });
+      expect(entries?.[0]).toEqual({ value: "house-style", line: 2 });
       expect(entries?.[1]).toBeInstanceOf(YamlMapping);
     });
 
@@ -310,25 +310,17 @@ describe("YAML loader", () => {
 
     it("parses the block under the same rules as a file", () => {
       const root = frontmatter(
-        [
-          "---",
-          "name: acme.sales.use-close",
-          "scopes: [function.sales]",
-          "---",
-          "",
-          "# Close",
-          "",
-        ].join("\n"),
+        ["---", "name: close-crm", "scopes: [function.sales]", "---", "", "# Close", ""].join("\n"),
       );
 
       expect(root.keys()).toEqual(["name", "scopes"]);
-      expect(root.requireString("name")).toBe("acme.sales.use-close");
+      expect(root.requireString("name")).toBe("close-crm");
       expect(root.optionalStringList("scopes")).toEqual(["function.sales"]);
     });
 
     it("reports lines of the document, not of the block", () => {
       // The reader is told a line number to go to, so it has to be the document's own.
-      const text = ["---", "name: acme.a", "ref: 1e5", "---", "body", ""].join("\n");
+      const text = ["---", "name: alpha", "ref: 1e5", "---", "body", ""].join("\n");
 
       expect(rejection(() => frontmatter(text).requireString("ref")).format()).toContain(
         `(${DOC} line 3)`,
@@ -378,7 +370,7 @@ describe("YAML loader", () => {
       const dir = await mkdtemp(path.join(tmpdir(), "ambit-frontmatter-"));
       try {
         const target = path.join(dir, "SKILL.md");
-        await writeFile(target, "---\nname: acme.a\n---\n", "utf8");
+        await writeFile(target, "---\nname: alpha\n---\n", "utf8");
 
         expect((await readFrontmatterMapping(target, DOC)).file).toBe(DOC);
       } finally {
@@ -476,7 +468,7 @@ describe("YAML emitter", () => {
   });
 
   it("is byte-stable across calls", () => {
-    const document = { skills: { "acme.b": { path: "b" }, "acme.a": { path: "a" } }, version: 1 };
+    const document = { skills: { beta: { path: "b" }, alpha: { path: "a" } }, version: 1 };
 
     expect(emitYaml(document)).toBe(emitYaml(document));
   });

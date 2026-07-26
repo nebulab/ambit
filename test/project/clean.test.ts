@@ -35,9 +35,9 @@ const SKILLS_DIR = ".agents/skills";
 const CLAUDE_LINK = ".claude/skills";
 const MCP_FILE = ".mcp.json";
 
-const CORE_SKILL = "acme.commons.use-company-context";
-const ENGINEERING_SKILL = "acme.engineering.use-code-review";
-const FRONTEND_SKILL = "acme.engineering.frontend.use-design-tokens";
+const CORE_SKILL = "company-context";
+const ENGINEERING_SKILL = "code-review";
+const FRONTEND_SKILL = "design-tokens";
 
 /** The fixture's scope-matched http server. */
 const SCOPED_MCP = "scoped";
@@ -216,10 +216,7 @@ describe("ambit prune", () => {
 
     expect(await installedSkills()).toEqual([CORE_SKILL]);
     expect(await readFile(path.join(projectDir, SKILLS_DIR, CORE_SKILL, "SKILL.md"), "utf8")).toBe(
-      await readFile(
-        path.join(catalogDir, "skills/acme/commons/use-company-context/SKILL.md"),
-        "utf8",
-      ),
+      await readFile(path.join(catalogDir, "skills/company-context/SKILL.md"), "utf8"),
     );
   });
 
@@ -324,7 +321,7 @@ describe("ambit prune", () => {
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     expect(await snapshot()).toEqual(before);
-    expect(await installedSkills()).toEqual([CORE_SKILL, FRONTEND_SKILL, ENGINEERING_SKILL].sort());
+    expect(await installedSkills()).toEqual([ENGINEERING_SKILL, CORE_SKILL, FRONTEND_SKILL].sort());
   });
 
   it("writes nothing at all in a project ambit never installed into", async () => {
@@ -359,8 +356,8 @@ describe("ambit prune", () => {
     expect(result.stdout).toBe(
       [
         "pruned (3)",
-        `  ${`${SKILLS_DIR}/${FRONTEND_SKILL}`.padEnd(width)}  skill-dir       -`,
         `  ${`${SKILLS_DIR}/${ENGINEERING_SKILL}`.padEnd(width)}  skill-dir       -`,
+        `  ${`${SKILLS_DIR}/${FRONTEND_SKILL}`.padEnd(width)}  skill-dir       -`,
         `  ${MCP_FILE.padEnd(width)}  harness-config  mcpServers.${SCOPED_MCP}`,
       ].join("\n"),
     );
@@ -374,8 +371,8 @@ describe("ambit prune", () => {
 
     expect(JSON.parse(result.stdout)).toEqual({
       pruned: [
-        { kind: "skill-dir", path: `${SKILLS_DIR}/${FRONTEND_SKILL}` },
         { kind: "skill-dir", path: `${SKILLS_DIR}/${ENGINEERING_SKILL}` },
+        { kind: "skill-dir", path: `${SKILLS_DIR}/${FRONTEND_SKILL}` },
         { kind: "harness-config", managedKeys: [`mcpServers.${SCOPED_MCP}`], path: MCP_FILE },
       ],
       // The link is not pruned: a narrowed profile still holds skills, so it still points at them.
@@ -396,8 +393,8 @@ describe("ambit prune", () => {
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     expect(JSON.parse(result.stdout).pruned).toEqual([
-      { kind: "skill-dir", path: `${SKILLS_DIR}/${FRONTEND_SKILL}` },
       { kind: "skill-dir", path: `${SKILLS_DIR}/${ENGINEERING_SKILL}` },
+      { kind: "skill-dir", path: `${SKILLS_DIR}/${FRONTEND_SKILL}` },
       { kind: "harness-config", managedKeys: [`mcpServers.${SCOPED_MCP}`], path: MCP_FILE },
     ]);
     expect(await snapshot()).toEqual(before);
@@ -501,13 +498,13 @@ describe("ambit clean", () => {
   it("lists what it removed, artifacts and records apart", async () => {
     const result = await cli("clean");
 
-    const width = `${SKILLS_DIR}/${FRONTEND_SKILL}`.length;
+    const width = `${SKILLS_DIR}/${CORE_SKILL}`.length;
     expect(result.stdout).toBe(
       [
         "removed (5)",
+        `  ${`${SKILLS_DIR}/${ENGINEERING_SKILL}`.padEnd(width)}  skill-dir       -`,
         `  ${`${SKILLS_DIR}/${CORE_SKILL}`.padEnd(width)}  skill-dir       -`,
         `  ${`${SKILLS_DIR}/${FRONTEND_SKILL}`.padEnd(width)}  skill-dir       -`,
-        `  ${`${SKILLS_DIR}/${ENGINEERING_SKILL}`.padEnd(width)}  skill-dir       -`,
         `  ${CLAUDE_LINK.padEnd(width)}  skills-link     -`,
         `  ${MCP_FILE.padEnd(width)}  harness-config  mcpServers.${SCOPED_MCP}`,
         "",
@@ -525,9 +522,9 @@ describe("ambit clean", () => {
     expect(JSON.parse(result.stdout)).toEqual({
       gitignoreRemoved: [GITIGNORE_FILENAME, SHARED_GITIGNORE_FILE],
       removed: [
+        { kind: "skill-dir", path: `${SKILLS_DIR}/${ENGINEERING_SKILL}` },
         { kind: "skill-dir", path: `${SKILLS_DIR}/${CORE_SKILL}` },
         { kind: "skill-dir", path: `${SKILLS_DIR}/${FRONTEND_SKILL}` },
-        { kind: "skill-dir", path: `${SKILLS_DIR}/${ENGINEERING_SKILL}` },
         { kind: "skills-link", path: CLAUDE_LINK },
         { kind: "harness-config", managedKeys: [`mcpServers.${SCOPED_MCP}`], path: MCP_FILE },
       ],
@@ -545,16 +542,16 @@ describe("ambit clean", () => {
     expect(JSON.parse(result.stdout)).toEqual({
       gitignoreRemoved: [GITIGNORE_FILENAME, SHARED_GITIGNORE_FILE],
       removed: [
+        { kind: "skill-dir", path: `${SKILLS_DIR}/${ENGINEERING_SKILL}` },
         { kind: "skill-dir", path: `${SKILLS_DIR}/${CORE_SKILL}` },
         { kind: "skill-dir", path: `${SKILLS_DIR}/${FRONTEND_SKILL}` },
-        { kind: "skill-dir", path: `${SKILLS_DIR}/${ENGINEERING_SKILL}` },
         { kind: "skills-link", path: CLAUDE_LINK },
         { kind: "harness-config", managedKeys: [`mcpServers.${SCOPED_MCP}`], path: MCP_FILE },
       ],
       stateRemoved: true,
     });
     expect(await snapshot()).toEqual(before);
-    expect(await installedSkills()).toEqual([CORE_SKILL, FRONTEND_SKILL, ENGINEERING_SKILL].sort());
+    expect(await installedSkills()).toEqual([ENGINEERING_SKILL, CORE_SKILL, FRONTEND_SKILL].sort());
   });
 
   it("unlinks a linked skill without following it into the catalog", async () => {
@@ -562,10 +559,7 @@ describe("ambit clean", () => {
 
     expect(await installedSkills()).toEqual([]);
     expect(
-      await readFile(
-        path.join(catalogDir, "skills/acme/commons/use-company-context/SKILL.md"),
-        "utf8",
-      ),
+      await readFile(path.join(catalogDir, "skills/company-context/SKILL.md"), "utf8"),
     ).toContain(CORE_SKILL);
   });
 
@@ -575,6 +569,6 @@ describe("ambit clean", () => {
     const result = await cli("install");
 
     expect(result.code, result.stderr).toBe(ExitCode.Success);
-    expect(await installedSkills()).toEqual([CORE_SKILL, FRONTEND_SKILL, ENGINEERING_SKILL].sort());
+    expect(await installedSkills()).toEqual([ENGINEERING_SKILL, CORE_SKILL, FRONTEND_SKILL].sort());
   });
 });

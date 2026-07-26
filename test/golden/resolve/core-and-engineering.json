@@ -13,17 +13,17 @@
     "function.engineering"
   ],
   "skills": {
-    "acme.commons.use-company-context": {
+    "code-review": {
       "catalog": "company",
-      "path": "skills/acme/commons/use-company-context"
+      "path": "skills/code-review"
     },
-    "acme.engineering.frontend.use-design-tokens": {
+    "company-context": {
       "catalog": "company",
-      "path": "skills/acme/engineering/frontend/use-design-tokens"
+      "path": "skills/company-context"
     },
-    "acme.engineering.use-code-review": {
+    "design-tokens": {
       "catalog": "company",
-      "path": "skills/acme/engineering/use-code-review"
+      "path": "skills/design-tokens"
     }
   }
 }

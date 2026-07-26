@@ -35,10 +35,10 @@ import { parseState, STATE_DIRNAME, STATE_FILENAME } from "../../src/model/state
 const SKILLS_DIR = SHARED_SKILLS_DIR;
 const CLAUDE_LINK = ".claude/skills";
 
-const CORE_SKILL = "acme.commons.use-company-context";
-const ENGINEERING_SKILL = "acme.engineering.use-code-review";
-const FRONTEND_SKILL = "acme.engineering.frontend.use-design-tokens";
-const ALL_SKILLS = [CORE_SKILL, FRONTEND_SKILL, ENGINEERING_SKILL];
+const CORE_SKILL = "company-context";
+const ENGINEERING_SKILL = "code-review";
+const FRONTEND_SKILL = "design-tokens";
+const ALL_SKILLS = [ENGINEERING_SKILL, CORE_SKILL, FRONTEND_SKILL];
 
 /** The fixture's scope-matched http server, and the variable its `Authorization` header names. */
 const SCOPED_MCP = "scoped";
@@ -123,9 +123,9 @@ describe("two harnesses of the same family", () => {
 
     expect(result.harnesses).toEqual(["claude", "cursor"]);
     expect(result.artifacts.map((artifact) => artifact.path)).toEqual([
+      `${SKILLS_DIR}/${ENGINEERING_SKILL}`,
       `${SKILLS_DIR}/${CORE_SKILL}`,
       `${SKILLS_DIR}/${FRONTEND_SKILL}`,
-      `${SKILLS_DIR}/${ENGINEERING_SKILL}`,
       CLAUDE_LINK,
       ".mcp.json",
       ".cursor/mcp.json",
@@ -494,7 +494,7 @@ describe("migrating an old-layout .claude/skills", () => {
       expect(result.code).toBe(ExitCode.Config);
       expect(result.stderr).toContain("refusing to write under an unowned path");
       expect(result.stderr).toContain(
-        `.agents is not a directory ambit can write into, so ${SKILLS_DIR}/${CORE_SKILL} cannot be created`,
+        `.agents is not a directory ambit can write into, so ${SKILLS_DIR}/${ENGINEERING_SKILL} cannot be created`,
       );
       expect(result.stderr).toContain("move .agents aside, or point it at a directory that exists");
       // Never the internal-error wording, and `--adopt` is not offered, because it would not help.

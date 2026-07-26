@@ -226,16 +226,16 @@ describe("ambit validate", () => {
 
 describe("ambit validate: unregistered scopes", () => {
   it("reports a scope a skill declares that no registry knows, and suggests the near one", async () => {
-    await writeSkill("acme/typo/use-thing", ["scopes: [function.enginering]"]);
+    await writeSkill("typo-thing", ["scopes: [function.enginering]"]);
 
     const result = await cli("validate");
 
     expect(result.code).toBe(ExitCode.Resolution);
     expect(result.stdout).toContain(
-      'unregistered scope "function.enginering" (skills/acme/typo/use-thing/SKILL.md)',
+      'unregistered scope "function.enginering" (skills/typo-thing/SKILL.md)',
     );
     expect(result.stdout).toContain(
-      'skill "acme.typo.use-thing" declares it, but no catalog\'s scopes.yml registers it',
+      'skill "typo-thing" declares it, but no catalog\'s scopes.yml registers it',
     );
     expect(result.stdout).toContain('did you mean "function.engineering"?');
   });
@@ -295,7 +295,7 @@ describe("ambit validate: unregistered scopes", () => {
   });
 
   it("says how to register a scope nothing resembles rather than guessing", async () => {
-    await writeSkill("acme/typo/use-thing", ["scopes: [marmalade]"]);
+    await writeSkill("typo-thing", ["scopes: [marmalade]"]);
 
     const result = await cli("validate");
 
@@ -306,15 +306,15 @@ describe("ambit validate: unregistered scopes", () => {
   });
 
   it("lists every offending scope, not the first", async () => {
-    await writeSkill("acme/typo/use-one", ["scopes: [alpha.unknown, zeta.unknown]"]);
-    await writeSkill("acme/typo/use-two", ["scopes: [middle.unknown]"]);
+    await writeSkill("typo-one", ["scopes: [alpha.unknown, zeta.unknown]"]);
+    await writeSkill("typo-two", ["scopes: [middle.unknown]"]);
 
     const found = await report("validate");
 
     expect(found.problems.map((problem) => problem.message)).toEqual([
-      'unregistered scope "alpha.unknown" (skills/acme/typo/use-one/SKILL.md)',
-      'unregistered scope "zeta.unknown" (skills/acme/typo/use-one/SKILL.md)',
-      'unregistered scope "middle.unknown" (skills/acme/typo/use-two/SKILL.md)',
+      'unregistered scope "alpha.unknown" (skills/typo-one/SKILL.md)',
+      'unregistered scope "zeta.unknown" (skills/typo-one/SKILL.md)',
+      'unregistered scope "middle.unknown" (skills/typo-two/SKILL.md)',
     ]);
   });
 });
@@ -326,7 +326,7 @@ describe("ambit validate: unregistered scopes", () => {
  */
 describe("ambit validate: requirements and cycles", () => {
   it("reports a dangling requirement `resolve` deliberately ignores", async () => {
-    await writeSkill("acme/broken/use-unselected", ["requires: [acme.absent.use-nothing]"]);
+    await writeSkill("broken-unselected", ["requires: [absent-skill]"]);
 
     const resolved = await cli("resolve");
     const validated = await cli("validate");
@@ -334,15 +334,13 @@ describe("ambit validate: requirements and cycles", () => {
     expect(resolved.code, resolved.stderr).toBe(ExitCode.Success);
     expect(validated.code).toBe(ExitCode.Resolution);
     expect(validated.stdout).toContain(
-      'unresolvable requirement "acme.absent.use-nothing" (skills/acme/broken/use-unselected/SKILL.md)',
+      'unresolvable requirement "absent-skill" (skills/broken-unselected/SKILL.md)',
     );
-    expect(validated.stdout).toContain(
-      'acme.broken.use-unselected requires a skill named "acme.absent.use-nothing"',
-    );
+    expect(validated.stdout).toContain('broken-unselected requires a skill named "absent-skill"');
   });
 
   it("reports a missing MCP entity by its bare name", async () => {
-    await writeSkill("acme/broken/use-unselected", ["requires: [mcp.absent]"]);
+    await writeSkill("broken-unselected", ["requires: [mcp.absent]"]);
 
     const found = await report("validate");
 
@@ -352,9 +350,9 @@ describe("ambit validate: requirements and cycles", () => {
   });
 
   it("reports a cycle among skills no scope selects, printing the whole path", async () => {
-    await writeSkill("acme/cycle/use-a", ["requires: [acme.cycle.use-b]"]);
-    await writeSkill("acme/cycle/use-b", ["requires: [acme.cycle.use-c]"]);
-    await writeSkill("acme/cycle/use-c", ["requires: [acme.cycle.use-a]"]);
+    await writeSkill("cycle-a", ["requires: [cycle-b]"]);
+    await writeSkill("cycle-b", ["requires: [cycle-c]"]);
+    await writeSkill("cycle-c", ["requires: [cycle-a]"]);
 
     const resolved = await cli("resolve");
     const validated = await cli("validate");
@@ -362,44 +360,40 @@ describe("ambit validate: requirements and cycles", () => {
     expect(resolved.code, resolved.stderr).toBe(ExitCode.Success);
     expect(validated.code).toBe(ExitCode.Resolution);
     expect(validated.stdout).toContain("requirement cycle");
-    expect(validated.stdout).toContain(
-      "acme.cycle.use-a → acme.cycle.use-b → acme.cycle.use-c → acme.cycle.use-a",
-    );
+    expect(validated.stdout).toContain("cycle-a → cycle-b → cycle-c → cycle-a");
     expect(validated.stdout).toContain("break the cycle by removing one `requires` edge");
   });
 
   it("reports two independent cycles as two problems", async () => {
-    await writeSkill("acme/one/use-a", ["requires: [acme.one.use-b]"]);
-    await writeSkill("acme/one/use-b", ["requires: [acme.one.use-a]"]);
-    await writeSkill("acme/two/use-a", ["requires: [acme.two.use-b]"]);
-    await writeSkill("acme/two/use-b", ["requires: [acme.two.use-a]"]);
+    await writeSkill("one-a", ["requires: [one-b]"]);
+    await writeSkill("one-b", ["requires: [one-a]"]);
+    await writeSkill("two-a", ["requires: [two-b]"]);
+    await writeSkill("two-b", ["requires: [two-a]"]);
 
     const found = await report("validate");
 
     expect(found.problems.map((problem) => problem.detail[0])).toEqual([
-      "acme.one.use-a → acme.one.use-b → acme.one.use-a",
-      "acme.two.use-a → acme.two.use-b → acme.two.use-a",
+      "one-a → one-b → one-a",
+      "two-a → two-b → two-a",
     ]);
   });
 
   it("reports one loop once, however many skills lead into it", async () => {
-    await writeSkill("acme/entry/use-left", ["requires: [acme.cycle.use-a]"]);
-    await writeSkill("acme/entry/use-right", ["requires: [acme.cycle.use-b]"]);
-    await writeSkill("acme/cycle/use-a", ["requires: [acme.cycle.use-b]"]);
-    await writeSkill("acme/cycle/use-b", ["requires: [acme.cycle.use-a]"]);
+    await writeSkill("entry-left", ["requires: [cycle-a]"]);
+    await writeSkill("entry-right", ["requires: [cycle-b]"]);
+    await writeSkill("cycle-a", ["requires: [cycle-b]"]);
+    await writeSkill("cycle-b", ["requires: [cycle-a]"]);
 
     const found = await report("validate");
 
     expect(found.problems).toHaveLength(1);
-    expect(found.problems[0]?.detail[0]).toBe(
-      "acme.cycle.use-a → acme.cycle.use-b → acme.cycle.use-a",
-    );
+    expect(found.problems[0]?.detail[0]).toBe("cycle-a → cycle-b → cycle-a");
   });
 
   it("reports a dangling requirement and a cycle from one run", async () => {
-    await writeSkill("acme/broken/use-dangling", ["requires: [acme.absent.use-nothing]"]);
-    await writeSkill("acme/cycle/use-a", ["requires: [acme.cycle.use-b]"]);
-    await writeSkill("acme/cycle/use-b", ["requires: [acme.cycle.use-a]"]);
+    await writeSkill("broken-dangling", ["requires: [absent-skill]"]);
+    await writeSkill("cycle-a", ["requires: [cycle-b]"]);
+    await writeSkill("cycle-b", ["requires: [cycle-a]"]);
 
     const found = await report("validate");
 
@@ -412,8 +406,8 @@ describe("ambit validate: requirements and cycles", () => {
 
 describe("ambit validate: name↔path agreement", () => {
   it("lists a mismatch as a problem instead of stopping the run at it", async () => {
-    await writeMisnamedSkill("acme/misnamed/use-thing", "acme.something.else");
-    await writeSkill("acme/broken/use-dangling", ["requires: [acme.absent.use-nothing]"]);
+    await writeMisnamedSkill("misnamed-thing", "wrong-name");
+    await writeSkill("broken-dangling", ["requires: [absent-skill]"]);
 
     const validated = await cli("validate");
     const found = await report("validate");
@@ -424,12 +418,10 @@ describe("ambit validate: name↔path agreement", () => {
       "name-mismatch",
       "unresolvable-requirement",
     ]);
-    expect(found.problems[0]?.message).toContain(
-      'skill name "acme.something.else" does not match its path',
-    );
+    expect(found.problems[0]?.message).toContain('skill name "wrong-name" does not match its path');
     expect(found.problems[0]?.detail).toEqual([
       `in catalog "${CATALOG_NAME}"`,
-      'skills/acme/misnamed/use-thing/SKILL.md derives the name "acme.misnamed.use-thing"',
+      'skills/misnamed-thing/SKILL.md derives the name "misnamed-thing"',
       "rename the directory, or correct `name` to match it",
     ]);
   });
@@ -437,8 +429,8 @@ describe("ambit validate: name↔path agreement", () => {
   it("goes on to check the misnamed skill under the name its path derives", async () => {
     // Continuing past the mismatch is only worth anything if the rest of the skill is still checked,
     // and the path is the name every other tool would have installed it under.
-    await writeMisnamedSkill("acme/misnamed/use-thing", "acme.something.else");
-    await writeSkill("acme/needs/use-it", ["requires: [acme.misnamed.use-thing]"]);
+    await writeMisnamedSkill("misnamed-thing", "wrong-name");
+    await writeSkill("needs-it", ["requires: [misnamed-thing]"]);
 
     const found = await report("validate");
 
@@ -446,7 +438,7 @@ describe("ambit validate: name↔path agreement", () => {
   });
 
   it("still exits 2 for a mismatch outside validation", async () => {
-    await writeMisnamedSkill("acme/misnamed/use-thing", "acme.something.else");
+    await writeMisnamedSkill("misnamed-thing", "wrong-name");
 
     const result = await cli("dump-catalog");
 
@@ -492,7 +484,7 @@ describe("ambit validate: shadowing", () => {
       new Set(["shadowed-name"]),
     );
     expect(found.problems[0]).toMatchObject({
-      message: `shadowed skill "acme.commons.use-company-context" (catalog "${CATALOG_NAME}")`,
+      message: `shadowed skill "acme-brief" (catalog "${CATALOG_NAME}")`,
       detail: [
         `catalog "${CATALOG_NAME}" provides the copy resolution uses`,
         `also provided by: ${SECOND}`,
@@ -505,10 +497,10 @@ describe("ambit validate: shadowing", () => {
     const found = await report("validate");
 
     expect(found.problems.map((problem) => problem.message)).toEqual([
-      `shadowed skill "acme.commons.use-company-context" (catalog "${CATALOG_NAME}")`,
-      `shadowed skill "acme.engineering.frontend.use-design-tokens" (catalog "${CATALOG_NAME}")`,
-      `shadowed skill "acme.engineering.use-code-review" (catalog "${CATALOG_NAME}")`,
-      `shadowed skill "acme.projects.use-acme-brief" (catalog "${CATALOG_NAME}")`,
+      `shadowed skill "acme-brief" (catalog "${CATALOG_NAME}")`,
+      `shadowed skill "code-review" (catalog "${CATALOG_NAME}")`,
+      `shadowed skill "company-context" (catalog "${CATALOG_NAME}")`,
+      `shadowed skill "design-tokens" (catalog "${CATALOG_NAME}")`,
       `shadowed MCP server "fixture" (catalog "${CATALOG_NAME}")`,
       `shadowed MCP server "scoped" (catalog "${CATALOG_NAME}")`,
     ]);
@@ -527,10 +519,7 @@ describe("ambit validate: shadowing", () => {
  */
 describe("ambit validate: the project's own config", () => {
   it("lists every mistyped held scope and every unknown explicit skill in one run", async () => {
-    await writeProfile(
-      ["core", "zeta.unknown", "alpha.unknown"],
-      ["skills:", "  - acme.absent.use-nothing"],
-    );
+    await writeProfile(["core", "zeta.unknown", "alpha.unknown"], ["skills:", "  - absent-skill"]);
 
     const resolved = await cli("resolve");
     const found = await report("validate");
@@ -543,7 +532,7 @@ describe("ambit validate: the project's own config", () => {
     expect(found.problems.map((problem) => problem.message)).toEqual([
       `unknown scope "alpha.unknown" (ambit.yml line ${FIRST_SCOPE_LINE + 2})`,
       `unknown scope "zeta.unknown" (ambit.yml line ${FIRST_SCOPE_LINE + 1})`,
-      `unknown skill "acme.absent.use-nothing" (ambit.yml line ${FIRST_SCOPE_LINE + 4})`,
+      `unknown skill "absent-skill" (ambit.yml line ${FIRST_SCOPE_LINE + 4})`,
     ]);
     expect(found.problems.map((problem) => problem.kind)).toEqual([
       "unknown-scope",
@@ -583,7 +572,7 @@ describe("ambit validate: the project's own config", () => {
 
 describe("ambit validate output", () => {
   it("emits the problem list as JSON, with the verdict and what was checked", async () => {
-    await writeSkill("acme/typo/use-thing", ["scopes: [marmalade]"]);
+    await writeSkill("typo-thing", ["scopes: [marmalade]"]);
 
     const result = await cli("validate", "--json");
 
@@ -593,11 +582,11 @@ describe("ambit validate output", () => {
       problems: [
         {
           detail: [
-            'skill "acme.typo.use-thing" declares it, but no catalog\'s scopes.yml registers it',
+            'skill "typo-thing" declares it, but no catalog\'s scopes.yml registers it',
             "register it in a catalog's scopes.yml, or correct the spelling",
           ],
           kind: "unregistered-scope",
-          message: 'unregistered scope "marmalade" (skills/acme/typo/use-thing/SKILL.md)',
+          message: 'unregistered scope "marmalade" (skills/typo-thing/SKILL.md)',
         },
       ],
       valid: false,
@@ -613,7 +602,7 @@ describe("ambit validate output", () => {
   });
 
   it("prints each problem's detail indented under its summary", async () => {
-    await writeSkill("acme/typo/use-thing", ["scopes: [marmalade]"]);
+    await writeSkill("typo-thing", ["scopes: [marmalade]"]);
 
     const result = await cli("validate");
 
@@ -622,15 +611,15 @@ describe("ambit validate output", () => {
         `checked ${FIXTURE_SCOPES} scopes, ${FIXTURE_SKILLS + 1} skills, ${FIXTURE_MCPS} mcps`,
         "",
         "problems (1)",
-        '  unregistered scope "marmalade" (skills/acme/typo/use-thing/SKILL.md)',
-        '      skill "acme.typo.use-thing" declares it, but no catalog\'s scopes.yml registers it',
+        '  unregistered scope "marmalade" (skills/typo-thing/SKILL.md)',
+        '      skill "typo-thing" declares it, but no catalog\'s scopes.yml registers it',
         "      register it in a catalog's scopes.yml, or correct the spelling",
       ].join("\n"),
     );
   });
 
   it("emits byte-identical JSON on a second run, and carries no machine paths", async () => {
-    await writeSkill("acme/typo/use-thing", ["scopes: [marmalade]"]);
+    await writeSkill("typo-thing", ["scopes: [marmalade]"]);
 
     const first = await cli("validate", "--json");
     const second = await cli("validate", "--json");
@@ -640,7 +629,7 @@ describe("ambit validate output", () => {
   });
 
   it("carries no machine paths under `catalog validate` either, where the root is an argument", async () => {
-    await writeMisnamedSkill("acme/misnamed/use-thing", "acme.something.else");
+    await writeMisnamedSkill("misnamed-thing", "wrong-name");
 
     const result = await cliWithoutProject("catalog", "validate", "--catalog", catalogDir);
 

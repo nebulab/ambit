@@ -71,11 +71,11 @@ harnesses (1)
   claude
 
 artifacts (5)
-  .agents/skills/acme.commons.use-house-style      skill-dir       link
-  .agents/skills/acme.engineering.use-code-review  skill-dir       link
-  .agents/skills/acme.engineering.use-storybook    skill-dir       link
-  .claude/skills                                   skills-link     link
-  .mcp.json                                        harness-config  -
+  .agents/skills/house-style  skill-dir       link
+  .agents/skills/code-review  skill-dir       link
+  .agents/skills/storybook    skill-dir       link
+  .claude/skills              skills-link     link
+  .mcp.json                   harness-config  -
 ```
 
 ### Authoring a catalog
@@ -107,17 +107,17 @@ files (1)
 ```
 
 ```
-$ ambit catalog skill new acme.engineering.use-code-review \
+$ ambit catalog skill new code-review \
     --description "How we review code" \
     --scope function.engineering \
-    --requires acme.commons.use-house-style
+    --requires house-style
 created (1)
-  acme.engineering.use-code-review  How we review code
+  code-review  How we review code
 
 files (1)
-  skills/acme/engineering/use-code-review/SKILL.md  created
+  skills/code-review/SKILL.md  created
 
-next: write the skill's instructions in skills/acme/engineering/use-code-review/SKILL.md
+next: write the skill's instructions in skills/code-review/SKILL.md
 ```
 
 ambit writes the file and maintains its frontmatter; the instructions are yours.
@@ -128,27 +128,27 @@ Every other scaffolded file that already exists is left byte-identical and repor
 
 ## Concepts
 
-| Term                | Meaning                                                                                                                                              |
-| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Catalog**         | A source of skills and MCP definitions: a git repo or a local directory.                                                                             |
-| **Skill**           | A directory containing `SKILL.md`. Its name is its path under `skills/` with `/` → `.`, so `skills/acme/sales/use-close/` is `acme.sales.use-close`. |
-| **MCP entity**      | A server definition in the catalog's `mcps/` directory.                                                                                              |
-| **Scope**           | A dotted, nestable label for _who needs a thing_: `function.engineering`, `project.vision-group`, `person.jane-doe`.                                 |
-| **Project**         | A directory containing `ambit.yml`.                                                                                                                  |
-| **Bundle**          | The resolved set of skills and MCP servers for a project.                                                                                            |
-| **Harness adapter** | Code that writes a bundle into one agent tool's layout: `claude`, `codex`, `cursor`, `opencode`, `vscode`.                                           |
-| **Owned artifact**  | A file or directory ambit created, recorded in `.ambit/state.json`. ambit never touches anything else.                                               |
+| Term                | Meaning                                                                                                                                                         |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Catalog**         | A source of skills and MCP definitions: a git repo or a local directory.                                                                                        |
+| **Skill**           | A directory containing `SKILL.md`. Its name is its path under `skills/`, so `skills/close-crm/` is `close-crm`. A nested directory joins its segments with `.`. |
+| **MCP entity**      | A server definition in the catalog's `mcps/` directory.                                                                                                         |
+| **Scope**           | A dotted, nestable label for _who needs a thing_: `function.engineering`, `project.vision-group`, `person.jane-doe`.                                            |
+| **Project**         | A directory containing `ambit.yml`.                                                                                                                             |
+| **Bundle**          | The resolved set of skills and MCP servers for a project.                                                                                                       |
+| **Harness adapter** | Code that writes a bundle into one agent tool's layout: `claude`, `codex`, `cursor`, `opencode`, `vscode`.                                                      |
+| **Owned artifact**  | A file or directory ambit created, recorded in `.ambit/state.json`. ambit never touches anything else.                                                          |
 
 A catalog looks like this:
 
 ```
 acme-skills/
-  scopes.yml                                    the scope registry
+  scopes.yml              the scope registry
   skills/
-    acme/commons/use-house-style/SKILL.md       skill acme.commons.use-house-style
-    acme/engineering/use-code-review/SKILL.md   skill acme.engineering.use-code-review
+    house-style/SKILL.md  skill house-style
+    code-review/SKILL.md  skill code-review
   mcps/
-    sentry.yml                                  MCP server "sentry"
+    sentry.yml            MCP server "sentry"
 ```
 
 ## File formats
@@ -183,7 +183,7 @@ catalogs:
 # Extra skills, regardless of scope. A string is a name looked up in the configured
 # catalogs; a mapping declares a skill from a source that isn't a full catalog.
 skills:
-  - acme.marketing.use-luma
+  - luma
   - name: readwise-cli
     source: https://github.com/readwiseio/readwise-skills
     path: skills/readwise-cli # optional; overrides the name→path convention
@@ -218,12 +218,12 @@ keys.
 
 ```yaml
 ---
-name: acme.sales.use-close
+name: close-crm
 description: "Calls the Close CRM REST API…"
 ambit:
   scopes: [function.sales]
   requires:
-    - acme.commons.use-company-context
+    - company-context
     - mcp.close
   env: [CLOSE_API_KEY]
 ---
@@ -317,15 +317,15 @@ catalogs:
 mcps:
   sentry:
     catalog: company
-    reason: required-by:acme.engineering.use-code-review
+    reason: required-by:code-review
 skills:
-  acme.commons.use-house-style:
+  house-style:
     catalog: company
-    path: skills/acme/commons/use-house-style
+    path: skills/house-style
     reason: scope:core
-  acme.engineering.use-code-review:
+  code-review:
     catalog: company
-    path: skills/acme/engineering/use-code-review
+    path: skills/code-review
     reason: scope:function.engineering
 version: 1
 ```
@@ -347,7 +347,7 @@ file says it created.
     {
       "kind": "skill-dir",
       "mode": "link",
-      "path": ".agents/skills/acme.commons.use-house-style"
+      "path": ".agents/skills/house-style"
     },
     {
       "kind": "skills-link",
@@ -458,9 +458,9 @@ scopes (2)
   function.engineering
 
 skills (3)
-  acme.commons.use-house-style      company  scope:core
-  acme.engineering.use-code-review  company  scope:function.engineering
-  acme.engineering.use-storybook    company  scope:function.engineering.frontend
+  house-style  company  scope:core
+  code-review  company  scope:function.engineering
+  storybook    company  scope:function.engineering.frontend
 ```
 
 A project holding only the child gets only the child:
@@ -471,7 +471,7 @@ scopes (1)
   function.engineering.frontend
 
 skills (1)
-  acme.engineering.use-storybook  company
+  storybook  company
 ```
 
 ### Nest or make siblings?
@@ -545,7 +545,7 @@ five read it natively; the other two are pointed at it with a directory symlink.
 
 ```
 $ ls -l .agents/skills
-acme.commons.use-house-style -> ../../../acme-skills/skills/acme/commons/use-house-style
+house-style -> ../../../acme-skills/skills/house-style
 
 $ ls -l .claude
 skills -> ../.agents/skills
@@ -629,8 +629,8 @@ Every installed skill is a path under `.agents/`, so those are listed in `.agent
 
 ```
 # BEGIN ambit - managed block, rewritten by `ambit install`; edits are lost
-/skills/acme.commons.use-house-style
-/skills/acme.engineering.use-code-review
+/skills/house-style
+/skills/code-review
 # END ambit
 ```
 
@@ -669,7 +669,7 @@ two files separately.
 ```
 $ ambit install
 error: refusing to overwrite unowned path
-       .agents/skills/acme.commons.use-house-style exists but ambit did not create it
+       .agents/skills/house-style exists but ambit did not create it
        move it aside, or run `ambit install --adopt` to take ownership
 ```
 
@@ -724,7 +724,7 @@ refused, with the same message and exit code.
 | `ambit doctor`                                        | Check env vars, the lock, ownership, drift, and materialization mode.                                                                                              |
 
 `--explain` annotates each item with why it was selected: `scope:function.sales`,
-`required-by:acme.sales.use-close`, `explicit`, or `catalog:company (shadows personal)`.
+`required-by:close-crm`, `explicit`, or `catalog:company (shadows personal)`.
 
 `--frozen` fails if resolution would change `ambit.lock`, the CI check that a committed lock is current:
 
@@ -741,11 +741,11 @@ of five states (`missing`, `modified`, `ok`, `stale`, `unowned`):
 ```
 $ ambit status --check
 artifacts (5)
-  .agents/skills/acme.commons.use-house-style      skill-dir       ok
-  .agents/skills/acme.engineering.use-code-review  skill-dir       ok
-  .agents/skills/acme.engineering.use-storybook    skill-dir       missing  nothing is installed at this path
-  .claude/skills                                   skills-link     ok
-  .mcp.json                                        harness-config  ok
+  .agents/skills/house-style  skill-dir       ok
+  .agents/skills/code-review  skill-dir       ok
+  .agents/skills/storybook    skill-dir       missing  nothing is installed at this path
+  .claude/skills              skills-link     ok
+  .mcp.json                   harness-config  ok
 ```
 
 `ambit doctor` runs five checks in a fixed order and reports two severities. Only a failure reaches exit
@@ -837,8 +837,8 @@ List-valued flags are repeatable rather than comma-separated (`--scope a --scope
 6. **`--dry-run` prints the diff** it would write and touches nothing:
 
 ```
-$ ambit catalog annotate acme.engineering.use-storybook --add-env STORYBOOK_TOKEN --dry-run
-skill acme.engineering.use-storybook
+$ ambit catalog annotate storybook --add-env STORYBOOK_TOKEN --dry-run
+skill storybook
 
 would declare (3)
   scopes    function.engineering.frontend
@@ -846,9 +846,9 @@ would declare (3)
   env       STORYBOOK_TOKEN
 
 diff (1)
-  skills/acme/engineering/use-storybook/SKILL.md (updated)
+  skills/storybook/SKILL.md (updated)
     ...
-      name: acme.engineering.use-storybook
+      name: storybook
       ambit:
         scopes:
           - function.engineering.frontend
@@ -856,7 +856,7 @@ diff (1)
     +     - STORYBOOK_TOKEN
       ---
 
-      # acme.engineering.use-storybook
+      # storybook
     ...
 ```
 
@@ -888,10 +888,10 @@ findings (2)
       no skill and no MCP server declares it, and nothing registered beneath it does either
       holding it selects nothing, so every picker rendering this registry offers a choice with no effect
       declare it with `ambit catalog annotate <name> --add-scope person.jane`, or unregister it with `ambit catalog scope rm person.jane`
-  unreachable skill "acme.labs.use-scratch" (skills/acme/labs/use-scratch/SKILL.md)
+  unreachable skill "scratch" (skills/scratch/SKILL.md)
       it declares no registered scope, and nothing reachable requires it
       no profile can select it, so nothing it says ever reaches an agent
-      give it a scope with `ambit catalog annotate acme.labs.use-scratch --add-scope <scope>`, or remove it with `ambit catalog skill rm acme.labs.use-scratch`
+      give it a scope with `ambit catalog annotate scratch --add-scope <scope>`, or remove it with `ambit catalog skill rm scratch`
 ```
 
 Plain `audit` exits 0 however much it found; `--check` turns findings into exit 6.
@@ -924,11 +924,11 @@ error: unknown scope "function.enginering" (ambit.yml line 6)
        did you mean "function.engineering"?
 
 error: requirement cycle
-       acme.a → acme.b → acme.c → acme.a
+       alpha → beta → gamma → alpha
        break the cycle by removing one `requires` edge
 
 error: refusing to overwrite unowned path
-       .agents/skills/acme.sales.use-close exists but ambit did not create it
+       .agents/skills/close-crm exists but ambit did not create it
        move it aside, or run `ambit install --adopt` to take ownership
 ```
 
@@ -944,8 +944,8 @@ absolute path. Error messages are the exception, since naming the exact file is 
 
 ## Compatibility with plain skills repos
 
-**A catalog is a plain skills repo.** Skills live at `skills/<namespace>/<name>/SKILL.md` with the name
-derived from the path, which is what dotagents, skills.sh, and anything else in this shape expect.
+**A catalog is a plain skills repo.** Skills live at `skills/<name>/SKILL.md` with the name derived
+from the path, which is what dotagents, skills.sh, and anything else in this shape expect.
 ambit's additions (one `ambit:` frontmatter key, a `mcps/` directory, a `scopes.yml`) are additive and
 ignored by other tools.
 

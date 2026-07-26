@@ -5,9 +5,9 @@
     "core"
   ],
   "skills": {
-    "acme.commons.use-company-context": {
+    "company-context": {
       "catalog": "company",
-      "path": "skills/acme/commons/use-company-context"
+      "path": "skills/company-context"
     }
   }
 }

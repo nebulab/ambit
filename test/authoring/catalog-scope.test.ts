@@ -28,12 +28,12 @@ const CHILD = "function.engineering.frontend";
 const RENAMED_PARENT = "team.engineering";
 
 const REGISTRY = "scopes.yml";
-const CODE_REVIEW = "skills/acme/engineering/use-code-review/SKILL.md";
-const DESIGN_TOKENS = "skills/acme/engineering/frontend/use-design-tokens/SKILL.md";
+const CODE_REVIEW = "skills/code-review/SKILL.md";
+const DESIGN_TOKENS = "skills/design-tokens/SKILL.md";
 const SCOPED_MCP = "mcps/scoped.yml";
 
 /** Every file `mv function.engineering` touches, in the path order the command reports them. */
-const RENAMED_FILES = [SCOPED_MCP, REGISTRY, DESIGN_TOKENS, CODE_REVIEW];
+const RENAMED_FILES = [SCOPED_MCP, REGISTRY, CODE_REVIEW, DESIGN_TOKENS];
 
 const JANE = "person.jane";
 const JANE_DESCRIPTION = "Jane's own things";
@@ -283,9 +283,7 @@ describe("ambit catalog scope rm", () => {
     const result = await refused(ExitCode.Resolution, "rm", PARENT);
 
     expect(result.stderr).toContain(`scope "${PARENT}" is still declared (${REGISTRY})`);
-    expect(result.stderr).toContain(
-      `skill "acme.engineering.use-code-review" declares it (${CODE_REVIEW})`,
-    );
+    expect(result.stderr).toContain(`skill "code-review" declares it (${CODE_REVIEW})`);
     expect(result.stderr).toContain(`MCP server "scoped" declares it (${SCOPED_MCP})`);
     // The next step names the command that clears a declaration, not the hand-editing it replaced.
     expect(result.stderr).toContain(
@@ -297,7 +295,7 @@ describe("ambit catalog scope rm", () => {
   it("names the `mcp.` spelling only when a server is among the declarers", async () => {
     const result = await refused(ExitCode.Resolution, "rm", "core");
 
-    expect(result.stderr).toContain('skill "acme.commons.use-company-context" declares it');
+    expect(result.stderr).toContain('skill "company-context" declares it');
     expect(result.stderr).not.toContain("mcp.<server>");
   });
 

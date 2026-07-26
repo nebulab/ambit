@@ -2,9 +2,9 @@
  * `ambit why <name>` — explain why one item is in the bundle.
  *
  * The chain is the answer, not the reason on its own: being told a skill arrived through
- * `required-by:acme.projects.use-acme-brief` only moves the question one level up, and it is the
- * held scope at the far end that a reader can actually change. So this prints every link from the
- * root cause down to the item asked about.
+ * `required-by:acme-brief` only moves the question one level up, and it is the held scope at the
+ * far end that a reader can actually change. So this prints every link from the root cause down to
+ * the item asked about.
  *
  * A bare name means a skill when one exists and a server otherwise, and an `mcp.`-prefixed name
  * always means a server — the same disambiguation `requires` uses, so a name copied out

@@ -30,9 +30,9 @@ const LOCK_FILE = "ambit.lock";
 const STATE_FILE = ".ambit/state.json";
 const GITIGNORE_FILE = ".gitignore";
 
-const CORE_SKILL = "acme.commons.use-company-context";
-const ENGINEERING_SKILL = "acme.engineering.use-code-review";
-const FRONTEND_SKILL = "acme.engineering.frontend.use-design-tokens";
+const CORE_SKILL = "company-context";
+const ENGINEERING_SKILL = "code-review";
+const FRONTEND_SKILL = "design-tokens";
 
 const CORE_TARGET = `${SKILLS_DIR}/${CORE_SKILL}`;
 const FRONTEND_TARGET = `${SKILLS_DIR}/${FRONTEND_SKILL}`;
@@ -309,9 +309,9 @@ describe("ambit doctor on an ownership anomaly", () => {
     await rm(path.join(projectDir, STATE_FILE));
 
     expect(await findings()).toEqual([
+      `ownership/fail: ambit does not own ${ENGINEERING_TARGET}`,
       `ownership/fail: ambit does not own ${CORE_TARGET}`,
       `ownership/fail: ambit does not own ${FRONTEND_TARGET}`,
-      `ownership/fail: ambit does not own ${ENGINEERING_TARGET}`,
       `ownership/fail: ambit does not own ${CLAUDE_LINK}`,
       `ownership/fail: ambit does not own ${MCP_FILE}`,
     ]);
@@ -394,9 +394,9 @@ describe("ambit doctor on a project installed with `--copy`", () => {
 
     expect(result.code, result.stderr).toBe(ExitCode.Success);
     expect(await findings()).toEqual([
+      `mode/warn: ${ENGINEERING_TARGET} is installed as a copy`,
       `mode/warn: ${CORE_TARGET} is installed as a copy`,
       `mode/warn: ${FRONTEND_TARGET} is installed as a copy`,
-      `mode/warn: ${ENGINEERING_TARGET} is installed as a copy`,
     ]);
     expect(await checks()).toEqual(["env=ok", "lock=ok", "ownership=ok", "drift=ok", "mode=warn"]);
   });
@@ -415,8 +415,8 @@ describe("ambit doctor on a project installed with `--copy`", () => {
     // say about the mode it would be rewritten in.
     expect(await findings()).toEqual([
       `drift/fail: ${CORE_TARGET} is modified`,
-      `mode/warn: ${FRONTEND_TARGET} is installed as a copy`,
       `mode/warn: ${ENGINEERING_TARGET} is installed as a copy`,
+      `mode/warn: ${FRONTEND_TARGET} is installed as a copy`,
     ]);
   });
 });
