@@ -16,7 +16,7 @@
  * published CLI.
  */
 import { execFile } from "node:child_process";
-import { mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -174,6 +174,16 @@ export const FIXTURE_CATALOG_FILES: Readonly<Record<string, string>> = {
   "skills/acme-brief/SKILL.md": PROJECT_SKILL,
 };
 
+/**
+ * The files the fixture writes executable rather than `0o644`.
+ *
+ * A hook script the harness cannot execute is a hook that does not run — Claude Code dispatches it
+ * and `/bin/sh` answers `Permission denied` — so the bit is part of what a catalog ships, exactly
+ * like the bytes. Without it the fixture's one script-shipping hook installs correctly and still
+ * cannot fire, which is what the manual end-to-end in `plan.md` §Verification found.
+ */
+export const FIXTURE_EXECUTABLE_FILES: readonly string[] = ["hooks/guard-secrets/guard.sh"];
+
 async function isEmptyDirectory(dir: string): Promise<boolean> {
   return (await readdir(dir)).length === 0;
 }
@@ -222,6 +232,9 @@ export async function buildFixtureCatalog(dir: string): Promise<string> {
     const target = path.join(root, relative);
     await mkdir(path.dirname(target), { recursive: true });
     await writeFile(target, contents, "utf8");
+    if (FIXTURE_EXECUTABLE_FILES.includes(relative)) {
+      await chmod(target, 0o755);
+    }
   }
 
   return root;

@@ -1,6 +1,8 @@
-import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { lstat, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { parse } from "yaml";
 
@@ -247,6 +249,16 @@ describe("fixture catalog", () => {
     );
   });
 
+  it("ships that script executable, since a harness runs it rather than reading it", async () => {
+    // Found by the manual end-to-end (`plan.md` §Verification): the hook installed correctly and
+    // Claude Code still could not fire it, because `/bin/sh` answered `Permission denied`. The bit is
+    // part of what the catalog ships — `test/project/hooks.test.ts` chmods its own script for the
+    // same reason, and this fixture is what the end-to-end and the git-source tests install.
+    const mode = (await lstat(path.join(dir, "hooks/guard-secrets/guard.sh"))).mode;
+
+    expect(mode & 0o111).toBe(0o111);
+  });
+
   it("names each MCP entity after its filename stem", async () => {
     for (const file of ["mcps/fixture.yml", "mcps/scoped.yml"]) {
       const entity = parse(await readFile(path.join(dir, file), "utf8")) as { name: string };
@@ -315,5 +327,19 @@ describe("fixture git catalog", () => {
     expect(await readFile(path.join(first.repo, "HEAD"), "utf8")).toBe(
       `ref: refs/heads/${first.branch}\n`,
     );
+  });
+
+  it("records the hook script as executable in the commit", async () => {
+    const { repo, commit } = await buildFixtureGitCatalog(path.join(root, "a"));
+
+    // git stores only the one bit, as `100755` — which is what carries the fixture's exec bit through
+    // a `git:` source, the path `test/model/git-source.test.ts` installs from.
+    const { stdout } = await promisify(execFile)(
+      "git",
+      ["--git-dir", repo, "ls-tree", commit, "hooks/guard-secrets/guard.sh"],
+      { encoding: "utf8" },
+    );
+
+    expect(stdout).toMatch(/^100755 blob /);
   });
 });

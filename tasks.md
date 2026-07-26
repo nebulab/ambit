@@ -2,7 +2,7 @@
 
 Execution plan for `plan.md` ([#14](https://github.com/nebulab/ambit/issues/14)), sliced into
 independently shippable increments. `plan.md` stays the design authority: every task below cites the
-section that justifies it and adds no decisions of its own.
+section that justifies it and adds no decisions of its own. Every task is closed.
 
 ## Loop protocol
 
@@ -383,10 +383,35 @@ match what is there rather than expanding it.
 
 ## 17. Verification gate
 
-- [ ] The checks that are not a unit test.
+- [x] The checks that are not a unit test.
 
 **Do** — `npm run lint && npm run format:check && npm run typecheck && npm test && npm run build` on
 Node 20 and 22. Re-read every golden diff accumulated across the backlog in one pass. Then the manual
 end-to-end `plan.md` §Verification asks for and does not put in the suite: install a fixture hook into
 a scratch project, run Claude Code in it, confirm the hook fires. Report the result — this one is
 observed, not asserted.
+
+> found (task 17): the five checks pass on Node 20.20.0 and 22.23.1 (asdf, macOS arm64), and
+> `UPDATE_GOLDEN=1 npm test` leaves no diff. The accumulated golden diff across tasks 1–16 is 42 added
+> lines and no changed or removed line: `hooks` on the four resolve profiles that select one plus an
+> empty `hooks: {}` on the other two, and one `"hooks"` list per `direct`/`inherited` on each of
+> `catalog-tree.json`'s four nodes. Every line is task 2's `Bundle.hooks`, task 13's `ScopeSelection`
+> and task 15's fixture; nothing else moved.
+>
+> **The end-to-end fired, and it found one real defect.** Claude Code 2.1.220 in a scratch project
+> configured for `claude` against the fixture catalog: `session-notes` ran at session start and its
+> stdout (`acme conventions apply`) reached the session, and `guard-secrets` ran on a `Bash` tool call
+> and was handed the full `PreToolUse` payload on stdin. **`${CLAUDE_PROJECT_DIR}` is expanded** —
+> task 10's open question, settled: the script saw `$0` as the absolute path under the project root,
+> and `CLAUDE_PROJECT_DIR` is exported into the hook's environment as well, so §6's table is right for
+> `claude` under either mechanism. VS Code's half of that question is still unobserved; only Claude
+> Code was run.
+>
+> The defect: `scripts/fixture-catalog.ts` wrote every file through `writeFile`, so
+> `hooks/guard-secrets/guard.sh` shipped `0o644` and the first run of the end-to-end got
+> `/bin/sh: …/.agents/hooks/guard-secrets/guard.sh: Permission denied` — the hook installed perfectly
+> and could not run. Nothing in the suite caught it because `test/project/hooks.test.ts` chmods its own
+> script, which is exactly the bit the fixture was missing. Fixed here: `FIXTURE_EXECUTABLE_FILES` and
+> a `chmod 0o755` in the builder, with a mode assertion in `test/fixture-catalog.test.ts` and a
+> `git ls-tree` check that the commit records `100755`, since `test/model/git-source.test.ts` installs
+> through git. No golden or digest moves — the digest is over the rendered command, not the script.
