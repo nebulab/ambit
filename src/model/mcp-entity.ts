@@ -17,7 +17,10 @@ export interface StdioTransport {
 export interface HttpTransport {
   readonly kind: "http";
   readonly url: string;
-  /** `${VAR}` placeholders are left intact; the adapter interpolates them at install. */
+  /**
+   * `${VAR}` references are left intact here; at install each harness's profile rewrites them into
+   * the reference syntax that harness expands at spawn time. The value itself is never read.
+   */
   readonly headers: Readonly<Record<string, string>>;
 }
 

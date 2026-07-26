@@ -3,14 +3,14 @@
 A deterministic dependency manager for AI-agent capabilities: skills and MCP servers, selected by
 scope.
 
-Agent harnesses (Claude Code, Cursor, Codex) load _skills_ — folders of instructions — and connect to
-_MCP servers_. Picking those by hand, per project, per person, does not scale past one person: a
-designer and a backend engineer at the same company need overlapping-but-different sets, and nobody
-wants to hand-maintain a config file per human.
+Agent harnesses (Claude Code, Codex, Cursor, opencode, VS Code) load _skills_ — folders of
+instructions — and connect to _MCP servers_. Picking those by hand, per project, per person, does not
+scale past one person: a designer and a backend engineer at the same company need
+overlapping-but-different sets, and nobody wants to hand-maintain a config file per human.
 
 ambit makes the selection declarative. A project declares the **scopes** it holds; skills and MCP
 servers in a **catalog** declare which scopes they belong to; ambit resolves the two into a **bundle**
-and writes it into the harness's config.
+and writes it into each configured harness's own layout.
 
 **ambit contains no AI.** It is a resolver and an installer — same inputs, same output, every time.
 Anything requiring judgement (which scopes a person holds, what a skill should say) happens outside
@@ -78,10 +78,11 @@ $ ambit install
 harnesses (1)
   claude
 
-artifacts (4)
-  .claude/skills/acme.commons.use-house-style      skill-dir       link
-  .claude/skills/acme.engineering.use-code-review  skill-dir       link
-  .claude/skills/acme.engineering.use-storybook    skill-dir       link
+artifacts (5)
+  .agents/skills/acme.commons.use-house-style      skill-dir       link
+  .agents/skills/acme.engineering.use-code-review  skill-dir       link
+  .agents/skills/acme.engineering.use-storybook    skill-dir       link
+  .claude/skills                                   skills-link     link
   .mcp.json                                        harness-config  -
 ```
 
@@ -147,7 +148,7 @@ reported as `kept`, since a catalog is normally initialized inside a repo that a
 | **Scope**           | A dotted, nestable label for _who needs a thing_: `function.engineering`, `project.vision-group`, `person.jane-doe`.                                 |
 | **Project**         | A directory containing `ambit.yml`.                                                                                                                  |
 | **Bundle**          | The resolved set of skills and MCP servers for a project.                                                                                            |
-| **Harness adapter** | Code that writes a bundle into one agent tool's layout. v1 ships one: `claude`.                                                                      |
+| **Harness adapter** | Code that writes a bundle into one agent tool's layout. One implementation, five descriptions: `claude`, `codex`, `cursor`, `opencode`, `vscode`.    |
 | **Owned artifact**  | A file or directory ambit created, recorded in `.ambit/state.json`. ambit never touches anything else.                                               |
 
 A catalog looks like this:
@@ -214,7 +215,7 @@ mcps:
 | Field       | Type                    | Required | Notes                                                                                                                                             |
 | ----------- | ----------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `version`   | int                     | yes      | Must be `1`.                                                                                                                                      |
-| `harnesses` | string[]                | no       | Default `[claude]`.                                                                                                                               |
+| `harnesses` | string[]                | no       | Any of `claude`, `codex`, `cursor`, `opencode`, `vscode`. Default `[claude]`. An unknown name is an error naming the five.                        |
 | `scopes`    | string[]                | no       | Held scopes, exactly as listed. Nothing is added implicitly. Absent or empty means nothing is selected by scope — only explicit `skills` entries. |
 | `catalogs`  | list of maps            | no       | `name`, `source`, `ref?`. `name` unique.                                                                                                          |
 | `skills`    | list of strings or maps | no       | String = a name from a catalog. Map = `name`, `source`, `ref?`, `path?`.                                                                          |
@@ -293,8 +294,14 @@ env: [SENTRY_TOKEN]
 | `transport.stdio.command` | string   | yes for stdio | Executable to spawn.                                                |
 | `transport.stdio.args`    | string[] | no            | Arguments, in order.                                                |
 | `transport.http.url`      | string   | yes for http  | Server endpoint.                                                    |
-| `transport.http.headers`  | map      | no            | `${VAR}` interpolated from the environment at install.              |
+| `transport.http.headers`  | map      | no            | `${VAR}` becomes a reference in each harness's own syntax.          |
 | `env`                     | string[] | no            | Env vars this server needs.                                         |
+
+**`${VAR}` is a reference, wherever it appears in a transport — never a value.** ambit rewrites it into
+the syntax the target harness expands when it spawns the server: in a header, in the `url`, and in a
+stdio `args` entry, which is how a bridge like `mcp-remote` carries a credential. `env` is the list of
+variables the server itself needs; a stdio server gets a passthrough entry per name. Nothing in either
+is ever resolved at install time — see [MCP servers](#mcp-servers--the-harnesss-own-config-file).
 
 `transport` must contain **exactly one** key. Zero keys, two keys, or an unrecognized kind is an error
 naming the supported kinds — it is the discriminator, so it must never be ambiguous. Keeping the kind
@@ -369,18 +376,41 @@ deletes only what this file says it created.
     {
       "kind": "skill-dir",
       "mode": "link",
-      "path": ".claude/skills/acme.commons.use-house-style"
+      "path": ".agents/skills/acme.commons.use-house-style"
     },
     {
+      "kind": "skills-link",
+      "mode": "link",
+      "path": ".claude/skills"
+    },
+    {
+      "format": "toml",
+      "kind": "harness-config",
+      "managedKeys": ["mcp_servers.sentry"],
+      "path": ".codex/config.toml"
+    },
+    {
+      "format": "json",
       "kind": "harness-config",
       "managedKeys": ["mcpServers.sentry"],
       "path": ".mcp.json"
     }
   ],
-  "harnesses": ["claude"],
+  "harnesses": ["claude", "codex"],
   "version": 1
 }
 ```
+
+| Kind             | Owned as          | Extra fields                                                                  |
+| ---------------- | ----------------- | ----------------------------------------------------------------------------- |
+| `skill-dir`      | the whole path    | `mode`: `copy` or `link`.                                                     |
+| `skills-link`    | the whole path    | `mode`, always `link`. The directory a harness reads skills through.          |
+| `harness-config` | the keys it names | `managedKeys`, and `format` — `json`, `jsonc` or `toml`; absent means `json`. |
+
+`format` is recorded rather than re-derived because `prune` and `clean` act from this file alone: they
+have to edit a `.codex/config.toml` without resolving the project, and on a project whose `ambit.yml`
+is gone or whose catalog is unreachable, "which harness wanted this file" is not a question with an
+answer.
 
 ### YAML rules
 
@@ -526,7 +556,31 @@ error: unknown scope "function.enginering" (ambit.yml line 4)
 
 ## What install puts on disk
 
-### Skills → `.claude/skills/<name>/`
+### The harnesses
+
+| Harness    | Skills read from                    | MCP servers                | Section       | Format |
+| ---------- | ----------------------------------- | -------------------------- | ------------- | ------ |
+| `claude`   | `.claude/skills` → `.agents/skills` | `.mcp.json`                | `mcpServers`  | JSON   |
+| `cursor`   | `.claude/skills` → `.agents/skills` | `.cursor/mcp.json`         | `mcpServers`  | JSON   |
+| `codex`    | `.agents/skills` (native)           | `.codex/config.toml`       | `mcp_servers` | TOML   |
+| `vscode`   | `.agents/skills` (native)           | `.vscode/mcp.json`         | `servers`     | JSON   |
+| `opencode` | `.agents/skills` (native)           | `.opencode/opencode.jsonc` | `mcp`         | JSONC  |
+
+Each layout is what that tool's own documentation tells a person to write by hand, so an installed
+config is indistinguishable from a hand-written one — which is what makes the harness willing to read
+it and a person willing to look at it. Codex wants no `type` and TOML; Cursor infers the transport from
+the presence of `url` and wants no `type` either; VS Code wants an explicit one on both transports and
+calls its section `servers`; opencode says `local`/`remote` and takes the command as one array.
+
+There is **one adapter**, and a harness is a description of these five columns plus the shape of one
+server. Adding a harness is adding a profile; if it required editing the adapter, the seam would be in
+the wrong place.
+
+### Skills → `.agents/skills/<name>/`
+
+One location for every harness. Three of the five read it natively, and the other two are pointed at
+it with a directory symlink — the layout dotagents uses, and the reason a project can list several
+harnesses without materializing the same skill several times for someone to wonder about.
 
 - **Remote-source skills are copied.** They are pinned to a commit and immutable.
 - **`path:` local-source skills are symlinked**, so editing the installed skill edits the tracked
@@ -536,18 +590,33 @@ error: unknown scope "function.enginering" (ambit.yml line 4)
   choice; it is not a config key.
 
 ```
-$ ls -l .claude/skills
+$ ls -l .agents/skills
 acme.commons.use-house-style -> ../../../acme-skills/skills/acme/commons/use-house-style
+
+$ ls -l .claude
+skills -> ../.agents/skills
 ```
 
 Because a linked skill _is_ the catalog's copy, editing one is never drift. Content drift is only a
 question about a copy — and there, `status` compares the copy against its source, so it reports
 upstream change as well as local edits.
 
-### MCP servers → `.mcp.json`
+The link is an owned artifact of its own (`skills-link`), and it is the one place ambit owns a whole
+harness directory rather than a path or a key inside a file. That is coarser than the rest of the
+ownership model, so it is fenced: `.claude/skills` is replaced only when it does not exist, when state
+already owns it, or when it is a directory **every entry of which ambit installed** — which is what an
+install from before the shared layout leaves behind, and replacing it then loses nothing. One
+hand-written skill in there and install refuses and names `--adopt`. An empty bundle plans no link at
+all, so a project that selects nothing acquires nothing.
+
+Two consequences worth knowing. A tree walker that does not skip inward-pointing symlinks sees every
+skill twice, once at `.agents/skills/x` and once through `.claude/skills/x`. And `claude` plus `cursor`
+name the same link, so it is planned, written, owned and ignored exactly once.
+
+### MCP servers → the harness's own config file
 
 Each entity's `transport` maps onto the harness's own server shape — `stdio` to `command`/`args`,
-`http` to `url`/`headers`:
+`http` to `url`/`headers` — in that harness's file and format:
 
 ```json
 {
@@ -563,28 +632,73 @@ Each entity's `transport` maps onto the harness's own server shape — `stdio` t
 }
 ```
 
-`.mcp.json` is **co-owned**: ambit owns only the server keys it wrote, recorded per key in state.
-Servers you added by hand are preserved untouched, and only a colliding server _name_ is a conflict.
+```toml
+# .codex/config.toml, alongside your own model and sandbox settings.
+[mcp_servers.sentry]
+url = "https://mcp.sentry.dev/mcp"
 
-`${VAR}` in `headers` is interpolated from the environment at install time. A missing variable leaves
-its placeholder rather than emptying the value — a warning, not a failure, because a bundle you cannot
-authenticate against yet is still the right bundle. `ambit doctor` is what reports it, and fails.
+[mcp_servers.sentry.http_headers]
+Authorization = "Bearer ${SENTRY_TOKEN}"
+```
+
+Every one of these files is **co-owned**: ambit owns only the server keys it wrote, recorded per key in
+state. Servers you added by hand are preserved untouched, and only a colliding server _name_ is a
+conflict. That holds for the two formats that carry a person's prose as well: a JSONC config's comments
+and trailing commas survive a merge, and `.codex/config.toml` is edited by splicing the
+`[mcp_servers.<name>]` table and leaving every other byte alone, because that file holds someone's
+model, sandbox and approval settings.
+
+The cost of editing TOML lexically is that a few legal shapes have no span to replace — a server
+written as an inline table, through dotted keys outside a table header, or as `[[mcp_servers.x]]`.
+Those are **refused**, exit 2 with the file untouched, rather than guessed at. Refusing beats
+corrupting a config ambit does not own. It also means a hand-reformatted `[mcp_servers.x]` table reads
+as drift, since TOML cannot be compared structurally without a parser; JSON and JSONC are compared as
+values, so reformatting them is not drift.
+
+#### `${VAR}` is written as a reference, never as a value
+
+ambit does not resolve environment variables into these files at all. It translates the catalog's
+`${VAR}` into the syntax the harness itself expands when it spawns the server:
+
+| Harness            | Reference    | Notes                                                                 |
+| ------------------ | ------------ | --------------------------------------------------------------------- |
+| `claude`, `codex`  | `${VAR}`     | Plain shell syntax — which is why the catalog's spelling is that one. |
+| `cursor`, `vscode` | `${env:VAR}` |                                                                       |
+| `opencode`         | `{env:VAR}`  | `${VAR}` in a local server's `environment`.                           |
+
+Codex gets one refinement: a header whose value is _nothing but_ a reference becomes an
+`env_http_headers` entry naming the variable, which keeps the credential out of the file entirely. A
+header with a reference embedded in a larger string — `Bearer ${TOKEN}` — cannot be expressed that way
+and stays in `http_headers` with the reference intact.
+
+This is a deliberate reversal of the obvious design, for three reasons. A resolved credential would sit
+in `.mcp.json`, a file ambit does not gitignore because teams legitimately commit it, and one
+`git add -A` later it is in history. A reference is what every one of these tools' own documentation
+tells people to write by hand. And the installed file is then **identical on every machine**, so two
+people resolving the same bundle get the same bytes and `ambit status` never reports drift because
+someone else's shell holds a different token.
+
+The cost is that ambit can no longer tell from the file whether a variable is set. `ambit doctor`
+answers that by reading the environment, which is where the answer actually is — and its remedy is
+"set the variable", with nothing to reinstall afterwards.
 
 ### `.gitignore`
 
-ambit rewrites a delimited managed block in place, listing `.ambit/` and every installed skill path:
+ambit rewrites a delimited managed block in place, listing `.ambit/`, every installed skill path, and
+the skills link:
 
 ```
 # BEGIN ambit - managed block, rewritten by `ambit install`; edits are lost
+.agents/skills/acme.commons.use-house-style
+.agents/skills/acme.engineering.use-code-review
 .ambit/
-.claude/skills/acme.commons.use-house-style
-.claude/skills/acme.engineering.use-code-review
+.claude/skills
 # END ambit
 ```
 
-Never `ambit.lock` and never `.mcp.json` — both are files a team may want to commit. Skill paths carry
-no trailing slash on purpose: git does not match a `dir/` pattern against a symlink, and a linked skill
-would stay tracked.
+Never `ambit.lock` and never a harness config file — both are things a team may want to commit. Skill
+paths carry no trailing slash on purpose: git does not match a `dir/` pattern against a symlink, and a
+linked skill would stay tracked. The link needs a line for the same reason.
 
 Two shapes are refused (exit 2, file left byte-identical): more than one `# BEGIN ambit` line, and a
 begin marker with no `# END ambit` after it.
@@ -597,7 +711,7 @@ begin marker with no `# END ambit` after it.
 ```
 $ ambit install
 error: refusing to overwrite unowned path
-       .claude/skills/acme.commons.use-house-style exists but ambit did not create it
+       .agents/skills/acme.commons.use-house-style exists but ambit did not create it
        move it aside, or run `ambit install --adopt` to take ownership
 ```
 
@@ -672,10 +786,11 @@ artifact in one of five states (`missing`, `modified`, `ok`, `stale`, `unowned`)
 
 ```
 $ ambit status --check
-artifacts (4)
-  .claude/skills/acme.commons.use-house-style      skill-dir       ok
-  .claude/skills/acme.engineering.use-code-review  skill-dir       ok
-  .claude/skills/acme.engineering.use-storybook    skill-dir       missing  nothing is installed at this path
+artifacts (5)
+  .agents/skills/acme.commons.use-house-style      skill-dir       ok
+  .agents/skills/acme.engineering.use-code-review  skill-dir       ok
+  .agents/skills/acme.engineering.use-storybook    skill-dir       missing  nothing is installed at this path
+  .claude/skills                                   skills-link     ok
   .mcp.json                                        harness-config  ok
 ```
 
@@ -694,12 +809,16 @@ checks (5)
 failures (1)
   unset environment variable "SENTRY_TOKEN"
       MCP server "sentry" declares it in `env`
-      "mcpServers.sentry" in .mcp.json still holds its `${SENTRY_TOKEN}` placeholder
-      set SENTRY_TOKEN, then run `ambit install` again so the placeholder is interpolated
+      "mcpServers.sentry" in .mcp.json references it, for the harness to expand at spawn
+      set SENTRY_TOKEN in the environment the agent runs in
 
 warnings (0)
   (none)
 ```
+
+There is nothing to reinstall after setting it: the file holds a reference, so the harness picks the
+value up the next time it spawns the server. The check reads the environment rather than the installed
+bytes, which is also why its answer does not depend on which harness's file the reference landed in.
 
 Mode divergence is the only warning: a project installed with `--copy` reports warnings and still
 passes, because both modes put identical bytes in front of the harness.
@@ -710,7 +829,7 @@ that never happened. `clean` resolves nothing: it answers from `.ambit/state.jso
 on the project you actually reach for it with, `ambit.yml` deleted or catalog unreachable.
 
 Both leave behind what ambit does not own: a `.mcp.json` left holding an empty `mcpServers` (the
-document is co-owned) and the harness's own `.claude/skills` directory. `clean` also leaves
+document is co-owned) and the harness's own `.claude` directory. `clean` also leaves
 `ambit.lock` — a record teams commit, not an artifact ambit deletes. A `prune` that removed something
 _rewrites_ the lock to the bundle it just resolved, the same bytes `install` would write, so the
 project it leaves behind passes `doctor` and `install --frozen` rather than reporting drift from the
@@ -860,7 +979,7 @@ error: requirement cycle
        break the cycle by removing one `requires` edge
 
 error: refusing to overwrite unowned path
-       .claude/skills/acme.sales.use-close exists but ambit did not create it
+       .agents/skills/acme.sales.use-close exists but ambit did not create it
        move it aside, or run `ambit install --adopt` to take ownership
 ```
 
@@ -896,6 +1015,11 @@ people actually have.
 
 That test is the one thing in the suite allowed to touch the network. It skips with a printed reason
 when the registry is unreachable outside CI, and fails inside it.
+
+The compatibility runs the other way too: ambit installs skills into `.agents/skills/` with
+`.claude/skills` pointing at it, which is the layout dotagents itself uses — so a project that used
+dotagents migrates without moving a file, and ambit adopts the directory it left behind (see
+[Skills](#skills--agentsskillsname)).
 
 ambit **replaces** dotagents rather than wrapping it. dotagents' model — a flat, hand-listed set of
 skills — cannot express scope-driven selection, and three of its behaviours fight this design:
@@ -936,12 +1060,17 @@ may only reach for things below it:
 ```
 errors.ts, version.ts   ambient: the error type, the exit codes, the version
 model/                  what is on disk and how it is read and written; decides nothing
+model/documents/        one driver per config-file format: json, jsonc, toml
 resolution/             derive and verify the selected closure
-harness/                the adapter seam and its implementations
+harness/                the adapter seam, one adapter, and five harness profiles
 authoring/              the `ambit catalog …` command family
 project/                act on a consuming project
 cli/                    presentation and dispatch — Commander wiring and one handler per command
 ```
+
+`model/documents/` sits under `model/` rather than beside the harness profiles that name a format,
+because a reader/writer of a file decides nothing — and because the layering forbids `model/ →
+harness/`, while `model/state.ts` records which format a config file is.
 
 `authoring/` and `project/` never import each other: curating a catalog and installing into a project
 are the two halves of the tool, and they meet only at `model/` and `resolution/`. The layering is

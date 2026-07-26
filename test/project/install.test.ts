@@ -23,7 +23,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { buildFixtureCatalog } from "../../scripts/fixture-catalog.js";
 import type { PlannedSkillDir } from "../../src/harness/adapter.js";
-import { claudeAdapter } from "../../src/harness/claude.js";
+import { claude } from "../../src/harness/definitions.js";
+import { adapterFor, SHARED_SKILLS_DIR } from "../../src/harness/profile.js";
 import { loadCatalogs, mergeCatalogs, mergeConfigEntities } from "../../src/model/catalog.js";
 import { loadProjectConfig } from "../../src/model/config.js";
 import { ExitCode } from "../../src/errors.js";
@@ -44,7 +45,9 @@ import {
 } from "../../src/model/state.js";
 
 const CATALOG_NAME = "company";
-const SKILLS_DIR = ".claude/skills";
+const SKILLS_DIR = SHARED_SKILLS_DIR;
+const CLAUDE_LINK = ".claude/skills";
+const claudeAdapter = adapterFor(claude);
 const MCP_FILE = ".mcp.json";
 
 const CORE_SKILL = "acme.commons.use-company-context";
@@ -136,9 +139,22 @@ async function snapshot(): Promise<Record<string, string>> {
   const found: Record<string, string> = {};
 
   const walk = async (current: string, relative: string): Promise<void> => {
-    for (const entry of await readdir(current)) {
-      const within = relative === "" ? entry : `${relative}/${entry}`;
-      const absolute = path.join(current, entry);
+    for (const entry of await readdir(current, { withFileTypes: true })) {
+      const within = relative === "" ? entry.name : `${relative}/${entry.name}`;
+      const absolute = path.join(current, entry.name);
+
+      // A link pointing back inside the project is a second view of files this walk already has —
+      // `.claude/skills` is one, and following it would list every skill twice. Recorded as an entry,
+      // not descended into. A link out to the catalog is followed, because the bytes it exposes are
+      // only reachable through it.
+      if (entry.isSymbolicLink()) {
+        const points = path.resolve(current, await readlink(absolute));
+        if (!path.relative(projectDir, points).startsWith("..")) {
+          found[within] = `-> ${await readlink(absolute)}`;
+          continue;
+        }
+      }
+
       if (await isDirectoryAt(absolute)) await walk(absolute, within);
       else found[within] = await readFile(absolute, "utf8");
     }
@@ -225,12 +241,13 @@ async function bundleFor(): Promise<Bundle> {
 
 describe("the Claude adapter's plan", () => {
   it("targets one directory per bundle skill and one config file, and touches nothing", async () => {
-    const plan = claudeAdapter.plan(await bundleFor(), { root: projectDir, env: {} });
+    const plan = claudeAdapter.plan(await bundleFor(), { root: projectDir });
 
     expect(plan.map((artifact) => artifact.path)).toEqual([
       `${SKILLS_DIR}/${CORE_SKILL}`,
       `${SKILLS_DIR}/${FRONTEND_SKILL}`,
       `${SKILLS_DIR}/${ENGINEERING_SKILL}`,
+      CLAUDE_LINK,
       MCP_FILE,
     ]);
 
@@ -250,7 +267,7 @@ describe("the Claude adapter's plan", () => {
     const bundle = await bundleFor();
     const modes = (mode?: "copy" | "link"): readonly (string | undefined)[] =>
       claudeAdapter
-        .plan(bundle, { root: projectDir, env: {}, ...(mode !== undefined && { mode }) })
+        .plan(bundle, { root: projectDir, ...(mode !== undefined && { mode }) })
         .filter((artifact): artifact is PlannedSkillDir => artifact.kind === "skill-dir")
         .map((artifact) => artifact.mode);
 
@@ -260,7 +277,7 @@ describe("the Claude adapter's plan", () => {
 
   it("is pure: planning twice yields the same paths", async () => {
     const bundle = await bundleFor();
-    const project = { root: projectDir, env: {} };
+    const project = { root: projectDir };
 
     expect(claudeAdapter.plan(bundle, project)).toEqual(claudeAdapter.plan(bundle, project));
   });
@@ -268,9 +285,10 @@ describe("the Claude adapter's plan", () => {
   it("plans no config file for a bundle with no servers", async () => {
     await writeProfile(["core"]);
 
-    const plan = claudeAdapter.plan(await bundleFor(), { root: projectDir, env: {} });
+    const plan = claudeAdapter.plan(await bundleFor(), { root: projectDir });
 
-    expect(plan.map((artifact) => artifact.kind)).toEqual(["skill-dir"]);
+    // The skills link is still planned: Claude Code reads through it whatever the bundle holds.
+    expect(plan.map((artifact) => artifact.kind)).toEqual(["skill-dir", "skills-link"]);
   });
 });
 
@@ -329,7 +347,13 @@ describe("ambit install", () => {
         { path: `${SKILLS_DIR}/${CORE_SKILL}`, kind: "skill-dir", mode: "link" },
         { path: `${SKILLS_DIR}/${FRONTEND_SKILL}`, kind: "skill-dir", mode: "link" },
         { path: `${SKILLS_DIR}/${ENGINEERING_SKILL}`, kind: "skill-dir", mode: "link" },
-        { path: MCP_FILE, kind: "harness-config", managedKeys: [`mcpServers.${SCOPED_MCP}`] },
+        { path: CLAUDE_LINK, kind: "skills-link", mode: "link" },
+        {
+          path: MCP_FILE,
+          kind: "harness-config",
+          format: "json",
+          managedKeys: [`mcpServers.${SCOPED_MCP}`],
+        },
       ],
     });
   });
@@ -378,10 +402,11 @@ describe("ambit install", () => {
         "harnesses (1)",
         "  claude",
         "",
-        "artifacts (4)",
+        "artifacts (5)",
         `  ${`${SKILLS_DIR}/${CORE_SKILL}`.padEnd(width)}  skill-dir       link`,
         `  ${SKILLS_DIR}/${FRONTEND_SKILL}  skill-dir       link`,
         `  ${`${SKILLS_DIR}/${ENGINEERING_SKILL}`.padEnd(width)}  skill-dir       link`,
+        `  ${CLAUDE_LINK.padEnd(width)}  skills-link     link`,
         `  ${MCP_FILE.padEnd(width)}  harness-config  -`,
       ].join("\n"),
     );
@@ -395,6 +420,8 @@ describe("ambit install", () => {
         { kind: "skill-dir", mode: "link", path: `${SKILLS_DIR}/${CORE_SKILL}` },
         { kind: "skill-dir", mode: "link", path: `${SKILLS_DIR}/${FRONTEND_SKILL}` },
         { kind: "skill-dir", mode: "link", path: `${SKILLS_DIR}/${ENGINEERING_SKILL}` },
+        { kind: "skills-link", mode: "link", path: CLAUDE_LINK },
+        // No `format`: a report shows what a reader needs, and the path already says which it is.
         { kind: "harness-config", managedKeys: [`mcpServers.${SCOPED_MCP}`], path: MCP_FILE },
       ],
       harnesses: ["claude"],
@@ -537,7 +564,12 @@ describe(".mcp.json", () => {
     headers: { Authorization: `Bearer \${${SCOPED_KEY_VAR}}` },
   };
 
-  const FIXTURE_SERVER = { command: "npx", args: ["-y", "@acme/fixture-mcp"] };
+  /** stdio servers carry an `env` map so the harness passes each declared variable to the process. */
+  const FIXTURE_SERVER = {
+    command: "npx",
+    args: ["-y", "@acme/fixture-mcp"],
+    env: { FIXTURE_API_KEY: "${FIXTURE_API_KEY}" },
+  };
 
   it("holds exactly the scope-matched server and the requires-only one", async () => {
     await writeProfile(BOTH_SERVERS);
@@ -559,22 +591,26 @@ describe(".mcp.json", () => {
     expect(await pathExists(MCP_FILE)).toBe(false);
   });
 
-  it("interpolates `${VAR}` in a header from the environment", async () => {
+  it("writes a `${VAR}` reference rather than the value, even with the variable set", async () => {
     vi.stubEnv(SCOPED_KEY_VAR, "s3cret");
 
     await cli("install");
 
-    expect(await readMcpConfig()).toEqual({
-      mcpServers: {
-        [SCOPED_MCP]: { ...SCOPED_SERVER, headers: { Authorization: "Bearer s3cret" } },
-      },
-    });
+    // The credential stays in the environment. Resolving it here would put a live token into a file
+    // ambit deliberately does not gitignore, and make the output differ per machine.
+    expect(await readMcpConfig()).toEqual({ mcpServers: { [SCOPED_MCP]: SCOPED_SERVER } });
+    expect(await readMcpFile()).not.toContain("s3cret");
   });
 
-  it("leaves a placeholder in place when its variable is unset, rather than emptying it", async () => {
+  it("writes the same reference whether or not the variable is set", async () => {
+    await cli("install");
+    const unset = await readMcpFile();
+
+    vi.stubEnv(SCOPED_KEY_VAR, "s3cret");
     await cli("install");
 
-    expect(await readMcpFile()).toContain(`Bearer \${${SCOPED_KEY_VAR}}`);
+    expect(await readMcpFile()).toBe(unset);
+    expect(unset).toContain(`Bearer \${${SCOPED_KEY_VAR}}`);
   });
 
   it("omits `args` and `headers` a server does not declare", async () => {
@@ -638,6 +674,7 @@ describe(".mcp.json", () => {
     expect(state.artifacts.find((artifact) => artifact.path === MCP_FILE)).toEqual({
       path: MCP_FILE,
       kind: "harness-config",
+      format: "json",
       managedKeys: [`mcpServers.${FIXTURE_MCP}`, `mcpServers.${SCOPED_MCP}`],
     });
   });
@@ -698,10 +735,12 @@ describe(".gitignore", () => {
 
     // Not `.mcp.json` and not `ambit.lock`: a team commits both.
     expect(await managedBlock()).toEqual([
-      `${STATE_DIRNAME}/`,
       `${SKILLS_DIR}/${CORE_SKILL}`,
       `${SKILLS_DIR}/${FRONTEND_SKILL}`,
       `${SKILLS_DIR}/${ENGINEERING_SKILL}`,
+      `${STATE_DIRNAME}/`,
+      // The link is a symlink git would otherwise track, so it needs a pattern of its own.
+      CLAUDE_LINK,
     ]);
   });
 
@@ -731,7 +770,11 @@ describe(".gitignore", () => {
     const result = await cli("install");
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
-    expect(await managedBlock()).toEqual([`${STATE_DIRNAME}/`, `${SKILLS_DIR}/${CORE_SKILL}`]);
+    expect(await managedBlock()).toEqual([
+      `${SKILLS_DIR}/${CORE_SKILL}`,
+      `${STATE_DIRNAME}/`,
+      CLAUDE_LINK,
+    ]);
   });
 
   it("rewrites its own block in place rather than adding a second one", async () => {
@@ -803,7 +846,13 @@ describe("explicitly declared skills and servers", () => {
     expect(await readMcpConfig()).toEqual({ mcpServers: { custom: { command: "custom-mcp" } } });
     expect(parseState(await readStateFile(), STATE_FILENAME).artifacts).toEqual([
       { path: `${SKILLS_DIR}/${READWISE}`, kind: "skill-dir", mode: "link" },
-      { path: MCP_FILE, kind: "harness-config", managedKeys: ["mcpServers.custom"] },
+      { path: CLAUDE_LINK, kind: "skills-link", mode: "link" },
+      {
+        path: MCP_FILE,
+        kind: "harness-config",
+        format: "json",
+        managedKeys: ["mcpServers.custom"],
+      },
     ]);
   });
 });
@@ -826,11 +875,13 @@ describe("ambit install failures", () => {
   }
 
   it("exits 2 for a harness with no adapter", async () => {
-    await writeProfile(["core"], ["cursor"]);
+    await writeProfile(["core"], ["zed"]);
 
     const result = await cli("install");
     expect(result.code).toBe(ExitCode.Config);
-    expect(result.stderr).toContain('unknown harness "cursor"');
+    expect(result.stderr).toContain('unknown harness "zed"');
+    // The message lists what this build does ship, so a typo is one line from being fixed.
+    expect(result.stderr).toContain("claude, codex, cursor, opencode, vscode");
     expect(await pathExists(SKILLS_DIR)).toBe(false);
   });
 
@@ -912,7 +963,10 @@ describe("ambit install --dry-run", () => {
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     expect(JSON.parse(result.stdout)).toEqual({
-      artifacts: [{ kind: "skill-dir", mode: "link", path: `${SKILLS_DIR}/${CORE_SKILL}` }],
+      artifacts: [
+        { kind: "skill-dir", mode: "link", path: `${SKILLS_DIR}/${CORE_SKILL}` },
+        { kind: "skills-link", mode: "link", path: CLAUDE_LINK },
+      ],
       gitignoreChanged: true,
       harnesses: ["claude"],
       lockChanged: true,
@@ -1157,6 +1211,7 @@ describe("pruning", () => {
 
     expect(parseState(await readStateFile(), STATE_FILENAME).artifacts).toEqual([
       { path: `${SKILLS_DIR}/${CORE_SKILL}`, kind: "skill-dir", mode: "link" },
+      { path: CLAUDE_LINK, kind: "skills-link", mode: "link" },
     ]);
   });
 
@@ -1187,7 +1242,13 @@ describe("pruning", () => {
     expect(parseState(await readStateFile(), STATE_FILENAME).artifacts).toEqual([
       { path: `${SKILLS_DIR}/${FRONTEND_SKILL}`, kind: "skill-dir", mode: "link" },
       { path: `${SKILLS_DIR}/${ENGINEERING_SKILL}`, kind: "skill-dir", mode: "link" },
-      { path: MCP_FILE, kind: "harness-config", managedKeys: [`mcpServers.${SCOPED_MCP}`] },
+      { path: CLAUDE_LINK, kind: "skills-link", mode: "link" },
+      {
+        path: MCP_FILE,
+        kind: "harness-config",
+        format: "json",
+        managedKeys: [`mcpServers.${SCOPED_MCP}`],
+      },
     ]);
   });
 
@@ -1313,6 +1374,8 @@ describe("idempotence", () => {
     `${SKILLS_DIR}/${CORE_SKILL}/SKILL.md`,
     `${SKILLS_DIR}/${FRONTEND_SKILL}/SKILL.md`,
     `${SKILLS_DIR}/${ENGINEERING_SKILL}/SKILL.md`,
+    // The link Claude Code reads through, which is one entry however many skills sit behind it.
+    CLAUDE_LINK,
     MCP_FILE,
     LOCK_FILENAME,
     // The managed block is a file install writes, so it belongs in the claim: this list is

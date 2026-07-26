@@ -26,7 +26,8 @@ import { run } from "../../src/cli/program.js";
 import { STATE_DIRNAME, STATE_FILENAME, parseState } from "../../src/model/state.js";
 
 const CATALOG_NAME = "company";
-const SKILLS_DIR = ".claude/skills";
+const SKILLS_DIR = ".agents/skills";
+const CLAUDE_LINK = ".claude/skills";
 const MCP_FILE = ".mcp.json";
 
 const CORE_SKILL = "acme.commons.use-company-context";
@@ -221,8 +222,12 @@ describe("ambit prune", () => {
 
     await cli("prune");
 
-    expect(await ownedPathsNow()).toEqual([`${SKILLS_DIR}/${CORE_SKILL}`]);
-    expect(await managedBlock()).toEqual([`${STATE_DIRNAME}/`, `${SKILLS_DIR}/${CORE_SKILL}`]);
+    expect(await ownedPathsNow()).toEqual([`${SKILLS_DIR}/${CORE_SKILL}`, CLAUDE_LINK]);
+    expect(await managedBlock()).toEqual([
+      `${SKILLS_DIR}/${CORE_SKILL}`,
+      `${STATE_DIRNAME}/`,
+      CLAUDE_LINK,
+    ]);
   });
 
   it("removes the server keys the narrowed bundle dropped, and keeps the file", async () => {
@@ -369,7 +374,11 @@ describe("ambit prune", () => {
         { kind: "skill-dir", path: `${SKILLS_DIR}/${ENGINEERING_SKILL}` },
         { kind: "harness-config", managedKeys: [`mcpServers.${SCOPED_MCP}`], path: MCP_FILE },
       ],
-      remaining: [{ kind: "skill-dir", mode: "link", path: `${SKILLS_DIR}/${CORE_SKILL}` }],
+      // The link is not pruned: a narrowed profile still holds skills, so it still points at them.
+      remaining: [
+        { kind: "skill-dir", mode: "link", path: `${SKILLS_DIR}/${CORE_SKILL}` },
+        { kind: "skills-link", mode: "link", path: CLAUDE_LINK },
+      ],
     });
     expect(result.stdout).not.toContain(root);
   });
@@ -489,10 +498,11 @@ describe("ambit clean", () => {
     const width = `${SKILLS_DIR}/${FRONTEND_SKILL}`.length;
     expect(result.stdout).toBe(
       [
-        "removed (4)",
+        "removed (5)",
         `  ${`${SKILLS_DIR}/${CORE_SKILL}`.padEnd(width)}  skill-dir       -`,
         `  ${`${SKILLS_DIR}/${FRONTEND_SKILL}`.padEnd(width)}  skill-dir       -`,
         `  ${`${SKILLS_DIR}/${ENGINEERING_SKILL}`.padEnd(width)}  skill-dir       -`,
+        `  ${CLAUDE_LINK.padEnd(width)}  skills-link     -`,
         `  ${MCP_FILE.padEnd(width)}  harness-config  mcpServers.${SCOPED_MCP}`,
         "",
         "records (2)",
@@ -511,6 +521,7 @@ describe("ambit clean", () => {
         { kind: "skill-dir", path: `${SKILLS_DIR}/${CORE_SKILL}` },
         { kind: "skill-dir", path: `${SKILLS_DIR}/${FRONTEND_SKILL}` },
         { kind: "skill-dir", path: `${SKILLS_DIR}/${ENGINEERING_SKILL}` },
+        { kind: "skills-link", path: CLAUDE_LINK },
         { kind: "harness-config", managedKeys: [`mcpServers.${SCOPED_MCP}`], path: MCP_FILE },
       ],
       stateRemoved: true,
@@ -530,6 +541,7 @@ describe("ambit clean", () => {
         { kind: "skill-dir", path: `${SKILLS_DIR}/${CORE_SKILL}` },
         { kind: "skill-dir", path: `${SKILLS_DIR}/${FRONTEND_SKILL}` },
         { kind: "skill-dir", path: `${SKILLS_DIR}/${ENGINEERING_SKILL}` },
+        { kind: "skills-link", path: CLAUDE_LINK },
         { kind: "harness-config", managedKeys: [`mcpServers.${SCOPED_MCP}`], path: MCP_FILE },
       ],
       stateRemoved: true,
