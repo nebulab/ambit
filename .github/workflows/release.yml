@@ -7,7 +7,7 @@
 #     published.** A tag is the only thing this workflow is given, and `--version` reads
 #     `package.json` (`src/version.ts`), so the two must agree or the release would announce one
 #     version and install another.
-#   - **The four checks run again here** even though `ci.yml` already ran them on `main`. A tag can
+#   - **The five checks run again here** even though `ci.yml` already ran them on `main`. A tag can
 #     point at any commit, and publishing bytes nothing verified is the one failure mode that cannot
 #     be taken back — npm does not allow republishing a version.
 #   - **`--provenance` with `id-token: write`** attests, to the public transparency log, which
@@ -58,6 +58,9 @@ jobs:
 
       - name: Lint
         run: npm run lint
+
+      - name: Format
+        run: npm run format:check
 
       - name: Typecheck
         run: npm run typecheck

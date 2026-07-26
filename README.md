@@ -3,8 +3,8 @@
 A deterministic dependency manager for AI-agent capabilities: skills and MCP servers, selected by
 scope.
 
-Agent harnesses (Claude Code, Cursor, Codex) load *skills* — folders of instructions — and connect to
-*MCP servers*. Picking those by hand, per project, per person, does not scale past one person: a
+Agent harnesses (Claude Code, Cursor, Codex) load _skills_ — folders of instructions — and connect to
+_MCP servers_. Picking those by hand, per project, per person, does not scale past one person: a
 designer and a backend engineer at the same company need overlapping-but-different sets, and nobody
 wants to hand-maintain a config file per human.
 
@@ -127,7 +127,7 @@ files (1)
 next: write the skill's instructions in skills/acme/engineering/use-code-review/SKILL.md
 ```
 
-ambit writes the file and maintains its annotations. What the instructions *say* is your judgement —
+ambit writes the file and maintains its annotations. What the instructions _say_ is your judgement —
 exactly the judgement ambit refuses to make.
 
 `ambit catalog init` also scaffolds a GitHub Actions workflow running `ambit validate`, so a catalog
@@ -139,16 +139,16 @@ reported as `kept`, since a catalog is normally initialized inside a repo that a
 
 ## Concepts
 
-| Term | Meaning |
-| --- | --- |
-| **Catalog** | A source of skills and MCP definitions — a git repo or a local directory. |
-| **Skill** | A directory containing `SKILL.md`. Its name is its path under `skills/` with `/` → `.`, so `skills/acme/sales/use-close/` is `acme.sales.use-close`. |
-| **MCP entity** | A server definition in the catalog's `mcps/` directory. |
-| **Scope** | A dotted, nestable label for *who needs a thing*: `function.engineering`, `project.vision-group`, `person.jane-doe`. |
-| **Project** | A directory containing `ambit.yml`. |
-| **Bundle** | The resolved set of skills and MCP servers for a project. |
-| **Harness adapter** | Code that writes a bundle into one agent tool's layout. v1 ships one: `claude`. |
-| **Owned artifact** | A file or directory ambit created, recorded in `.ambit/state.json`. ambit never touches anything else. |
+| Term                | Meaning                                                                                                                                              |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Catalog**         | A source of skills and MCP definitions — a git repo or a local directory.                                                                            |
+| **Skill**           | A directory containing `SKILL.md`. Its name is its path under `skills/` with `/` → `.`, so `skills/acme/sales/use-close/` is `acme.sales.use-close`. |
+| **MCP entity**      | A server definition in the catalog's `mcps/` directory.                                                                                              |
+| **Scope**           | A dotted, nestable label for _who needs a thing_: `function.engineering`, `project.vision-group`, `person.jane-doe`.                                 |
+| **Project**         | A directory containing `ambit.yml`.                                                                                                                  |
+| **Bundle**          | The resolved set of skills and MCP servers for a project.                                                                                            |
+| **Harness adapter** | Code that writes a bundle into one agent tool's layout. v1 ships one: `claude`.                                                                      |
+| **Owned artifact**  | A file or directory ambit created, recorded in `.ambit/state.json`. ambit never touches anything else.                                               |
 
 A catalog looks like this:
 
@@ -187,7 +187,7 @@ scopes:
 catalogs:
   - name: company
     source: git@github.com:acme/skills.git
-    ref: "a1b2c3d4"            # tag, branch, or commit. Quote it. Omit for the default branch.
+    ref: "a1b2c3d4" # tag, branch, or commit. Quote it. Omit for the default branch.
   - name: personal
     source: git@github.com:jane/skills-private.git
     ref: main
@@ -199,7 +199,7 @@ skills:
   - acme.marketing.use-luma
   - name: readwise-cli
     source: https://github.com/readwiseio/readwise-skills
-    path: skills/readwise-cli  # optional; overrides the name→path convention
+    path: skills/readwise-cli # optional; overrides the name→path convention
 
 # Ad-hoc MCP servers not defined in any catalog. Same shape as a catalog MCP entity.
 mcps:
@@ -211,14 +211,14 @@ mcps:
     env: [SOME_TOKEN]
 ```
 
-| Field | Type | Required | Notes |
-| --- | --- | --- | --- |
-| `version` | int | yes | Must be `1`. |
-| `harnesses` | string[] | no | Default `[claude]`. |
-| `scopes` | string[] | no | Held scopes, exactly as listed. Nothing is added implicitly. Absent or empty means nothing is selected by scope — only explicit `skills` entries. |
-| `catalogs` | list of maps | no | `name`, `source`, `ref?`. `name` unique. |
-| `skills` | list of strings or maps | no | String = a name from a catalog. Map = `name`, `source`, `ref?`, `path?`. |
-| `mcps` | list of maps | no | Inline server definitions, in the shape below. |
+| Field       | Type                    | Required | Notes                                                                                                                                             |
+| ----------- | ----------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `version`   | int                     | yes      | Must be `1`.                                                                                                                                      |
+| `harnesses` | string[]                | no       | Default `[claude]`.                                                                                                                               |
+| `scopes`    | string[]                | no       | Held scopes, exactly as listed. Nothing is added implicitly. Absent or empty means nothing is selected by scope — only explicit `skills` entries. |
+| `catalogs`  | list of maps            | no       | `name`, `source`, `ref?`. `name` unique.                                                                                                          |
+| `skills`    | list of strings or maps | no       | String = a name from a catalog. Map = `name`, `source`, `ref?`, `path?`.                                                                          |
+| `mcps`      | list of maps            | no       | Inline server definitions, in the shape below.                                                                                                    |
 
 **Source formats:** `owner/repo`, `owner/repo@ref` (GitHub shorthand), `https://github.com/owner/repo`,
 `git@host:owner/repo.git`, `git:<any-git-url>`, `path:./relative/dir`. A `@ref` shorthand that
@@ -243,12 +243,12 @@ ambit:
 ---
 ```
 
-| Key | Type | Required | Notes |
-| --- | --- | --- | --- |
-| `ambit` | map | no | Every annotation below. Absent means the skill declares nothing. |
-| `ambit.scopes` | string[] | no | Absent or empty = never selected by scope; reachable only via `requires` or an explicit listing. |
-| `ambit.requires` | string[] | no | Skill names, or MCP names prefixed `mcp.`. |
-| `ambit.env` | string[] | no | Env vars the skill itself reads (not via an MCP). |
+| Key              | Type     | Required | Notes                                                                                            |
+| ---------------- | -------- | -------- | ------------------------------------------------------------------------------------------------ |
+| `ambit`          | map      | no       | Every annotation below. Absent means the skill declares nothing.                                 |
+| `ambit.scopes`   | string[] | no       | Absent or empty = never selected by scope; reachable only via `requires` or an explicit listing. |
+| `ambit.requires` | string[] | no       | Skill names, or MCP names prefixed `mcp.`.                                                       |
+| `ambit.env`      | string[] | no       | Env vars the skill itself reads (not via an MCP).                                                |
 
 `name` and `description` are the harness's own keys. ambit reads `name` and requires it to match the
 directory path.
@@ -285,16 +285,16 @@ transport:
 env: [SENTRY_TOKEN]
 ```
 
-| Key | Type | Required | Notes |
-| --- | --- | --- | --- |
-| `name` | string | yes | Must match the filename stem. `.yml` and `.yaml` are both accepted. |
-| `scopes` | string[] | no | Same semantics as skills. |
-| `transport` | map | yes | Exactly one key, naming the kind: `stdio` or `http`. |
-| `transport.stdio.command` | string | yes for stdio | Executable to spawn. |
-| `transport.stdio.args` | string[] | no | Arguments, in order. |
-| `transport.http.url` | string | yes for http | Server endpoint. |
-| `transport.http.headers` | map | no | `${VAR}` interpolated from the environment at install. |
-| `env` | string[] | no | Env vars this server needs. |
+| Key                       | Type     | Required      | Notes                                                               |
+| ------------------------- | -------- | ------------- | ------------------------------------------------------------------- |
+| `name`                    | string   | yes           | Must match the filename stem. `.yml` and `.yaml` are both accepted. |
+| `scopes`                  | string[] | no            | Same semantics as skills.                                           |
+| `transport`               | map      | yes           | Exactly one key, naming the kind: `stdio` or `http`.                |
+| `transport.stdio.command` | string   | yes for stdio | Executable to spawn.                                                |
+| `transport.stdio.args`    | string[] | no            | Arguments, in order.                                                |
+| `transport.http.url`      | string   | yes for http  | Server endpoint.                                                    |
+| `transport.http.headers`  | map      | no            | `${VAR}` interpolated from the environment at install.              |
+| `env`                     | string[] | no            | Env vars this server needs.                                         |
 
 `transport` must contain **exactly one** key. Zero keys, two keys, or an unrecognized kind is an error
 naming the supported kinds — it is the discriminator, so it must never be ambiguous. Keeping the kind
@@ -431,15 +431,15 @@ precedence question. First-wins applies between catalogs and nowhere else.
 - `ambit validate` validates the **entire catalog** — every scope registered, every `requires` target
   resolvable, no cycles, no name shadowing, every skill name matching its path. This is the CI command
   for catalog repos.
-- `ambit catalog audit` is the report about a catalog's *health* where `validate` is the report about
-  its *validity*: dead scopes and unreachable items. The two deliberately do not learn each other's
+- `ambit catalog audit` is the report about a catalog's _health_ where `validate` is the report about
+  its _validity_: dead scopes and unreachable items. The two deliberately do not learn each other's
   findings, so a catalog can be perfectly valid and still be reported as untidy.
 
 ## The selection rule
 
 **A held scope selects itself and every scope beneath it. Descendants only.**
 
-Holding `function.engineering` selects things scoped `function.engineering` *and*
+Holding `function.engineering` selects things scoped `function.engineering` _and_
 `function.engineering.frontend`. Holding `function.engineering.frontend` selects only that subtree —
 it does **not** reach up to `function.engineering`.
 
@@ -484,14 +484,14 @@ skills (1)
 This is the decision catalog authors get wrong, and the only fix is restructuring the tree — which
 means every project's `ambit.yml` has to be edited to match. Get it right first.
 
-- **Nest** only when selecting the parent genuinely implies wanting *every* child. Everyone doing
+- **Nest** only when selecting the parent genuinely implies wanting _every_ child. Everyone doing
   engineering work should have the frontend conventions too? Then `function.engineering.frontend` is a
   child of `function.engineering`.
 - **Make siblings** of anything people pick independently. If some engineers want the frontend set and
   some want the backend set and nobody wants both, they are siblings — `discipline.frontend` and
   `discipline.backend` — with no parent that selects them together.
 
-The test to apply to any candidate parent: *would I be annoyed to receive everything under this?* If
+The test to apply to any candidate parent: _would I be annoyed to receive everything under this?_ If
 yes, the children belong somewhere else.
 
 Two corollaries worth internalising:
@@ -499,7 +499,7 @@ Two corollaries worth internalising:
 - **A scope with no children is a leaf you can always split later.** Adding
   `function.engineering.frontend` under an existing `function.engineering` is backwards-compatible —
   every project already holding the parent picks the new child up automatically. Splitting a parent
-  *apart* into siblings is not.
+  _apart_ into siblings is not.
 - **There is no "select the parent from the child" escape hatch.** If a skill is genuinely needed by
   both `function.engineering` and `function.design`, give it both scopes. `scopes` is a list.
 
@@ -540,7 +540,7 @@ $ ls -l .claude/skills
 acme.commons.use-house-style -> ../../../acme-skills/skills/acme/commons/use-house-style
 ```
 
-Because a linked skill *is* the catalog's copy, editing one is never drift. Content drift is only a
+Because a linked skill _is_ the catalog's copy, editing one is never drift. Content drift is only a
 question about a copy — and there, `status` compares the copy against its source, so it reports
 upstream change as well as local edits.
 
@@ -564,7 +564,7 @@ Each entity's `transport` maps onto the harness's own server shape — `stdio` t
 ```
 
 `.mcp.json` is **co-owned**: ambit owns only the server keys it wrote, recorded per key in state.
-Servers you added by hand are preserved untouched, and only a colliding server *name* is a conflict.
+Servers you added by hand are preserved untouched, and only a colliding server _name_ is a conflict.
 
 `${VAR}` in `headers` is interpolated from the environment at install time. A missing variable leaves
 its placeholder rather than emptying the value — a warning, not a failure, because a bundle you cannot
@@ -607,7 +607,7 @@ error: refusing to overwrite unowned path
    recoverable rather than orphaned.
 
 The cost of rule 4 is worth knowing: a run that crashed mid-apply leaves artifacts present but
-*unowned*, so the next plain `install` refuses them. `status` reports them as `unowned` and `doctor`
+_unowned_, so the next plain `install` refuses them. `status` reports them as `unowned` and `doctor`
 names `--adopt`.
 
 ### Cache and offline
@@ -625,34 +625,34 @@ the cache, `clean` included.
 
 ### Global flags
 
-| Flag | Notes |
-| --- | --- |
-| `--project <dir>` | The project to act on. Default: cwd. On consumer commands. |
-| `--catalog <dir>` | The catalog root to act on. Default: cwd. On authoring commands. |
-| `--json` | Machine-readable output. Every command supports it. |
-| `--offline` | Resolve from the cache alone. On consumer commands only — an authoring command reads one directory and resolves no source. |
-| `--dry-run` | On mutating commands: report what would happen and touch nothing. |
-| `--help` | Usage for the program or for any command, at any depth, on stdout at exit 0. |
-| `--version` | Print the ambit version. Program-level. |
+| Flag              | Notes                                                                                                                      |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `--project <dir>` | The project to act on. Default: cwd. On consumer commands.                                                                 |
+| `--catalog <dir>` | The catalog root to act on. Default: cwd. On authoring commands.                                                           |
+| `--json`          | Machine-readable output. Every command supports it.                                                                        |
+| `--offline`       | Resolve from the cache alone. On consumer commands only — an authoring command reads one directory and resolves no source. |
+| `--dry-run`       | On mutating commands: report what would happen and touch nothing.                                                          |
+| `--help`          | Usage for the program or for any command, at any depth, on stdout at exit 0.                                               |
+| `--version`       | Print the ambit version. Program-level.                                                                                    |
 
 `--dry-run` still checks ownership and `--frozen`: a preview of an install that would be refused is
 refused, with the same message and exit code, because "what would happen" includes stopping.
 
 ### Consumer commands
 
-| Command | What it does |
-| --- | --- |
-| `ambit init` | Scaffold an `ambit.yml`. Refuses a directory that already has one, `--dry-run` included, and does not create a missing directory. |
-| `ambit scopes` | List the merged registry with descriptions, marking which scopes this project holds. |
-| `ambit catalog` | Dump the merged catalog. (`ambit catalog dump` is the same command.) |
-| `ambit resolve [--explain]` | Compute the bundle and print it. |
-| `ambit why <name>` | Explain why one item is in the bundle, as a chain. A skill wins a bare name; `mcp.<name>` insists on a server, and a bare name no skill answers falls back to one. |
-| `ambit install [--frozen] [--adopt] [--copy\|--link]` | Resolve, write `ambit.lock`, materialize the bundle, prune what left it. |
-| `ambit status [--check]` | Compare what is installed against what resolve produces. `--check` exits 5 on drift. |
-| `ambit prune` | Remove owned artifacts not in the current bundle. |
-| `ambit clean` | Remove everything ambit owns. |
-| `ambit validate [--catalog DIR]` | Full-catalog validation, for CI. |
-| `ambit doctor` | Check env vars, the lock, ownership, drift, and materialization mode. |
+| Command                                               | What it does                                                                                                                                                       |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ambit init`                                          | Scaffold an `ambit.yml`. Refuses a directory that already has one, `--dry-run` included, and does not create a missing directory.                                  |
+| `ambit scopes`                                        | List the merged registry with descriptions, marking which scopes this project holds.                                                                               |
+| `ambit catalog`                                       | Dump the merged catalog. (`ambit catalog dump` is the same command.)                                                                                               |
+| `ambit resolve [--explain]`                           | Compute the bundle and print it.                                                                                                                                   |
+| `ambit why <name>`                                    | Explain why one item is in the bundle, as a chain. A skill wins a bare name; `mcp.<name>` insists on a server, and a bare name no skill answers falls back to one. |
+| `ambit install [--frozen] [--adopt] [--copy\|--link]` | Resolve, write `ambit.lock`, materialize the bundle, prune what left it.                                                                                           |
+| `ambit status [--check]`                              | Compare what is installed against what resolve produces. `--check` exits 5 on drift.                                                                               |
+| `ambit prune`                                         | Remove owned artifacts not in the current bundle.                                                                                                                  |
+| `ambit clean`                                         | Remove everything ambit owns.                                                                                                                                      |
+| `ambit validate [--catalog DIR]`                      | Full-catalog validation, for CI.                                                                                                                                   |
+| `ambit doctor`                                        | Check env vars, the lock, ownership, drift, and materialization mode.                                                                                              |
 
 `--explain` annotates each item with why it was selected: `scope:function.sales`,
 `required-by:acme.sales.use-close`, `explicit`, or `catalog:company (shadows personal)`.
@@ -712,13 +712,13 @@ on the project you actually reach for it with, `ambit.yml` deleted or catalog un
 Both leave behind what ambit does not own: a `.mcp.json` left holding an empty `mcpServers` (the
 document is co-owned) and the harness's own `.claude/skills` directory. `clean` also leaves
 `ambit.lock` — a record teams commit, not an artifact ambit deletes. A `prune` that removed something
-*rewrites* the lock to the bundle it just resolved, the same bytes `install` would write, so the
+_rewrites_ the lock to the bundle it just resolved, the same bytes `install` would write, so the
 project it leaves behind passes `doctor` and `install --frozen` rather than reporting drift from the
 change it had just carried out. A prune with nothing stale writes nothing, lock included.
 
 ### Authoring commands
 
-Consumer commands serve someone *using* a catalog; these serve someone *maintaining* one. The split
+Consumer commands serve someone _using_ a catalog; these serve someone _maintaining_ one. The split
 matters because the two act on different directories: consumer commands take `--project <dir>` and read
 `ambit.yml`, authoring commands take `--catalog <dir>` and read the catalog root. A catalog is not a
 project and has no `ambit.yml`.
@@ -760,9 +760,9 @@ resolving one:
    nothing at all — not even an mtime.
 3. **Sorted, quoted, byte-stable output** wherever ambit owns the shape of a document. A list ambit
    rewrites comes out sorted and deduplicated, because argv order is not information — with one
-   deliberate exception, a stdio transport's `args`, which is nothing *but* order.
+   deliberate exception, a stdio transport's `args`, which is nothing _but_ order.
 4. **Validate before writing, not after.** Every mutation runs the `validate` checks against the
-   *result* and refuses to write if they fail — exit 3, every file left byte-identical. A mutation
+   _result_ and refuses to write if they fail — exit 3, every file left byte-identical. A mutation
    cannot leave a catalog broken. The corollary is that a pre-existing problem anywhere in a catalog
    blocks every mutation until it is fixed.
 5. **Atomic writes**, and never a path outside the catalog root — exit 2, naming the path.
@@ -834,15 +834,15 @@ here. That is the honest answer for a catalog repo's own CI.
 
 ### Exit codes
 
-| Code | Meaning |
-| --- | --- |
-| 0 | Success |
-| 1 | Unexpected internal error |
-| 2 | Config or ownership error |
-| 3 | Resolution error — unknown scope, missing requirement, cycle, name conflict |
-| 4 | Network or cache error |
-| 5 | Drift detected (`status --check`, `install --frozen`) |
-| 6 | A health check found something (`doctor` failures, `catalog audit --check` findings) |
+| Code | Meaning                                                                              |
+| ---- | ------------------------------------------------------------------------------------ |
+| 0    | Success                                                                              |
+| 1    | Unexpected internal error                                                            |
+| 2    | Config or ownership error                                                            |
+| 3    | Resolution error — unknown scope, missing requirement, cycle, name conflict          |
+| 4    | Network or cache error                                                               |
+| 5    | Drift detected (`status --check`, `install --frozen`)                                |
+| 6    | A health check found something (`doctor` failures, `catalog audit --check` findings) |
 
 A usage error — an unknown flag, a missing argument — is exit 2 at any depth.
 
@@ -864,7 +864,7 @@ error: refusing to overwrite unowned path
        move it aside, or run `ambit install --adopt` to take ownership
 ```
 
-`validate`, `status --check`, `doctor` and `catalog audit --check` are the four commands that *report*
+`validate`, `status --check`, `doctor` and `catalog audit --check` are the four commands that _report_
 rather than throw: their findings go to stdout, so `--json` stays parseable, and the non-zero code
 travels out beside a full report instead of stopping at the first problem.
 
@@ -889,7 +889,7 @@ additive and ignored by other tools.
 This is a hard requirement, not a nice-to-have, and it is enforced by a test rather than asserted in
 prose: `test/dotagents.test.ts` runs `npx @sentry/dotagents install` against a catalog and checks that
 dotagents installs exactly the skills ambit's own parser finds, under exactly the names ambit derives,
-with every `SKILL.md` byte-identical. It runs against the hand-written fixture catalog *and* against
+with every `SKILL.md` byte-identical. It runs against the hand-written fixture catalog _and_ against
 one produced by `ambit catalog init` plus `ambit catalog skill new`, so ambit's own authored output is
 covered by the promise too. The package is deliberately unpinned: the promise is about the release
 people actually have.
@@ -911,8 +911,14 @@ npm install
 npm test          # vitest, offline apart from the one compatibility test
 npm run typecheck
 npm run lint
+npm run format    # prettier --write; `format:check` is the CI variant
 npm run build
 ```
+
+Those five are what CI runs, so a green local run is the whole story. Formatting is Prettier's
+decision and not worth discussing in review — `prettier.config.js` sets one option and takes every
+other default. `test/golden/` is deliberately exempt: those files are recorded program output, and
+formatting them would assert Prettier's JSON style instead of ambit's.
 
 `test/golden/` holds the golden files; regenerate them with `UPDATE_GOLDEN=1 npm test` and read the
 diff. `npm run fixture` builds the fixture catalog the suite resolves against.

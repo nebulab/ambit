@@ -1,5 +1,5 @@
-# Runs the four checks PROMPT.md §4 requires of every iteration — lint, typecheck, test, build —
-# on every pull request and every push to `main`.
+# Runs the five checks required of every iteration — lint, format, typecheck, test, build — on every
+# pull request and every push to `main`.
 #
 # Two decisions worth knowing:
 #
@@ -47,6 +47,12 @@ jobs:
 
       - name: Lint
         run: npm run lint
+
+      # Separate from lint because the failure means something different: lint failing is a defect to
+      # think about, format failing is `npm run format` and nothing else. Prettier is pinned to an
+      # exact version in package.json so that a patch release cannot turn this step red on its own.
+      - name: Format
+        run: npm run format:check
 
       - name: Typecheck
         run: npm run typecheck
