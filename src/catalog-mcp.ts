@@ -10,11 +10,12 @@
  *   here rather than a check — {@link newMcp} takes an {@link McpTransport}, which cannot name zero
  *   or two kinds — so the discriminator §3.3 insists on can never be ambiguous in what ambit writes.
  *   The kind's own flags are the handler's to read.
- * - **`rm` removes the file the entity is actually written as**, `.yml` or `.yaml`
- *   ({@link mcpDocumentFile}), because removing the `.yml` a name *would* take is a silent no-op
- *   against a catalog that spells it `.yaml`. A parsed catalog now carries that filename as data too
- *   (`CatalogMcp.file`, added so `validate` could cite it); the `stat` here is the answer for a name
- *   nothing has parsed, and the two agree by construction for one that has.
+ * - **`rm` removes the file the entity is actually written as**, `.yml` or `.yaml`, because removing
+ *   the `.yml` a name *would* take is a silent no-op against a catalog that spells it `.yaml`. Both
+ *   commands read that filename off the parsed entity (`CatalogMcp.file`), which is the only place it
+ *   is known rather than guessed: parsing found the file, so it need not be looked for again.
+ *   {@link mcpDocumentFile} answers the same question for a name nothing has parsed, and stays
+ *   exported for the commands that still ask it that way.
  *
  * `new` declares no scopes, because the surface spec §6 gives it has no `--scope`: a new server is
  * reachable only through a skill's `requires` until someone gives it a `scopes` entry, and the
@@ -28,13 +29,13 @@
 import { stat } from "node:fs/promises";
 import path from "node:path";
 
-import type { Catalog, CatalogSkill } from "./catalog.js";
+import type { Catalog, CatalogMcp, CatalogSkill } from "./catalog.js";
 import { MCPS_DIRNAME, MCP_EXTENSIONS, SKILL_FILENAME, parseCatalogDirectory } from "./catalog.js";
 import type { EditOptions, EditResult } from "./editor.js";
 import { applyCatalogEdit, mcpDocumentPath } from "./editor.js";
 import type { AmbitError } from "./errors.js";
 import { at, configError, resolutionError } from "./errors.js";
-import type { McpEntity, McpTransport } from "./mcp.js";
+import type { McpTransport } from "./mcp.js";
 import { MCP_REQUIREMENT_PREFIX } from "./resolve.js";
 import { emitYaml } from "./yaml.js";
 
@@ -102,9 +103,10 @@ async function isFile(target: string): Promise<boolean> {
  * The file an entity is written as, catalog-relative: whichever §3.3 extension it actually carries,
  * falling back to the one ambit writes.
  *
- * Parsing refuses a stem that carries both extensions, so at most one of them is there. Exported
- * because every command that *edits* an existing entity needs it for the same reason `rm` does —
- * `catalog annotate` will.
+ * Parsing refuses a stem that carries both extensions, so at most one of them is there — which is
+ * also why this agrees with a parsed entity's `CatalogMcp.file` whenever there is one to compare
+ * against. Exported for the callers that have a name but no parsed entity behind it; a caller holding
+ * the entity should read `file` off it instead of asking the filesystem a second time.
  */
 export async function mcpDocumentFile(root: string, name: string): Promise<string> {
   for (const extension of MCP_EXTENSIONS) {
@@ -198,7 +200,7 @@ async function readCatalog(root: string): Promise<Catalog> {
  *
  * @throws {AmbitError} exit 3 when the catalog provides no such server.
  */
-function provided(catalog: Catalog, name: string): McpEntity {
+function provided(catalog: Catalog, name: string): CatalogMcp {
   const entity = catalog.mcps.find((candidate) => candidate.name === name);
   if (entity === undefined) throw unknownMcp(name);
   return entity;
@@ -257,9 +259,8 @@ export async function newMcp(
   assertMcpName(name);
 
   const catalog = await readCatalog(root);
-  if (catalog.mcps.some((candidate) => candidate.name === name)) {
-    throw alreadyProvided(name, await mcpDocumentFile(root, name));
-  }
+  const existing = catalog.mcps.find((candidate) => candidate.name === name);
+  if (existing !== undefined) throw alreadyProvided(name, existing.file);
 
   const text = renderMcp(name, options.transport, sortedUnique(options.env ?? []));
   const result = await applyCatalogEdit(root, [{ file: mcpDocumentPath(name), text }], options);
@@ -289,7 +290,7 @@ export async function removeMcp(
 ): Promise<McpRemoveResult> {
   const catalog = await readCatalog(root);
   const entity = provided(catalog, name);
-  const file = await mcpDocumentFile(root, entity.name);
+  const file = entity.file;
 
   const requirement = `${MCP_REQUIREMENT_PREFIX}${entity.name}`;
   const requirers = catalog.skills.filter((skill) => skill.requires.includes(requirement));

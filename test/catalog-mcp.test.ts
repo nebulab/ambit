@@ -379,6 +379,16 @@ describe("ambit catalog mcp new", () => {
     expect(result.stderr).toContain("pick another name, or edit the entity that is there");
   });
 
+  it("names the file the author wrote when it refuses a name the catalog already provides", async () => {
+    // The refusal's whole job is to send the reader to the entity that is already there, and §3.3
+    // accepts `.yaml` — citing the `.yml` ambit would have written names a file that is not on disk.
+    await rename(path.join(catalogDir, FREE_FILE), path.join(catalogDir, "mcps/scoped.yaml"));
+
+    const result = await refused(ExitCode.Resolution, "new", FREE, "--stdio", NOTES_COMMAND);
+
+    expect(result.stderr).toContain(`MCP server "${FREE}" already exists (mcps/scoped.yaml)`);
+  });
+
   it("refuses a name that could not be a filename under mcps/", async () => {
     const separator = await refused(ExitCode.Config, "new", "a/b", "--stdio", NOTES_COMMAND);
     expect(separator.stderr).toContain('invalid MCP name "a/b" (mcps)');

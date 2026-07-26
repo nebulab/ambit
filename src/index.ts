@@ -63,7 +63,6 @@ export type {
   AuditCounts,
   AuditFinding,
   AuditFindingKind,
-  AuditOptions,
   AuditReport,
 } from "./catalog-audit.js";
 export {

@@ -37,14 +37,7 @@
 import path from "node:path";
 
 import type { Catalog, CatalogSkill } from "./catalog.js";
-import {
-  MCPS_DIRNAME,
-  MCP_EXTENSIONS,
-  SCOPES_FILENAME,
-  SKILL_FILENAME,
-  parseCatalogDirectory,
-} from "./catalog.js";
-import { mcpDocumentFile } from "./catalog-mcp.js";
+import { SCOPES_FILENAME, SKILL_FILENAME, parseCatalogDirectory } from "./catalog.js";
 import { buildScopeTree, flattenScopeTree, selectionSize } from "./catalog-tree.js";
 import { at } from "./errors.js";
 import { MCP_REQUIREMENT_PREFIX } from "./resolve.js";
@@ -97,22 +90,6 @@ export function isTidy(report: AuditReport): boolean {
   return report.findings.length === 0;
 }
 
-/** How an audit was told to read the catalog. */
-export interface AuditOptions {
-  /**
-   * Where each MCP entity is actually written, catalog-relative, keyed by name — a `.yaml` file as
-   * readily as a `.yml` one (spec §3.3).
-   *
-   * A report that must name the offending file has to be told, since this function is pure. Absent
-   * falls back to the extension ambit itself writes, which is right for every catalog ambit authored
-   * and wrong only for a hand-written `.yaml` — {@link auditCatalogDirectory} supplies the real
-   * answer. A parsed entity now carries the same fact as data (`CatalogMcp.file`), so this is a
-   * second answer to one question that a later task should collapse; nothing here may re-derive it a
-   * third way.
-   */
-  readonly mcpFiles?: ReadonlyMap<string, string>;
-}
-
 function finding(
   kind: AuditFindingKind,
   message: string,
@@ -124,10 +101,6 @@ function finding(
 /** Where a skill's annotations are written, from the path the catalog derived its name from. */
 function skillDocumentOf(skill: CatalogSkill): string {
   return `${skill.path}/${SKILL_FILENAME}`;
-}
-
-function mcpDocumentOf(name: string, options: AuditOptions): string {
-  return options.mcpFiles?.get(name) ?? `${MCPS_DIRNAME}/${name}${MCP_EXTENSIONS[0] ?? ""}`;
 }
 
 /** What a scope declaration can reach: the scopes some `scopes.yml` actually registers. */
@@ -233,17 +206,15 @@ function unreachableSkillFindings(
 }
 
 /** MCP servers no profile can select, in name order. */
-function unreachableMcpFindings(
-  catalog: Catalog,
-  reachable: Reachable,
-  options: AuditOptions,
-): readonly AuditFinding[] {
+function unreachableMcpFindings(catalog: Catalog, reachable: Reachable): readonly AuditFinding[] {
   return catalog.mcps
     .filter((mcp) => !reachable.mcps.has(mcp.name))
     .map((mcp) =>
       finding(
         "unreachable-mcp",
-        `unreachable MCP server "${mcp.name}" ${at(mcpDocumentOf(mcp.name, options), undefined)}`,
+        // `mcp.file` rather than `mcps/<name>.yml`: parsing already knows which §3.3 extension the
+        // entity actually carries, and a finding has to name a file the reader can open (spec §6).
+        `unreachable MCP server "${mcp.name}" ${at(mcp.file, undefined)}`,
         [
           `no registered scope selects it, and nothing reachable requires \`${MCP_REQUIREMENT_PREFIX}${mcp.name}\``,
           "no profile can select it, so nothing ever starts the server",
@@ -259,11 +230,10 @@ function unreachableMcpFindings(
  * Pure, and a function of the catalog's contents alone: `parseCatalogDirectory` hands back scopes,
  * skills, and entities in name order, every finding list is built by walking one of those three, and
  * nothing here reads the filesystem or the clock — so two runs against one catalog produce identical
- * reports whatever order the directory was read in (spec §4).
- *
- * @param options where each MCP entity is written, when the caller knows.
+ * reports whatever order the directory was read in (spec §4). That includes the file a finding
+ * cites, which parsing carries as data (`CatalogMcp.file`) rather than leaving the caller to supply.
  */
-export function auditCatalog(catalog: Catalog, options: AuditOptions = {}): AuditReport {
+export function auditCatalog(catalog: Catalog): AuditReport {
   const reachable = reachableItems(catalog);
 
   return {
@@ -275,7 +245,7 @@ export function auditCatalog(catalog: Catalog, options: AuditOptions = {}): Audi
     findings: [
       ...deadScopeFindings(catalog),
       ...unreachableSkillFindings(catalog, reachable),
-      ...unreachableMcpFindings(catalog, reachable, options),
+      ...unreachableMcpFindings(catalog, reachable),
     ],
   };
 }
@@ -293,14 +263,5 @@ export function auditCatalog(catalog: Catalog, options: AuditOptions = {}): Audi
  * @throws {AmbitError} exit 2 when the directory is not a catalog, or does not parse.
  */
 export async function auditCatalogDirectory(root: string): Promise<AuditReport> {
-  const catalog = await parseCatalogDirectory(path.basename(root), `path:${root}`, root);
-
-  // Resolved once, per entity, so a finding cites the file the author wrote rather than the
-  // extension ambit would have chosen (spec §6: name the offending file).
-  const mcpFiles = new Map<string, string>();
-  for (const mcp of catalog.mcps) {
-    mcpFiles.set(mcp.name, await mcpDocumentFile(root, mcp.name));
-  }
-
-  return auditCatalog(catalog, { mcpFiles });
+  return auditCatalog(await parseCatalogDirectory(path.basename(root), `path:${root}`, root));
 }
