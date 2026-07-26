@@ -191,29 +191,6 @@ function identityOf(artifact: PlannedArtifact): string {
 }
 
 /**
- * INTERIM — refuses a hook that ships its own script, because materialization is not built yet.
- *
- * A hook whose `command` names a file its catalog directory holds has to have that file materialized
- * under `.agents/hooks/<name>/` before the command ambit writes into a harness config can resolve to
- * anything. Until it is, installing one would write a command naming a file the project does not hold:
- * the hook would install, report as installed, and never run. Refusing says so instead.
- *
- * **Delete this function and its one call site** when hook directories are materialized — nothing else
- * guards this, and a shipped script has no reason to be refused once its bytes are on disk.
- *
- * @throws {AmbitError} exit 2 for any selected hook that ships a script.
- */
-function refuseShippedScripts(bundle: Bundle): void {
-  const shipping = bundle.hooks.find((hook) => hook.shipsScript);
-  if (shipping === undefined) return;
-
-  throw configError(`hook "${shipping.name}" ships a script, which ambit cannot install yet`, [
-    `\`command: ${shipping.command}\` names a file in ${shipping.path ?? "the hook's directory"}, and materializing it is not supported yet`,
-    "drop the hook from the selection, or give it a `command` the harness can run as written",
-  ]);
-}
-
-/**
  * Every adapter's plan, with each artifact planned exactly once.
  *
  * The skills directory is shared, so *every* harness plans the same `.agents/skills/<name>` targets,
@@ -228,21 +205,19 @@ function refuseShippedScripts(bundle: Bundle): void {
  * of the same hook — makes it a second write rather than a duplicate, because dropping it would
  * quietly install less than the project asked for.
  *
+ * A shared `.agents/hooks/<name>` is the case this dedupe was widened for and needed no widening: every
+ * harness that can express a hook plans the same directory for it, exactly as every harness plans the
+ * same skill directories, so the first to name it plans it and the rest defer.
+ *
  * @param adapters the harnesses to plan for, in the order they were configured — which is the order
  *   that decides who plans a shared target, and is sorted, so it does not depend on `ambit.yml`'s
  *   spelling.
- * @throws {AmbitError} exit 2 for a selected hook that ships its own script — see
- *   {@link refuseShippedScripts}, which is interim and goes away with materialization.
  */
 export function planFor(
   adapters: readonly HarnessAdapter[],
   bundle: Bundle,
   project: ProjectPaths,
 ): readonly AdapterPlan[] {
-  // The one gate on a half-built feature, here because every command that plans — `install`, `status`,
-  // `doctor`, `clean` — funnels through this function, so none of them can be the one that forgets.
-  refuseShippedScripts(bundle);
-
   const claimed = new Set<string>();
   return adapters.map((adapter) => ({
     adapter,

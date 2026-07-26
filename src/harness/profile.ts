@@ -1,9 +1,10 @@
 /**
  * A harness, described declaratively — and the one adapter that serves all of them.
  *
- * Everything about installing a bundle is the same for every agent tool: skills are directories that
- * are copied or symlinked, servers and hooks are entries merged into a config file ambit co-owns, and
- * all of them are planned before any is written. Only a handful of things actually differ, and they
+ * Everything about installing a bundle is the same for every agent tool: skills — and the scripts hooks
+ * ship — are directories that are copied or symlinked, servers and hooks are entries merged into a
+ * config file ambit co-owns, and all of them are planned before any is written. Only a handful of
+ * things actually differ, and they
  * are exactly the fields of a profile: whether the harness needs a link to the skills directory,
  * which files its servers and its hooks live in, which section of each, and what one server and one
  * hook look like there.
@@ -19,7 +20,9 @@ import type {
   HarnessAdapter,
   HookSkipReason,
   PlannedArtifact,
+  PlannedCatalogDir,
   PlannedHarnessConfig,
+  PlannedHookDir,
   PlannedSkillDir,
   PlannedSkillsLink,
   ProjectPaths,
@@ -38,7 +41,7 @@ import {
   readDocumentText,
 } from "../model/documents/index.js";
 import { configError } from "../errors.js";
-import type { MergedMcp, MergedSkill } from "../model/catalog.js";
+import type { MergedHook, MergedMcp, MergedSkill } from "../model/catalog.js";
 import type { HookEntity, HookEvent } from "../model/hook-entity.js";
 import type { Bundle } from "../resolution/resolve.js";
 import type { ArtifactMode, State } from "../model/state.js";
@@ -61,6 +64,16 @@ export const SHARED_AGENTS_DIR = ".agents";
  * skill several times in one project and give a reader several copies to wonder about.
  */
 export const SHARED_SKILLS_DIR = `${SHARED_AGENTS_DIR}/skills`;
+
+/**
+ * Where the script a hook ships is materialized, project-relative.
+ *
+ * Beside the skills for the same reasons: one location however many harnesses read it, under the
+ * directory whose own `.gitignore` lists what ambit put there. A hook's script is a dependency's bytes
+ * exactly as a skill's files are — the thing that makes a hook distributable rather than a command line
+ * every consumer has to commit for themselves.
+ */
+export const SHARED_HOOKS_DIR = `${SHARED_AGENTS_DIR}/hooks`;
 
 /** Where a harness reads its MCP servers from. */
 export interface McpLayout {
@@ -153,16 +166,20 @@ function compare(a: string, b: string): number {
 }
 
 /**
- * Which mode one skill is materialized in.
+ * Which mode one materialized directory is written in.
  *
  * A commit is the signal, because it is exactly the question the mode turns on: a source pinned to
  * one is immutable and gets copied, and a source without one is a working directory whose current
- * contents are the answer, so it gets linked. `MergedSkill.commit` is absent precisely for a `path:`
- * source, so this needs no second notion of "is this local".
+ * contents are the answer, so it gets linked. `commit` is absent precisely for a `path:` source, so
+ * this needs no second notion of "is this local".
+ *
+ * Taken over the one field it reads rather than over `MergedSkill`, because a hook that ships a script
+ * answers the same question the same way — a hook out of a pinned catalog is immutable bytes, and one
+ * out of a working copy is bytes someone is editing.
  */
-function modeOf(skill: MergedSkill, project: ProjectPaths): ArtifactMode {
+function modeOf(item: { readonly commit?: string }, project: ProjectPaths): ArtifactMode {
   if (project.mode !== undefined) return project.mode;
-  return skill.commit === undefined ? "link" : "copy";
+  return item.commit === undefined ? "link" : "copy";
 }
 
 function planSkill(skill: MergedSkill, project: ProjectPaths): PlannedSkillDir {
@@ -267,6 +284,42 @@ export function skippedHooks(
 }
 
 /**
+ * The directory one hook's script is materialized from, or nothing.
+ *
+ * Nothing for the two cases with no bytes to put anywhere: a hook whose `command` is a command line,
+ * which is most of them, and a hook this harness cannot express at all — the same predicate
+ * {@link planHookConfig} and {@link skippedHooks} partition the bundle with, so a script is never
+ * installed for a harness that was told the hook was skipped. A project on opencode alone therefore
+ * acquires no `.agents/hooks` at all, which is the same answer it gets about the config file.
+ *
+ * `catalogRoot` and `path` are read rather than asserted, and their absence reads as "nothing to
+ * materialize". They are present for exactly the hooks a catalog declares, which is exactly the hooks
+ * that can ship a script: an inline hook has no directory for one to sit in, so `shipsScript` is false
+ * for it by construction. Two facts, one conclusion — and the conclusion is safe from whichever of them
+ * a reader reaches first.
+ */
+function planHookDir(
+  profile: HarnessProfile,
+  hook: MergedHook,
+  project: ProjectPaths,
+): PlannedHookDir | undefined {
+  if (!hook.shipsScript || hook.catalogRoot === undefined || hook.path === undefined) {
+    return undefined;
+  }
+  if (hookArrayFor(profile, hook) === undefined) return undefined;
+
+  const relative = `${SHARED_HOOKS_DIR}/${hook.name}`;
+  return {
+    kind: "hook-dir",
+    path: relative,
+    target: path.join(project.root, relative),
+    source: path.join(hook.catalogRoot, hook.path),
+    mode: modeOf(hook, project),
+    name: hook.name,
+  };
+}
+
+/**
  * The hooks config artifact, or nothing.
  *
  * Nothing for a harness with no hook mechanism, and nothing for a bundle that selected no hooks — the
@@ -337,17 +390,25 @@ async function link(from: string, at: string, label: string, hint: string): Prom
 }
 
 /**
- * Writes one skill directory, in the mode the plan chose.
+ * Writes one directory out of a catalog — a skill's, or the script a hook ships — in the mode the plan
+ * chose.
+ *
+ * One function over both kinds rather than two that would have to be kept in step: a hook's directory
+ * is materialized under exactly the same rules, and every one of the paragraphs below is a statement
+ * about a directory ambit owns rather than about what the directory holds.
  *
  * An owned target is removed before being rewritten, so a skill that lost a file upstream does not
- * keep a stale copy of it — and so a skill whose mode changed between runs becomes the other thing
+ * keep a stale copy of it — and so a directory whose mode changed between runs becomes the other thing
  * rather than a copy sitting on top of a link. An unowned one is copied *over* rather than replaced —
  * a case an install never reaches, since ownership enforcement has already refused it or adopted it.
  * Keeping it a merge is deliberate anyway: `apply` called directly, with a state that claims nothing,
  * must not be able to delete a stranger's directory.
+ *
+ * `cp` preserves each file's mode, so a hook script arrives executable if that is how the catalog ships
+ * it; a linked directory has no bytes of its own and needs nothing.
  */
-async function applySkillDir(
-  artifact: PlannedSkillDir,
+async function applyCatalogDir(
+  artifact: PlannedCatalogDir,
   owned: ReadonlySet<string>,
 ): Promise<AppliedArtifact> {
   if (owned.has(artifact.path)) {
@@ -436,6 +497,12 @@ export function adapterFor(profile: HarnessProfile): HarnessAdapter {
       const hookConfig = planHookConfig(profile, bundle.hooks, project);
       return [
         ...bundle.skills.map((skill) => planSkill(skill, project)),
+        // Directories before configs, and `flatMap` because most hooks plan none: a hook that ships no
+        // script is a command line, which is entirely the config artifact's business.
+        ...bundle.hooks.flatMap((hook) => {
+          const dir = planHookDir(profile, hook, project);
+          return dir === undefined ? [] : [dir];
+        }),
         ...(skillsLink === undefined ? [] : [skillsLink]),
         ...(mcpConfig === undefined ? [] : [mcpConfig]),
         ...(hookConfig === undefined ? [] : [hookConfig]),
@@ -452,7 +519,11 @@ export function adapterFor(profile: HarnessProfile): HarnessAdapter {
       const applied: AppliedArtifact[] = [];
 
       for (const artifact of plan) {
-        if (artifact.kind === "skill-dir") applied.push(await applySkillDir(artifact, owned));
+        // Both directory kinds first, and named rather than left to a trailing `else`: a kind that fell
+        // through to `applyHarnessConfig` would try to merge a section into a directory, which is the
+        // one dispatch mistake here that a reader of the plan could not see.
+        if (artifact.kind === "skill-dir" || artifact.kind === "hook-dir")
+          applied.push(await applyCatalogDir(artifact, owned));
         else if (artifact.kind === "skills-link")
           applied.push(await applySkillsLink(artifact, owned));
         else applied.push(await applyHarnessConfig(artifact));

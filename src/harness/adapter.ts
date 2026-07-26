@@ -60,6 +60,36 @@ export interface PlannedSkillDir {
 }
 
 /**
+ * A hook's own directory to materialize — the bytes a hook that ships a script is made of.
+ *
+ * Field for field a {@link PlannedSkillDir}, because it is the same artifact: a directory inside a
+ * catalog, put under `.agents/` in one of two modes, owned as a whole path. Only the kind differs, and
+ * it differs so that state, pruning, `status` and the gitignore blocks can say which of the two they
+ * are looking at — a hook directory is not a skill and reporting it as one would be a lie in every one
+ * of those places.
+ *
+ * Planned only for a hook whose `command` names a file its directory holds. An inline hook is a command
+ * line and some config values, so it plans a config entry and nothing else.
+ */
+export interface PlannedHookDir {
+  readonly kind: "hook-dir";
+  /** Project-relative, `/`-separated. */
+  readonly path: string;
+  /** Absolute target. */
+  readonly target: string;
+  /** Absolute source directory within the catalog. */
+  readonly source: string;
+  /**
+   * How the source reaches the target — the same rule a skill follows: copied for a source pinned to a
+   * commit, symlinked for a local directory someone edits, and forced for the whole run by
+   * `--copy`/`--link`. `cp` preserves mode, so a script's executable bit survives either.
+   */
+  readonly mode: ArtifactMode;
+  /** The hook's name, so a failure names the hook and not only a path. */
+  readonly name: string;
+}
+
+/**
  * A directory symlink pointing a harness at the shared skills directory.
  *
  * Separate from a skill directory because it is one artifact whatever the bundle holds, and because it
@@ -120,10 +150,21 @@ export interface PlannedHarnessConfig {
 }
 
 /** Everything an adapter can be asked to write. */
-export type PlannedArtifact = PlannedSkillDir | PlannedSkillsLink | PlannedHarnessConfig;
+export type PlannedArtifact =
+  PlannedSkillDir | PlannedHookDir | PlannedSkillsLink | PlannedHarnessConfig;
 
-/** The two kinds owned as a whole path, rather than co-owned per key. */
-export type PlannedPathArtifact = PlannedSkillDir | PlannedSkillsLink;
+/** The kinds owned as a whole path, rather than co-owned per key. */
+export type PlannedPathArtifact = PlannedSkillDir | PlannedHookDir | PlannedSkillsLink;
+
+/**
+ * The two artifacts that are a directory copied out of a catalog.
+ *
+ * One type because everything that acts on them acts on them identically: writing one, comparing one
+ * against its source, and reporting the mode it landed in are the same operation whether the directory
+ * holds a skill or a hook's script. Naming the union is what keeps that from being two implementations
+ * that drift — see `applyCatalogDir` (`profile.ts`) and `catalogDirVerdict` (`project/status.ts`).
+ */
+export type PlannedCatalogDir = PlannedSkillDir | PlannedHookDir;
 
 /** What `apply` reports back, and what goes into state verbatim. */
 export type AppliedArtifact = OwnedArtifact;

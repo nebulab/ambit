@@ -175,7 +175,7 @@ to a skill first, and the third counts/kinds in `validate.ts` (`VALIDATION_PROBL
 
 ## 9. Shipped scripts
 
-- [ ] Materialization to `.agents/hooks/<name>/`, and the five silent dispatch sites.
+- [x] Materialization to `.agents/hooks/<name>/`, and the five silent dispatch sites.
 
 **Slice** — the thing dotagents cannot do at all: a hook that ships its own script.
 
@@ -217,6 +217,13 @@ a hook under `.agents/` rather than `.cursor/`. Record what you found in the com
 turns out false, stop and note it here rather than inventing a workaround.
 
 **Done when** — an install test per harness pinning the written command string.
+
+> note (task 9): the seam is `HarnessProfile.hookConfig` — `claudeHook` and `cursorHook` in
+> `harness/definitions.ts`, which today write `hook.command` verbatim. Both need `MergedHook` rather than
+> `HookEntity` (for `name` and `shipsScript`), which widens `hookConfig` and `planHookConfig`'s parameter
+> in `harness/profile.ts`; `SHARED_HOOKS_DIR` is there too. Rewrite only the command's first token —
+> `commandProgram`/`readsAsPath` in `model/catalog.ts` are where that split already lives. One constant
+> in `test/project/hooks.test.ts` (`SCRIPT_ENTRY`) holds the rendering the digest is taken over.
 
 ## 11. Lock
 

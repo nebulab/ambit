@@ -190,7 +190,9 @@ export type {
   HarnessAdapter,
   HookSkipReason,
   PlannedArtifact,
+  PlannedCatalogDir,
   PlannedHarnessConfig,
+  PlannedHookDir,
   PlannedSkillDir,
   ProjectPaths,
   SkippedHook,
@@ -199,6 +201,7 @@ export { claude, codex, cursor, opencode, PROFILES, vscode } from "./harness/def
 export {
   adapterFor,
   SHARED_AGENTS_DIR,
+  SHARED_HOOKS_DIR,
   SHARED_SKILLS_DIR,
   skippedHooks,
 } from "./harness/profile.js";

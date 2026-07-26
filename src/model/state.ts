@@ -31,11 +31,14 @@ export const STATE_FILENAME = "state.json";
 export const STATE_VERSION = 1;
 
 /** What an owned artifact is. `harness-config` carries `managedKeys` instead of a `mode`. */
-export const ARTIFACT_KINDS = ["harness-config", "skill-dir", "skills-link"] as const;
+export const ARTIFACT_KINDS = ["harness-config", "hook-dir", "skill-dir", "skills-link"] as const;
 
 export type ArtifactKind = (typeof ARTIFACT_KINDS)[number];
 
-/** How a skill's source reaches its target: copied for remote sources, symlinked for local ones. */
+/**
+ * How a materialized directory's source reaches its target: copied for remote sources, symlinked for
+ * local ones.
+ */
 export const ARTIFACT_MODES = ["copy", "link"] as const;
 
 export type ArtifactMode = (typeof ARTIFACT_MODES)[number];
@@ -45,7 +48,7 @@ export interface OwnedArtifact {
   /** Project-relative, `/`-separated. */
   readonly path: string;
   readonly kind: ArtifactKind;
-  /** Set for `skill-dir` and `skills-link`. */
+  /** Set for `skill-dir`, `hook-dir` and `skills-link`. */
   readonly mode?: ArtifactMode;
   /** Set for `harness-config`: the dotted keys within the file ambit owns. */
   readonly managedKeys?: readonly string[];

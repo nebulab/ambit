@@ -21,12 +21,14 @@
  * fixture's hooks by accident. The last block is the one exception, and it has to be: a hook can only
  * ship a script from a directory, which only a catalog gives it.
  */
-import { lstat, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp, readFile, readlink, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { diagnoseProject } from "../../src/project/doctor.js";
 import { ExitCode } from "../../src/errors.js";
+import { BLOCK_BEGIN, BLOCK_END, SHARED_GITIGNORE_FILE } from "../../src/project/gitignore.js";
 import { arrayEntryKey, managedKey } from "../../src/model/documents/index.js";
 import { run } from "../../src/cli/program.js";
 import type { OwnedArtifact } from "../../src/model/state.js";
@@ -122,6 +124,15 @@ async function pathExists(relative: string): Promise<boolean> {
     return true;
   } catch {
     return false;
+  }
+}
+
+/** Where a project path points, or `undefined` when it is not a symlink at all. */
+async function linkTarget(relative: string): Promise<string | undefined> {
+  try {
+    return await readlink(path.join(projectDir, relative));
+  } catch {
+    return undefined;
   }
 }
 
@@ -697,20 +708,51 @@ describe("claude and cursor together", () => {
 });
 
 /**
- * A hook that ships its own script, which is the one thing on this path not built yet.
+ * A hook that ships its own script — the thing dotagents cannot do at all.
  *
  * The only case here that needs a catalog: shipping bytes needs a directory to ship them from, and
- * `ambit.yml` has none. Materializing that directory under `.agents/hooks/<name>/` is a later increment,
- * and until it lands the honest answer is a refusal — a command naming a file the project does not hold
- * would install cleanly, report as installed, and never run.
+ * `ambit.yml` has none. So the hook's directory is materialized under `.agents/hooks/<name>/` exactly
+ * as a skill's is under `.agents/skills/<name>/`, which is what makes a hook a dependency a project
+ * resolves rather than a script every consumer commits for themselves.
  *
- * **This whole block goes away with the guard it pins**, and is replaced by the install it currently
- * refuses.
+ * `hook-dir` is a new artifact kind, and a new kind is dispatched on in five places where the wrong
+ * branch **typechecks clean**. Each of those has a test below saying so in its own name, because a
+ * passing build says nothing about any of them: a kind routed into the config arm, or left out of an
+ * allow-list, is a silent wrong answer rather than a failure.
  */
-describe("a hook that ships a script, before materialization exists", () => {
+describe("a hook that ships its own script", () => {
   const SCRIPT_HOOK = "block-rm";
+  const HOOK_DIR = `.agents/hooks/${SCRIPT_HOOK}`;
+  const SCRIPT = "hook.sh";
+  const SCRIPT_BODY = "#!/bin/sh\nexit 0\n";
 
-  /** A catalog beside the project holding exactly one hook, which ships its own script. */
+  /**
+   * What the hook renders as in Claude's file.
+   *
+   * `command` is the declaration verbatim, which is what this increment writes: rewriting it into the
+   * materialized path the way each harness resolves one is the next increment, and it lands in the
+   * profiles' own renderers. Kept in one place here so that when it changes, one constant changes.
+   */
+  const SCRIPT_ENTRY = {
+    matcher: "Bash",
+    hooks: [{ type: "command", command: SCRIPT }],
+  };
+
+  /** The inline hook in the same catalog, which ships nothing. */
+  const ANNOUNCE_ENTRY = { hooks: [{ type: "command", command: "npx --yes say done" }] };
+
+  /** Both entries' keys, in the order state records them. */
+  const HOOK_KEYS = [
+    managedKey("hooks", arrayEntryKey("PreToolUse", SCRIPT_ENTRY)),
+    managedKey("hooks", arrayEntryKey("Stop", ANNOUNCE_ENTRY)),
+  ].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+
+  /**
+   * A catalog beside the project holding one hook that ships a script and one that does not.
+   *
+   * Two hooks rather than one, because "only a script-shipping hook plans a directory" is half the
+   * claim: an inline hook in the same bundle has to plan a config entry and nothing else.
+   */
   async function writeCatalog(): Promise<void> {
     const catalogDir = path.join(root, "catalog");
     const files: Readonly<Record<string, string>> = {
@@ -720,16 +762,25 @@ describe("a hook that ships a script, before materialization exists", () => {
         "scopes: [core]",
         "event: PreToolUse",
         "matcher: Bash",
-        "command: hook.sh",
+        `command: ${SCRIPT}`,
         "",
       ].join("\n"),
-      [`hooks/${SCRIPT_HOOK}/hook.sh`]: "#!/bin/sh\nexit 0\n",
+      [`hooks/${SCRIPT_HOOK}/${SCRIPT}`]: SCRIPT_BODY,
+      "hooks/announce/HOOK.yml": [
+        "name: announce",
+        "scopes: [core]",
+        "event: Stop",
+        "command: npx --yes say done",
+        "",
+      ].join("\n"),
     };
     for (const [relative, body] of Object.entries(files)) {
       const target = path.join(catalogDir, relative);
       await mkdir(path.dirname(target), { recursive: true });
       await writeFile(target, body, "utf8");
     }
+    // Executable in the catalog, which is the only reason `--copy` preserving it is a claim.
+    await chmod(path.join(catalogDir, `hooks/${SCRIPT_HOOK}/${SCRIPT}`), 0o755);
 
     await writeFile(
       path.join(projectDir, "ambit.yml"),
@@ -748,22 +799,197 @@ scopes: [core]
     await writeCatalog();
   });
 
-  it("refuses the install, saying it is not supported yet and touching nothing", async () => {
+  it("materializes the hook's directory, and records it as a hook-dir", async () => {
     const result = await cli("install");
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
 
-    expect(result.code).toBe(ExitCode.Config);
-    expect(result.stderr).toContain(
-      `hook "${SCRIPT_HOOK}" ships a script, which ambit cannot install yet`,
-    );
-    expect(result.stderr).toContain("materializing it is not supported yet");
-    expect(await pathExists(SETTINGS)).toBe(false);
-    expect(await pathExists(STATE_DIRNAME)).toBe(false);
+    // The script is reachable at the shared location, and the settings entry is written beside it.
+    expect(await fileText(`${HOOK_DIR}/${SCRIPT}`)).toBe(SCRIPT_BODY);
+    expect(await settings()).toEqual({
+      hooks: { PreToolUse: [SCRIPT_ENTRY], Stop: [ANNOUNCE_ENTRY] },
+    });
+
+    // `hook-dir`, not `skill-dir`: state is what prune, `clean` and `status` act from, and a hook's
+    // directory reported as a skill's would be a lie in each of them. The catalog is a `path:` source,
+    // so the mode is `link` — the same rule a skill follows.
+    expect(await stateArtifacts()).toEqual([
+      { path: HOOK_DIR, kind: "hook-dir", mode: "link" },
+      {
+        path: SETTINGS,
+        kind: "harness-config",
+        format: "json",
+        shape: "array",
+        managedKeys: HOOK_KEYS,
+      },
+    ]);
   });
 
-  it("still resolves it, so the refusal is about installing rather than about reading", async () => {
-    const result = await cli("resolve");
+  it("plans no directory for the inline hook beside it", async () => {
+    await cli("install");
 
+    // `npx --yes say done` names no file the catalog holds, so it is a command line: config entry, no
+    // bytes. Only the script-shipping hook has anything to materialize.
+    expect(await pathExists(".agents/hooks/announce")).toBe(false);
+    expect(
+      (await stateArtifacts()).filter((artifact) => artifact.kind === "hook-dir"),
+    ).toHaveLength(1);
+  });
+
+  /**
+   * `plannedPaths` (`project/prune.ts`) — the allow-list that decides which owned paths this run still
+   * writes.
+   *
+   * A `hook-dir` missing from it makes the directory look stale on every install: pruning runs after
+   * `apply`, so ambit would delete the script it just wrote, recreate it next run, and leave the
+   * settings entry pointing at nothing in between. It typechecks perfectly.
+   */
+  it("keeps the directory on a second install rather than deleting and rewriting it", async () => {
+    await cli("install");
+    const written = await settingsText();
+
+    // What a second run would remove, answered from state and the plan alone: nothing at all.
+    const preview = await cli("install", "--dry-run", "--json");
+    expect(preview.code, preview.stderr).toBe(ExitCode.Success);
+    expect((JSON.parse(preview.stdout) as { pruned: unknown[] }).pruned).toEqual([]);
+
+    expect((await cli("install")).code).toBe(ExitCode.Success);
+
+    // And pruning runs *after* `apply`, so a directory wrongly judged stale is deleted having just
+    // been written — leaving the settings entry naming a script the project does not hold.
+    expect(await fileText(`${HOOK_DIR}/${SCRIPT}`)).toBe(SCRIPT_BODY);
+    expect(await settingsText()).toBe(written);
+    expect((await cli("status", "--check")).code).toBe(ExitCode.Success);
+  });
+
+  /**
+   * `compareArtifacts` (`project/status.ts`) — which verdict function a kind is compared by.
+   *
+   * Without a branch of its own a `hook-dir` falls past both path branches into the config arm, where
+   * `configVerdict` reads the directory as a document. Also clean under the typechecker.
+   */
+  it("reports the directory as a hook-dir, compared as a directory", async () => {
+    await cli("install");
+
+    const result = await cli("status", "--json");
     expect(result.code, result.stderr).toBe(ExitCode.Success);
-    expect(result.stdout).toContain(`${SCRIPT_HOOK}  company  PreToolUse`);
+
+    const { artifacts } = JSON.parse(result.stdout) as {
+      artifacts: readonly Readonly<Record<string, unknown>>[];
+    };
+    expect(artifacts).toContainEqual({ kind: "hook-dir", path: HOOK_DIR, state: "ok" });
+  });
+
+  /**
+   * `compareArtifacts` again, from the other side: a verdict has to be able to say `modified`.
+   *
+   * A row that reads `ok` whatever the directory holds would satisfy the test above while reporting
+   * nothing, so the comparison is also asked about a script someone edited.
+   */
+  it("reports an edited script as modified, naming the file", async () => {
+    await cli("install", "--copy");
+    await writeFile(path.join(projectDir, HOOK_DIR, SCRIPT), "#!/bin/sh\nexit 1\n", "utf8");
+
+    const result = await cli("status", "--json");
+
+    const { artifacts } = JSON.parse(result.stdout) as {
+      artifacts: readonly Readonly<Record<string, unknown>>[];
+    };
+    expect(artifacts).toContainEqual({
+      detail: `${SCRIPT} differs from its source`,
+      kind: "hook-dir",
+      path: HOOK_DIR,
+      state: "modified",
+    });
+  });
+
+  /**
+   * `apply` (`harness/profile.ts`) — which writer a kind is handed to.
+   *
+   * The trailing `else` there is `applyHarnessConfig`, so a `hook-dir` without a branch of its own
+   * would have a `hooks` section merged into it as though the directory were a JSON file.
+   */
+  it("writes the script's bytes, in both materialization modes", async () => {
+    await cli("install");
+    expect(await linkTarget(HOOK_DIR)).toContain(`hooks/${SCRIPT_HOOK}`);
+    expect(await fileText(`${HOOK_DIR}/${SCRIPT}`)).toBe(SCRIPT_BODY);
+
+    expect((await cli("install", "--copy")).code).toBe(ExitCode.Success);
+
+    // A real directory now, holding the bytes rather than pointing at them.
+    expect(await linkTarget(HOOK_DIR)).toBeUndefined();
+    expect(await fileText(`${HOOK_DIR}/${SCRIPT}`)).toBe(SCRIPT_BODY);
+  });
+
+  it("keeps the script executable through a --copy install", async () => {
+    expect((await cli("install", "--copy")).code).toBe(ExitCode.Success);
+
+    // `fs.cp` preserves mode, and a hook the harness cannot execute is a hook that does not run — so
+    // the bit is part of what the catalog ships rather than something the project has to restore.
+    const mode = (await lstat(path.join(projectDir, HOOK_DIR, SCRIPT))).mode;
+    expect(mode & 0o111).toBe(0o111);
+  });
+
+  /**
+   * `gitignoreBlocks` (`project/gitignore.ts`) — which kinds are listed at all.
+   *
+   * The loop skips anything it does not recognize, so a `hook-dir` left out means every copied script
+   * shows up as untracked in `git status`. The path is under `.agents/`, so it lands in the volatile
+   * nested block for free once the kind is admitted.
+   */
+  it("lists the directory in the volatile .agents/.gitignore block", async () => {
+    expect((await cli("install")).code).toBe(ExitCode.Success);
+
+    const lines = (await fileText(SHARED_GITIGNORE_FILE)).split("\n");
+    const start = lines.findIndex((line) => line.startsWith(BLOCK_BEGIN));
+    const end = lines.findIndex((line) => line.startsWith(BLOCK_END));
+    expect(start).toBeGreaterThanOrEqual(0);
+    // Anchored and without a trailing slash, exactly as a skill's pattern is: the default install is a
+    // symlink, which git does not match a `dir/` pattern against.
+    expect(lines.slice(start + 1, end)).toEqual([`/hooks/${SCRIPT_HOOK}`]);
+  });
+
+  /**
+   * `modeFindings` (`project/doctor.ts`) — which kinds the mode check counts.
+   *
+   * `status` is deliberately silent about materialization mode, so this is the only command that can
+   * report it. Counting only `skill-dir` means a hook's script installed with `--copy` out of a working
+   * copy is never mentioned anywhere.
+   */
+  it("reports the directory's mode divergence in doctor", async () => {
+    await cli("install", "--copy");
+
+    const report = await diagnoseProject(projectDir);
+    const found = report.findings.filter((finding) => finding.message.includes(HOOK_DIR));
+
+    // A warning, not a failure: `--copy` is a per-run flag, and both modes put the same bytes in front
+    // of the harness. What is worth saying is that the next plain install will swap it back.
+    expect(
+      found.map((finding) => `${finding.check}/${finding.severity}: ${finding.message}`),
+    ).toEqual([`mode/warn: ${HOOK_DIR} is installed as a copy`]);
+  });
+
+  it("takes the directory back on clean, and leaves the catalog's copy alone", async () => {
+    await cli("install", "--copy");
+
+    expect((await cli("clean")).code).toBe(ExitCode.Success);
+
+    expect(await pathExists(HOOK_DIR)).toBe(false);
+    // The bytes it was copied from are the catalog's, and `clean` is about the project.
+    expect(
+      await readFile(path.join(root, "catalog", `hooks/${SCRIPT_HOOK}/${SCRIPT}`), "utf8"),
+    ).toBe(SCRIPT_BODY);
+  });
+
+  it("stops materializing the directory once the hook leaves the bundle", async () => {
+    await cli("install");
+    await writeProfile([]);
+
+    const result = await cli("install");
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+
+    // The other half of `plannedPaths`: a path the plan no longer writes *is* stale, and pruning it is
+    // what stops a withdrawn hook's script from sitting in the project forever.
+    expect(await pathExists(HOOK_DIR)).toBe(false);
+    expect(await stateArtifacts()).toEqual([]);
   });
 });

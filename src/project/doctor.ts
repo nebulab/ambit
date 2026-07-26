@@ -27,7 +27,11 @@
  */
 import { lstat } from "node:fs/promises";
 
-import type { PlannedArtifact, PlannedHarnessConfig, PlannedSkillDir } from "../harness/adapter.js";
+import type {
+  PlannedArtifact,
+  PlannedCatalogDir,
+  PlannedHarnessConfig,
+} from "../harness/adapter.js";
 import { referencedNames } from "../harness/env.js";
 import { gitignoreStatus } from "./gitignore.js";
 import type { MergedMcp } from "../model/catalog.js";
@@ -373,12 +377,16 @@ async function installedMode(target: string): Promise<ArtifactMode | undefined> 
 }
 
 /**
- * Skills installed in a mode a plain `ambit install` would not choose.
+ * Directories installed in a mode a plain `ambit install` would not choose.
  *
  * A warning, and only on artifacts that are otherwise `ok`: `--copy` and `--link` are per-run flags
  * with nothing persisting them, so the divergence is permanent by design and both modes put the same
  * bytes in front of the harness. That is why `status` ignores mode altogether — but it is still worth
  * saying, because the next plain install will silently swap every one of these over.
+ *
+ * Both directory kinds, because both have a mode to diverge in. A hook's shipped script left out here
+ * would be the one artifact whose materialization mode nothing reports at all — and `status` is
+ * deliberately silent about mode, so this is the only place that could.
  */
 async function modeFindings(
   artifacts: readonly PlannedArtifact[],
@@ -387,13 +395,14 @@ async function modeFindings(
   const matching = new Set(
     status.filter((artifact) => artifact.state === "ok").map((artifact) => artifact.path),
   );
-  const skills = artifacts.filter(
-    (artifact): artifact is PlannedSkillDir =>
-      artifact.kind === "skill-dir" && matching.has(artifact.path),
+  const directories = artifacts.filter(
+    (artifact): artifact is PlannedCatalogDir =>
+      (artifact.kind === "skill-dir" || artifact.kind === "hook-dir") &&
+      matching.has(artifact.path),
   );
 
   const findings: DoctorFinding[] = [];
-  for (const artifact of skills) {
+  for (const artifact of directories) {
     const found = await installedMode(artifact.target);
     if (found === undefined || found === artifact.mode) continue;
 

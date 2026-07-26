@@ -70,12 +70,18 @@ function compare(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
-/** The skill-directory paths the new plan writes; a prior one absent from this set is stale. */
+/**
+ * The paths the new plan writes whole; a prior one absent from this set is stale.
+ *
+ * Every kind owned as a path has to be listed, not only the ones that were here first. A kind left out
+ * is a path the plan *does* write that this set says it does not — so pruning deletes it after `apply`
+ * created it, and the next install recreates it, forever. Which is a directory-shaped hole in the
+ * idempotence claim rather than a tidiness bug: for a hook it would leave the harness config naming a
+ * script that is not there.
+ */
 function plannedPaths(plan: readonly PlannedArtifact[]): ReadonlySet<string> {
   return new Set(
-    plan
-      .filter((artifact) => artifact.kind === "skill-dir" || artifact.kind === "skills-link")
-      .map((artifact) => artifact.path),
+    plan.filter((artifact) => artifact.kind !== "harness-config").map((artifact) => artifact.path),
   );
 }
 
