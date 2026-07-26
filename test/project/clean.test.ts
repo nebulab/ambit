@@ -27,6 +27,7 @@ import {
   SHARED_GITIGNORE_FILE,
 } from "../../src/project/gitignore.js";
 import { LOCK_FILENAME } from "../../src/project/lock.js";
+import { arrayEntryKey, managedKey } from "../../src/model/documents/index.js";
 import { run } from "../../src/cli/program.js";
 import { STATE_DIRNAME, STATE_FILENAME, parseState } from "../../src/model/state.js";
 
@@ -41,6 +42,39 @@ const FRONTEND_SKILL = "design-tokens";
 
 /** The fixture's scope-matched http server. */
 const SCOPED_MCP = "scoped";
+
+/**
+ * The fixture's two scope-matched hooks, and the file they share.
+ *
+ * `core` selects an inline-command hook and `function.engineering` a script-shipping one, so the
+ * bundle these cases install carries a config file and a materialized directory neither skills nor
+ * servers account for. The keys are built from the rendered entry rather than written out, because a
+ * digest is not a literal anyone can check by eye — `test/project/hooks.test.ts` is where the
+ * rendering itself is pinned.
+ */
+const CLAUDE_SETTINGS = ".claude/settings.json";
+const SCRIPT_HOOK_DIR = ".agents/hooks/guard-secrets";
+
+const CORE_HOOK_KEY = managedKey(
+  "hooks",
+  arrayEntryKey("SessionStart", {
+    hooks: [{ type: "command", command: 'echo "acme conventions apply"' }],
+  }),
+);
+
+const ENGINEERING_HOOK_KEY = managedKey(
+  "hooks",
+  arrayEntryKey("PreToolUse", {
+    matcher: "Bash",
+    hooks: [
+      {
+        type: "command",
+        command: `\${CLAUDE_PROJECT_DIR}/${SCRIPT_HOOK_DIR}/guard.sh`,
+        timeout: 10,
+      },
+    ],
+  }),
+);
 
 /** The variable the scoped server interpolates into its `Authorization` header. */
 const SCOPED_KEY_VAR = "SCOPED_API_KEY";
@@ -226,7 +260,12 @@ describe("ambit prune", () => {
 
     await cli("prune");
 
-    expect(await ownedPathsNow()).toEqual([`${SKILLS_DIR}/${CORE_SKILL}`, CLAUDE_LINK]);
+    // The settings file stays owned: the narrowed profile still holds `core`, whose hook it carries.
+    expect(await ownedPathsNow()).toEqual([
+      `${SKILLS_DIR}/${CORE_SKILL}`,
+      CLAUDE_SETTINGS,
+      CLAUDE_LINK,
+    ]);
     expect(await managedBlock(SHARED_GITIGNORE_FILE)).toEqual([`/skills/${CORE_SKILL}`]);
     expect(await managedBlock()).toEqual([`${STATE_DIRNAME}/`, CLAUDE_LINK]);
   });
@@ -355,9 +394,11 @@ describe("ambit prune", () => {
     const width = `${SKILLS_DIR}/${FRONTEND_SKILL}`.length;
     expect(result.stdout).toBe(
       [
-        "pruned (3)",
+        "pruned (5)",
+        `  ${SCRIPT_HOOK_DIR.padEnd(width)}  hook-dir        -`,
         `  ${`${SKILLS_DIR}/${ENGINEERING_SKILL}`.padEnd(width)}  skill-dir       -`,
         `  ${`${SKILLS_DIR}/${FRONTEND_SKILL}`.padEnd(width)}  skill-dir       -`,
+        `  ${CLAUDE_SETTINGS.padEnd(width)}  harness-config  ${ENGINEERING_HOOK_KEY}`,
         `  ${MCP_FILE.padEnd(width)}  harness-config  mcpServers.${SCOPED_MCP}`,
       ].join("\n"),
     );
@@ -371,13 +412,17 @@ describe("ambit prune", () => {
 
     expect(JSON.parse(result.stdout)).toEqual({
       pruned: [
+        { kind: "hook-dir", path: SCRIPT_HOOK_DIR },
         { kind: "skill-dir", path: `${SKILLS_DIR}/${ENGINEERING_SKILL}` },
         { kind: "skill-dir", path: `${SKILLS_DIR}/${FRONTEND_SKILL}` },
+        { kind: "harness-config", managedKeys: [ENGINEERING_HOOK_KEY], path: CLAUDE_SETTINGS },
         { kind: "harness-config", managedKeys: [`mcpServers.${SCOPED_MCP}`], path: MCP_FILE },
       ],
-      // The link is not pruned: a narrowed profile still holds skills, so it still points at them.
+      // Neither the link nor the settings file is pruned: a narrowed profile still holds skills, so
+      // it still points at them, and still holds the hook the file's remaining entry is.
       remaining: [
         { kind: "skill-dir", mode: "link", path: `${SKILLS_DIR}/${CORE_SKILL}` },
+        { kind: "harness-config", managedKeys: [CORE_HOOK_KEY], path: CLAUDE_SETTINGS },
         { kind: "skills-link", mode: "link", path: CLAUDE_LINK },
       ],
     });
@@ -393,8 +438,10 @@ describe("ambit prune", () => {
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     expect(JSON.parse(result.stdout).pruned).toEqual([
+      { kind: "hook-dir", path: SCRIPT_HOOK_DIR },
       { kind: "skill-dir", path: `${SKILLS_DIR}/${ENGINEERING_SKILL}` },
       { kind: "skill-dir", path: `${SKILLS_DIR}/${FRONTEND_SKILL}` },
+      { kind: "harness-config", managedKeys: [ENGINEERING_HOOK_KEY], path: CLAUDE_SETTINGS },
       { kind: "harness-config", managedKeys: [`mcpServers.${SCOPED_MCP}`], path: MCP_FILE },
     ]);
     expect(await snapshot()).toEqual(before);
@@ -436,7 +483,7 @@ describe("ambit clean", () => {
     // co-owned, so neither is ambit's to delete — see `src/project/clean.ts`. The `.gitignore` ambit created
     // goes, because ambit's block was the whole of it.
     expect(Object.keys(await snapshot()).sort()).toEqual(
-      ["ambit.yml", "ambit.lock", MCP_FILE].sort(),
+      ["ambit.yml", "ambit.lock", MCP_FILE, CLAUDE_SETTINGS].sort(),
     );
   });
 
@@ -501,10 +548,12 @@ describe("ambit clean", () => {
     const width = `${SKILLS_DIR}/${CORE_SKILL}`.length;
     expect(result.stdout).toBe(
       [
-        "removed (5)",
+        "removed (7)",
+        `  ${SCRIPT_HOOK_DIR.padEnd(width)}  hook-dir        -`,
         `  ${`${SKILLS_DIR}/${ENGINEERING_SKILL}`.padEnd(width)}  skill-dir       -`,
         `  ${`${SKILLS_DIR}/${CORE_SKILL}`.padEnd(width)}  skill-dir       -`,
         `  ${`${SKILLS_DIR}/${FRONTEND_SKILL}`.padEnd(width)}  skill-dir       -`,
+        `  ${CLAUDE_SETTINGS.padEnd(width)}  harness-config  ${ENGINEERING_HOOK_KEY}, ${CORE_HOOK_KEY}`,
         `  ${CLAUDE_LINK.padEnd(width)}  skills-link     -`,
         `  ${MCP_FILE.padEnd(width)}  harness-config  mcpServers.${SCOPED_MCP}`,
         "",
@@ -522,9 +571,15 @@ describe("ambit clean", () => {
     expect(JSON.parse(result.stdout)).toEqual({
       gitignoreRemoved: [GITIGNORE_FILENAME, SHARED_GITIGNORE_FILE],
       removed: [
+        { kind: "hook-dir", path: SCRIPT_HOOK_DIR },
         { kind: "skill-dir", path: `${SKILLS_DIR}/${ENGINEERING_SKILL}` },
         { kind: "skill-dir", path: `${SKILLS_DIR}/${CORE_SKILL}` },
         { kind: "skill-dir", path: `${SKILLS_DIR}/${FRONTEND_SKILL}` },
+        {
+          kind: "harness-config",
+          managedKeys: [ENGINEERING_HOOK_KEY, CORE_HOOK_KEY],
+          path: CLAUDE_SETTINGS,
+        },
         { kind: "skills-link", path: CLAUDE_LINK },
         { kind: "harness-config", managedKeys: [`mcpServers.${SCOPED_MCP}`], path: MCP_FILE },
       ],
@@ -542,9 +597,15 @@ describe("ambit clean", () => {
     expect(JSON.parse(result.stdout)).toEqual({
       gitignoreRemoved: [GITIGNORE_FILENAME, SHARED_GITIGNORE_FILE],
       removed: [
+        { kind: "hook-dir", path: SCRIPT_HOOK_DIR },
         { kind: "skill-dir", path: `${SKILLS_DIR}/${ENGINEERING_SKILL}` },
         { kind: "skill-dir", path: `${SKILLS_DIR}/${CORE_SKILL}` },
         { kind: "skill-dir", path: `${SKILLS_DIR}/${FRONTEND_SKILL}` },
+        {
+          kind: "harness-config",
+          managedKeys: [ENGINEERING_HOOK_KEY, CORE_HOOK_KEY],
+          path: CLAUDE_SETTINGS,
+        },
         { kind: "skills-link", path: CLAUDE_LINK },
         { kind: "harness-config", managedKeys: [`mcpServers.${SCOPED_MCP}`], path: MCP_FILE },
       ],

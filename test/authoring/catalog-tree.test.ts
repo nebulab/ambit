@@ -168,8 +168,8 @@ describe("ambit catalog tree", () => {
     expect(result.stdout).toBe(
       [
         "scopes (4)",
-        "  core                             1 direct  0 inherited  The universal floor — context everyone needs",
-        "  function.engineering             2 direct  1 inherited  Building and shipping software",
+        "  core                             2 direct  0 inherited  The universal floor — context everyone needs",
+        "  function.engineering             3 direct  1 inherited  Building and shipping software",
         "    function.engineering.frontend  1 direct  0 inherited  Browser-side work: components, styling, accessibility",
         "  project.acme                     1 direct  0 inherited  The Acme engagement",
       ].join("\n"),
@@ -180,7 +180,7 @@ describe("ambit catalog tree", () => {
     const scopes = await treeJson();
 
     expect(scopes[ENGINEERING]?.direct).toEqual({
-      hooks: [],
+      hooks: ["guard-secrets"],
       mcps: ["scoped"],
       skills: ["code-review"],
     });
@@ -215,7 +215,7 @@ describe("ambit catalog tree", () => {
     // Nothing declares `function`, and holding it now reaches the whole subtree.
     expect(scopes.function?.direct).toEqual({ hooks: [], mcps: [], skills: [] });
     expect(scopes.function?.inherited).toEqual({
-      hooks: [],
+      hooks: ["guard-secrets"],
       mcps: ["scoped"],
       skills: ["code-review", "design-tokens"],
     });
@@ -240,7 +240,7 @@ describe("ambit catalog tree", () => {
     const scopes = await treeJson();
     expect(scopes[ENGINEERING]?.direct.skills).toEqual(["code-review", "design-tokens"]);
     expect(scopes[ENGINEERING]?.inherited).toEqual({ hooks: [], mcps: [], skills: [] });
-    expect(row((await tree()).stdout, ENGINEERING)).toContain("3 direct  0 inherited");
+    expect(row((await tree()).stdout, ENGINEERING)).toContain("4 direct  0 inherited");
   });
 
   it("reads the catalog `--catalog` names, defaulting to the cwd", async () => {
@@ -261,7 +261,11 @@ describe("ambit catalog tree", () => {
     expect(result.stdout).not.toContain("function.marketing");
 
     const scopes = await treeJson();
-    expect(scopes[ENGINEERING]?.direct).toEqual({ hooks: [], mcps: ["scoped"], skills: [] });
+    expect(scopes[ENGINEERING]?.direct).toEqual({
+      hooks: ["guard-secrets"],
+      mcps: ["scoped"],
+      skills: [],
+    });
     expect(JSON.stringify(scopes)).not.toContain("code-review");
   });
 

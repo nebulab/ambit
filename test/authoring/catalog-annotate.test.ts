@@ -37,6 +37,9 @@ const REVIEW_SKILL = "code-review";
 const PROJECT_SKILL = "acme-brief";
 const PROJECT_SKILL_FILE = "skills/acme-brief/SKILL.md";
 
+/** The requirement the fixture's project skill carries besides the two below: its hook. */
+const REQUIRED_HOOK = "hook.acme-standup";
+
 /** The fixture's two servers: one scoped, one carrying no `scopes` key at all. */
 const SCOPED_MCP = "scoped";
 const SCOPED_MCP_FILE = "mcps/scoped.yml";
@@ -251,7 +254,7 @@ describe("ambit catalog annotate, on a skill", () => {
 
     expect(await skill(PROJECT_SKILL)).toMatchObject({
       scopes: [CORE_SCOPE, PROJECT_SCOPE],
-      requires: ["mcp.fixture"],
+      requires: [REQUIRED_HOOK, "mcp.fixture"],
       env: ["ACME_BRIEF_TOKEN"],
     });
     await validates();
@@ -565,7 +568,7 @@ describe("ambit catalog annotate, output", () => {
     expect(report.annotated).toEqual({
       declares: {
         scopes: [PROJECT_SCOPE],
-        requires: [CORE_SKILL, "mcp.fixture"],
+        requires: [CORE_SKILL, REQUIRED_HOOK, "mcp.fixture"],
         env: ["ACME_BRIEF_TOKEN"],
       },
       file: PROJECT_SKILL_FILE,

@@ -338,7 +338,7 @@ the `catalog annotate` subject test, and the new `SURFACES` rows.
 
 ## 15. Fixture catalog
 
-- [ ] Hooks in `scripts/fixture-catalog.ts`.
+- [x] Hooks in `scripts/fixture-catalog.ts`.
 
 **Do** — three hooks: one inline, one shipping a script, one reachable only through a skill's
 `requires`. Update `FIXTURE_CATALOG_FILES` and `test/fixture-catalog.test.ts`.
@@ -346,6 +346,32 @@ the `catalog annotate` subject test, and the new `SURFACES` rows.
 **Done when** — `test/dotagents.test.ts` still passes untouched. It asserts dotagents installs exactly
 `parseCatalogDirectory`'s skill set from the fixture, so it now doubles as proof that `hooks/` is
 additive and that no hook leaks into `catalog.skills`.
+
+> found (task 15): the three hooks are `session-notes` (inline command, `core`), `guard-secrets`
+> (ships `guard.sh`, `function.engineering`, `matcher: Bash`, `timeout: 10`) and `acme-standup` (no
+> scopes, reached only by `acme-brief`'s new `hook.acme-standup`). The two scoped ones sit on the scopes
+> every project suite holds by default, which is what makes the golden bundles carry real hook data — and
+> what made this the widest task in the backlog: 86 assertions across 16 files, all expectation updates.
+>
+> **One real bug fell out of it**, in `src/authoring/scope.ts`, and it is fixed here rather than noted:
+> `catalog scope mv` rewrote skills and servers and not hooks, so renaming a scope a hook declared left
+> the hook declaring an unregistered name and the whole edit was refused; and `declarersOf` did not name
+> hooks, so `catalog scope rm` gave a reader an incomplete list of files to fix. Both are one branch
+> each, mirroring the server's, and `MCP_SCOPES_PATH` is now `ENTITY_SCOPES_PATH` — a hook declares
+> scopes at its document root exactly as a server does. `stillDeclared` names each prefix only when a
+> declarer needs it, so a `core` removal now says `hook.<hook>` and stays quiet about `mcp.<server>`.
+>
+> The golden diffs are smaller than the churn suggests: 4 resolve bundles gain `hooks` entries (`core`,
+> `engineering`, `core-and-engineering`, `project`) and `catalog-tree.json` gains one name under two
+> `direct` blocks. `inherited` stays empty everywhere and `frontend.json` stays hook-free — no hook
+> declares a _nested_ scope, so the tree's inheritance path is still exercised by `design-tokens` alone.
+> Task 13's invariant test against `expandHeldScopes` is live but only over `direct`.
+>
+> Two knock-on notes for later tasks: hook digests now appear in `install`/`clean`/`status`/`harnesses`
+> expectations, always built through `managedKey(arrayEntryKey(...))` rather than written as literals, so
+> a rendering change stays a one-line fix in `harness/definitions.ts`; and `validate`'s singular
+> "1 hook" wording is no longer covered by any test, since the fixture's own three make every count
+> plural.
 
 ## 16. README
 

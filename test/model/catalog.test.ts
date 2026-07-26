@@ -260,12 +260,14 @@ describe("catalog parsing", () => {
     });
   });
 
-  it("carries `requires` through, MCP prefixes included", async () => {
+  it("carries `requires` through, every prefix included", async () => {
     const catalog = await parseCatalogDirectory(CATALOG_NAME, "path:../catalog", catalogDir);
 
+    // In the order the fixture wrote them: a `requires` list is the author's, not a sorted one.
     expect(catalog.skills.find((skill) => skill.name === "acme-brief")?.requires).toEqual([
       "company-context",
       "mcp.fixture",
+      "hook.acme-standup",
     ]);
   });
 
@@ -481,9 +483,41 @@ describe("ambit dump-catalog", () => {
     expect(result.code).toBe(ExitCode.Success);
     expect(JSON.parse(result.stdout)).toEqual({
       catalogs: [CATALOG_NAME],
-      // Empty until the fixture ships hooks of its own; the namespace is emitted regardless, so a
-      // consumer never has to tell "no hooks" from "an ambit that does not know about hooks".
-      hooks: {},
+      // The fixture's three: one selected by a scope, one shipping a script, and one no scope selects.
+      hooks: {
+        "acme-standup": {
+          catalog: CATALOG_NAME,
+          command: 'echo "acme session ended"',
+          description: "Records what the session touched, for the Acme standup.",
+          env: [],
+          event: "SessionEnd",
+          path: "hooks/acme-standup",
+          scopes: [],
+          shipsScript: false,
+        },
+        "guard-secrets": {
+          catalog: CATALOG_NAME,
+          command: "guard.sh",
+          description: "Inspects a Bash command before Acme's tooling runs it.",
+          env: [],
+          event: "PreToolUse",
+          matcher: "Bash",
+          path: "hooks/guard-secrets",
+          scopes: ["function.engineering"],
+          shipsScript: true,
+          timeout: 10,
+        },
+        "session-notes": {
+          catalog: CATALOG_NAME,
+          command: 'echo "acme conventions apply"',
+          description: "Reminds a session that Acme's conventions apply.",
+          env: [],
+          event: "SessionStart",
+          path: "hooks/session-notes",
+          scopes: ["core"],
+          shipsScript: false,
+        },
+      },
       scopes: {
         core: { description: "The universal floor — context everyone needs" },
         "function.engineering": { description: "Building and shipping software" },
@@ -522,7 +556,7 @@ describe("ambit dump-catalog", () => {
           description: "The Acme engagement brief — scope, contacts, and conventions.",
           env: [],
           path: "skills/acme-brief",
-          requires: ["company-context", "mcp.fixture"],
+          requires: ["company-context", "mcp.fixture", "hook.acme-standup"],
           scopes: ["project.acme"],
         },
       },
@@ -610,8 +644,8 @@ describe("ambit dump-catalog", () => {
  * the directory actually holds, rather than a command line quietly written into a harness config and
  * discovered when the hook silently fails to run.
  *
- * The fixture catalog ships no hooks yet, so every case writes its own — which also means these cases
- * are proof that `hooks/` is additive: nothing else in the suite changes when one appears.
+ * Every case writes the hook it is about into the fixture, beside the three the fixture ships, and reads
+ * back only what it wrote: a case about one document should not restate the fixture's own.
  */
 describe("catalog hooks", () => {
   const HOOK_NAME = "block-rm";
@@ -637,9 +671,13 @@ describe("catalog hooks", () => {
     await writeFile(target, document(name, lines), "utf8");
   }
 
-  /** The fixture catalog's hooks, parsed. */
+  /** The hooks the fixture itself ships, which every case here writes beside. */
+  const FIXTURE_HOOKS = ["acme-standup", "guard-secrets", "session-notes"];
+
+  /** The hooks a case wrote, parsed — the fixture's own filtered out. */
   async function hooks() {
-    return (await parseCatalogDirectory(CATALOG_NAME, "path:../catalog", catalogDir)).hooks;
+    const parsed = (await parseCatalogDirectory(CATALOG_NAME, "path:../catalog", catalogDir)).hooks;
+    return parsed.filter((hook) => !FIXTURE_HOOKS.includes(hook.name));
   }
 
   it("reads every hook directory, deriving the name and the path from it", async () => {
@@ -760,22 +798,25 @@ describe("catalog hooks", () => {
     const emitted = JSON.parse((await cli("dump-catalog", "--json")).stdout) as {
       hooks: Record<string, unknown>;
     };
-    expect(emitted.hooks).toEqual({
-      [HOOK_NAME]: {
-        catalog: CATALOG_NAME,
-        command: "hook.sh",
-        env: [],
-        event: "PreToolUse",
-        matcher: "Bash",
-        path: HOOK_DIR,
-        scopes: ["function.engineering"],
-        shipsScript: true,
-      },
+    expect(emitted.hooks[HOOK_NAME]).toEqual({
+      catalog: CATALOG_NAME,
+      command: "hook.sh",
+      env: [],
+      event: "PreToolUse",
+      matcher: "Bash",
+      path: HOOK_DIR,
+      scopes: ["function.engineering"],
+      shipsScript: true,
     });
+    // The fixture's own three come along, which the whole-catalog case above pins.
+    expect(Object.keys(emitted.hooks)).toEqual([HOOK_NAME, ...FIXTURE_HOOKS].sort());
 
-    const text = (await cli("dump-catalog")).stdout;
-    expect(text).toContain(
-      `${HOOK_NAME}  ${CATALOG_NAME}  function.engineering  PreToolUse  hook.sh (shipped)`,
+    // The row's fields rather than its padding, which widens with whatever else the catalog holds.
+    const row = (await cli("dump-catalog")).stdout
+      .split("\n")
+      .find((line) => line.trimStart().startsWith(`${HOOK_NAME} `));
+    expect(row?.replace(/\s+/g, " ").trim()).toBe(
+      `${HOOK_NAME} ${CATALOG_NAME} function.engineering PreToolUse hook.sh (shipped)`,
     );
   });
 
@@ -787,12 +828,14 @@ describe("catalog hooks", () => {
 
     const view = await merged();
 
-    expect(view.hooks).toHaveLength(1);
-    expect(view.hooks[0]).toMatchObject({
-      name: HOOK_NAME,
-      catalog: CATALOG_NAME,
-      command: "npx company-notify",
-    });
+    // One entry for the contested name, beside the fixture's own hooks, which only one catalog holds.
+    expect(view.hooks.filter((hook) => hook.name === HOOK_NAME)).toEqual([
+      expect.objectContaining({
+        name: HOOK_NAME,
+        catalog: CATALOG_NAME,
+        command: "npx company-notify",
+      }),
+    ]);
     expect(view.shadowing.hooks.get(HOOK_NAME)).toEqual({
       name: HOOK_NAME,
       catalog: CATALOG_NAME,
@@ -1271,8 +1314,8 @@ describe("multi-catalog merge and shadowing", () => {
         "mcps (0)",
         "  (none)",
         "",
-        "hooks (0)",
-        "  (none)",
+        "hooks (1)",
+        `  session-notes  ${CATALOG_NAME}  SessionStart  scope:core`,
         "",
         "env (0)",
         "  (none)",

@@ -284,14 +284,15 @@ describe("ambit catalog audit --check", () => {
   });
 
   it("exits 0 when the catalog carries no dead weight", async () => {
-    // The shared fixture: every skill declares a registered scope, and its second server is reached
-    // through `requires` alone — which is exactly the shape a naive audit would report.
+    // The shared fixture: every skill declares a registered scope, and its second server and third
+    // hook are reached through `requires` alone — which is exactly the shape a naive audit would
+    // report.
     const fixture = await buildFixtureCatalog(path.join(root, "fixture"));
     const result = await invoke("catalog", "audit", "--catalog", fixture, "--check");
 
     expect(result.code, result.stderr).toBe(ExitCode.Success);
     expect(result.stdout).toBe(
-      ["audited 4 scopes, 4 skills, 2 mcps, 0 hooks", "", "findings (0)", "  (none)"].join("\n"),
+      ["audited 4 scopes, 4 skills, 2 mcps, 3 hooks", "", "findings (0)", "  (none)"].join("\n"),
     );
   });
 });
@@ -410,6 +411,9 @@ describe("what makes a hook unreachable", () => {
   const NOTIFY = "notify";
   const HOOK_DOCUMENT = `hooks/${NOTIFY}/HOOK.yml`;
 
+  /** The fixture's own hooks, which `notify` is audited beside — all three of them reachable. */
+  const FIXTURE_HOOKS = 3;
+
   let fixture: string;
 
   beforeEach(async () => {
@@ -420,7 +424,7 @@ describe("what makes a hook unreachable", () => {
     await writeHook(fixture, NOTIFY, []);
 
     const report = await auditJson(fixture);
-    expect(report.audited.hooks).toBe(1);
+    expect(report.audited.hooks).toBe(FIXTURE_HOOKS + 1);
     expect(report.findings).toEqual([
       {
         kind: "unreachable-hook",

@@ -149,7 +149,16 @@ describe("ambit.lock", () => {
         "catalogs:",
         `  ${CATALOG_NAME}:`,
         `    source: ${CATALOG_SOURCE}`,
-        "hooks: {}",
+        // `path` on the hook that ships a script and not on the inline one: a lock pins bytes, and an
+        // inline command is config values, which is the argument the servers make.
+        "hooks:",
+        "  guard-secrets:",
+        `    catalog: ${CATALOG_NAME}`,
+        "    path: hooks/guard-secrets",
+        "    reason: scope:function.engineering",
+        "  session-notes:",
+        `    catalog: ${CATALOG_NAME}`,
+        "    reason: scope:core",
         "mcps:",
         "  scoped:",
         `    catalog: ${CATALOG_NAME}`,

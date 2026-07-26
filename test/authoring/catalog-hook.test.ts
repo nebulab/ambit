@@ -516,8 +516,10 @@ describe("ambit catalog hook rm", () => {
 
     await succeeds("rm", NESTED);
 
+    // The snapshot equality says nothing extra is left; this says the empty namespace directory the
+    // nested hook needed is gone, rather than sitting beside the fixture's own hooks.
     expect(await snapshot()).toEqual(before);
-    expect(await readdir(path.join(catalogDir, "hooks"))).toEqual([]);
+    expect(await readdir(path.join(catalogDir, "hooks"))).not.toContain("repo");
   });
 
   it("refuses while a skill requires it, naming the requirer", async () => {

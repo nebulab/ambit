@@ -42,6 +42,10 @@ const ENGINEERING_SKILL = "code-review";
 const FRONTEND_SKILL = "design-tokens";
 const PROJECT_SKILL = "acme-brief";
 
+/** The fixture's two scope-selected hooks, in the sections they appear in — both names 13 wide. */
+const CORE_HOOK = "session-notes";
+const ENGINEERING_HOOK = "guard-secrets";
+
 const GOLDEN_DIR = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
@@ -147,6 +151,19 @@ async function writeHook(name: string, lines: readonly string[]): Promise<void> 
   const target = path.join(catalogDir, "hooks", name.replaceAll(".", "/"), "HOOK.yml");
   await mkdir(path.dirname(target), { recursive: true });
   await writeFile(target, [`name: ${name}`, ...lines, ""].join("\n"), "utf8");
+}
+
+/** The hooks the fixture itself ships: one on `core`, one on `function.engineering`, one on nothing. */
+const FIXTURE_HOOKS = [CORE_HOOK, ENGINEERING_HOOK, "acme-standup"];
+
+/**
+ * The names of the hooks a case wrote, in bundle order, with the fixture's own left out.
+ *
+ * The fixture's hooks are selected by the same scopes these cases hold, and every case here is about
+ * the one document it wrote — the golden bundles are where the fixture's own selection is pinned.
+ */
+function writtenHooks(resolved: Bundle): readonly string[] {
+  return resolved.hooks.map((hook) => hook.name).filter((name) => !FIXTURE_HOOKS.includes(name));
 }
 
 /**
@@ -921,21 +938,22 @@ describe("catalog hooks", () => {
     expect(parent.reasons.hooks.get(HOOK_NAME)).toMatchObject({ held: "function.engineering" });
 
     const elsewhere = await bundle(["core"]);
-    expect(elsewhere.hooks).toEqual([]);
+    expect(writtenHooks(elsewhere)).toEqual([]);
   });
 
   it("leaves a hook declaring no scopes out of every scope-selected bundle", async () => {
     await writeHook("unscoped", ["event: Stop", "command: npx notify"]);
 
     const everything = await bundle(["core", "function.engineering", "project.acme"]);
-    expect(everything.hooks.map((hook) => hook.name)).toEqual([HOOK_NAME]);
+    expect(writtenHooks(everything)).toEqual([HOOK_NAME]);
   });
 
   it("names the catalog it came from in `resolve`", async () => {
     await writeProfile(["function.engineering"]);
 
+    // Beside the fixture's own hook on the same scope, which is what the section's padding widens to.
     expect((await cli("resolve")).stdout).toContain(
-      `hooks (1)\n  ${HOOK_NAME}  ${CATALOG_NAME}  PreToolUse`,
+      `hooks (2)\n  ${HOOK_NAME.padEnd(ENGINEERING_HOOK.length)}  ${CATALOG_NAME}  PreToolUse\n  ${ENGINEERING_HOOK}  ${CATALOG_NAME}  PreToolUse`,
     );
   });
 });
@@ -964,7 +982,7 @@ describe("hooks reached through `requires`", () => {
 
     const required = await bundle(["core"]);
 
-    expect(required.hooks.map((hook) => hook.name)).toEqual([HOOK_NAME]);
+    expect(writtenHooks(required)).toEqual([HOOK_NAME]);
     expect(required.reasons.hooks.get(HOOK_NAME)).toEqual({
       kind: "required-by",
       requirer: "risky",
@@ -983,7 +1001,7 @@ describe("hooks reached through `requires`", () => {
 
     const required = await bundle(["core"]);
 
-    expect(required.hooks.map((hook) => hook.name)).toEqual([HOOK_NAME]);
+    expect(writtenHooks(required)).toEqual([HOOK_NAME]);
     expect(required.reasons.hooks.get(HOOK_NAME)).toEqual({
       kind: "required-by",
       requirer: "chain-leaf",
@@ -995,7 +1013,7 @@ describe("hooks reached through `requires`", () => {
     // the edge exists and reaches nothing.
     await writeSkill("risky", ["scopes: [project.acme]", `requires: [hook.${HOOK_NAME}]`]);
 
-    expect((await bundle(["core"])).hooks).toEqual([]);
+    expect(writtenHooks(await bundle(["core"]))).toEqual([]);
   });
 
   it("satisfies a requirement from an inline hook, and still calls that one explicit", async () => {
@@ -1008,7 +1026,7 @@ describe("hooks reached through `requires`", () => {
       ["hooks:", "  - name: declared", "    event: Stop", "    command: npx notify"],
     );
 
-    expect(inline.hooks.map((hook) => hook.name)).toEqual(["declared"]);
+    expect(writtenHooks(inline)).toEqual(["declared"]);
     expect(inline.reasons.hooks.get("declared")).toEqual({ kind: "explicit" });
   });
 });
@@ -1117,8 +1135,9 @@ describe("ambit resolve --explain", () => {
         "mcps (1)",
         `  scoped  ${CATALOG_NAME}  scope:function.engineering`,
         "",
-        "hooks (0)",
-        "  (none)",
+        "hooks (2)",
+        `  ${ENGINEERING_HOOK}  ${CATALOG_NAME}  PreToolUse    scope:function.engineering`,
+        `  ${CORE_HOOK}  ${CATALOG_NAME}  SessionStart  scope:core`,
         "",
         "env (2)",
         "  ACME_FIGMA_TOKEN",
@@ -1403,8 +1422,9 @@ describe("ambit resolve", () => {
         "mcps (1)",
         `  scoped  ${CATALOG_NAME}`,
         "",
-        "hooks (0)",
-        "  (none)",
+        "hooks (2)",
+        `  ${ENGINEERING_HOOK}  ${CATALOG_NAME}  PreToolUse`,
+        `  ${CORE_HOOK}  ${CATALOG_NAME}  SessionStart`,
         "",
         "env (2)",
         "  ACME_FIGMA_TOKEN",

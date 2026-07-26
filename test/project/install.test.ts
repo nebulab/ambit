@@ -24,7 +24,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildFixtureCatalog } from "../../scripts/fixture-catalog.js";
 import type { PlannedSkillDir } from "../../src/harness/adapter.js";
 import { claude } from "../../src/harness/definitions.js";
-import { adapterFor, SHARED_SKILLS_DIR } from "../../src/harness/profile.js";
+import { adapterFor, SHARED_HOOKS_DIR, SHARED_SKILLS_DIR } from "../../src/harness/profile.js";
+import { arrayEntryKey, managedKey } from "../../src/model/documents/index.js";
 import { loadCatalogs, mergeCatalogs, mergeConfigEntities } from "../../src/model/catalog.js";
 import { loadProjectConfig } from "../../src/model/config.js";
 import { ExitCode } from "../../src/errors.js";
@@ -65,6 +66,38 @@ const FIXTURE_MCP = "fixture";
 
 /** The variable the scoped server interpolates into its `Authorization` header. */
 const SCOPED_KEY_VAR = "SCOPED_API_KEY";
+
+/**
+ * The fixture's two scope-matched hooks, the directory one of them ships and the file they share.
+ *
+ * `core` selects an inline-command hook and `function.engineering` one shipping a script, so the
+ * default profile's bundle plans a config file and a materialized directory besides the skills. The
+ * keys are built from the rendered entry rather than written out: a digest is not a literal anyone can
+ * check by eye, and `test/project/hooks.test.ts` is where the rendering itself is pinned.
+ */
+const HOOK_DIR = `${SHARED_HOOKS_DIR}/guard-secrets`;
+const CLAUDE_SETTINGS = ".claude/settings.json";
+
+const CORE_HOOK_KEY = managedKey(
+  "hooks",
+  arrayEntryKey("SessionStart", {
+    hooks: [{ type: "command", command: 'echo "acme conventions apply"' }],
+  }),
+);
+
+const ENGINEERING_HOOK_KEY = managedKey(
+  "hooks",
+  arrayEntryKey("PreToolUse", {
+    matcher: "Bash",
+    hooks: [
+      {
+        type: "command",
+        command: `\${CLAUDE_PROJECT_DIR}/${HOOK_DIR}/guard.sh`,
+        timeout: 10,
+      },
+    ],
+  }),
+);
 
 let root: string;
 let catalogDir: string;
@@ -252,8 +285,10 @@ describe("the Claude adapter's plan", () => {
       `${SKILLS_DIR}/${ENGINEERING_SKILL}`,
       `${SKILLS_DIR}/${CORE_SKILL}`,
       `${SKILLS_DIR}/${FRONTEND_SKILL}`,
+      HOOK_DIR,
       CLAUDE_LINK,
       MCP_FILE,
+      CLAUDE_SETTINGS,
     ]);
 
     // The fixture is a `path:` catalog, so every skill is planned as a link.
@@ -285,13 +320,20 @@ describe("the Claude adapter's plan", () => {
     expect(claudeAdapter.plan(bundle, project)).toEqual(claudeAdapter.plan(bundle, project));
   });
 
-  it("plans no config file for a bundle with no servers", async () => {
+  it("plans no server config file for a bundle with no servers", async () => {
     await writeProfile(["core"]);
 
     const plan = claudeAdapter.plan(await bundleFor(), { root: projectDir });
 
-    // The skills link is still planned: Claude Code reads through it whatever the bundle holds.
-    expect(plan.map((artifact) => artifact.kind)).toEqual(["skill-dir", "skills-link"]);
+    // The skills link is still planned: Claude Code reads through it whatever the bundle holds. The
+    // one config file left is the settings file, which this profile's hook needs — `.mcp.json` is the
+    // one a serverless bundle plans nothing for.
+    expect(plan.map((artifact) => artifact.kind)).toEqual([
+      "skill-dir",
+      "skills-link",
+      "harness-config",
+    ]);
+    expect(plan.map((artifact) => artifact.path)).not.toContain(MCP_FILE);
   });
 });
 
@@ -344,9 +386,18 @@ describe("ambit install", () => {
       version: 1,
       harnesses: ["claude"],
       artifacts: [
+        { path: HOOK_DIR, kind: "hook-dir", mode: "link" },
         { path: `${SKILLS_DIR}/${ENGINEERING_SKILL}`, kind: "skill-dir", mode: "link" },
         { path: `${SKILLS_DIR}/${CORE_SKILL}`, kind: "skill-dir", mode: "link" },
         { path: `${SKILLS_DIR}/${FRONTEND_SKILL}`, kind: "skill-dir", mode: "link" },
+        {
+          path: CLAUDE_SETTINGS,
+          kind: "harness-config",
+          format: "json",
+          // `shape` too, which prune and clean read to know the section is an array of entries.
+          shape: "array",
+          managedKeys: [ENGINEERING_HOOK_KEY, CORE_HOOK_KEY],
+        },
         { path: CLAUDE_LINK, kind: "skills-link", mode: "link" },
         {
           path: MCP_FILE,
@@ -402,12 +453,14 @@ describe("ambit install", () => {
         "harnesses (1)",
         "  claude",
         "",
-        "artifacts (5)",
+        "artifacts (7)",
         `  ${`${SKILLS_DIR}/${ENGINEERING_SKILL}`.padEnd(width)}  skill-dir       link`,
         `  ${SKILLS_DIR}/${CORE_SKILL}  skill-dir       link`,
         `  ${`${SKILLS_DIR}/${FRONTEND_SKILL}`.padEnd(width)}  skill-dir       link`,
+        `  ${HOOK_DIR.padEnd(width)}  hook-dir        link`,
         `  ${CLAUDE_LINK.padEnd(width)}  skills-link     link`,
         `  ${MCP_FILE.padEnd(width)}  harness-config  -`,
+        `  ${CLAUDE_SETTINGS.padEnd(width)}  harness-config  -`,
       ].join("\n"),
     );
   });
@@ -420,9 +473,15 @@ describe("ambit install", () => {
         { kind: "skill-dir", mode: "link", path: `${SKILLS_DIR}/${ENGINEERING_SKILL}` },
         { kind: "skill-dir", mode: "link", path: `${SKILLS_DIR}/${CORE_SKILL}` },
         { kind: "skill-dir", mode: "link", path: `${SKILLS_DIR}/${FRONTEND_SKILL}` },
+        { kind: "hook-dir", mode: "link", path: HOOK_DIR },
         { kind: "skills-link", mode: "link", path: CLAUDE_LINK },
         // No `format`: a report shows what a reader needs, and the path already says which it is.
         { kind: "harness-config", managedKeys: [`mcpServers.${SCOPED_MCP}`], path: MCP_FILE },
+        {
+          kind: "harness-config",
+          managedKeys: [ENGINEERING_HOOK_KEY, CORE_HOOK_KEY],
+          path: CLAUDE_SETTINGS,
+        },
       ],
       harnesses: ["claude"],
       skills: [ENGINEERING_SKILL, CORE_SKILL, FRONTEND_SKILL],
@@ -735,7 +794,10 @@ describe(".gitignore", () => {
   it("lists every skill directory it installed in the shared directory's own file", async () => {
     expect((await cli("install")).code).toBe(ExitCode.Success);
 
+    // The hook's materialized directory among them, and sorted with the rest: everything ambit writes
+    // under the shared directory is volatile, whichever namespace put it there.
     expect(await managedBlock(SHARED_GITIGNORE_FILE)).toEqual([
+      "/hooks/guard-secrets",
       `/skills/${ENGINEERING_SKILL}`,
       `/skills/${CORE_SKILL}`,
       `/skills/${FRONTEND_SKILL}`,
@@ -1012,6 +1074,7 @@ describe("ambit install --dry-run", () => {
       artifacts: [
         { kind: "skill-dir", mode: "link", path: `${SKILLS_DIR}/${CORE_SKILL}` },
         { kind: "skills-link", mode: "link", path: CLAUDE_LINK },
+        { kind: "harness-config", managedKeys: [CORE_HOOK_KEY], path: CLAUDE_SETTINGS },
       ],
       gitignore: [
         { changed: false, file: GITIGNORE_FILENAME },
@@ -1020,8 +1083,10 @@ describe("ambit install --dry-run", () => {
       harnesses: ["claude"],
       lockChanged: true,
       pruned: [
+        { kind: "hook-dir", path: HOOK_DIR },
         { kind: "skill-dir", path: `${SKILLS_DIR}/${ENGINEERING_SKILL}` },
         { kind: "skill-dir", path: `${SKILLS_DIR}/${FRONTEND_SKILL}` },
+        { kind: "harness-config", managedKeys: [ENGINEERING_HOOK_KEY], path: CLAUDE_SETTINGS },
         { kind: "harness-config", managedKeys: [`mcpServers.${SCOPED_MCP}`], path: MCP_FILE },
       ],
       skills: [CORE_SKILL],
@@ -1258,6 +1323,15 @@ describe("pruning", () => {
 
     expect(parseState(await readStateFile(), STATE_FILENAME).artifacts).toEqual([
       { path: `${SKILLS_DIR}/${CORE_SKILL}`, kind: "skill-dir", mode: "link" },
+      // The settings file survives the narrowing, holding one entry rather than two: `core` still
+      // selects the inline hook, so what was pruned is the other one's key.
+      {
+        path: CLAUDE_SETTINGS,
+        kind: "harness-config",
+        format: "json",
+        shape: "array",
+        managedKeys: [CORE_HOOK_KEY],
+      },
       { path: CLAUDE_LINK, kind: "skills-link", mode: "link" },
     ]);
   });
@@ -1269,8 +1343,10 @@ describe("pruning", () => {
     const result = await installProject(projectDir);
 
     expect(result.pruned).toEqual([
+      { path: HOOK_DIR, kind: "hook-dir" },
       { path: `${SKILLS_DIR}/${ENGINEERING_SKILL}`, kind: "skill-dir" },
       { path: `${SKILLS_DIR}/${FRONTEND_SKILL}`, kind: "skill-dir" },
+      { path: CLAUDE_SETTINGS, kind: "harness-config", managedKeys: [ENGINEERING_HOOK_KEY] },
       { path: MCP_FILE, kind: "harness-config", managedKeys: [`mcpServers.${SCOPED_MCP}`] },
     ]);
   });
@@ -1287,8 +1363,16 @@ describe("pruning", () => {
     // `requires`, which this profile no longer selects.
     expect(Object.keys((await readMcpConfig()).mcpServers as object)).toEqual([SCOPED_MCP]);
     expect(parseState(await readStateFile(), STATE_FILENAME).artifacts).toEqual([
+      { path: HOOK_DIR, kind: "hook-dir", mode: "link" },
       { path: `${SKILLS_DIR}/${ENGINEERING_SKILL}`, kind: "skill-dir", mode: "link" },
       { path: `${SKILLS_DIR}/${FRONTEND_SKILL}`, kind: "skill-dir", mode: "link" },
+      {
+        path: CLAUDE_SETTINGS,
+        kind: "harness-config",
+        format: "json",
+        shape: "array",
+        managedKeys: [ENGINEERING_HOOK_KEY],
+      },
       { path: CLAUDE_LINK, kind: "skills-link", mode: "link" },
       {
         path: MCP_FILE,
@@ -1392,7 +1476,9 @@ describe("pruning", () => {
       serializeState({
         ...state,
         artifacts: state.artifacts.map((artifact) =>
-          artifact.kind === "harness-config"
+          // `.mcp.json` alone: rewriting every config file's keys would put keys naming no section
+          // into the settings file too, and ownership would refuse before pruning got a look.
+          artifact.kind === "harness-config" && artifact.path === MCP_FILE
             ? { ...artifact, managedKeys: [`mcpServers.${SCOPED_MCP}`, SCOPED_MCP] }
             : artifact,
         ),
@@ -1421,9 +1507,13 @@ describe("idempotence", () => {
     `${SKILLS_DIR}/${ENGINEERING_SKILL}/SKILL.md`,
     `${SKILLS_DIR}/${CORE_SKILL}/SKILL.md`,
     `${SKILLS_DIR}/${FRONTEND_SKILL}/SKILL.md`,
+    // The script-shipping hook's materialized directory, which is bytes rather than config values.
+    `${HOOK_DIR}/HOOK.yml`,
+    `${HOOK_DIR}/guard.sh`,
     // The link Claude Code reads through, which is one entry however many skills sit behind it.
     CLAUDE_LINK,
     MCP_FILE,
+    CLAUDE_SETTINGS,
     LOCK_FILENAME,
     // Both managed blocks are files install writes, so they belong in the claim: this list is
     // meant to fail when a new one appears.

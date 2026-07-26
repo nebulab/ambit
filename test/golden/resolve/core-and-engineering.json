@@ -3,7 +3,16 @@
     "ACME_FIGMA_TOKEN",
     "SCOPED_API_KEY"
   ],
-  "hooks": {},
+  "hooks": {
+    "guard-secrets": {
+      "catalog": "company",
+      "event": "PreToolUse"
+    },
+    "session-notes": {
+      "catalog": "company",
+      "event": "SessionStart"
+    }
+  },
   "mcps": {
     "scoped": {
       "catalog": "company"

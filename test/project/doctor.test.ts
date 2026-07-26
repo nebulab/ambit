@@ -38,6 +38,16 @@ const CORE_TARGET = `${SKILLS_DIR}/${CORE_SKILL}`;
 const FRONTEND_TARGET = `${SKILLS_DIR}/${FRONTEND_SKILL}`;
 const ENGINEERING_TARGET = `${SKILLS_DIR}/${ENGINEERING_SKILL}`;
 
+/**
+ * The fixture's script-shipping hook and the file its config entry lands in.
+ *
+ * `function.engineering` selects it, so the default profile installs a directory of bytes and a config
+ * file besides the skills — which is what makes the ownership and mode checks answer for both
+ * directory kinds rather than only for skills.
+ */
+const HOOK_TARGET = ".agents/hooks/guard-secrets";
+const CLAUDE_SETTINGS = ".claude/settings.json";
+
 /** The two variables the default profile's bundle declares. */
 const FIGMA_VAR = "ACME_FIGMA_TOKEN";
 const SCOPED_VAR = "SCOPED_API_KEY";
@@ -354,9 +364,11 @@ describe("ambit doctor on an ownership anomaly", () => {
     await rm(path.join(projectDir, STATE_FILE));
 
     expect(await findings()).toEqual([
+      `ownership/fail: ambit does not own ${HOOK_TARGET}`,
       `ownership/fail: ambit does not own ${ENGINEERING_TARGET}`,
       `ownership/fail: ambit does not own ${CORE_TARGET}`,
       `ownership/fail: ambit does not own ${FRONTEND_TARGET}`,
+      `ownership/fail: ambit does not own ${CLAUDE_SETTINGS}`,
       `ownership/fail: ambit does not own ${CLAUDE_LINK}`,
       `ownership/fail: ambit does not own ${MCP_FILE}`,
     ]);
@@ -438,10 +450,12 @@ describe("ambit doctor on a project installed with `--copy`", () => {
     const result = await cli("doctor");
 
     expect(result.code, result.stderr).toBe(ExitCode.Success);
+    // The hook's own directory among them: both directory kinds have a mode to diverge in.
     expect(await findings()).toEqual([
       `mode/warn: ${ENGINEERING_TARGET} is installed as a copy`,
       `mode/warn: ${CORE_TARGET} is installed as a copy`,
       `mode/warn: ${FRONTEND_TARGET} is installed as a copy`,
+      `mode/warn: ${HOOK_TARGET} is installed as a copy`,
     ]);
     expect(await checks()).toEqual([
       "env=ok",
@@ -469,6 +483,7 @@ describe("ambit doctor on a project installed with `--copy`", () => {
       `drift/fail: ${CORE_TARGET} is modified`,
       `mode/warn: ${ENGINEERING_TARGET} is installed as a copy`,
       `mode/warn: ${FRONTEND_TARGET} is installed as a copy`,
+      `mode/warn: ${HOOK_TARGET} is installed as a copy`,
     ]);
   });
 });
@@ -573,8 +588,9 @@ describe("ambit doctor before an install", () => {
       "mode=ok",
       "harness=ok",
     ]);
-    // The lock, both managed blocks, three missing skills, the skills link, and `.mcp.json`.
-    expect(doctorFailures(await diagnoseProject(projectDir))).toHaveLength(8);
+    // The lock, both managed blocks, three missing skills, the missing hook directory, the skills
+    // link, `.claude/settings.json` and `.mcp.json`.
+    expect(doctorFailures(await diagnoseProject(projectDir))).toHaveLength(10);
   });
 
   it("resolves the catalog, so a broken config is an error rather than a finding", async () => {

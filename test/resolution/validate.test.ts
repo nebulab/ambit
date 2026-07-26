@@ -31,8 +31,7 @@ const CATALOG_NAME = "company";
 const FIXTURE_SCOPES = 4;
 const FIXTURE_SKILLS = 4;
 const FIXTURE_MCPS = 2;
-/** None yet: the shared fixture grows hooks with the rest of the backlog. */
-const FIXTURE_HOOKS = 0;
+const FIXTURE_HOOKS = 3;
 
 /** `writeProfile` puts the first held scope here, after the four-line preamble and `scopes:`. */
 const FIRST_SCOPE_LINE = 6;
@@ -571,7 +570,7 @@ describe("ambit validate: shadowing", () => {
     const found = await report("validate");
 
     expect(found.valid).toBe(false);
-    expect(found.problems).toHaveLength(FIXTURE_SKILLS + FIXTURE_MCPS);
+    expect(found.problems).toHaveLength(FIXTURE_SKILLS + FIXTURE_MCPS + FIXTURE_HOOKS);
     expect(new Set(found.problems.map((problem) => problem.kind))).toEqual(
       new Set(["shadowed-name"]),
     );
@@ -591,7 +590,9 @@ describe("ambit validate: shadowing", () => {
 
     const found = await report("validate");
 
-    expect(found.problems.at(-1)).toMatchObject({
+    expect(
+      found.problems.find((problem) => problem.message.includes('hook "guard"')),
+    ).toMatchObject({
       kind: "shadowed-name",
       message: `shadowed hook "guard" (catalog "${CATALOG_NAME}")`,
       detail: [
@@ -600,9 +601,18 @@ describe("ambit validate: shadowing", () => {
         "rename one of the copies, or drop the catalog that should not provide it",
       ],
     });
+
+    // The hooks are the trailing group: every problem from the first hook on is one, so none of them
+    // is interleaved with a skill or a server.
+    const messages = found.problems.map((problem) => problem.message);
+    const first = messages.findIndex((message) => message.startsWith("shadowed hook"));
+    expect(first).toBeGreaterThan(0);
+    expect(messages.slice(first).every((message) => message.startsWith("shadowed hook"))).toBe(
+      true,
+    );
   });
 
-  it("keeps skills and servers in name order within their kinds", async () => {
+  it("keeps each kind in name order, kinds in report order", async () => {
     const found = await report("validate");
 
     expect(found.problems.map((problem) => problem.message)).toEqual([
@@ -612,6 +622,9 @@ describe("ambit validate: shadowing", () => {
       `shadowed skill "design-tokens" (catalog "${CATALOG_NAME}")`,
       `shadowed MCP server "fixture" (catalog "${CATALOG_NAME}")`,
       `shadowed MCP server "scoped" (catalog "${CATALOG_NAME}")`,
+      `shadowed hook "acme-standup" (catalog "${CATALOG_NAME}")`,
+      `shadowed hook "guard-secrets" (catalog "${CATALOG_NAME}")`,
+      `shadowed hook "session-notes" (catalog "${CATALOG_NAME}")`,
     ]);
   });
 
@@ -727,10 +740,10 @@ describe("ambit validate output", () => {
 
     expect(result.code, result.stderr).toBe(ExitCode.Success);
     expect(result.stdout).toContain(
-      `checked ${FIXTURE_SCOPES} scopes, ${FIXTURE_SKILLS} skills, ${FIXTURE_MCPS} mcps, 1 hook`,
+      `checked ${FIXTURE_SCOPES} scopes, ${FIXTURE_SKILLS} skills, ${FIXTURE_MCPS} mcps, ${FIXTURE_HOOKS + 1} hooks`,
     );
     expect((await report("validate")).checked).toEqual({
-      hooks: 1,
+      hooks: FIXTURE_HOOKS + 1,
       mcps: FIXTURE_MCPS,
       scopes: FIXTURE_SCOPES,
       skills: FIXTURE_SKILLS,

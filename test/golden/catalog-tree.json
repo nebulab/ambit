@@ -4,7 +4,9 @@
       "children": {},
       "description": "The universal floor — context everyone needs",
       "direct": {
-        "hooks": [],
+        "hooks": [
+          "session-notes"
+        ],
         "mcps": [],
         "skills": [
           "company-context"
@@ -37,7 +39,9 @@
       },
       "description": "Building and shipping software",
       "direct": {
-        "hooks": [],
+        "hooks": [
+          "guard-secrets"
+        ],
         "mcps": [
           "scoped"
         ],

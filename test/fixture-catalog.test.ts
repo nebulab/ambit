@@ -55,6 +55,10 @@ function annotations(source: string): Record<string, unknown> {
 
 const EXPECTED_FILES = [
   FIXTURE_MARKER,
+  "hooks/acme-standup/HOOK.yml",
+  "hooks/guard-secrets/HOOK.yml",
+  "hooks/guard-secrets/guard.sh",
+  "hooks/session-notes/HOOK.yml",
   "mcps/fixture.yml",
   "mcps/scoped.yml",
   "scopes.yml",
@@ -66,11 +70,13 @@ const EXPECTED_FILES = [
 
 const SKILL_PATHS = EXPECTED_FILES.filter((file) => file.endsWith("SKILL.md"));
 
-/** The name↔path convention: path under `skills/`, with `/` → `.`. */
-function nameFromPath(skillPath: string): string {
+const HOOK_PATHS = EXPECTED_FILES.filter((file) => file.endsWith("HOOK.yml"));
+
+/** The name↔path convention, which hooks share with skills: path under `dirname`, `/` → `.`. */
+function nameFromPath(documentPath: string, dirname: "skills" | "hooks"): string {
   return path.posix
-    .dirname(skillPath)
-    .replace(/^skills\//, "")
+    .dirname(documentPath)
+    .replace(new RegExp(`^${dirname}/`), "")
     .replaceAll("/", ".");
 }
 
@@ -92,7 +98,7 @@ describe("fixture catalog", () => {
     expect(await listFiles(dir)).toEqual(EXPECTED_FILES);
   });
 
-  it("registers every scope a skill or MCP declares, with a description", async () => {
+  it("registers every scope a skill, MCP or hook declares, with a description", async () => {
     const registry = parse(await readFile(path.join(dir, "scopes.yml"), "utf8")) as {
       scopes: Record<string, { description: string }>;
     };
@@ -114,9 +120,9 @@ describe("fixture catalog", () => {
         declared.add(scope);
       }
     }
-    for (const mcp of ["mcps/fixture.yml", "mcps/scoped.yml"]) {
-      const entity = parse(await readFile(path.join(dir, mcp), "utf8")) as { scopes?: string[] };
-      for (const scope of entity.scopes ?? []) declared.add(scope);
+    for (const entity of [...["mcps/fixture.yml", "mcps/scoped.yml"], ...HOOK_PATHS]) {
+      const parsed = parse(await readFile(path.join(dir, entity), "utf8")) as { scopes?: string[] };
+      for (const scope of parsed.scopes ?? []) declared.add(scope);
     }
 
     for (const scope of declared) {
@@ -127,8 +133,19 @@ describe("fixture catalog", () => {
   it("names every skill after its path", async () => {
     for (const skill of SKILL_PATHS) {
       const meta = frontmatter(await readFile(path.join(dir, skill), "utf8"));
-      expect(meta.name).toBe(nameFromPath(skill));
+      expect(meta.name).toBe(nameFromPath(skill, "skills"));
       expect(meta.description).toBeTruthy();
+    }
+  });
+
+  it("names every hook after its path", async () => {
+    for (const hook of HOOK_PATHS) {
+      const entity = parse(await readFile(path.join(dir, hook), "utf8")) as {
+        name: string;
+        description?: string;
+      };
+      expect(entity.name).toBe(nameFromPath(hook, "hooks"));
+      expect(entity.description).toBeTruthy();
     }
   });
 
@@ -147,10 +164,10 @@ describe("fixture catalog", () => {
     });
   });
 
-  it("has a project skill that reaches a skill and an MCP by requires alone", async () => {
+  it("has a project skill that reaches a skill, an MCP and a hook by requires alone", async () => {
     const meta = annotations(await readFile(path.join(dir, "skills/acme-brief/SKILL.md"), "utf8"));
 
-    expect(meta.requires).toEqual(["company-context", "mcp.fixture"]);
+    expect(meta.requires).toEqual(["company-context", "mcp.fixture", "hook.acme-standup"]);
   });
 
   it("declares env vars a bundle can be missing", async () => {
@@ -186,6 +203,48 @@ describe("fixture catalog", () => {
     for (const entity of [required, scoped] as { transport: Record<string, unknown> }[]) {
       expect(Object.keys(entity.transport)).toHaveLength(1);
     }
+  });
+
+  it("defines an inline hook, a script-shipping hook, and a requires-only hook", async () => {
+    const read = async (file: string): Promise<unknown> =>
+      parse(await readFile(path.join(dir, file), "utf8"));
+
+    expect(await read("hooks/session-notes/HOOK.yml")).toEqual({
+      name: "session-notes",
+      scopes: ["core"],
+      description: "Reminds a session that Acme's conventions apply.",
+      event: "SessionStart",
+      command: 'echo "acme conventions apply"',
+    });
+    expect(await read("hooks/guard-secrets/HOOK.yml")).toEqual({
+      name: "guard-secrets",
+      scopes: ["function.engineering"],
+      description: "Inspects a Bash command before Acme's tooling runs it.",
+      event: "PreToolUse",
+      matcher: "Bash",
+      command: "guard.sh",
+      timeout: 10,
+    });
+    expect(await read("hooks/acme-standup/HOOK.yml")).toEqual({
+      name: "acme-standup",
+      description: "Records what the session touched, for the Acme standup.",
+      event: "SessionEnd",
+      command: 'echo "acme session ended"',
+    });
+  });
+
+  it("ships the script its script-shipping hook names, and only there", async () => {
+    // `shipsScript` is derived from what the directory holds, so the fixture's proof of the
+    // distinction is the file's presence: one hook's `command` names a file beside its `HOOK.yml`,
+    // and the other two directories hold nothing but their own document.
+    const shipped = HOOK_PATHS.map((hook) => path.posix.dirname(hook)).filter((hookDir) =>
+      EXPECTED_FILES.some((file) => file.startsWith(`${hookDir}/`) && !file.endsWith("HOOK.yml")),
+    );
+
+    expect(shipped).toEqual(["hooks/guard-secrets"]);
+    expect(await readFile(path.join(dir, "hooks/guard-secrets/guard.sh"), "utf8")).toContain(
+      "#!/bin/sh",
+    );
   });
 
   it("names each MCP entity after its filename stem", async () => {

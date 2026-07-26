@@ -34,10 +34,20 @@ const FIXTURE_MCP = "fixture";
 /** The variable the scoped server interpolates into its `Authorization` header. */
 const SCOPED_KEY_VAR = "SCOPED_API_KEY";
 
-/** The default profile's four artifacts, by project-relative path and in status's order. */
+/** The default profile's artifacts, by project-relative path and in status's order. */
 const CORE_TARGET = `${SKILLS_DIR}/${CORE_SKILL}`;
 const FRONTEND_TARGET = `${SKILLS_DIR}/${FRONTEND_SKILL}`;
 const ENGINEERING_TARGET = `${SKILLS_DIR}/${ENGINEERING_SKILL}`;
+
+/**
+ * The fixture's script-shipping hook and the file both its hooks' entries land in.
+ *
+ * The default profile holds `core` and `function.engineering`, which select one inline-command hook
+ * and one shipping a script — so every row list here carries a `hook-dir` and a second config file
+ * besides the skills.
+ */
+const HOOK_TARGET = ".agents/hooks/guard-secrets";
+const CLAUDE_SETTINGS = ".claude/settings.json";
 
 let root: string;
 let catalogDir: string;
@@ -154,10 +164,12 @@ describe("ambit status on an installed project", () => {
     const kind = "harness-config".length;
     expect(result.stdout).toBe(
       [
-        "artifacts (5)",
+        "artifacts (7)",
+        `  ${HOOK_TARGET.padEnd(width)}  ${"hook-dir".padEnd(kind)}  ok`,
         `  ${ENGINEERING_TARGET.padEnd(width)}  ${"skill-dir".padEnd(kind)}  ok`,
         `  ${CORE_TARGET}  ${"skill-dir".padEnd(kind)}  ok`,
         `  ${FRONTEND_TARGET.padEnd(width)}  ${"skill-dir".padEnd(kind)}  ok`,
+        `  ${CLAUDE_SETTINGS.padEnd(width)}  harness-config  ok`,
         `  ${CLAUDE_LINK.padEnd(width)}  ${"skills-link".padEnd(kind)}  ok`,
         `  ${MCP_FILE.padEnd(width)}  harness-config  ok`,
       ].join("\n"),
@@ -184,9 +196,11 @@ describe("ambit status on an installed project", () => {
 
     expect(JSON.parse(result.stdout)).toEqual({
       artifacts: [
+        { kind: "hook-dir", path: HOOK_TARGET, state: "ok" },
         { kind: "skill-dir", path: ENGINEERING_TARGET, state: "ok" },
         { kind: "skill-dir", path: CORE_TARGET, state: "ok" },
         { kind: "skill-dir", path: FRONTEND_TARGET, state: "ok" },
+        { kind: "harness-config", path: CLAUDE_SETTINGS, state: "ok" },
         { kind: "skills-link", path: CLAUDE_LINK, state: "ok" },
         { kind: "harness-config", path: MCP_FILE, state: "ok" },
       ],
@@ -217,9 +231,11 @@ describe("ambit status after a manual edit", () => {
     expect(result.code, result.stderr).toBe(ExitCode.Success);
     expect(result.stdout).toContain(`modified  SKILL.md differs from its source`);
     expect(await states()).toEqual([
+      `${HOOK_TARGET}=ok`,
       `${ENGINEERING_TARGET}=ok`,
       `${CORE_TARGET}=modified`,
       `${FRONTEND_TARGET}=ok`,
+      `${CLAUDE_SETTINGS}=ok`,
       `${CLAUDE_LINK}=ok`,
       `${MCP_FILE}=ok`,
     ]);
@@ -246,9 +262,11 @@ describe("ambit status after a manual edit", () => {
     await rm(path.join(projectDir, ENGINEERING_TARGET), { recursive: true });
 
     expect(await states()).toEqual([
+      `${HOOK_TARGET}=ok`,
       `${ENGINEERING_TARGET}=missing`,
       `${CORE_TARGET}=ok`,
       `${FRONTEND_TARGET}=ok`,
+      `${CLAUDE_SETTINGS}=ok`,
       `${CLAUDE_LINK}=ok`,
       `${MCP_FILE}=ok`,
     ]);
@@ -297,9 +315,11 @@ describe("ambit status after a manual edit", () => {
     });
 
     expect(await states()).toEqual([
+      `${HOOK_TARGET}=ok`,
       `${ENGINEERING_TARGET}=ok`,
       `${CORE_TARGET}=ok`,
       `${FRONTEND_TARGET}=ok`,
+      `${CLAUDE_SETTINGS}=ok`,
       `${CLAUDE_LINK}=ok`,
       `${MCP_FILE}=ok`,
     ]);
@@ -373,9 +393,11 @@ describe("ambit status on a symlinked install", () => {
     // Mode is a per-run choice and both modes put the same bytes in front of the harness, so
     // `--copy` must not leave `status --check` permanently red.
     expect(await states()).toEqual([
+      `${HOOK_TARGET}=ok`,
       `${ENGINEERING_TARGET}=ok`,
       `${CORE_TARGET}=ok`,
       `${FRONTEND_TARGET}=ok`,
+      `${CLAUDE_SETTINGS}=ok`,
       `${CLAUDE_LINK}=ok`,
       `${MCP_FILE}=ok`,
     ]);
@@ -389,9 +411,11 @@ describe("ambit status before an install", () => {
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     expect(await states()).toEqual([
+      `${HOOK_TARGET}=missing`,
       `${ENGINEERING_TARGET}=missing`,
       `${CORE_TARGET}=missing`,
       `${FRONTEND_TARGET}=missing`,
+      `${CLAUDE_SETTINGS}=missing`,
       `${CLAUDE_LINK}=missing`,
       `${MCP_FILE}=missing`,
     ]);
@@ -405,9 +429,11 @@ describe("ambit status before an install", () => {
     await writeMcpFile({ mcpServers: { [SCOPED_MCP]: { command: "not ambit's either" } } });
 
     expect(await states()).toEqual([
+      `${HOOK_TARGET}=missing`,
       `${ENGINEERING_TARGET}=missing`,
       `${CORE_TARGET}=unowned`,
       `${FRONTEND_TARGET}=missing`,
+      `${CLAUDE_SETTINGS}=missing`,
       // Nothing is installed here, so the link is absent like the skills it would point at.
       `${CLAUDE_LINK}=missing`,
       `${MCP_FILE}=unowned`,
@@ -435,10 +461,14 @@ describe("ambit status after the profile narrows", () => {
     expect((await cli("install")).code).toBe(ExitCode.Success);
     await writeProfile(["core"]);
 
+    // The settings file is stale for the same reason `.mcp.json` is: one key it holds is no longer
+    // selected, even though the entry the narrowed profile's own hook wrote still matches.
     expect(await states()).toEqual([
+      `${HOOK_TARGET}=stale`,
       `${ENGINEERING_TARGET}=stale`,
       `${CORE_TARGET}=ok`,
       `${FRONTEND_TARGET}=stale`,
+      `${CLAUDE_SETTINGS}=stale`,
       `${CLAUDE_LINK}=ok`,
       `${MCP_FILE}=stale`,
     ]);
