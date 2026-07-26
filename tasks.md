@@ -237,7 +237,7 @@ turns out false, stop and note it here rather than inventing a workaround.
 
 ## 11. Lock
 
-- [ ] `Lock.hooks`.
+- [x] `Lock.hooks`.
 
 **Do** — `LockHook` = `{catalog, path?, commit?, reason}` (`lock.ts:76`), with `path`/`commit` only
 where the hook ships bytes; an inline hook is config values, which is `LockMcp`'s argument.

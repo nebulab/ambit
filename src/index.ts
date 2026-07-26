@@ -356,7 +356,7 @@ export {
   serializeLock,
   writeLockText,
 } from "./project/lock.js";
-export type { Lock, LockCatalog, LockMcp, LockSkill } from "./project/lock.js";
+export type { Lock, LockCatalog, LockHook, LockMcp, LockSkill } from "./project/lock.js";
 export { authorizePlan, ownedKeys } from "./project/ownership.js";
 export type { OwnershipOptions } from "./project/ownership.js";
 export { planPrune, pruneArtifacts, remainingArtifacts } from "./project/prune.js";
