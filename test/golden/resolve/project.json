@@ -2,6 +2,7 @@
   "env": [
     "FIXTURE_API_KEY"
   ],
+  "hooks": {},
   "mcps": {
     "fixture": {
       "catalog": "company"

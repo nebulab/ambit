@@ -3,6 +3,7 @@
     "ACME_FIGMA_TOKEN",
     "SCOPED_API_KEY"
   ],
+  "hooks": {},
   "mcps": {
     "scoped": {
       "catalog": "company"

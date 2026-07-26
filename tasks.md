@@ -52,7 +52,7 @@ error text for an unknown event.
 
 ## 2. `hooks:` in `ambit.yml`, visible in `resolve`
 
-- [ ] Config parsing plus a bundle that carries hooks.
+- [x] Config parsing plus a bundle that carries hooks.
 
 **Slice** — a person can declare an inline hook and `ambit resolve --explain` lists it. Nothing is
 written to a harness yet.

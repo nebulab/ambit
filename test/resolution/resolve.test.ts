@@ -66,8 +66,8 @@ let projectDir: string;
 /**
  * Points the project at the fixture catalog and gives it `scopes`.
  *
- * @param extra further top-level config lines — `skills` and `mcps` blocks — appended after the
- *   scopes list, so the line each held scope sits on does not depend on them.
+ * @param extra further top-level config lines — `skills`, `mcps` and `hooks` blocks — appended
+ *   after the scopes list, so the line each held scope sits on does not depend on them.
  */
 async function writeProfile(
   scopes: readonly string[],
@@ -306,12 +306,14 @@ describe("unknown-scope suggestions", () => {
         scopeLines: new Map(),
         skillLines: new Map(),
         mcpLines: new Map(),
+        hookLines: new Map(),
       },
       harnesses: ["claude"],
       scopes,
       catalogs: [],
       skills: [],
       mcps: [],
+      hooks: [],
     };
   }
 
@@ -389,8 +391,9 @@ describe("selection by scope", () => {
       scopes: [],
       skills: [],
       mcps: [],
+      hooks: [],
       env: [],
-      reasons: { skills: new Map(), mcps: new Map() },
+      reasons: { skills: new Map(), mcps: new Map(), hooks: new Map() },
     });
   });
 
@@ -768,6 +771,82 @@ describe("explicit skills and inline servers", () => {
 });
 
 /**
+ * A hook a project declares in `ambit.yml` is selected because it was declared: there is no scope
+ * route into it and nothing requires it, so `explicit` is the only reason it can carry — the same
+ * story an inline `mcps` entry has.
+ */
+describe("inline hooks", () => {
+  const HOOK_NAME = "format-on-write";
+
+  /** A hook declaring a scope nothing holds, so being declared is doing all the work. */
+  const HOOK: readonly string[] = [
+    "hooks:",
+    `  - name: ${HOOK_NAME}`,
+    "    scopes: [function.sales]",
+    "    event: PostToolUse",
+    '    matcher: "Edit|Write"',
+    "    command: npm run format",
+    "    env: [HOOK_TOKEN]",
+  ];
+
+  /** `hooks` lines for a name per hook, each on `Stop` and shipping nothing. */
+  function hooks(names: readonly string[]): readonly string[] {
+    return [
+      "hooks:",
+      ...names.flatMap((name) => [
+        `  - name: ${name}`,
+        "    event: Stop",
+        `    command: ${name}.sh`,
+      ]),
+    ];
+  }
+
+  it("selects a declared hook whatever scopes it names, and reports it as explicit", async () => {
+    const inline = await bundle([], HOOK);
+
+    expect(inline.hooks.map((hook) => hook.name)).toEqual([HOOK_NAME]);
+    expect(inline.hooks[0]).toMatchObject({ event: "PostToolUse", matcher: "Edit|Write" });
+    expect(inline.reasons.hooks.get(HOOK_NAME)).toEqual({ kind: "explicit" });
+  });
+
+  it("unions a hook's env into the bundle's, as a server's is", async () => {
+    // A hook that cannot see its credential is as broken as a server that cannot, and `doctor`
+    // reads the one list.
+    expect((await bundle([], HOOK)).env).toEqual(["HOOK_TOKEN"]);
+  });
+
+  it("sorts hooks by name, whatever order the config lists them in", async () => {
+    const written = await bundle([], hooks(["zeta", "alpha"]));
+
+    expect(written.hooks.map((hook) => hook.name)).toEqual(["alpha", "zeta"]);
+    expect([...written.reasons.hooks.keys()]).toEqual(["alpha", "zeta"]);
+  });
+
+  it("lists a hook with its event, and its reason under `--explain`", async () => {
+    await writeProfile([], HOOK);
+
+    expect((await cli("resolve")).stdout).toContain(`hooks (1)\n  ${HOOK_NAME}  PostToolUse`);
+    expect((await cli("resolve", "--explain")).stdout).toContain(
+      `${HOOK_NAME}  PostToolUse  explicit`,
+    );
+  });
+
+  it("keys a hook by name in JSON, carrying the event and nothing machine-specific", async () => {
+    await writeProfile([], HOOK);
+
+    const plain = JSON.parse((await cli("resolve", "--json")).stdout) as {
+      hooks: Record<string, { event: string; reason?: string }>;
+    };
+    expect(plain.hooks).toEqual({ [HOOK_NAME]: { event: "PostToolUse" } });
+
+    const explained = JSON.parse((await cli("resolve", "--explain", "--json")).stdout) as {
+      hooks: Record<string, { reason?: string }>;
+    };
+    expect(explained.hooks[HOOK_NAME]?.reason).toBe("explicit");
+  });
+});
+
+/**
  * Spec §6: every selected item carries the reason it is in the bundle — one of the three routes
  * resolution offers, and only one, so a reader gets an answer rather than a list of possibilities.
  *
@@ -870,6 +949,9 @@ describe("ambit resolve --explain", () => {
         "",
         "mcps (1)",
         `  scoped  ${CATALOG_NAME}  scope:function.engineering`,
+        "",
+        "hooks (0)",
+        "  (none)",
         "",
         "env (2)",
         "  ACME_FIGMA_TOKEN",
@@ -1108,6 +1190,9 @@ describe("ambit resolve", () => {
         "mcps (1)",
         `  scoped  ${CATALOG_NAME}`,
         "",
+        "hooks (0)",
+        "  (none)",
+        "",
         "env (2)",
         "  ACME_FIGMA_TOKEN",
         "  SCOPED_API_KEY",
@@ -1129,6 +1214,9 @@ describe("ambit resolve", () => {
         "  (none)",
         "",
         "mcps (0)",
+        "  (none)",
+        "",
+        "hooks (0)",
         "  (none)",
         "",
         "env (0)",

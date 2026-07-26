@@ -9,6 +9,8 @@ import { stat } from "node:fs/promises";
 import path from "node:path";
 
 import { at, configError } from "../errors.js";
+import type { HookEntity } from "./hook-entity.js";
+import { parseHookEntity } from "./hook-entity.js";
 import type { McpEntity } from "./mcp-entity.js";
 import { parseMcpEntity } from "./mcp-entity.js";
 import type { PositionedString } from "./yaml.js";
@@ -28,7 +30,15 @@ export const DEFAULT_HARNESSES: readonly string[] = ["claude"];
  */
 export const CONFIG_FILENAMES = ["ambit.yml", "ambit.yaml"] as const;
 
-const CONFIG_KEYS = ["catalogs", "harnesses", "mcps", "scopes", "skills", "version"] as const;
+const CONFIG_KEYS = [
+  "catalogs",
+  "harnesses",
+  "hooks",
+  "mcps",
+  "scopes",
+  "skills",
+  "version",
+] as const;
 const CATALOG_KEYS = ["name", "ref", "source"] as const;
 const SKILL_KEYS = ["name", "path", "ref", "source"] as const;
 
@@ -76,6 +86,8 @@ export interface ConfigOrigin {
   readonly skillLines: ReadonlyMap<string, number>;
   /** 1-based line each `mcps` entry was written on, keyed by server name. */
   readonly mcpLines: ReadonlyMap<string, number>;
+  /** 1-based line each `hooks` entry was written on, keyed by hook name. */
+  readonly hookLines: ReadonlyMap<string, number>;
 }
 
 /** A parsed, validated `ambit.yml`. */
@@ -92,6 +104,8 @@ export interface ProjectConfig {
   readonly skills: readonly SkillRequest[];
   /** Servers defined inline rather than in a catalog. */
   readonly mcps: readonly McpEntity[];
+  /** Hooks defined inline rather than in a catalog. */
+  readonly hooks: readonly HookEntity[];
 }
 
 /**
@@ -198,6 +212,22 @@ function parseMcps(root: YamlMapping): Positioned<McpEntity> {
   return { entries, lines };
 }
 
+function parseHooks(root: YamlMapping): Positioned<HookEntity> {
+  const track = nameTracker(root.file, "hooks entry", "define each hook once");
+  const entries: HookEntity[] = [];
+  const lines = new Map<string, number>();
+
+  for (const entry of root.optionalMappingList("hooks") ?? []) {
+    const entity = parseHookEntity(entry);
+    const line = entry.lineOf("name");
+    track(entity.name, line);
+    if (line !== undefined) lines.set(entity.name, line);
+    entries.push(entity);
+  }
+
+  return { entries, lines };
+}
+
 /**
  * Where each held scope was written.
  *
@@ -232,6 +262,7 @@ function fromMapping(root: YamlMapping): ProjectConfig {
   const catalogs = parseCatalogs(root);
   const skills = parseSkills(root);
   const mcps = parseMcps(root);
+  const hooks = parseHooks(root);
 
   return {
     version,
@@ -240,12 +271,14 @@ function fromMapping(root: YamlMapping): ProjectConfig {
       scopeLines: scopeLines(scopes),
       skillLines: skills.lines,
       mcpLines: mcps.lines,
+      hookLines: hooks.lines,
     },
     harnesses,
     scopes: scopes.map((entry) => entry.value),
     catalogs,
     skills: skills.entries,
     mcps: mcps.entries,
+    hooks: hooks.entries,
   };
 }
 

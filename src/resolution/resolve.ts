@@ -11,11 +11,11 @@
  * load-bearing, so it lives here rather than in any adapter.
  *
  * Nothing else is implicit: no scope is reserved, and a project selects exactly the scopes it
- * lists, expanded downward. Alongside that, a project may name skills and servers outright —
- * those are selected whatever their scopes, since asking for something by name is
- * already the decision that scopes exist to make. Everything selected either way is then closed
- * over `requires`, so a skill can carry its dependencies into a bundle that would never have
- * selected them.
+ * lists, expanded downward. Alongside that, a project may name skills and servers outright, and
+ * declare hooks of its own — those are selected whatever their scopes, since asking for something
+ * by name is already the decision that scopes exist to make. Everything selected either way is
+ * then closed over `requires`, so a skill can carry its dependencies into a bundle that would never
+ * have selected them.
  *
  * Every selected item also carries the reason it was selected, because with three routes
  * into a bundle a list of names is not an answer to "why is this here?" — and the lock records the
@@ -24,6 +24,7 @@
 import type { MergedCatalog, MergedMcp, MergedSkill, ScopeDefinition } from "../model/catalog.js";
 import { MCPS_DIRNAME, SCOPES_FILENAME, SKILL_FILENAME } from "../model/catalog.js";
 import type { ProjectConfig } from "../model/config.js";
+import type { HookEntity } from "../model/hook-entity.js";
 import { AmbitError, ExitCode, at, resolutionError } from "../errors.js";
 
 /**
@@ -48,8 +49,8 @@ export interface Selection {
   readonly mcps: readonly MergedMcp[];
 }
 
-/** Which of the bundle's two namespaces a name belongs to. */
-export type ItemKind = "skill" | "mcp";
+/** Which of the bundle's namespaces a name belongs to. */
+export type ItemKind = "skill" | "mcp" | "hook";
 
 /** One item of a bundle, named the way its namespace requires. */
 export interface BundleItem {
@@ -80,9 +81,10 @@ export interface ReasonedItem extends BundleItem {
 export interface SelectionReasons {
   readonly skills: ReadonlyMap<string, SelectionReason>;
   readonly mcps: ReadonlyMap<string, SelectionReason>;
+  readonly hooks: ReadonlyMap<string, SelectionReason>;
 }
 
-/** The resolved set of skills and MCP servers for a project. */
+/** The resolved set of skills, MCP servers and hooks for a project. */
 export interface Bundle {
   /**
    * The held scopes exactly as the project declared them, deduplicated and sorted. The subtree
@@ -94,6 +96,8 @@ export interface Bundle {
   readonly skills: readonly MergedSkill[];
   /** Selected MCP servers, sorted by name. */
   readonly mcps: readonly MergedMcp[];
+  /** Selected hooks, sorted by name. */
+  readonly hooks: readonly HookEntity[];
   /** Every env var the selection declares, unioned and sorted. */
   readonly env: readonly string[];
   /** Why each of the above is here, one entry per selected item. */
@@ -106,6 +110,11 @@ function compare(a: string, b: string): number {
 
 function sortedUnique(values: readonly string[]): readonly string[] {
   return [...new Set(values)].sort(compare);
+}
+
+/** Name order, for a list that arrives in whatever order it was written in. */
+function byName<T extends { readonly name: string }>(items: readonly T[]): readonly T[] {
+  return [...items].sort((a, b) => compare(a.name, b.name));
 }
 
 /**
@@ -396,6 +405,7 @@ function selectedByScope(selecting: ReadonlySet<string>, declared: readonly stri
 interface ExplicitNames {
   readonly skills: ReadonlySet<string>;
   readonly mcps: ReadonlySet<string>;
+  readonly hooks: ReadonlySet<string>;
 }
 
 /**
@@ -416,7 +426,7 @@ export function unknownExplicitSkill(name: string, config: ProjectConfig): Ambit
 }
 
 /**
- * The skills and servers config names outright, whatever scopes they declare.
+ * The skills, servers and hooks config names outright, whatever scopes they declare.
  *
  * A `skills` entry carrying its own `source`, and every inline `mcps` entry, were folded into
  * `merged` before resolution (see `mergeConfigEntities`), so both `skills` forms resolve by name
@@ -436,6 +446,7 @@ function explicitNames(config: ProjectConfig, merged: MergedCatalog): ExplicitNa
   return {
     skills: new Set(config.skills.map((request) => request.name)),
     mcps: new Set(config.mcps.map((entity) => entity.name)),
+    hooks: new Set(config.hooks.map((entity) => entity.name)),
   };
 }
 
@@ -554,10 +565,21 @@ function selectionReasons(
   return reasons;
 }
 
+/** The reasons of the namespace `kind` names, so a lookup never has to know which map that is. */
+function reasonsOf(bundle: Bundle, kind: ItemKind): ReadonlyMap<string, SelectionReason> {
+  switch (kind) {
+    case "skill":
+      return bundle.reasons.skills;
+    case "mcp":
+      return bundle.reasons.mcps;
+    case "hook":
+      return bundle.reasons.hooks;
+  }
+}
+
 /** Whether an item is in the bundle. */
 export function isSelected(bundle: Bundle, item: BundleItem): boolean {
-  const reasons = item.kind === "skill" ? bundle.reasons.skills : bundle.reasons.mcps;
-  return reasons.has(item.name);
+  return reasonsOf(bundle, item.kind).has(item.name);
 }
 
 /**
@@ -567,8 +589,7 @@ export function isSelected(bundle: Bundle, item: BundleItem): boolean {
  *   first, so a name a user typed is rejected as the resolution error it is.
  */
 export function reasonOf(bundle: Bundle, item: BundleItem): SelectionReason {
-  const reasons = item.kind === "skill" ? bundle.reasons.skills : bundle.reasons.mcps;
-  const reason = reasons.get(item.name);
+  const reason = reasonsOf(bundle, item.kind).get(item.name);
   if (reason === undefined) throw unexplainable(item, "it is not in the bundle");
   return reason;
 }
@@ -613,14 +634,16 @@ export function explainSelection(bundle: Bundle, item: BundleItem): readonly Rea
  * preserves it and no collection is iterated in filesystem order.
  *
  * `env` is unioned over the closed selection, not the scope-selected one: a server
- * pulled in by `requires` needs its credentials as much as one selected by scope.
+ * pulled in by `requires` needs its credentials as much as one selected by scope. A hook's `env`
+ * joins it too — a hook that cannot see its credential is as broken as a server that cannot.
  *
  * Reasons are computed here rather than on request, so `--explain`, `ambit why`, and the lock all
  * report the same answer, and so a bundle that cannot account for an item fails at resolution
  * instead of at whichever surface happens to ask first.
  *
  * @param merged the catalogs, with the project's own declarations already folded in — a `skills`
- *   entry carrying a `source`, and inline `mcps` — as `mergeConfigEntities` does.
+ *   entry carrying a `source`, and inline `mcps` — as `mergeConfigEntities` does. A config's `hooks`
+ *   are read from `config` itself, being the only surface that declares one.
  * @throws {AmbitError} exit 3 for a held scope the merged registry does not know, an explicit skill
  *   nothing provides, a requirement no catalog provides, or a `requires` cycle.
  */
@@ -643,14 +666,24 @@ export function resolveBundle(config: ProjectConfig, merged: MergedCatalog): Bun
     merged,
   );
 
+  // Sorted like the two lists filtered out of the merged catalog, since a bundle is compared byte
+  // for byte and the order a config happens to list its hooks in is not a contract.
+  const hooks = byName(config.hooks);
+
   return {
     scopes: held,
     skills,
     mcps,
-    env: sortedUnique([...skills.flatMap((skill) => skill.env), ...mcps.flatMap((mcp) => mcp.env)]),
+    hooks,
+    env: sortedUnique([
+      ...skills.flatMap((skill) => skill.env),
+      ...mcps.flatMap((mcp) => mcp.env),
+      ...hooks.flatMap((hook) => hook.env),
+    ]),
     reasons: {
       skills: selectionReasons(skills, "skill", explicit.skills, selecting, held, skills),
       mcps: selectionReasons(mcps, "mcp", explicit.mcps, selecting, held, skills),
+      hooks: selectionReasons(hooks, "hook", explicit.hooks, selecting, held, skills),
     },
   };
 }

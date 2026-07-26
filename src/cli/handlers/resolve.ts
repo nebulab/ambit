@@ -57,6 +57,16 @@ function toJson(
 ): Readonly<Record<string, unknown>> {
   return {
     env: bundle.env,
+    // The event rather than an origin column: a hook the config declares itself has no catalog to
+    // name, and the event is what a reader scanning the list is looking for.
+    hooks: keyed(
+      bundle.hooks,
+      (hook) => hook.name,
+      (hook) => {
+        const why = reason(bundle, { kind: "hook", name: hook.name }, explain);
+        return { event: hook.event, ...(why !== undefined && { reason: why }) };
+      },
+    ),
     mcps: keyed(
       bundle.mcps,
       (mcp) => mcp.name,
@@ -134,6 +144,15 @@ function toText(bundle: Bundle, merged: MergedCatalog, explain: boolean): readon
           reason(bundle, item, explain),
           shadowing(merged, item, explain),
         );
+      }),
+    ),
+    ...section(
+      "hooks",
+      bundle.hooks.map((hook) => {
+        const item: BundleItem = { kind: "hook", name: hook.name };
+        // A hook the config declares itself is one declaration, so there is no second copy of it
+        // for the shadowing cell to report.
+        return row([hook.name, hook.event], reason(bundle, item, explain), undefined);
       }),
     ),
     ...section(

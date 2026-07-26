@@ -1,5 +1,6 @@
 {
   "env": [],
+  "hooks": {},
   "mcps": {},
   "scopes": [
     "core"
