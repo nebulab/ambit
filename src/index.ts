@@ -16,6 +16,8 @@ export {
   envPlaceholders,
 } from "./adapters/claude.js";
 export {
+  AMBIT_FRONTMATTER_KEY,
+  ANNOTATION_KEYS,
   MCPS_DIRNAME,
   MCP_EXTENSIONS,
   SCOPES_FILENAME,
@@ -31,6 +33,7 @@ export {
   skillNameFromPath,
 } from "./catalog.js";
 export type {
+  AnnotationKey,
   Catalog,
   CatalogMcp,
   CatalogOverlay,
@@ -43,7 +46,7 @@ export type {
   Shadowing,
   Shadowings,
 } from "./catalog.js";
-export { ANNOTATION_KEYS, annotate, annotationDirname, isMcpTarget } from "./catalog-annotate.js";
+export { annotate, annotationDirname, isMcpTarget } from "./catalog-annotate.js";
 export type {
   AnnotateOptions,
   AnnotateResult,
@@ -51,7 +54,6 @@ export type {
   AnnotatedKind,
   AnnotatedList,
   AnnotationEdit,
-  AnnotationKey,
 } from "./catalog-annotate.js";
 export {
   AUDIT_FINDING_KINDS,

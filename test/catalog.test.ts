@@ -91,7 +91,8 @@ async function writeShadowingCatalog(
       "---",
       `name: ${CORE_SKILL}`,
       `description: ${name}'s copy of the core skill.`,
-      "scopes: [core]",
+      "ambit:",
+      "  scopes: [core]",
       "---",
       "",
       `# ${name}'s copy`,
@@ -101,7 +102,8 @@ async function writeShadowingCatalog(
       "---",
       `name: ${OWN_SKILL}`,
       "description: Jane's notes, which no other catalog provides.",
-      "scopes: [core, person.jane]",
+      "ambit:",
+      "  scopes: [core, person.jane]",
       "---",
       "",
       "# notes",
@@ -271,15 +273,16 @@ describe("catalog parsing", () => {
     });
   });
 
-  it("keeps frontmatter keys it does not know", async () => {
-    // The frontmatter is the harness's; ambit only adds keys to it (spec §3.2).
+  it("keeps top-level frontmatter keys it does not know", async () => {
+    // The top level is the harness's; ambit adds exactly one key to it (spec §3.2).
     await writeCatalogFile(
       CODE_REVIEW,
       `---
 name: acme.engineering.use-code-review
 description: x
-scopes: [function.engineering]
 allowed-tools: [Read, Grep]
+ambit:
+  scopes: [function.engineering]
 ---
 `,
     );
@@ -319,6 +322,39 @@ description: x
     // The line is the one the reader will find `name` on in the whole document, not in the block.
     expect(error.message).toContain(`${CODE_REVIEW} line 2`);
     expect(error.detail.join("\n")).toContain('derives the name "acme.engineering.use-code-review"');
+  });
+
+  it("rejects a key under `ambit:` that §3.2 does not define, since that block is ambit's", async () => {
+    await writeCatalogFile(
+      CODE_REVIEW,
+      `---
+name: acme.engineering.use-code-review
+description: x
+ambit:
+  scope: [function.engineering]
+---
+`,
+    );
+
+    const error = await rejection();
+    expect(error.message).toBe(`unknown key "ambit.scope" (${CODE_REVIEW} line 5)`);
+    expect(error.detail).toContain("accepted keys: env, requires, scopes");
+  });
+
+  it("rejects an `ambit:` that is not a mapping", async () => {
+    await writeCatalogFile(
+      CODE_REVIEW,
+      `---
+name: acme.engineering.use-code-review
+description: x
+ambit: [function.engineering]
+---
+`,
+    );
+
+    expect((await rejection()).message).toBe(
+      `"ambit" must be a mapping (${CODE_REVIEW} line 4)`,
+    );
   });
 
   it("positions a frontmatter error at its line in the document", async () => {

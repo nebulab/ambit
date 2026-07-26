@@ -300,7 +300,7 @@ describe("ambit status after a manual edit", () => {
   it("reports a change in the catalog, not only one in the project", async () => {
     await writeFile(
       path.join(catalogDir, "skills/acme/commons/use-company-context/SKILL.md"),
-      "---\nname: acme.commons.use-company-context\nscopes: [core]\n---\n\n# rewritten upstream\n",
+      "---\nname: acme.commons.use-company-context\nambit:\n  scopes: [core]\n---\n\n# rewritten upstream\n",
       "utf8",
     );
 
@@ -320,7 +320,7 @@ describe("ambit status on a symlinked install", () => {
 
     await writeFile(
       path.join(projectDir, CORE_TARGET, "SKILL.md"),
-      "---\nname: acme.commons.use-company-context\nscopes: [core]\n---\n\n# edited in place\n",
+      "---\nname: acme.commons.use-company-context\nambit:\n  scopes: [core]\n---\n\n# edited in place\n",
       "utf8",
     );
 

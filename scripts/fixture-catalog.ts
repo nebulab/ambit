@@ -42,7 +42,8 @@ scopes:
 const CORE_SKILL = `---
 name: acme.commons.use-company-context
 description: Canonical context about Acme — what it sells, to whom, and how it works.
-scopes: [core]
+ambit:
+  scopes: [core]
 ---
 
 # Acme company context
@@ -54,7 +55,8 @@ Selected by the \`core\` scope, and pulled in by \`requires\` from the project s
 const ENGINEERING_SKILL = `---
 name: acme.engineering.use-code-review
 description: How Acme reviews code — what reviewers look for, and in what order.
-scopes: [function.engineering]
+ambit:
+  scopes: [function.engineering]
 ---
 
 # Code review at Acme
@@ -65,8 +67,9 @@ Selected by \`function.engineering\`, exactly. Holding \`core\` must not reach i
 const FRONTEND_SKILL = `---
 name: acme.engineering.frontend.use-design-tokens
 description: Acme's design tokens — color, spacing, and the type scale.
-scopes: [function.engineering.frontend]
-env: [ACME_FIGMA_TOKEN]
+ambit:
+  scopes: [function.engineering.frontend]
+  env: [ACME_FIGMA_TOKEN]
 ---
 
 # Design tokens
@@ -78,10 +81,11 @@ this scope does not reach back up.
 const PROJECT_SKILL = `---
 name: acme.projects.use-acme-brief
 description: The Acme engagement brief — scope, contacts, and conventions.
-scopes: [project.acme]
-requires:
-  - acme.commons.use-company-context
-  - mcp.fixture
+ambit:
+  scopes: [project.acme]
+  requires:
+    - acme.commons.use-company-context
+    - mcp.fixture
 ---
 
 # Acme engagement brief

@@ -103,6 +103,16 @@ async function writeMcp(name: string, annotations: readonly string[] = []): Prom
 }
 
 /**
+ * The annotation lines as §3.2 nests them: under a top-level `ambit:`, indented with it.
+ *
+ * Callers still pass `scopes:` and `requires:` as they are tabulated, so a fixture reads like the
+ * format's own documentation and only one place knows where the block goes.
+ */
+function ambitBlock(annotations: readonly string[]): readonly string[] {
+  return annotations.length === 0 ? [] : ["ambit:", ...annotations.map((line) => `  ${line}`)];
+}
+
+/**
  * Adds a skill to the fixture catalog, its name derived from its path per §2.
  *
  * The `requires` graphs under test — a chain, a diamond, a cycle — cannot live in the shared
@@ -114,9 +124,15 @@ async function writeSkill(relative: string, annotations: readonly string[]): Pro
   await mkdir(path.dirname(target), { recursive: true });
   await writeFile(
     target,
-    ["---", `name: ${skillNameFromPath(relative)}`, ...annotations, "---", "", "# fixture", ""].join(
-      "\n",
-    ),
+    [
+      "---",
+      `name: ${skillNameFromPath(relative)}`,
+      ...ambitBlock(annotations),
+      "---",
+      "",
+      "# fixture",
+      "",
+    ].join("\n"),
     "utf8",
   );
 }
@@ -136,7 +152,7 @@ async function writeSourceSkill(
   await mkdir(path.dirname(target), { recursive: true });
   await writeFile(
     target,
-    ["---", `name: ${name}`, ...annotations, "---", "", "# fixture", ""].join("\n"),
+    ["---", `name: ${name}`, ...ambitBlock(annotations), "---", "", "# fixture", ""].join("\n"),
     "utf8",
   );
 }

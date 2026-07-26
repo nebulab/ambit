@@ -16,8 +16,9 @@
  * neither can know which §3.3 extension an entity carries, and a message that guessed `.yml` would send
  * the reader to a file that is not there.
  */
-import type { AnnotateResult, AnnotatedItem, AnnotationEdit, AnnotationKey } from "../catalog-annotate.js";
+import type { AnnotateResult, AnnotatedItem, AnnotationEdit } from "../catalog-annotate.js";
 import { annotate, annotationDirname } from "../catalog-annotate.js";
+import type { AnnotationKey } from "../catalog.js";
 import type { CommandContext, CommandHandler, CommandRule } from "../commands.js";
 import {
   catalogDirOf,

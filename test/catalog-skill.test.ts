@@ -213,11 +213,9 @@ describe("ambit catalog skill new", () => {
     const { frontmatter, body } = halves(await read(JANE_FILE));
     expect(frontmatter).toBe(
       emitYaml({
+        ambit: { env: ["NOTES_TOKEN"], requires: [CORE], scopes: ["core"] },
         description: JANE_DESCRIPTION,
-        env: ["NOTES_TOKEN"],
         name: JANE,
-        requires: [CORE],
-        scopes: ["core"],
       }),
     );
     expect(body.startsWith(`\n# ${JANE}\n`)).toBe(true);

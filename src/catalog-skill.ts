@@ -28,7 +28,12 @@
 import path from "node:path";
 
 import type { Catalog, CatalogSkill } from "./catalog.js";
-import { SKILLS_DIRNAME, SKILL_FILENAME, parseCatalogDirectory } from "./catalog.js";
+import {
+  AMBIT_FRONTMATTER_KEY,
+  SKILLS_DIRNAME,
+  SKILL_FILENAME,
+  parseCatalogDirectory,
+} from "./catalog.js";
 import { assertRegisteredScopes } from "./catalog-scope.js";
 import type { CatalogChange, EditOptions, EditResult } from "./editor.js";
 import { CatalogDocument, applyCatalogEdit, skillDirectoryPath, skillDocumentPath } from "./editor.js";
@@ -42,12 +47,21 @@ import { emitYaml } from "./yaml.js";
  */
 const NAME_SEPARATOR = ".";
 
-/** The frontmatter keys this module writes (spec §3.2). `name` is the one it must always write. */
+/**
+ * The frontmatter keys this module writes (spec §3.2).
+ *
+ * `name` and `description` are the harness's and sit at the top level; the other three are ambit's
+ * and sit under `AMBIT_FRONTMATTER_KEY`. `name` is the one key always written, because it is what
+ * the path has to agree with.
+ */
 const NAME_KEY = "name";
 const DESCRIPTION_KEY = "description";
 const SCOPES_KEY = "scopes";
 const REQUIRES_KEY = "requires";
 const ENV_KEY = "env";
+
+/** Where a skill declares its requirements, as a path from the frontmatter root (spec §3.2). */
+const REQUIRES_PATH: readonly string[] = [AMBIT_FRONTMATTER_KEY, REQUIRES_KEY];
 
 /** What an edit to a skill amounted to: the editor's own report, unchanged. */
 export type SkillEdit = EditResult;
@@ -255,19 +269,24 @@ function skillBody(name: string): string {
  * The frontmatter goes through `emitYaml`, so its keys are sorted and a value that would otherwise
  * coerce is quoted (spec §3.0); the delimiters and the body are bytes around it. Empty lists are left
  * out rather than written as `[]`: absent and empty mean the same thing (spec §3.2), and the shorter
- * file is the one a reader can see the point of.
+ * file is the one a reader can see the point of. An `ambit:` holding none of the three is left out
+ * for the same reason — an empty mapping is not a statement anybody made.
  */
 function renderSkill(name: string, annotations: SkillAnnotations): string {
   const scopes = sortedUnique(annotations.scopes ?? []);
   const required = sortedUnique(annotations.requires ?? []);
   const env = sortedUnique(annotations.env ?? []);
 
-  const frontmatter = emitYaml({
-    [NAME_KEY]: name,
-    ...(annotations.description !== undefined && { [DESCRIPTION_KEY]: annotations.description }),
+  const ambit = {
     ...(scopes.length > 0 && { [SCOPES_KEY]: scopes }),
     ...(required.length > 0 && { [REQUIRES_KEY]: required }),
     ...(env.length > 0 && { [ENV_KEY]: env }),
+  };
+
+  const frontmatter = emitYaml({
+    [NAME_KEY]: name,
+    ...(annotations.description !== undefined && { [DESCRIPTION_KEY]: annotations.description }),
+    ...(Object.keys(ambit).length > 0 && { [AMBIT_FRONTMATTER_KEY]: ambit }),
   });
 
   return `---\n${frontmatter}---\n\n${skillBody(name)}`;
@@ -393,7 +412,7 @@ export async function renameSkill(
   const moved = await CatalogDocument.open(root, skillDocumentOf(skill));
   moved.setString([NAME_KEY], to);
   const self = rewrittenRequires(skill.requires, from, to);
-  if (self !== undefined) moved.setStringList([REQUIRES_KEY], self);
+  if (self !== undefined) moved.setStringList(REQUIRES_PATH, self);
   changes.push({ file: skillDocumentPath(to), text: moved.text() });
 
   for (const other of catalog.skills) {
@@ -401,7 +420,7 @@ export async function renameSkill(
     const declared = rewrittenRequires(other.requires, from, to);
     if (declared === undefined) continue;
     const document = await CatalogDocument.open(root, skillDocumentOf(other));
-    document.setStringList([REQUIRES_KEY], declared);
+    document.setStringList(REQUIRES_PATH, declared);
     changes.push(document.change());
   }
 
