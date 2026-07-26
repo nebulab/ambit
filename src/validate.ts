@@ -236,7 +236,9 @@ function cycleProblems(merged: MergedCatalog): readonly ValidationProblem[] {
     const members = cycle.slice(0, -1);
     const first = [...members].sort(compare)[0];
     const start = first === undefined ? 0 : members.indexOf(first);
-    const key = [...members.slice(start), ...members.slice(0, start)].join(" ");
+    // U+0000 as the separator, written as an escape rather than as the byte itself: a literal
+    // NUL makes grep and every other tool that sniffs for one treat this file as binary.
+    const key = [...members.slice(start), ...members.slice(0, start)].join("\u0000");
 
     if (reported.has(key)) return;
     reported.add(key);
