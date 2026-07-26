@@ -34,7 +34,7 @@ import { parseCatalogDirectory } from "../model/catalog.js";
 import { SCOPE_SEPARATOR } from "../resolution/resolve.js";
 
 /**
- * What a scope selects, by name and by kind — the two namespaces `catalog dump` keys separately, in the
+ * What a scope selects, by name and by kind — the two namespaces `ambit dump-catalog` keys separately, in the
  * same order, since a report about one scope reads like a slice of that one.
  */
 export interface ScopeSelection {

@@ -23,7 +23,7 @@ import { catalogDirOf, jsonRequested } from "../commands.js";
 import { ExitCode } from "../../errors.js";
 import { keyed, printSections, section } from "../output.js";
 
-/** The section title: the registry is what is being drawn, as `ambit scopes` and `catalog dump` name it. */
+/** The section title: the registry is what is being drawn, as `ambit scopes` and `ambit dump-catalog` name it. */
 const TITLE = "scopes";
 
 /** How far one level of nesting shifts a row. */

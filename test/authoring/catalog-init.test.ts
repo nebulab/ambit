@@ -2,8 +2,8 @@
  * `ambit catalog init`: the scaffolded catalog.
  *
  * Three claims carry this suite. The first is that the scaffold is a *catalog* — it parses, and
- * `ambit validate` passes against it, which is what makes `catalog scope add` and `catalog skill new`
- * able to start from it. The second is that it is a function of nothing: two runs into two differently
+ * `ambit catalog validate` passes against it, which is what makes `catalog scope add` and
+ * `catalog skill new` able to start from it. The second is that it is a function of nothing: two runs into two differently
  * named directories produce byte-identical trees, so the scaffold cannot pick up a machine path or a
  * timestamp. The third is about what it refuses: an existing `scopes.yml` means the directory already
  * holds a catalog and nothing is written, while a directory that merely has a README is the ordinary
@@ -123,10 +123,10 @@ describe("ambit catalog init", () => {
     expect(catalog.mcps).toEqual([]);
   });
 
-  it("scaffolds a catalog `ambit validate` passes against", async () => {
+  it("scaffolds a catalog `ambit catalog validate` passes against", async () => {
     await init(catalogDir);
 
-    const result = await invoke("validate", "--catalog", catalogDir);
+    const result = await invoke("catalog", "validate", "--catalog", catalogDir);
 
     expect(result.code, result.stderr).toBe(ExitCode.Success);
     expect(result.stdout).toContain("checked 1 scope, 0 skills, 0 mcps");
@@ -165,7 +165,7 @@ describe("ambit catalog init", () => {
               },
               {
                 name: "Validate the catalog",
-                run: "npx --yes @nebulab/ambit validate --catalog .",
+                run: "npx --yes @nebulab/ambit catalog validate",
               },
             ],
           },
@@ -174,7 +174,7 @@ describe("ambit catalog init", () => {
         on: ["push", "pull_request"],
       }),
     );
-    expect(workflow).toContain("validate --catalog .");
+    expect(workflow).toContain("catalog validate");
   });
 
   it("scaffolds byte-identical trees into two differently named directories", async () => {

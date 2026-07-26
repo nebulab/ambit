@@ -1,6 +1,5 @@
 /**
- * Catalog parsing from a `path:` source, and the `ambit catalog` dump built on
- * it.
+ * Catalog parsing from a `path:` source, and the `ambit dump-catalog` view built on it.
  *
  * Every case runs against the fixture catalog, mutated in place for the malformed ones, so the
  * subject is the same tree the rest of the suite resolves against.
@@ -446,7 +445,7 @@ catalogs:
     source: ../catalog
 `);
 
-    const result = await cli("catalog");
+    const result = await cli("dump-catalog");
     expect(result.code).toBe(ExitCode.Config);
     expect(result.stderr).toContain(`catalog "${CATALOG_NAME}" has an unrecognized source`);
     expect(result.stderr).toContain("use owner/repo, a git URL, `git:<url>`, or `path:./dir`");
@@ -459,15 +458,15 @@ catalogs:
     source: path:../missing
 `);
 
-    const result = await cli("catalog");
+    const result = await cli("dump-catalog");
     expect(result.code).toBe(ExitCode.Config);
     expect(result.stderr).toContain(`catalog "${CATALOG_NAME}" is not a directory`);
   });
 });
 
-describe("ambit catalog", () => {
+describe("ambit dump-catalog", () => {
   it("emits the full fixture catalog as JSON", async () => {
-    const result = await cli("catalog", "--json");
+    const result = await cli("dump-catalog", "--json");
 
     expect(result.code).toBe(ExitCode.Success);
     expect(JSON.parse(result.stdout)).toEqual({
@@ -536,8 +535,8 @@ describe("ambit catalog", () => {
   });
 
   it("emits byte-identical JSON on a second run, with keys sorted", async () => {
-    const first = await cli("catalog", "--json");
-    const second = await cli("catalog", "--json");
+    const first = await cli("dump-catalog", "--json");
+    const second = await cli("dump-catalog", "--json");
 
     expect(second.stdout).toBe(first.stdout);
     const emitted = JSON.parse(first.stdout) as Record<string, unknown>;
@@ -545,13 +544,13 @@ describe("ambit catalog", () => {
   });
 
   it("carries no machine-specific paths into JSON output", async () => {
-    const result = await cli("catalog", "--json");
+    const result = await cli("dump-catalog", "--json");
 
     expect(result.stdout).not.toContain(root);
   });
 
   it("lists scopes, skills, and MCPs as text", async () => {
-    const result = await cli("catalog");
+    const result = await cli("dump-catalog");
 
     expect(result.code).toBe(ExitCode.Success);
     expect(result.stdout).toContain(`${CATALOG_NAME}  path:../catalog`);
@@ -564,7 +563,7 @@ describe("ambit catalog", () => {
   it("succeeds with nothing to dump when no catalogs are configured", async () => {
     await writeConfig("version: 1\nscopes: [core]\n");
 
-    const result = await cli("catalog");
+    const result = await cli("dump-catalog");
     expect(result.code).toBe(ExitCode.Success);
     expect(result.stdout).toContain("no catalogs configured");
   });
@@ -572,7 +571,7 @@ describe("ambit catalog", () => {
   it("exits 2 on a skill name that disagrees with its path", async () => {
     await writeCatalogFile(CODE_REVIEW, "---\nname: acme.engineering.wrong\n---\n");
 
-    const result = await cli("catalog", "--json");
+    const result = await cli("dump-catalog", "--json");
     expect(result.code).toBe(ExitCode.Config);
     expect(result.stdout).toBe("");
     expect(result.stderr).toContain("does not match its path");
@@ -581,22 +580,28 @@ describe("ambit catalog", () => {
   it("exits 2 when the project has no config", async () => {
     await rm(path.join(projectDir, "ambit.yml"));
 
-    const result = await cli("catalog");
+    const result = await cli("dump-catalog");
     expect(result.code).toBe(ExitCode.Config);
     expect(result.stderr).toContain("no ambit config");
   });
 });
 
 /**
- * Spec §6, "Catalog authoring": `catalog` becomes a command group whose default action is `dump`, so
- * the consumer command keeps behaving exactly as it did while the maintainer commands hang off the
- * same word. What is asserted here is the surface itself — which commands exist, what each is called,
- * which directory flag it takes, and what one whose behaviour is not wired up does. Each command's
- * own behaviour is its own suite's.
+ * Spec §6, "Catalog authoring": `catalog` is a command group, and only that — every command under it
+ * maintains one catalog directory and takes `--catalog <dir>`.
+ *
+ * It had a default action once, `dump`, which made bare `ambit catalog` the consumer command that reads
+ * a project's `ambit.yml`. That put two subjects under one word: the group answered to `--project`
+ * while every command below it answered to `--catalog`. Dumping the merged catalog is
+ * `ambit dump-catalog` now, and the uniformity of the group is what the cases below pin.
+ *
+ * What is asserted here is the surface itself — which commands exist, what each is called, which
+ * directory flag it takes, and what one whose behaviour is not wired up does. Each command's own
+ * behaviour is its own suite's.
  */
 describe("ambit catalog as a command group", () => {
   /** Every subcommand of `catalog`. */
-  const SUBCOMMANDS = ["dump", "init", "tree", "audit", "scope", "skill", "mcp", "annotate"];
+  const SUBCOMMANDS = ["init", "tree", "audit", "validate", "scope", "skill", "mcp", "annotate"];
 
   /**
    * A command's usage, read by running `--help` through the CLI. That is only testable in-process
@@ -609,21 +614,27 @@ describe("ambit catalog as a command group", () => {
     return result.stdout;
   }
 
-  it("dumps the merged catalog under both `catalog` and `catalog dump`", async () => {
-    const group = await cli("catalog");
-    const dump = await cli("catalog", "dump");
+  it("dumps the merged catalog under `ambit dump-catalog`", async () => {
+    const dump = await cli("dump-catalog");
 
-    expect(group.code, group.stderr).toBe(ExitCode.Success);
     expect(dump.code, dump.stderr).toBe(ExitCode.Success);
-    expect(dump.stdout).toBe(group.stdout);
+    expect(dump.stdout).toContain(CATALOG_NAME);
   });
 
-  it("emits byte-identical JSON under both", async () => {
-    const group = await cli("catalog", "--json");
-    const dump = await cli("catalog", "dump", "--json");
+  it("emits the merged catalog as JSON", async () => {
+    const dump = await cli("dump-catalog", "--json");
 
-    expect(dump.stdout).toBe(group.stdout);
+    expect(dump.code, dump.stderr).toBe(ExitCode.Success);
     expect(JSON.parse(dump.stdout)).toMatchObject({ catalogs: [CATALOG_NAME] });
+  });
+
+  it("does not answer to `ambit catalog dump`, which no longer exists", async () => {
+    const result = await invoke(["catalog", "dump"]);
+
+    expect(result.code).toBe(ExitCode.Config);
+    // The group takes no positionals, so an unrecognized word is one argument too many rather than an
+    // unknown command — either way it is refused, and nothing dumps a catalog under this word.
+    expect(result.stderr).toContain("too many arguments for 'catalog'");
   });
 
   it("lists every authoring subcommand in `ambit catalog --help`", async () => {
@@ -632,22 +643,38 @@ describe("ambit catalog as a command group", () => {
     for (const name of SUBCOMMANDS) expect(help).toContain(`\n  ${name} `);
   });
 
-  it("gives an authoring command `--catalog <dir>`, and `dump` `--project <dir>`", async () => {
+  it("gives every command under `catalog` the catalog flag and no project flag", async () => {
     // The two directories are different subjects, not the same one under two names: a catalog has no
-    // `ambit.yml` to read.
-    const init = await usage("catalog", "init");
-    expect(init).toContain("--catalog <dir>");
-    expect(init).not.toContain("--project");
+    // `ambit.yml` to read. `--offline` is absent for the same reason — there is no source to resolve.
+    for (const name of ["init", "tree", "audit", "validate"]) {
+      const help = await usage("catalog", name);
 
-    expect(await usage("catalog", "dump")).toContain("--project <dir>");
+      expect(help, name).toContain("--catalog <dir>");
+      expect(help, name).not.toContain("--project");
+      expect(help, name).not.toContain("--offline");
+    }
   });
 
-  it("prints its usage for a group that has no default action", async () => {
-    const result = await invoke(["catalog", "scope"]);
+  it("gives `dump-catalog` the project flag and no catalog flag", async () => {
+    const help = await usage("dump-catalog");
 
-    expect(result.code, result.stderr).toBe(ExitCode.Success);
-    expect(result.stdout).toContain("Usage: ambit catalog scope");
-    for (const verb of ["add", "rm", "mv"]) expect(result.stdout).toContain(`\n  ${verb} `);
+    expect(help).toContain("--project <dir>");
+    expect(help).not.toContain("--catalog");
+  });
+
+  it("prints its usage for a group, which has no action of its own", async () => {
+    for (const group of [["catalog"], ["catalog", "scope"]]) {
+      const result = await invoke(group);
+
+      expect(result.code, result.stderr).toBe(ExitCode.Success);
+      expect(result.stdout).toContain(`Usage: ambit ${group.join(" ")}`);
+    }
+
+    // And the group takes none of the flags its children do, rather than silently eating them.
+    const help = await usage("catalog");
+    for (const flag of ["--project", "--catalog", "--json", "--offline"]) {
+      expect(help).not.toContain(flag);
+    }
   });
 
   it("reports a subcommand with no handler as unimplemented, naming the whole invocation", async () => {
@@ -839,23 +866,22 @@ describe("the flag rules Commander enforces before a handler runs", () => {
     expect(stubbed.reached()).toBe(true);
   });
 
-  it("runs a group's default rule exactly once, whether or not the default is typed", async () => {
-    // A hook fires for every action below the command it hangs off as well as for that command's own,
-    // so `catalog`'s copy of the `catalog dump` rule has to stand down when `dump` is what ran — or the
-    // rule sees the group's flags, and sees them twice.
+  it("runs a rule exactly once, and only for the command it belongs to", async () => {
+    // Commander fires a `preAction` hook for the command that acted and for each of its ancestors, so
+    // a rule that hung off a *group* would also see its children's invocations. Only a leaf carries
+    // one, and a leaf has nothing below it — this is the case that fails if a rule is ever attached
+    // further up.
     const seen: (string | undefined)[] = [];
     const rules: CommandRules = {
-      "catalog dump": (ctx) => {
-        seen.push(typeof ctx.options.project === "string" ? ctx.options.project : undefined);
+      "catalog tree": (ctx) => {
+        seen.push(typeof ctx.options.catalog === "string" ? ctx.options.catalog : undefined);
       },
     };
 
-    for (const argv of [["catalog"], ["catalog", "dump"]]) {
-      const result = await invoke([...argv, "--project", projectDir], HANDLERS, rules);
-      expect(result.code, result.stderr).toBe(ExitCode.Success);
-    }
+    const result = await invoke(["catalog", "tree", "--catalog", catalogDir], HANDLERS, rules);
 
-    expect(seen).toEqual([projectDir, projectDir]);
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+    expect(seen).toEqual([catalogDir]);
   });
 });
 
@@ -939,7 +965,7 @@ describe("multi-catalog merge and shadowing", () => {
     await writeShadowingCatalog(SECOND);
     await writeCatalogOrder([SECOND]);
 
-    const dumped = JSON.parse((await cli("catalog", "--json")).stdout) as {
+    const dumped = JSON.parse((await cli("dump-catalog", "--json")).stdout) as {
       mcps: Record<string, { catalog: string; transport: { kind: string } }>;
     };
 

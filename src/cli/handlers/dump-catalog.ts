@@ -1,10 +1,11 @@
 /**
- * `ambit catalog dump` — dump the merged catalog, and the default action of the `catalog`
- * group, so bare `ambit catalog` is this command rather than a second rendering of it.
+ * `ambit dump-catalog` — dump the merged catalog.
  *
- * It is the one command under `catalog` that reads a *project*: the merged view is what several
- * catalogs and one `ambit.yml` add up to, which no catalog directory holds on its own. Everything else
- * in the group maintains a single catalog and takes `--catalog <dir>` instead.
+ * A consumer command, and named as one. Its subject is a *project*: the merged view is what several
+ * catalogs and one `ambit.yml` add up to, which no catalog directory holds on its own. It spent its
+ * first life as `ambit catalog` — the default action of the group that also maintains a catalog —
+ * where it was the one command under that word reading `ambit.yml` while every other read a catalog
+ * root. Two subjects under one noun is a confusion the name now avoids rather than documents.
  *
  * This is the window onto everything resolution works from, so it prints what was parsed rather
  * than a summary of it. `--json` output carries no absolute paths and sorts every key, so it is
@@ -113,7 +114,7 @@ function toText(catalogs: readonly Catalog[], merged: MergedCatalog): readonly s
   ];
 }
 
-export const catalogHandler: CommandHandler = async (ctx) => {
+export const dumpCatalogHandler: CommandHandler = async (ctx) => {
   const context = sourceContextOf(ctx);
   const config = await loadProjectConfig(context.projectDir);
   const catalogs = await loadCatalogs(config, context);

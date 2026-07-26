@@ -145,8 +145,8 @@ interface Surface {
 const SURFACES: readonly Surface[] = [
   { argv: ["scopes"], dir: "project" },
   { argv: ["scopes", "--json"], dir: "project" },
-  { argv: ["catalog"], dir: "project" },
-  { argv: ["catalog", "--json"], dir: "project" },
+  { argv: ["dump-catalog"], dir: "project" },
+  { argv: ["dump-catalog", "--json"], dir: "project" },
   { argv: ["resolve"], dir: "project" },
   { argv: ["resolve", "--json"], dir: "project" },
   { argv: ["resolve", "--explain"], dir: "project" },
@@ -170,7 +170,7 @@ const SURFACES: readonly Surface[] = [
   { argv: ["catalog", "tree", "--json"], dir: "catalog" },
   { argv: ["catalog", "audit"], dir: "catalog" },
   { argv: ["catalog", "audit", "--json"], dir: "catalog" },
-  { argv: ["validate"], dir: "catalog" },
+  { argv: ["catalog", "validate"], dir: "catalog" },
 ];
 
 /** What a surface printed, whole: two streams and the code, since all three have to be stable. */
@@ -379,7 +379,7 @@ describe("nothing in the surface table touches disk", () => {
  * the order the directory listed them, so nothing but the entry sort stands between read order and
  * output. Delete `sortedEntries`' sort and this describe is where it shows up.
  *
- * Both are `validate --catalog`, which is the surface that reports rather than throws on the first
+ * Both are `catalog validate`, which is the surface that reports rather than throws on the first
  * offender, and both catalogs are per-test copies: the shared fixture has to stay valid.
  */
 describe("a report of problems is in the same order whatever order directories are read in", () => {
@@ -400,7 +400,9 @@ describe("a report of problems is in the same order whatever order directories a
   }
 
   async function validateBroken(order: ReadOrder): Promise<Output> {
-    return withReadOrder(order, () => cli(["validate", "--catalog", brokenCatalog], brokenRoot));
+    return withReadOrder(order, () =>
+      cli(["catalog", "validate", "--catalog", brokenCatalog], brokenRoot),
+    );
   }
 
   /** Asserts the two shuffles print exactly what the filesystem's own order printed. */

@@ -204,7 +204,7 @@ function nearestScope(scope: string, registered: readonly ScopeDefinition[]): st
  * when one is a plausible correction, and how to register it otherwise.
  *
  * Exported because two surfaces reject a scope — resolution, on the first offender, and
- * `ambit validate`, on every one of them — and the advice must read identically from both.
+ * validation, on every one of them — and the advice must read identically from both.
  */
 export function scopeSuggestion(scope: string, registered: readonly ScopeDefinition[]): string {
   const suggestion = nearestScope(scope, registered);
@@ -240,7 +240,7 @@ export function unknownScopeError(
  * only `function.engineering` is registered is a typo like any other, since a parent nobody
  * declared is not a scope.
  *
- * Stops at the first offender, in name order. Listing every problem at once is `ambit validate`'s
+ * Stops at the first offender, in name order. Listing every problem at once is validation's
  * job, which reuses the same error builder so the two agree.
  *
  * @throws {AmbitError} exit 3, naming the scope, the config line it was written on, and the
@@ -267,7 +267,7 @@ export function assertScopesRegistered(
 /**
  * Where a skill's annotations are written, so an error about one can name a file.
  *
- * Exported for `ambit validate`, which reports problems about skills nothing selected and needs to
+ * Exported for validation, which reports problems about skills nothing selected and needs to
  * locate them the same way resolution does.
  */
 export function skillFile(skill: MergedSkill): string {

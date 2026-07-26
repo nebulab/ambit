@@ -46,7 +46,8 @@ import { MCP_REQUIREMENT_PREFIX } from "../resolution/resolve.js";
  * What kind of finding a report entry is, so `--json` can be filtered without parsing prose.
  *
  * A declared order rather than an alphabetical one, and it is also the report order: the registry
- * first, then the two namespaces it selects, exactly as `catalog dump` and `validate` present a
+ * first, then the two namespaces it selects, exactly as `ambit dump-catalog` and `catalog validate`
+ * present a
  * catalog. A fixed order is all determinism needs.
  */
 export const AUDIT_FINDING_KINDS = ["dead-scope", "unreachable-skill", "unreachable-mcp"] as const;
@@ -244,7 +245,7 @@ export function auditCatalog(catalog: Catalog): AuditReport {
 }
 
 /**
- * Audits one catalog directory on its own terms — the mirror of `validate --catalog <dir>`.
+ * Audits one catalog directory on its own terms — the mirror of `ambit catalog validate`.
  *
  * Nothing about a project is read: no `ambit.yml`, no other catalog, no cache. A catalog is not a
  * project, and reachability is a question about one directory anyway — an item a *project*

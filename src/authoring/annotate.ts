@@ -89,7 +89,7 @@ export interface AnnotatedList {
 /** What was annotated, and what it declares now. */
 export interface AnnotatedItem {
   readonly kind: AnnotatedKind;
-  /** The bare name, `mcp.` prefix stripped — how `ambit why` and `catalog dump` name the same thing. */
+  /** The bare name, `mcp.` prefix stripped — how `ambit why` and `ambit dump-catalog` name the same thing. */
   readonly name: string;
   /** The document the annotations live in, catalog-relative. */
   readonly file: string;

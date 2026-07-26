@@ -115,7 +115,7 @@ describe("ambit init", () => {
 
     // `catalog` loads the config the way every command does, so a scaffold it accepts is one the
     // whole tool accepts — the scaffolded file declares no catalog, which is what it says.
-    const result = await cli("catalog");
+    const result = await cli("dump-catalog");
 
     expect(result.code, result.stderr).toBe(ExitCode.Success);
     expect(result.stdout).toContain("no catalogs configured");
