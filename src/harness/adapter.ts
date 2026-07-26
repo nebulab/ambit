@@ -16,6 +16,7 @@ import type {
   DocumentShape,
   JsonObject,
 } from "../model/documents/index.js";
+import type { HookEvent } from "../model/hook-entity.js";
 import type { Bundle } from "../resolution/resolve.js";
 import type { ArtifactMode, OwnedArtifact, State } from "../model/state.js";
 
@@ -127,11 +128,43 @@ export type PlannedPathArtifact = PlannedSkillDir | PlannedSkillsLink;
 /** What `apply` reports back, and what goes into state verbatim. */
 export type AppliedArtifact = OwnedArtifact;
 
+/**
+ * Why one harness cannot install one hook.
+ *
+ * - `no-mechanism` — the harness expresses hooks nowhere, which is opencode.
+ * - `no-event` — the harness expresses hooks, but has no spelling for this one's event.
+ *
+ * Two kinds rather than one string, because they are answered in different places: the first is a fact
+ * about the harness and the second a fact about the vocabulary outgrowing a harness's event map. Neither
+ * is an error — the hook installs everywhere else, and failing the run would make one harness in
+ * `harnesses` able to veto every other harness's hooks.
+ */
+export type HookSkipReason = "no-mechanism" | "no-event";
+
+/** One hook a harness was given and cannot write, for the run to report. */
+export interface SkippedHook {
+  /** The harness that cannot express it. */
+  readonly harness: string;
+  /** The hook's name, as declared. */
+  readonly hook: string;
+  /** Its event, in ambit's own spelling. */
+  readonly event: HookEvent;
+  readonly reason: HookSkipReason;
+}
+
 /** Code that writes a bundle into one agent tool's layout. */
 export interface HarnessAdapter {
   readonly name: string;
   /** Pure: decides every path without touching disk. */
   plan(bundle: Bundle, project: ProjectPaths): readonly PlannedArtifact[];
+  /**
+   * The hooks in the bundle this harness cannot express, which `plan` leaves out.
+   *
+   * Beside `plan` rather than inside it because a skipped hook is not an artifact: nothing writes it,
+   * nothing owns it, and nothing prunes it. It is only ever reported — so the two answers come from one
+   * predicate (`profile.ts`) and cannot disagree about which hooks were installed.
+   */
+  skips(bundle: Bundle): readonly SkippedHook[];
   /**
    * Writes the plan.
    *

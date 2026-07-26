@@ -8,7 +8,13 @@
  * asserted as whole-file text at every step of a full install → install → prune → clean cycle.
  *
  * `.cursor/hooks.json` then says the same claims hold for a harness shaped differently in every respect
- * one can be — a file of its own, its own event names, and a root key ambit seeds but does not own.
+ * one can be — a file of its own, its own event names, and a root key ambit seeds but does not own. And
+ * `.codex/hooks.json` says they hold for the harness that differs in one respect only: Claude's entries,
+ * somewhere else.
+ *
+ * opencode closes the set from the other end. It expresses no hooks at all, so a project that configures
+ * it and declares one is warned and left installed — the case that must not be an error, since one
+ * harness's limitation cannot be allowed to cost every other harness its hooks.
  *
  * No catalog anywhere in here: an inline hook is selected because it was declared, so a project needs
  * nothing else to walk the entire path — and a test that resolves nothing cannot be reading some
@@ -499,6 +505,167 @@ describe("an inline hook installed into .cursor/hooks.json", () => {
     // And `clean` gives back exactly what they wrote, `version: 2` included.
     expect((await cli("clean")).code).toBe(ExitCode.Success);
     expect(await fileText(HOOKS_JSON)).toBe(HANDWRITTEN);
+  });
+});
+
+/**
+ * Codex: Claude's entries, in a file of its own.
+ *
+ * The pairing that proves the layout and the renderer are separable — Codex shares `claudeHook` outright
+ * and shares nothing else, so a hook has the same digest here as in `.claude/settings.json` and lands
+ * somewhere else entirely.
+ *
+ * `.codex/hooks.json` and not `[hooks]` in `.codex/config.toml`, which Codex also reads: a TOML `hooks`
+ * table is an array-of-tables, which the TOML driver refuses. So the test also pins that ambit leaves
+ * `config.toml` alone — a project on Codex with hooks and no servers acquires no TOML at all.
+ */
+describe("an inline hook installed into .codex/hooks.json", () => {
+  const CODEX_HOOKS = ".codex/hooks.json";
+
+  beforeEach(async () => {
+    await writeProfile([...FORMAT_HOOK, ...NOTIFY_HOOK], ["codex"]);
+  });
+
+  it("writes Claude's own entries, under Claude's own event names", async () => {
+    const result = await cli("install");
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+
+    // No `version` and no other root key: unlike Cursor's file this one holds hooks and nothing else,
+    // so ambit seeds nothing beside them.
+    expect(await fileText(CODEX_HOOKS)).toBe(
+      `${JSON.stringify({ hooks: { PostToolUse: [FORMAT_ENTRY], Stop: [NOTIFY_ENTRY] } }, null, 2)}\n`,
+    );
+    // The same digests Claude's file would carry, because the entries are byte-identical.
+    expect(await stateArtifacts()).toEqual([
+      {
+        path: CODEX_HOOKS,
+        kind: "harness-config",
+        format: "json",
+        shape: "array",
+        managedKeys: [FORMAT_KEY, NOTIFY_KEY],
+      },
+    ]);
+  });
+
+  it("touches no config.toml, which is the file this layout exists to avoid", async () => {
+    await cli("install");
+
+    expect(await pathExists(".codex/config.toml")).toBe(false);
+  });
+
+  it("changes no bytes on a second install, and reports no drift", async () => {
+    await cli("install");
+    const written = await fileText(CODEX_HOOKS);
+
+    expect((await cli("install")).code).toBe(ExitCode.Success);
+
+    expect(await fileText(CODEX_HOOKS)).toBe(written);
+    expect((await cli("status", "--check")).code).toBe(ExitCode.Success);
+  });
+
+  it("leaves a hook of someone else's where it is, and gives it back on clean", async () => {
+    const HANDWRITTEN = `${JSON.stringify(
+      { hooks: { Stop: [{ hooks: [{ type: "command", command: "./bin/mine" }] }] } },
+      null,
+      2,
+    )}\n`;
+    await mkdir(path.join(projectDir, ".codex"), { recursive: true });
+    await writeFile(path.join(projectDir, CODEX_HOOKS), HANDWRITTEN, "utf8");
+
+    expect((await cli("install")).code).toBe(ExitCode.Success);
+
+    expect(JSON.parse(await fileText(CODEX_HOOKS))).toEqual({
+      hooks: {
+        Stop: [{ hooks: [{ type: "command", command: "./bin/mine" }] }, NOTIFY_ENTRY],
+        PostToolUse: [FORMAT_ENTRY],
+      },
+    });
+
+    expect((await cli("clean")).code).toBe(ExitCode.Success);
+    // The emptied array stays, for the reason the map driver leaves `{}`; the foreign entry never moved.
+    expect(JSON.parse(await fileText(CODEX_HOOKS))).toEqual({
+      hooks: { Stop: [{ hooks: [{ type: "command", command: "./bin/mine" }] }], PostToolUse: [] },
+    });
+  });
+
+  it("writes each of Claude and Codex its own file, from one rendering", async () => {
+    await writeProfile(NOTIFY_HOOK, ["claude", "codex"]);
+
+    const result = await cli("install");
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+
+    // Two artifacts rather than one: the entries are identical, so it is the *file* that makes them two
+    // writes — `planFor` collapses two harnesses onto one target and never two targets onto one.
+    expect(await settings()).toEqual({ hooks: { Stop: [NOTIFY_ENTRY] } });
+    expect(JSON.parse(await fileText(CODEX_HOOKS))).toEqual({ hooks: { Stop: [NOTIFY_ENTRY] } });
+    expect((await stateArtifacts()).map((artifact) => artifact.path)).toEqual([
+      SETTINGS,
+      CODEX_HOOKS,
+    ]);
+    expect((await cli("status", "--check")).code).toBe(ExitCode.Success);
+  });
+});
+
+/**
+ * opencode, which expresses no hooks at all.
+ *
+ * The other half of task 6: a harness in `harnesses` that cannot take a hook is not an error. Failing
+ * would let one harness veto every other harness's hooks, and dropping the hook in silence would leave a
+ * project believing it installed something. So the run succeeds, writes what it can, and says what it
+ * could not.
+ */
+describe("a hook selected while opencode is configured", () => {
+  it("warns, exits 0, and writes opencode nothing", async () => {
+    await writeProfile(NOTIFY_HOOK, ["opencode"]);
+
+    const result = await cli("install");
+
+    expect(result.code).toBe(ExitCode.Success);
+    expect(result.stderr).toBe(
+      'warning: hook "notify" (Stop) not installed: opencode has no declarative hook mechanism',
+    );
+    // No file of opencode's, and no settings file either: the hook reached no harness, so nothing at all
+    // was written for it.
+    expect(await pathExists(".opencode/opencode.jsonc")).toBe(false);
+    expect(await pathExists(SETTINGS)).toBe(false);
+    expect(await stateArtifacts()).toEqual([]);
+  });
+
+  it("installs the hook everywhere else, and warns only for opencode", async () => {
+    await writeProfile(NOTIFY_HOOK, ["claude", "opencode"]);
+
+    const result = await cli("install");
+    expect(result.code).toBe(ExitCode.Success);
+
+    // Claude's file is written in full. The skip is opencode's alone — which is the reason it is a
+    // warning: one harness's limitation must not cost the others their hooks.
+    expect(await settings()).toEqual({ hooks: { Stop: [NOTIFY_ENTRY] } });
+    expect(result.stderr).toContain("opencode has no declarative hook mechanism");
+    expect(result.stderr.split("\n")).toHaveLength(1);
+    expect((await cli("status", "--check")).code).toBe(ExitCode.Success);
+  });
+
+  it("says the same thing on a dry run, having written nothing", async () => {
+    await writeProfile(NOTIFY_HOOK, ["opencode"]);
+
+    const result = await cli("install", "--dry-run");
+
+    expect(result.code).toBe(ExitCode.Success);
+    expect(result.stderr).toContain('hook "notify" (Stop) not installed');
+    expect(await pathExists(STATE_DIRNAME)).toBe(false);
+  });
+
+  it("carries the skip in `--json`, as the reason rather than the sentence", async () => {
+    await writeProfile(NOTIFY_HOOK, ["opencode"]);
+
+    const result = await cli("install", "--json");
+    expect(result.code).toBe(ExitCode.Success);
+
+    expect((JSON.parse(result.stdout) as { skipped: unknown }).skipped).toEqual([
+      { event: "Stop", harness: "opencode", hook: "notify", reason: "no-mechanism" },
+    ]);
+    // Still on stderr, so stdout stays a document a script can parse.
+    expect(result.stderr).toContain("no declarative hook mechanism");
   });
 });
 

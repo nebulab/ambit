@@ -9,11 +9,14 @@
  * to the shared directory. Codex, VS Code and opencode read `.agents/skills` natively and need nothing.
  * Both Claude and Cursor name the same link, so a project using both plans it once.
  *
- * Two families on the hooks side as well, and along a different seam: VS Code reads Claude's own
- * `.claude/settings.json`, so the two share a file and a renderer where they share nothing on the MCP
+ * The hooks side splits along a different seam again, and into three. VS Code reads Claude's own
+ * `.claude/settings.json`, so the two share a file *and* a renderer where they share nothing on the MCP
  * side. A project configuring both writes that file once, exactly as one configuring Claude and Cursor
- * plans one skills link. Cursor is the other family, and shares nothing with either — its own file, its
- * own event names, its own entry shape.
+ * plans one skills link. Codex shares the renderer and not the file: its entries are Claude-shaped, in
+ * `.codex/hooks.json`. Cursor shares neither — its own file, its own event names, its own entry shape.
+ *
+ * opencode expresses hooks nowhere at all, so it carries no layout, and a project that selects a hook
+ * while configuring it is told the hook was skipped (`skippedHooks`, `profile.ts`).
  */
 import type { HarnessProfile, HookLayout } from "./profile.js";
 import type { EnvRefStyle } from "./env.js";
@@ -71,6 +74,25 @@ function claudeHook(hook: HookEntity): unknown {
     ],
   };
 }
+
+/**
+ * Where Codex keeps its hooks: a file of its own, holding Claude's own entry shape.
+ *
+ * A file rather than `[hooks]` in `.codex/config.toml`, which Codex also reads. A TOML `hooks` table is
+ * an array-of-tables — `[[hooks.PreToolUse]]` — and the TOML driver splices named-table spans and
+ * refuses that shape outright, so reaching for `config.toml` would mean a second driver to write a
+ * document Codex is equally happy to read as JSON. Which is also why there is no `rootDefaults` here:
+ * `.codex/hooks.json` holds hooks and nothing else, so ambit seeds no key beside them.
+ *
+ * Codex's hooks are experimental and gated behind `[features] codex_hooks = true` in a user's own
+ * config, which is not a file ambit writes into. `doctor` is where that is said out loud.
+ */
+const CODEX_HOOKS: HookLayout = {
+  file: ".codex/hooks.json",
+  section: "hooks",
+  format: "json",
+  shape: "array",
+};
 
 /**
  * How Cursor spells each of ambit's events: the same names, camelCased.
@@ -259,6 +281,10 @@ export const vscode: HarnessProfile = {
  * variable and lets Codex read it at spawn time. A header with a variable *embedded* in a larger string
  * — `Bearer ${TOKEN}` — cannot be expressed that way, so it goes in `http_headers` with the reference
  * left in place for Codex to expand.
+ *
+ * Its hooks are the one place the TOML stops: they live in `.codex/hooks.json`, and are Claude's own
+ * entries — so the profile names Claude's renderer, and Claude's file is the only thing it does not
+ * share.
  */
 export const codex: HarnessProfile = {
   name: "codex",
@@ -284,12 +310,18 @@ export const codex: HarnessProfile = {
       ...(Object.keys(fromEnv).length > 0 && { env_http_headers: fromEnv }),
     };
   },
+  hooks: CODEX_HOOKS,
+  hookConfig: claudeHook,
 };
 
 /**
  * opencode. JSONC, `mcp` as its section, and its own vocabulary: `local`/`remote` rather than
  * stdio/http, one `command` array rather than a command and its arguments, and `environment` for the
  * env map.
+ *
+ * The one harness with no declarative hooks at all — it runs TypeScript plugins instead, which is code
+ * rather than config and so nothing ambit can write from a declaration. No `hooks`, therefore, and a
+ * project that configures opencode and selects a hook is told the hook was skipped for it.
  */
 export const opencode: HarnessProfile = {
   name: "opencode",

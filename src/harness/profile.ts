@@ -17,11 +17,13 @@ import path from "node:path";
 import type {
   AppliedArtifact,
   HarnessAdapter,
+  HookSkipReason,
   PlannedArtifact,
   PlannedHarnessConfig,
   PlannedSkillDir,
   PlannedSkillsLink,
   ProjectPaths,
+  SkippedHook,
 } from "./adapter.js";
 import type {
   ConfigEntry,
@@ -228,11 +230,49 @@ function planMcpConfig(
 }
 
 /**
+ * Which array in this harness's file one hook joins, or `undefined` for a hook it cannot express.
+ *
+ * The single predicate behind both halves of the answer — {@link planHookConfig} writes what this names
+ * and {@link skippedHooks} reports what it does not — so "installed" and "skipped" partition the
+ * bundle's hooks rather than being computed twice from the same fields.
+ *
+ * The `events` lookup is widened to a partial map on purpose. {@link HookLayout.events} is total over
+ * {@link HookEvent} by type, so a miss is unreachable today; it becomes reachable the moment the
+ * vocabulary grows, and the type error at the declaration is the *first* line of defence rather than the
+ * only one. A hook silently landing in an array named the Claude way would be far worse than a skip.
+ */
+function hookArrayFor(profile: HarnessProfile, hook: HookEntity): string | undefined {
+  const layout = profile.hooks;
+  if (layout === undefined || profile.hookConfig === undefined) return undefined;
+
+  const events: Readonly<Record<string, string | undefined>> | undefined = layout.events;
+  return events === undefined ? hook.event : events[hook.event];
+}
+
+/**
+ * The hooks one harness was handed and cannot write.
+ *
+ * Pure, and separate from the plan because nothing is written for these: they are reported, and the run
+ * succeeds. A harness that expresses no hooks at all accounts for every hook in the bundle; one that
+ * expresses them accounts only for the events it has no spelling for.
+ */
+export function skippedHooks(
+  profile: HarnessProfile,
+  hooks: readonly HookEntity[],
+): readonly SkippedHook[] {
+  const reason: HookSkipReason = profile.hooks === undefined ? "no-mechanism" : "no-event";
+  return hooks
+    .filter((hook) => hookArrayFor(profile, hook) === undefined)
+    .map((hook) => ({ harness: profile.name, hook: hook.name, event: hook.event, reason }));
+}
+
+/**
  * The hooks config artifact, or nothing.
  *
  * Nothing for a harness with no hook mechanism, and nothing for a bundle that selected no hooks — the
  * argument {@link planMcpConfig} makes: a project that declares no hooks should not acquire a settings
- * file it never asked for.
+ * file it never asked for. Nothing, too, for a bundle whose every hook this harness must skip: the file
+ * would hold an empty section nobody asked for.
  *
  * The key is the entry's own content digest, because an event's array carries no name to key on. So
  * the value is rendered once and both the key and the entry are read off that one rendering: a digest
@@ -249,13 +289,16 @@ function planHookConfig(
 ): PlannedHarnessConfig | undefined {
   const layout = profile.hooks;
   const render = profile.hookConfig;
-  if (layout === undefined || render === undefined || hooks.length === 0) return undefined;
+  if (layout === undefined || render === undefined) return undefined;
 
   // `hooks` arrives sorted by name, so the entries — and the managed keys state records — are too.
-  const entries: readonly ConfigEntry[] = hooks.map((hook) => {
+  const entries: readonly ConfigEntry[] = hooks.flatMap((hook) => {
+    const event = hookArrayFor(profile, hook);
+    if (event === undefined) return [];
     const value = render(hook, project);
-    return { key: arrayEntryKey(layout.events?.[hook.event] ?? hook.event, value), value };
+    return [{ key: arrayEntryKey(event, value), value }];
   });
+  if (entries.length === 0) return undefined;
 
   return {
     kind: "harness-config",
@@ -398,6 +441,8 @@ export function adapterFor(profile: HarnessProfile): HarnessAdapter {
         ...(hookConfig === undefined ? [] : [hookConfig]),
       ];
     },
+
+    skips: (bundle: Bundle): readonly SkippedHook[] => skippedHooks(profile, bundle.hooks),
 
     apply: async (
       plan: readonly PlannedArtifact[],

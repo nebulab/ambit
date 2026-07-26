@@ -35,6 +35,7 @@ import type {
   HarnessAdapter,
   PlannedArtifact,
   ProjectPaths,
+  SkippedHook,
 } from "../harness/adapter.js";
 import { PROFILES } from "../harness/definitions.js";
 import { adapterFor } from "../harness/profile.js";
@@ -102,6 +103,8 @@ export interface PlannedInstall {
   readonly plans: readonly AdapterPlan[];
   /** Every adapter's plan flattened — what ownership and pruning are answered against. */
   readonly artifacts: readonly PlannedArtifact[];
+  /** Hooks a configured harness cannot express, in harness order. Reported, never fatal. */
+  readonly skipped: readonly SkippedHook[];
   /** What the last install recorded owning. */
   readonly prior: State;
   readonly lock: Lock;
@@ -115,6 +118,8 @@ export interface InstallPreview {
   readonly harnesses: readonly string[];
   /** What install would write. */
   readonly artifacts: readonly PlannedArtifact[];
+  /** What install would skip: a hook a configured harness cannot express. */
+  readonly skipped: readonly SkippedHook[];
   /** What install would remove, from state alone. */
   readonly pruned: readonly PrunedArtifact[];
   readonly lock: Lock;
@@ -131,6 +136,8 @@ export interface InstallResult {
   readonly harnesses: readonly string[];
   /** Everything now owned, in the order the adapters wrote it. */
   readonly artifacts: readonly AppliedArtifact[];
+  /** Hooks a configured harness could not express, and so was not given. */
+  readonly skipped: readonly SkippedHook[];
   /** What the previous install owned and this one does not, removed by path. */
   readonly pruned: readonly PrunedArtifact[];
   /** What was written to `ambit.lock`. */
@@ -271,6 +278,9 @@ export async function planInstall(
     harnesses,
     plans,
     artifacts: plans.flatMap(({ plan }) => plan),
+    // Asked of every configured adapter, not only the ones that planned something: a harness with no
+    // hook mechanism plans nothing at all, which is exactly the case worth saying out loud.
+    skipped: adapters.flatMap((adapter) => adapter.skips(bundle)),
     prior: await readState(projectDir),
     lock,
     lockText: serializeLock(lock),
@@ -312,6 +322,7 @@ export async function previewInstall(
     bundle: planned.bundle,
     harnesses: planned.harnesses,
     artifacts: planned.artifacts,
+    skipped: planned.skipped,
     pruned,
     lock: planned.lock,
     lockChanged: (await readLockText(projectDir)) !== planned.lockText,
@@ -334,7 +345,7 @@ export async function installProject(
   options: InstallOptions = {},
 ): Promise<InstallResult> {
   const planned = await planInstall(projectDir, options);
-  const { bundle, harnesses, plans, prior, lock, lockText } = planned;
+  const { bundle, harnesses, plans, prior, lock, lockText, skipped } = planned;
   if (options.frozen === true) await assertLockCurrent(projectDir, lockText);
 
   const owner = await authorizePlan(planned.artifacts, prior, { adopt: options.adopt === true });
@@ -357,5 +368,5 @@ export async function installProject(
   // unowned and the next plain install refusing them.
   await writeGitignoreBlocks(projectDir, artifacts);
 
-  return { bundle, harnesses, artifacts, pruned, lock };
+  return { bundle, harnesses, artifacts, skipped, pruned, lock };
 }

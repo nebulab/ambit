@@ -22,9 +22,9 @@ import {
 } from "../../src/harness/definitions.js";
 import type { ProjectPaths } from "../../src/harness/adapter.js";
 import type { HarnessProfile } from "../../src/harness/profile.js";
-import { SHARED_SKILLS_DIR } from "../../src/harness/profile.js";
+import { SHARED_SKILLS_DIR, skippedHooks } from "../../src/harness/profile.js";
 import type { MergedMcp } from "../../src/model/catalog.js";
-import type { HookEntity } from "../../src/model/hook-entity.js";
+import type { HookEntity, HookEvent } from "../../src/model/hook-entity.js";
 import { HOOK_EVENTS } from "../../src/model/hook-entity.js";
 
 /** Where Claude Code and Cursor read skills, and so the one link ambit plans. */
@@ -307,11 +307,14 @@ describe("a credential in a stdio server's arguments", () => {
 /**
  * The hook each profile emits.
  *
- * Three harnesses express hooks in this build, in two shapes: Claude and VS Code share one file and one
- * entry, and Cursor shares nothing with either. So the claims are each entry's exact shape, its key
- * order, and which harnesses render the same bytes. Key order is load-bearing here in a way it is not
- * for a server: the managed key is a digest of these bytes, so reordering them renames every hook every
- * project owns.
+ * Four harnesses express hooks, in two shapes: Claude, VS Code and Codex render one entry — the first
+ * two into one shared file, Codex into its own — and Cursor shares nothing with any of them. So the
+ * claims are each entry's exact shape, its key order, and which harnesses render the same bytes. Key
+ * order is load-bearing here in a way it is not for a server: the managed key is a digest of these
+ * bytes, so reordering them renames every hook every project owns.
+ *
+ * The fifth harness expresses none, which is the other thing asserted here: opencode carries no layout,
+ * and `skippedHooks` turns that absence into something the run reports.
  */
 describe("the hook each profile emits", () => {
   const PROJECT: ProjectPaths = { root: "/tmp/ambit-project" };
@@ -336,7 +339,7 @@ describe("the hook each profile emits", () => {
     command: "./bin/greet",
   };
 
-  it("gives Claude and VS Code one shared file, and the other two no hooks at all", () => {
+  it("gives Claude and VS Code one shared file, and Codex one of its own", () => {
     const layout = {
       file: ".claude/settings.json",
       section: "hooks",
@@ -347,10 +350,26 @@ describe("the hook each profile emits", () => {
     expect(claude.hooks).toEqual(layout);
     // The same file, so a project configuring both writes it once.
     expect(vscode.hooks).toEqual(layout);
-    // No `events`: both read ambit's own PascalCase spellings, and no `rootDefaults` either — the file
-    // is a person's, and ambit adds no key to it beyond the hooks it was asked for.
-    expect(codex.hooks).toBeUndefined();
+    // Codex differs in the file and in nothing else — Claude's section, Claude's shape, Claude's
+    // entries. Not `[hooks]` in `.codex/config.toml`, which Codex also reads: that is an
+    // array-of-tables, which the TOML driver refuses, so it would cost a second driver to write a
+    // document Codex is equally happy to read as JSON.
+    expect(codex.hooks).toEqual({ ...layout, file: ".codex/hooks.json" });
+    // No `events` on any of the three: all read ambit's own PascalCase spellings. And no `rootDefaults`
+    // either — Claude's file is a person's and Codex's holds hooks alone, so ambit seeds no key in
+    // either beyond the hooks it was asked for.
     expect(opencode.hooks).toBeUndefined();
+  });
+
+  it("leaves opencode without hooks, which is what makes a hook for it a skip", () => {
+    // The one harness with no declarative mechanism at all: it runs TypeScript plugins, which is code
+    // rather than config. So the profile carries no layout and no renderer, and `skippedHooks` reads
+    // that absence as the reason.
+    expect(opencode.hooks).toBeUndefined();
+    expect(opencode.hookConfig).toBeUndefined();
+    expect(PROFILES.filter((profile) => profile.hooks === undefined).map((p) => p.name)).toEqual([
+      "opencode",
+    ]);
   });
 
   it("gives Cursor a file of its own, a `version` to seed, and its own event names", () => {
@@ -403,12 +422,15 @@ describe("the hook each profile emits", () => {
     });
   });
 
-  it("renders one entry for both harnesses, which is what lets them share the file", () => {
+  it("renders one entry for the three harnesses that read Claude's shape", () => {
     // Byte equality, not structural: the digest that identifies the entry is taken over exactly these
-    // bytes, so two renderings that differ only in key order would be two entries in one array.
-    expect(JSON.stringify(vscode.hookConfig?.(HOOK, PROJECT))).toBe(
-      JSON.stringify(claude.hookConfig?.(HOOK, PROJECT)),
-    );
+    // bytes, so two renderings that differ only in key order would be two entries in one array. For
+    // Claude and VS Code that is what lets them share the file; for Codex it is what makes the same
+    // hook carry the same digest in a file of its own.
+    const claudes = JSON.stringify(claude.hookConfig?.(HOOK, PROJECT));
+
+    expect(JSON.stringify(vscode.hookConfig?.(HOOK, PROJECT))).toBe(claudes);
+    expect(JSON.stringify(codex.hookConfig?.(HOOK, PROJECT))).toBe(claudes);
   });
 
   it("writes Cursor's flat entry, which nests nothing and carries no matcher", () => {
@@ -444,5 +466,46 @@ describe("the hook each profile emits", () => {
     } finally {
       delete process.env.TOKEN;
     }
+  });
+
+  /**
+   * What a harness declines, as the other half of what it writes.
+   *
+   * One predicate answers both — a hook is planned for the array it belongs in, or skipped because there
+   * is none — so these cases and the ones above partition every hook a bundle can hold.
+   */
+  describe("skippedHooks", () => {
+    it("accounts for every hook on the harness that expresses none", () => {
+      expect(skippedHooks(opencode, [HOOK, BARE])).toEqual([
+        { harness: "opencode", hook: "block-rm", event: "PreToolUse", reason: "no-mechanism" },
+        { harness: "opencode", hook: "greet", event: "SessionStart", reason: "no-mechanism" },
+      ]);
+    });
+
+    it("skips nothing on the four harnesses that do, for every event ambit knows", () => {
+      for (const profile of PROFILES.filter((candidate) => candidate.hooks !== undefined)) {
+        const every = HOOK_EVENTS.map((event) => ({ ...BARE, event }));
+        expect(skippedHooks(profile, every), profile.name).toEqual([]);
+      }
+    });
+
+    it("skips a hook whose event a harness has no spelling for", () => {
+      // Unreachable through the profiles this build ships — `HookLayout.events` is total over
+      // `HookEvent`, so a missing spelling is a type error at the declaration. This is the second line
+      // of defence for the day the vocabulary grows: the hook is skipped and named, rather than written
+      // into an array named the Claude way that Cursor would ignore in silence.
+      const partial: HarnessProfile = {
+        ...cursor,
+        hooks: {
+          ...(cursor.hooks as NonNullable<HarnessProfile["hooks"]>),
+          events: { SessionStart: "sessionStart" } as Readonly<Record<HookEvent, string>>,
+        },
+      };
+
+      expect(skippedHooks(partial, [BARE])).toEqual([]);
+      expect(skippedHooks(partial, [HOOK])).toEqual([
+        { harness: "cursor", hook: "block-rm", event: "PreToolUse", reason: "no-event" },
+      ]);
+    });
   });
 });

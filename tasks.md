@@ -126,7 +126,7 @@ survives, and a test that a `matcher` on a `PreToolUse` hook is dropped rather t
 
 ## 6. `codex`, and the harnesses that cannot
 
-- [ ] `.codex/hooks.json`, plus the skip paths.
+- [x] `.codex/hooks.json`, plus the skip paths.
 
 **Slice** — every harness the change covers is covered, and the two that decline say so out loud.
 

@@ -426,6 +426,9 @@ describe("ambit install", () => {
       ],
       harnesses: ["claude"],
       skills: [ENGINEERING_SKILL, CORE_SKILL, FRONTEND_SKILL],
+      // Present and empty rather than absent, so a consumer reads one shape whether or not a harness
+      // had to decline something.
+      skipped: [],
     });
     expect(result.stdout).not.toContain(root);
   });
@@ -1022,6 +1025,7 @@ describe("ambit install --dry-run", () => {
         { kind: "harness-config", managedKeys: [`mcpServers.${SCOPED_MCP}`], path: MCP_FILE },
       ],
       skills: [CORE_SKILL],
+      skipped: [],
     });
     expect(await snapshot()).toEqual(before);
     expect(await installedSkills()).toEqual([ENGINEERING_SKILL, CORE_SKILL, FRONTEND_SKILL]);
