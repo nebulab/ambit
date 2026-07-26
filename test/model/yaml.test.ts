@@ -48,6 +48,7 @@ describe("YAML loader", () => {
     expect(root.file).toBe(FILE);
     expect(root.keys()).toEqual(["version", "name", "scopes"]);
     expect(root.requireInteger("version")).toBe(1);
+    expect(root.optionalInteger("version")).toBe(1);
     expect(root.requireString("name")).toBe("acme");
     expect(root.optionalStringList("scopes")).toEqual(["core", "function.engineering"]);
     expect(root.lineOf("scopes")).toBe(3);
@@ -58,6 +59,7 @@ describe("YAML loader", () => {
 
     expect(root.has("scopes")).toBe(false);
     expect(root.optionalString("scopes")).toBeUndefined();
+    expect(root.optionalInteger("scopes")).toBeUndefined();
     expect(root.optionalStringList("scopes")).toBeUndefined();
     expect(root.optionalMapping("scopes")).toBeUndefined();
     expect(root.optionalMappingList("scopes")).toBeUndefined();

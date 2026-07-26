@@ -211,6 +211,10 @@ export class YamlMapping {
     throw this.mismatch(key, "an integer", value);
   }
 
+  optionalInteger(key: string): number | undefined {
+    return this.has(key) ? this.requireInteger(key) : undefined;
+  }
+
   /** A sequence of strings. An empty sequence is allowed and means exactly that. */
   optionalStringList(key: string): readonly string[] | undefined {
     return this.optionalPositionedStringList(key)?.map((entry) => entry.value);

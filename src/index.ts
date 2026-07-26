@@ -86,6 +86,8 @@ export {
   gitCacheKey,
 } from "./model/git.js";
 export type { FetchedGitSource, GitFetchRequest } from "./model/git.js";
+export { HOOK_EVENTS, MATCHABLE_EVENTS, parseHookEntity } from "./model/hook-entity.js";
+export type { HookEntity, HookEvent } from "./model/hook-entity.js";
 export { MCP_TRANSPORT_KINDS, parseMcpEntity } from "./model/mcp-entity.js";
 export type { HttpTransport, McpEntity, McpTransport, StdioTransport } from "./model/mcp-entity.js";
 export { renderScaffold } from "./model/scaffold.js";
