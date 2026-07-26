@@ -66,7 +66,7 @@ const EXPECTED_FILES = [
 
 const SKILL_PATHS = EXPECTED_FILES.filter((file) => file.endsWith("SKILL.md"));
 
-/** The name↔path convention from spec §2: path under `skills/`, with `/` → `.`. */
+/** The name↔path convention: path under `skills/`, with `/` → `.`. */
 function nameFromPath(skillPath: string): string {
   return path.posix.dirname(skillPath).replace(/^skills\//, "").replaceAll("/", ".");
 }
@@ -233,8 +233,7 @@ describe("fixture catalog", () => {
 });
 
 /**
- * The same catalog as a local bare repository, which is how git sources are tested offline
- * (spec §7).
+ * The same catalog as a local bare repository, which is how git sources are tested offline.
  */
 describe("fixture git catalog", () => {
   let root: string;

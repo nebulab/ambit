@@ -1,5 +1,5 @@
 /**
- * Builds the fixture catalog every test resolves against (spec §7: everything must be
+ * Builds the fixture catalog every test resolves against (everything must be
  * testable offline).
  *
  * The catalog is a plain skills repo — skills at `skills/<namespace>/<name>/SKILL.md`, MCP
@@ -26,7 +26,7 @@ import { promisify } from "node:util";
  */
 export const FIXTURE_MARKER = ".ambit-fixture";
 
-const SCOPES_YML = `# The catalog's scope registry (spec §3.4). Every scope a skill or MCP declares must be
+const SCOPES_YML = `# The catalog's scope registry. Every scope a skill or MCP declares must be
 # registered here, so a typo fails loudly instead of silently matching nothing.
 scopes:
   core:
@@ -95,7 +95,7 @@ the only thing that can pull them in.
 `;
 
 const REQUIRED_MCP = `name: fixture
-# No scopes: reachable only because acme.projects.use-acme-brief requires it (spec §3.3).
+# No scopes: reachable only because acme.projects.use-acme-brief requires it.
 
 transport:
   stdio:
@@ -209,7 +209,7 @@ const FIXTURE_GIT_ENV: Readonly<Record<string, string>> = {
   GIT_COMMITTER_DATE: "2024-01-01T00:00:00+00:00",
 };
 
-/** The fixture catalog as a git repository ambit can fetch without a network (spec §7). */
+/** The fixture catalog as a git repository ambit can fetch without a network. */
 export interface FixtureGitCatalog {
   /** Absolute path to the bare repository. */
   readonly repo: string;

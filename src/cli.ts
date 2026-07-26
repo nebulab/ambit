@@ -1,4 +1,4 @@
-import { run } from "./program.js";
+import { run } from "./cli/program.js";
 
 const code = await run(process.argv.slice(2), {
   cwd: process.cwd(),

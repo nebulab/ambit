@@ -16,111 +16,18 @@ and writes it into the harness's config.
 Anything requiring judgement (which scopes a person holds, what a skill should say) happens outside
 and hands ambit a config file.
 
-- [The selection rule](#the-selection-rule) — read this before you design a catalog
 - [Install](#install)
 - [Quick start](#quick-start)
 - [Concepts](#concepts)
 - [File formats](#file-formats)
 - [Resolution](#resolution)
+- [The selection rule](#the-selection-rule) — read this before you design a catalog
 - [What install puts on disk](#what-install-puts-on-disk)
 - [CLI reference](#cli-reference)
 - [Determinism](#determinism)
 - [Compatibility with plain skills repos](#compatibility-with-plain-skills-repos)
 - [Not in scope](#not-in-scope)
 - [Development](#development)
-
----
-
-## The selection rule
-
-**A held scope selects itself and every scope beneath it. Descendants only.**
-
-Holding `function.engineering` selects things scoped `function.engineering` *and*
-`function.engineering.frontend`. Holding `function.engineering.frontend` selects only that subtree —
-it does **not** reach up to `function.engineering`.
-
-That single rule is the whole resolver, and it makes the shape of your scope tree load-bearing:
-
-```
-$ ambit catalog tree
-scopes (3)
-  core                             1 direct  0 inherited  The universal floor — what everyone here needs
-  function.engineering             1 direct  1 inherited  Building and shipping software
-    function.engineering.frontend  1 direct  0 inherited  Browser-side work
-```
-
-A project holding `function.engineering` gets both engineering skills — one directly, one inherited
-from the child scope:
-
-```
-$ ambit resolve --explain
-scopes (2)
-  core
-  function.engineering
-
-skills (3)
-  acme.commons.use-house-style      company  scope:core
-  acme.engineering.use-code-review  company  scope:function.engineering
-  acme.engineering.use-storybook    company  scope:function.engineering.frontend
-```
-
-A project holding only the child gets only the child:
-
-```
-$ ambit resolve
-scopes (1)
-  function.engineering.frontend
-
-skills (1)
-  acme.engineering.use-storybook  company
-```
-
-### Nest or make siblings?
-
-This is the decision catalog authors get wrong, and the only fix is restructuring the tree — which
-means every project's `ambit.yml` has to be edited to match. Get it right first.
-
-- **Nest** only when selecting the parent genuinely implies wanting *every* child. Everyone doing
-  engineering work should have the frontend conventions too? Then `function.engineering.frontend` is a
-  child of `function.engineering`.
-- **Make siblings** of anything people pick independently. If some engineers want the frontend set and
-  some want the backend set and nobody wants both, they are siblings — `discipline.frontend` and
-  `discipline.backend` — with no parent that selects them together.
-
-The test to apply to any candidate parent: *would I be annoyed to receive everything under this?* If
-yes, the children belong somewhere else.
-
-Two corollaries worth internalising:
-
-- **A scope with no children is a leaf you can always split later.** Adding
-  `function.engineering.frontend` under an existing `function.engineering` is backwards-compatible —
-  every project already holding the parent picks the new child up automatically. Splitting a parent
-  *apart* into siblings is not.
-- **There is no "select the parent from the child" escape hatch.** If a skill is genuinely needed by
-  both `function.engineering` and `function.design`, give it both scopes. `scopes` is a list.
-
-### Nothing is implicit
-
-**ambit reserves no scope names.** A project gets exactly the scopes it lists. Catalogs conventionally
-use `core` for the universal floor, but that is a naming convention, not a rule the resolver knows,
-and a project that wants it must say so.
-
-The tradeoff is deliberate: someone who writes `scopes: [function.sales]` and forgets `core` gets a
-bundle with no company context and no house style, and nothing warns them. That is the cost of a
-resolver with no special cases. Two things soften it — `ambit init` scaffolds `core` into the starter
-config with a comment explaining why, and a consuming tool that writes `ambit.yml` should always write
-the universal scope explicitly.
-
-A scope a project holds but the catalog never registered is an error, not a silent miss:
-
-```
-$ ambit resolve
-error: unknown scope "function.enginering" (ambit.yml line 4)
-       not found in the merged registry
-       did you mean "function.engineering"?
-```
-
----
 
 ## Install
 
@@ -129,8 +36,6 @@ No install step. Node 20+ and `git` on `PATH` are the only requirements.
 ```
 npx @nebulab/ambit --help
 ```
-
----
 
 ## Quick start
 
@@ -232,8 +137,6 @@ repo is a CI'd repo from its first commit. It creates the root directory if it i
 it alone is refused; every other scaffolded file that already exists is left byte-identical and
 reported as `kept`, since a catalog is normally initialized inside a repo that already has a README.
 
----
-
 ## Concepts
 
 | Term | Meaning |
@@ -258,8 +161,6 @@ acme-skills/
   mcps/
     sentry.yml                                  MCP server "sentry"
 ```
-
----
 
 ## File formats
 
@@ -499,8 +400,6 @@ refuses instead.
 - **Everything ambit emits** has sorted keys, quotes strings that could otherwise coerce, uses no
   anchors or aliases, and is byte-stable across runs.
 
----
-
 ## Resolution
 
 1. **Load and validate config.** Malformed → exit 2 naming the field.
@@ -536,7 +435,94 @@ precedence question. First-wins applies between catalogs and nowhere else.
   its *validity*: dead scopes and unreachable items. The two deliberately do not learn each other's
   findings, so a catalog can be perfectly valid and still be reported as untidy.
 
----
+## The selection rule
+
+**A held scope selects itself and every scope beneath it. Descendants only.**
+
+Holding `function.engineering` selects things scoped `function.engineering` *and*
+`function.engineering.frontend`. Holding `function.engineering.frontend` selects only that subtree —
+it does **not** reach up to `function.engineering`.
+
+That single rule is the whole resolver, and it makes the shape of your scope tree load-bearing:
+
+```
+$ ambit catalog tree
+scopes (3)
+  core                             1 direct  0 inherited  The universal floor — what everyone here needs
+  function.engineering             1 direct  1 inherited  Building and shipping software
+    function.engineering.frontend  1 direct  0 inherited  Browser-side work
+```
+
+A project holding `function.engineering` gets both engineering skills — one directly, one inherited
+from the child scope:
+
+```
+$ ambit resolve --explain
+scopes (2)
+  core
+  function.engineering
+
+skills (3)
+  acme.commons.use-house-style      company  scope:core
+  acme.engineering.use-code-review  company  scope:function.engineering
+  acme.engineering.use-storybook    company  scope:function.engineering.frontend
+```
+
+A project holding only the child gets only the child:
+
+```
+$ ambit resolve
+scopes (1)
+  function.engineering.frontend
+
+skills (1)
+  acme.engineering.use-storybook  company
+```
+
+### Nest or make siblings?
+
+This is the decision catalog authors get wrong, and the only fix is restructuring the tree — which
+means every project's `ambit.yml` has to be edited to match. Get it right first.
+
+- **Nest** only when selecting the parent genuinely implies wanting *every* child. Everyone doing
+  engineering work should have the frontend conventions too? Then `function.engineering.frontend` is a
+  child of `function.engineering`.
+- **Make siblings** of anything people pick independently. If some engineers want the frontend set and
+  some want the backend set and nobody wants both, they are siblings — `discipline.frontend` and
+  `discipline.backend` — with no parent that selects them together.
+
+The test to apply to any candidate parent: *would I be annoyed to receive everything under this?* If
+yes, the children belong somewhere else.
+
+Two corollaries worth internalising:
+
+- **A scope with no children is a leaf you can always split later.** Adding
+  `function.engineering.frontend` under an existing `function.engineering` is backwards-compatible —
+  every project already holding the parent picks the new child up automatically. Splitting a parent
+  *apart* into siblings is not.
+- **There is no "select the parent from the child" escape hatch.** If a skill is genuinely needed by
+  both `function.engineering` and `function.design`, give it both scopes. `scopes` is a list.
+
+### Nothing is implicit
+
+**ambit reserves no scope names.** A project gets exactly the scopes it lists. Catalogs conventionally
+use `core` for the universal floor, but that is a naming convention, not a rule the resolver knows,
+and a project that wants it must say so.
+
+The tradeoff is deliberate: someone who writes `scopes: [function.sales]` and forgets `core` gets a
+bundle with no company context and no house style, and nothing warns them. That is the cost of a
+resolver with no special cases. Two things soften it — `ambit init` scaffolds `core` into the starter
+config with a comment explaining why, and a consuming tool that writes `ambit.yml` should always write
+the universal scope explicitly.
+
+A scope a project holds but the catalog never registered is an error, not a silent miss:
+
+```
+$ ambit resolve
+error: unknown scope "function.enginering" (ambit.yml line 4)
+       not found in the merged registry
+       did you mean "function.engineering"?
+```
 
 ## What install puts on disk
 
@@ -634,8 +620,6 @@ network.
 `--offline` refuses the clone and the fetch and nothing else, failing with exit 4 naming what the cache
 is missing. `path:` sources never consult the cache at all. Nothing ambit does removes anything from
 the cache, `clean` included.
-
----
 
 ## CLI reference
 
@@ -884,8 +868,6 @@ error: refusing to overwrite unowned path
 rather than throw: their findings go to stdout, so `--json` stays parseable, and the non-zero code
 travels out beside a full report instead of stopping at the first problem.
 
----
-
 ## Determinism
 
 Resolving twice produces byte-identical output. Resolving with a shuffled filesystem read order
@@ -896,8 +878,6 @@ generates carries a timestamp, a clock time, or an absolute path from the machin
 The last of those is load-bearing for the goldens and for anything that pipes ambit's `--json` around:
 a catalog's location on disk is machine-specific, so it appears in no report and in no lock. (An error
 message may still name an absolute path — that is where naming the exact file is the whole point.)
-
----
 
 ## Compatibility with plain skills repos
 
@@ -924,38 +904,6 @@ lockfile, so deselecting something and syncing brings it back; and local path sk
 the file the agent reads is a stale duplicate of the tracked source. ambit fixes all three by owning
 the install path — real pruning, strict ownership, and symlinks for local sources.
 
----
-
-## Not in scope
-
-Deliberate omissions, so you do not go looking:
-
-- **Harness adapters beyond Claude Code.** The interface exists; the implementations do not.
-- **Hooks management.** Nothing here needs it yet.
-- **Any interactive prompting.** ambit reads config and acts. Interviewing a human is a consuming
-  tool's job.
-- **Version ranges or semver solving.** Catalogs pin to a git ref; that is the whole model.
-- **Publishing a catalog** — releasing, versioning, hosting. The authoring commands edit a catalog in
-  place; getting it onto a git host is git's job.
-- **Writing a skill's content.** ambit scaffolds the file and maintains its annotations; what the
-  instructions say is the author's judgement.
-
-### How a consuming tool fits around this
-
-ambit is built to sit under a tool that supplies the judgement it refuses to make. That tool:
-
-1. Reads `ambit scopes --json` to render a picker from the registry's descriptions.
-2. Writes the answers into `ambit.yml` as a `scopes` list, always including the catalog's universal
-   scope explicitly, since ambit adds nothing on its own.
-3. Runs `ambit install`.
-4. Reads `ambit resolve --explain --json` to tell the person what they got and why.
-5. Runs `ambit doctor` to find missing credentials, then supplies its own guidance for obtaining each
-   one — ambit reports *that* `SENTRY_TOKEN` is absent and who wants it, not where to get it.
-
-Every state change is a deterministic CLI call.
-
----
-
 ## Development
 
 ```
@@ -971,7 +919,30 @@ diff. `npm run fixture` builds the fixture catalog the suite resolves against.
 
 `AMBIT_SKIP_NETWORK_TESTS=1` skips the dotagents compatibility test without probing the registry.
 
-`PLAN.md` is the full build specification; source comments reference it by section (`spec §4.6`).
+The build specification that guided this codebase was `PLAN.md`, retired once this README covered
+the same ground; `git log -- PLAN.md` still has it.
+
+### Source layout
+
+`src/` is grouped into dependency layers, and every import points strictly down this list — a module
+may only reach for things below it:
+
+```
+errors.ts, version.ts   ambient: the error type, the exit codes, the version
+model/                  what is on disk and how it is read and written; decides nothing
+resolution/             derive and verify the selected closure
+harness/                the adapter seam and its implementations
+authoring/              the `ambit catalog …` command family
+project/                act on a consuming project
+cli/                    presentation and dispatch — Commander wiring and one handler per command
+```
+
+`authoring/` and `project/` never import each other: curating a catalog and installing into a project
+are the two halves of the tool, and they meet only at `model/` and `resolution/`. The layering is
+enforced by `no-restricted-imports` in `eslint.config.js`, not by convention.
+
+`cli.ts` and `index.ts` stay at the root because they are the two build entry points — the bin and
+the library. `test/` mirrors the same structure.
 
 ## License
 
