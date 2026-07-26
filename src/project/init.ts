@@ -69,7 +69,13 @@ const BLOCKS: readonly ScaffoldBlock[] = [
   },
   {
     comment: [
-      "The agent harnesses to install into. `claude` writes `.claude/skills/` and `.mcp.json`.",
+      "The agent harnesses to install into: `claude`, `codex`, `cursor`, `opencode`, `vscode`.",
+      "",
+      "Skills go to `.agents/skills/` whichever are listed — one copy, however many tools read it.",
+      "`claude` and `cursor` also get `.claude/skills` as a link to it, since neither reads the",
+      "shared directory natively. Each harness's MCP servers go in that harness's own config file:",
+      "`.mcp.json`, `.codex/config.toml`, `.cursor/mcp.json`, `.opencode/opencode.jsonc`,",
+      "`.vscode/mcp.json`.",
     ],
     values: { harnesses: [...DEFAULT_HARNESSES] },
   },

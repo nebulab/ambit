@@ -63,6 +63,21 @@ export type {
   SourceSkillRequest,
 } from "./model/config.js";
 export {
+  DOCUMENT_FORMATS,
+  driverFor,
+  jsonDriver,
+  jsoncDriver,
+  managedKey,
+  readDocumentText,
+  tomlDriver,
+} from "./model/documents/index.js";
+export type {
+  ConfigEntry,
+  DocumentDriver,
+  DocumentFormat,
+  JsonObject,
+} from "./model/documents/index.js";
+export {
   CACHE_DIRNAME,
   REPOS_DIRNAME,
   SOURCES_DIRNAME,
@@ -163,25 +178,19 @@ export type {
   PlannedSkillDir,
   ProjectPaths,
 } from "./harness/adapter.js";
+export { claude, codex, cursor, opencode, PROFILES, vscode } from "./harness/definitions.js";
+export { adapterFor, SHARED_SKILLS_DIR } from "./harness/profile.js";
+export type { HarnessProfile, McpLayout } from "./harness/profile.js";
 export {
-  CLAUDE_HARNESS,
-  CLAUDE_MCP_FILE,
-  CLAUDE_MCP_SECTION,
-  CLAUDE_SKILLS_DIR,
-  claudeAdapter,
-  envPlaceholders,
-} from "./harness/claude.js";
-export {
-  EMPTY_DOCUMENT,
-  managedKey,
-  mergeConfigSection,
-  readJsonDocument,
-  removeConfigKeys,
-  sectionKeys,
-  sectionOf,
-  serializeJsonDocument,
-} from "./harness/config.js";
-export type { ConfigEntry, JsonObject } from "./harness/config.js";
+  bracedRef,
+  envPassthrough,
+  namespacedRef,
+  referencedNames,
+  shellRef,
+  soleReference,
+  translateRefs,
+} from "./harness/env.js";
+export type { EnvRefStyle } from "./harness/env.js";
 
 // ── authoring — the `ambit catalog …` command family ──────────────────────────────────────────
 export { annotate, annotationDirname, isMcpTarget } from "./authoring/annotate.js";
@@ -297,6 +306,7 @@ export {
   ADAPTERS,
   adaptersFor,
   installProject,
+  planFor,
   planInstall,
   previewInstall,
 } from "./project/install.js";

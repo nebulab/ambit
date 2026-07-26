@@ -29,15 +29,17 @@ import path from "node:path";
 import type {
   PlannedArtifact,
   PlannedHarnessConfig,
+  PlannedPathArtifact,
   PlannedSkillDir,
+  PlannedSkillsLink,
   ProjectPaths,
 } from "../harness/adapter.js";
 import { loadCatalogs, mergeCatalogs, mergeConfigEntities } from "../model/catalog.js";
 import { loadProjectConfig } from "../model/config.js";
 import { configError } from "../errors.js";
-import type { JsonObject } from "../harness/config.js";
-import { managedKey, readJsonDocument, sectionOf } from "../harness/config.js";
-import { adaptersFor } from "./install.js";
+import { driverFor, managedKey, readDocumentText } from "../model/documents/index.js";
+import { SHARED_SKILLS_DIR } from "../harness/profile.js";
+import { adaptersFor, planFor } from "./install.js";
 import { ownedKeys } from "./ownership.js";
 import { resolveBundle } from "../resolution/resolve.js";
 import type { SourceContext } from "../model/sources.js";
@@ -103,10 +105,6 @@ function isMissing(error: unknown): boolean {
   return (
     typeof error === "object" && error !== null && (error as { code?: unknown }).code === "ENOENT"
   );
-}
-
-function isRecord(value: unknown): value is JsonObject {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /**
@@ -227,7 +225,7 @@ async function firstDifference(artifact: PlannedSkillDir): Promise<string | unde
  *
  * @throws {AmbitError} exit 2 when the link cannot be read.
  */
-async function linkVerdict(artifact: PlannedSkillDir): Promise<Verdict> {
+async function linkVerdict(artifact: PlannedPathArtifact): Promise<Verdict> {
   let written: string;
   try {
     written = await readlink(artifact.target);
@@ -259,6 +257,25 @@ async function linkVerdict(artifact: PlannedSkillDir): Promise<Verdict> {
  *
  * @throws {AmbitError} exit 2 when the target cannot be inspected.
  */
+/**
+ * The skills link: present, ambit's, and pointing where the plan says.
+ *
+ * A directory here is the pre-shared-layout install, which `install` migrates by replacing it — so it
+ * reads as modified rather than as something in the way.
+ */
+async function skillsLinkVerdict(
+  artifact: PlannedSkillsLink,
+  owned: ReadonlySet<string>,
+): Promise<Verdict> {
+  const shape = await shapeOf(artifact.target, artifact.path);
+  if (shape === "absent") return { state: "missing", detail: "nothing is installed at this path" };
+  if (!owned.has(artifact.path)) {
+    return { state: "unowned", detail: "it exists but ambit did not create it" };
+  }
+  if (shape === "link") return linkVerdict(artifact);
+  return { state: "modified", detail: `it is not a symlink to ${SHARED_SKILLS_DIR}` };
+}
+
 async function skillVerdict(
   artifact: PlannedSkillDir,
   owned: ReadonlySet<string>,
@@ -276,31 +293,6 @@ async function skillVerdict(
 }
 
 /**
- * Structural JSON equality.
- *
- * Key order is deliberately not a difference: a person may have reformatted `.mcp.json`, and ambit
- * writes a server's keys in one order but owns the server rather than its layout.
- */
-function jsonEqual(expected: unknown, actual: unknown): boolean {
-  if (expected === actual) return true;
-
-  if (Array.isArray(expected) || Array.isArray(actual)) {
-    if (!Array.isArray(expected) || !Array.isArray(actual)) return false;
-    return (
-      expected.length === actual.length &&
-      expected.every((item, index) => jsonEqual(item, actual[index]))
-    );
-  }
-
-  if (!isRecord(expected) || !isRecord(actual)) return false;
-  const keys = Object.keys(expected);
-  return (
-    keys.length === Object.keys(actual).length &&
-    keys.every((key) => Object.hasOwn(actual, key) && jsonEqual(expected[key], actual[key]))
-  );
-}
-
-/**
  * Compares the managed keys of one co-owned config file against what is in it.
  *
  * The first problem in plan order decides the row, exactly as ownership enforcement refuses on the
@@ -308,8 +300,14 @@ function jsonEqual(expected: unknown, actual: unknown): boolean {
  * which one is reported must be a function of the bundle rather than of the file's layout. Stale
  * keys come last because they are the only ones that describe the *previous* install.
  *
+ * Drift is decided by asking the driver to merge one entry and seeing whether that changes the file's
+ * bytes — not by comparing parsed values. Two of the three formats cannot be parsed without losing
+ * what a person wrote, and "would install rewrite this?" is the question `status` exists to answer, so
+ * putting it to the code that would do the writing is both cheaper and harder to get wrong than a
+ * second, parallel notion of equality.
+ *
  * @param stale the keys prior state claims here that the plan no longer writes, sorted.
- * @throws {AmbitError} exit 2 if the file exists but cannot be parsed (`readJsonDocument`).
+ * @throws {AmbitError} exit 2 if the file exists but cannot be parsed.
  */
 async function configVerdict(
   artifacts: readonly PlannedHarnessConfig[],
@@ -318,18 +316,18 @@ async function configVerdict(
   claimed: ReadonlySet<string>,
   stale: readonly string[],
 ): Promise<Verdict> {
-  const document = await readJsonDocument(target, file);
+  const text = await readDocumentText(target, file);
 
   for (const artifact of artifacts) {
-    const section = sectionOf(document, artifact.section);
+    const driver = driverFor(artifact.format);
+    const present = driver.sectionKeys(text, artifact.section, file);
     for (const entry of artifact.entries) {
       const key = managedKey(artifact.section, entry.key);
-      if (!Object.hasOwn(section, entry.key))
-        return { state: "missing", detail: `"${key}" is absent` };
+      if (!present.has(entry.key)) return { state: "missing", detail: `"${key}" is absent` };
       if (!claimed.has(key)) {
         return { state: "unowned", detail: `"${key}" exists but ambit did not create it` };
       }
-      if (!jsonEqual(entry.value, section[entry.key])) {
+      if (!driver.entryMatches(text, artifact.section, entry, file)) {
         return { state: "modified", detail: `"${key}" is not what install would write` };
       }
     }
@@ -391,6 +389,11 @@ async function compareArtifacts(
 
     if (first.kind === "skill-dir") {
       rows.push({ path: file, kind: first.kind, ...(await skillVerdict(first, owned)) });
+      continue;
+    }
+
+    if (first.kind === "skills-link") {
+      rows.push({ path: file, kind: first.kind, ...(await skillsLinkVerdict(first, owned)) });
       continue;
     }
 
@@ -472,10 +475,12 @@ export async function projectStatus(
   const catalogs = mergeCatalogs(loaded);
   const bundle = resolveBundle(config, await mergeConfigEntities(catalogs, config, context));
 
-  // The same environment install interpolates `${VAR}` from, or every header would read as
-  // drift on a machine whose variables are set.
-  const project: ProjectPaths = { root: projectDir, env: process.env };
-  const plan = adapters.flatMap((adapter) => adapter.plan(bundle, project));
+  // No environment involved on either side: install writes a reference rather than a value, so what
+  // a plan says is the same on every machine and a set variable can never read as drift.
+  const project: ProjectPaths = { root: projectDir };
+  // Through `planFor`, so status sees the artifacts install would write — one entry per shared
+  // skills target rather than one per harness reading it.
+  const plan = planFor(adapters, bundle, project).flatMap(({ plan: planned }) => planned);
 
   return statusOfPlan(plan, await readState(projectDir));
 }

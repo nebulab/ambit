@@ -20,7 +20,7 @@ import {
 } from "../../src/project/gitignore.js";
 import type { OwnedArtifact } from "../../src/model/state.js";
 
-const SKILLS_DIR = ".claude/skills";
+const SKILLS_DIR = ".agents/skills";
 const ENTRIES = [".ambit/", `${SKILLS_DIR}/acme.core`];
 
 /** The file as lines, which is how every assertion here reads. */
@@ -76,8 +76,8 @@ describe("writing the block into a file that has none", () => {
   it("creates the whole file when the project has no .gitignore", () => {
     expect(lines(updateGitignoreText(undefined, ENTRIES))).toEqual([
       expect.stringContaining(BLOCK_BEGIN),
-      ".ambit/",
       `${SKILLS_DIR}/acme.core`,
+      ".ambit/",
       BLOCK_END,
       "",
     ]);
@@ -89,8 +89,8 @@ describe("writing the block into a file that has none", () => {
       "dist/",
       "",
       expect.stringContaining(BLOCK_BEGIN),
-      ".ambit/",
       `${SKILLS_DIR}/acme.core`,
+      ".ambit/",
       BLOCK_END,
       "",
     ]);
@@ -101,8 +101,8 @@ describe("writing the block into a file that has none", () => {
       "node_modules/",
       "",
       expect.stringContaining(BLOCK_BEGIN),
-      ".ambit/",
       `${SKILLS_DIR}/acme.core`,
+      ".ambit/",
       BLOCK_END,
       "",
     ]);
@@ -113,8 +113,8 @@ describe("writing the block into a file that has none", () => {
       "dist/",
       "",
       expect.stringContaining(BLOCK_BEGIN),
-      ".ambit/",
       `${SKILLS_DIR}/acme.core`,
+      ".ambit/",
       BLOCK_END,
       "",
     ]);
@@ -146,8 +146,8 @@ describe("rewriting a block that is already there", () => {
         "node_modules/",
         "",
         expect.stringContaining(BLOCK_BEGIN),
-        ".ambit/",
         `${SKILLS_DIR}/acme.other`,
+        ".ambit/",
         BLOCK_END,
         "",
         "# mine",
@@ -180,8 +180,8 @@ describe("rewriting a block that is already there", () => {
 
     expect(lines(updateGitignoreText(older, ENTRIES))).toEqual([
       expect.stringContaining(BLOCK_BEGIN),
-      ".ambit/",
       `${SKILLS_DIR}/acme.core`,
+      ".ambit/",
       BLOCK_END,
       "",
     ]);
@@ -194,8 +194,8 @@ describe("rewriting a block that is already there", () => {
       "node_modules/\r",
       "dist/\r",
       expect.stringContaining(BLOCK_BEGIN),
-      ".ambit/",
       `${SKILLS_DIR}/acme.core`,
+      ".ambit/",
       BLOCK_END,
       "",
     ]);

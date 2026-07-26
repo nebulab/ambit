@@ -14,6 +14,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { configError } from "../errors.js";
+import { DOCUMENT_FORMATS, type DocumentFormat } from "./documents/format.js";
 
 /** The machine-local directory ambit keeps its state in. Always gitignored. */
 export const STATE_DIRNAME = ".ambit";
@@ -25,7 +26,7 @@ export const STATE_FILENAME = "state.json";
 export const STATE_VERSION = 1;
 
 /** What an owned artifact is. `harness-config` carries `managedKeys` instead of a `mode`. */
-export const ARTIFACT_KINDS = ["harness-config", "skill-dir"] as const;
+export const ARTIFACT_KINDS = ["harness-config", "skill-dir", "skills-link"] as const;
 
 export type ArtifactKind = (typeof ARTIFACT_KINDS)[number];
 
@@ -39,10 +40,18 @@ export interface OwnedArtifact {
   /** Project-relative, `/`-separated. */
   readonly path: string;
   readonly kind: ArtifactKind;
-  /** Set for `skill-dir`. */
+  /** Set for `skill-dir` and `skills-link`. */
   readonly mode?: ArtifactMode;
   /** Set for `harness-config`: the dotted keys within the file ambit owns. */
   readonly managedKeys?: readonly string[];
+  /**
+   * Set for `harness-config`: how the file is parsed and written.
+   *
+   * Recorded because `prune` and `clean` act from state alone — they must edit a `.codex/config.toml`
+   * as TOML without re-resolving the project to find out which harness wanted it. Absent reads as
+   * `json`, which is what every artifact written before this field existed was.
+   */
+  readonly format?: DocumentFormat;
 }
 
 /** The contents of `.ambit/state.json`. */
@@ -76,6 +85,7 @@ function compare(a: string, b: string): number {
 
 function artifactJson(artifact: OwnedArtifact): Readonly<Record<string, unknown>> {
   return {
+    ...(artifact.format !== undefined && { format: artifact.format }),
     kind: artifact.kind,
     ...(artifact.managedKeys !== undefined && {
       managedKeys: [...artifact.managedKeys].sort(compare),
@@ -135,11 +145,20 @@ function parseArtifact(value: unknown, file: string, index: number): OwnedArtifa
     stateError(file, `"${label}.mode" must be one of: ${ARTIFACT_MODES.join(", ")}`);
   }
 
+  const format = value.format;
+  if (
+    format !== undefined &&
+    (typeof format !== "string" || !(DOCUMENT_FORMATS as readonly string[]).includes(format))
+  ) {
+    stateError(file, `"${label}.format" must be one of: ${DOCUMENT_FORMATS.join(", ")}`);
+  }
+
   const managedKeys = value.managedKeys;
   return {
     path: target,
     kind: kind as ArtifactKind,
     ...(mode !== undefined && { mode: mode as ArtifactMode }),
+    ...(format !== undefined && { format: format as DocumentFormat }),
     ...(managedKeys !== undefined && {
       managedKeys: stringList(managedKeys, file, `${label}.managedKeys`),
     }),

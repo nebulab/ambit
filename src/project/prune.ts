@@ -29,12 +29,13 @@
  * is what keeps the three from disagreeing about what is stale — and `clean` is the same decision
  * against an empty plan, which is why nothing here has a notion of "remove everything" of its own.
  */
-import { rm, writeFile } from "node:fs/promises";
+import { lstat, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import type { PlannedArtifact } from "../harness/adapter.js";
 import { configError } from "../errors.js";
-import { readJsonDocument, removeConfigKeys, serializeJsonDocument } from "../harness/config.js";
+import { driverFor, readDocumentText } from "../model/documents/index.js";
+import type { DocumentFormat } from "../model/documents/index.js";
 import type { ArtifactKind, OwnedArtifact, State } from "../model/state.js";
 import { STATE_DIRNAME, STATE_FILENAME } from "../model/state.js";
 
@@ -48,6 +49,13 @@ export interface PrunedArtifact {
   readonly kind: ArtifactKind;
   /** For `harness-config`: the dotted keys taken out of the file, in the order they were removed. */
   readonly managedKeys?: readonly string[];
+  /**
+   * For `harness-config`: how the file is written, carried over from the state entry.
+   *
+   * Pruning acts from state alone, so the format has to travel with the removal rather than be
+   * re-derived from a project that may no longer resolve.
+   */
+  readonly format?: DocumentFormat;
 }
 
 function compare(a: string, b: string): number {
@@ -57,7 +65,9 @@ function compare(a: string, b: string): number {
 /** The skill-directory paths the new plan writes; a prior one absent from this set is stale. */
 function plannedPaths(plan: readonly PlannedArtifact[]): ReadonlySet<string> {
   return new Set(
-    plan.filter((artifact) => artifact.kind === "skill-dir").map((artifact) => artifact.path),
+    plan
+      .filter((artifact) => artifact.kind === "skill-dir" || artifact.kind === "skills-link")
+      .map((artifact) => artifact.path),
   );
 }
 
@@ -131,7 +141,12 @@ export function planPrune(
       const keys = [...(artifact.managedKeys ?? [])].sort(compare).filter((key) => !kept.has(key));
       if (keys.length === 0) continue;
       for (const key of keys) splitManagedKey(key, artifact.path);
-      stale.push({ path: artifact.path, kind: artifact.kind, managedKeys: keys });
+      stale.push({
+        path: artifact.path,
+        kind: artifact.kind,
+        managedKeys: keys,
+        ...(artifact.format !== undefined && { format: artifact.format }),
+      });
       continue;
     }
 
@@ -182,29 +197,64 @@ export function remainingArtifacts(
  * A key already gone — the file deleted by hand, the server removed by hand — is not an error and
  * not a write: an install that prunes nothing must leave the file byte-identical (the idempotence claim), and recreating a file someone deleted would be worse than leaving it absent.
  *
- * @throws {AmbitError} exit 2 if the file exists but cannot be parsed (`readJsonDocument`), or for a
- *   managed key that names no section.
+ * @param format how the file is written, as prior state recorded it. Pruning runs from state alone, so
+ *   the format has to come from there too — re-resolving the project to find out which harness wanted
+ *   the file is exactly what `prune` and `clean` are built not to need.
+ * @throws {AmbitError} exit 2 if the file exists but cannot be parsed, or for a managed key that names
+ *   no section.
  */
 async function pruneConfigKeys(
   projectDir: string,
   file: string,
   stale: readonly string[],
+  format: DocumentFormat,
 ): Promise<PrunedArtifact | undefined> {
   const target = path.join(projectDir, file);
-  let document = await readJsonDocument(target, file);
+  const driver = driverFor(format);
+  let text = await readDocumentText(target, file);
   const removed: string[] = [];
 
   for (const key of stale) {
     const [section, name] = splitManagedKey(key, file);
-    const next = removeConfigKeys(document, section, [name]);
+    const next = driver.removeKeys(text, section, [name], file);
     if (next === undefined) continue;
-    document = next;
+    text = next;
     removed.push(key);
   }
 
-  if (removed.length === 0) return undefined;
-  await writeFile(target, serializeJsonDocument(document), "utf8");
+  if (removed.length === 0 || text === undefined) return undefined;
+  await writeFile(target, text, "utf8");
   return { path: file, kind: "harness-config", managedKeys: removed };
+}
+
+/**
+ * Whether a stale path still names the thing ambit recorded creating.
+ *
+ * The migration to the shared skills directory is what this exists for. An install from before it
+ * owned `.claude/skills/<name>` directories; afterwards `.claude/skills` is a *link* to
+ * `.agents/skills`, so those old paths resolve straight through it into the shared directory — where
+ * the skills this very run just installed are. Deleting them would delete the new install.
+ *
+ * A symlinked ancestor means the directory ambit owned no longer exists as a directory, so there is
+ * nothing at that path left to remove: whatever is reachable through it now belongs to whatever the
+ * link points at. Reported as pruned regardless, because state should stop claiming it either way.
+ *
+ * Only ancestors are inspected. The artifact itself is very often a symlink — that is one of the two
+ * materialization modes — and `rm` unlinks it without following it.
+ */
+async function ownedPathIntact(projectDir: string, relative: string): Promise<boolean> {
+  let current = projectDir;
+  for (const segment of relative.split("/").slice(0, -1)) {
+    current = path.join(current, segment);
+    try {
+      if ((await lstat(current)).isSymbolicLink()) return false;
+    } catch {
+      // An ancestor that is not there at all means the artifact is not either, and `rm --force` on it
+      // would be a no-op — so there is no reason to treat it as the link case.
+      return true;
+    }
+  }
+  return true;
 }
 
 /**
@@ -232,14 +282,21 @@ export async function pruneArtifacts(
 
   for (const artifact of planPrune(plan, prior)) {
     if (artifact.kind === "harness-config") {
-      const removed = await pruneConfigKeys(projectDir, artifact.path, artifact.managedKeys ?? []);
+      const removed = await pruneConfigKeys(
+        projectDir,
+        artifact.path,
+        artifact.managedKeys ?? [],
+        artifact.format ?? "json",
+      );
       if (removed !== undefined) pruned.push(removed);
       continue;
     }
 
     // `force` because an artifact someone already deleted is a prune that has nothing left to do,
     // not a failure; `recursive` removes the directory, and unlinks a symlink without following it.
-    await rm(path.join(projectDir, artifact.path), { recursive: true, force: true });
+    if (await ownedPathIntact(projectDir, artifact.path)) {
+      await rm(path.join(projectDir, artifact.path), { recursive: true, force: true });
+    }
     pruned.push(artifact);
   }
 

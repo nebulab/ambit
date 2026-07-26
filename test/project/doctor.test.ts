@@ -23,7 +23,8 @@ import { ExitCode } from "../../src/errors.js";
 import { run } from "../../src/cli/program.js";
 
 const CATALOG_NAME = "company";
-const SKILLS_DIR = ".claude/skills";
+const SKILLS_DIR = ".agents/skills";
+const CLAUDE_LINK = ".claude/skills";
 const MCP_FILE = ".mcp.json";
 const LOCK_FILE = "ambit.lock";
 const STATE_FILE = ".ambit/state.json";
@@ -227,11 +228,12 @@ describe("ambit doctor on an incomplete environment", () => {
     ]);
   });
 
-  it("names the server, and the placeholder install left behind in `.mcp.json`", async () => {
+  it("names the server, and the reference install left in `.mcp.json` for the harness", async () => {
     expect(await detailOf(SCOPED_VAR)).toEqual([
       'MCP server "scoped" declares it in `env`',
-      `"mcpServers.scoped" in ${MCP_FILE} still holds its \`\${${SCOPED_VAR}}\` placeholder`,
-      `set ${SCOPED_VAR}, then run \`ambit install\` again so the placeholder is interpolated`,
+      `"mcpServers.scoped" in ${MCP_FILE} references it, for the harness to expand at spawn`,
+      // No reinstall in the fix: ambit wrote a reference, so setting the variable is the whole of it.
+      `set ${SCOPED_VAR} in the environment the agent runs in`,
     ]);
   });
 
@@ -310,6 +312,7 @@ describe("ambit doctor on an ownership anomaly", () => {
       `ownership/fail: ambit does not own ${CORE_TARGET}`,
       `ownership/fail: ambit does not own ${FRONTEND_TARGET}`,
       `ownership/fail: ambit does not own ${ENGINEERING_TARGET}`,
+      `ownership/fail: ambit does not own ${CLAUDE_LINK}`,
       `ownership/fail: ambit does not own ${MCP_FILE}`,
     ]);
     expect(await checks()).toContain("drift=ok");
@@ -366,12 +369,14 @@ describe("ambit doctor against the project", () => {
     await rm(path.join(projectDir, CORE_TARGET));
     await rm(path.join(projectDir, LOCK_FILE));
 
-    // Four checks, three of them failing, in the order they run.
+    // Four checks, three of them failing, in the order they run. `.mcp.json` is deliberately not
+    // among them: ambit wrote a `${VAR}` reference rather than a value, so unsetting the variable
+    // cannot make the installed file differ from what resolution now produces. An installed config is
+    // a function of the bundle alone, which is what stops `doctor` inventing drift from a shell.
     expect(await findings()).toEqual([
       `env/fail: unset environment variable "${SCOPED_VAR}"`,
       `lock/fail: ${LOCK_FILE} is missing`,
       `drift/fail: ${CORE_TARGET} is missing`,
-      `drift/fail: ${MCP_FILE} is modified`,
     ]);
   });
 });
@@ -431,7 +436,8 @@ describe("ambit doctor before an install", () => {
       "drift=fail",
       "mode=ok",
     ]);
-    expect(doctorFailures(await diagnoseProject(projectDir))).toHaveLength(6);
+    // The lock, the managed block, three missing skills, the skills link, and `.mcp.json`.
+    expect(doctorFailures(await diagnoseProject(projectDir))).toHaveLength(7);
   });
 
   it("resolves the catalog, so a broken config is an error rather than a finding", async () => {

@@ -19,7 +19,8 @@ import { run } from "../../src/cli/program.js";
 import { isClean, projectStatus, statusDrift } from "../../src/project/status.js";
 
 const CATALOG_NAME = "company";
-const SKILLS_DIR = ".claude/skills";
+const SKILLS_DIR = ".agents/skills";
+const CLAUDE_LINK = ".claude/skills";
 const MCP_FILE = ".mcp.json";
 
 const CORE_SKILL = "acme.commons.use-company-context";
@@ -153,10 +154,11 @@ describe("ambit status on an installed project", () => {
     const kind = "harness-config".length;
     expect(result.stdout).toBe(
       [
-        "artifacts (4)",
+        "artifacts (5)",
         `  ${CORE_TARGET.padEnd(width)}  ${"skill-dir".padEnd(kind)}  ok`,
         `  ${FRONTEND_TARGET}  ${"skill-dir".padEnd(kind)}  ok`,
         `  ${ENGINEERING_TARGET.padEnd(width)}  ${"skill-dir".padEnd(kind)}  ok`,
+        `  ${CLAUDE_LINK.padEnd(width)}  ${"skills-link".padEnd(kind)}  ok`,
         `  ${MCP_FILE.padEnd(width)}  harness-config  ok`,
       ].join("\n"),
     );
@@ -185,6 +187,7 @@ describe("ambit status on an installed project", () => {
         { kind: "skill-dir", path: CORE_TARGET, state: "ok" },
         { kind: "skill-dir", path: FRONTEND_TARGET, state: "ok" },
         { kind: "skill-dir", path: ENGINEERING_TARGET, state: "ok" },
+        { kind: "skills-link", path: CLAUDE_LINK, state: "ok" },
         { kind: "harness-config", path: MCP_FILE, state: "ok" },
       ],
       clean: true,
@@ -217,6 +220,7 @@ describe("ambit status after a manual edit", () => {
       `${CORE_TARGET}=modified`,
       `${FRONTEND_TARGET}=ok`,
       `${ENGINEERING_TARGET}=ok`,
+      `${CLAUDE_LINK}=ok`,
       `${MCP_FILE}=ok`,
     ]);
   });
@@ -245,6 +249,7 @@ describe("ambit status after a manual edit", () => {
       `${CORE_TARGET}=ok`,
       `${FRONTEND_TARGET}=ok`,
       `${ENGINEERING_TARGET}=missing`,
+      `${CLAUDE_LINK}=ok`,
       `${MCP_FILE}=ok`,
     ]);
     expect(await detailOf(ENGINEERING_TARGET)).toBe("nothing is installed at this path");
@@ -295,6 +300,7 @@ describe("ambit status after a manual edit", () => {
       `${CORE_TARGET}=ok`,
       `${FRONTEND_TARGET}=ok`,
       `${ENGINEERING_TARGET}=ok`,
+      `${CLAUDE_LINK}=ok`,
       `${MCP_FILE}=ok`,
     ]);
   });
@@ -370,6 +376,7 @@ describe("ambit status on a symlinked install", () => {
       `${CORE_TARGET}=ok`,
       `${FRONTEND_TARGET}=ok`,
       `${ENGINEERING_TARGET}=ok`,
+      `${CLAUDE_LINK}=ok`,
       `${MCP_FILE}=ok`,
     ]);
     expect((await cli("status", "--check")).code).toBe(ExitCode.Success);
@@ -385,6 +392,7 @@ describe("ambit status before an install", () => {
       `${CORE_TARGET}=missing`,
       `${FRONTEND_TARGET}=missing`,
       `${ENGINEERING_TARGET}=missing`,
+      `${CLAUDE_LINK}=missing`,
       `${MCP_FILE}=missing`,
     ]);
     expect((await cli("status", "--check")).code).toBe(ExitCode.Drift);
@@ -400,6 +408,8 @@ describe("ambit status before an install", () => {
       `${CORE_TARGET}=unowned`,
       `${FRONTEND_TARGET}=missing`,
       `${ENGINEERING_TARGET}=missing`,
+      // Nothing is installed here, so the link is absent like the skills it would point at.
+      `${CLAUDE_LINK}=missing`,
       `${MCP_FILE}=unowned`,
     ]);
     expect(await detailOf(CORE_TARGET)).toBe("it exists but ambit did not create it");
@@ -429,6 +439,7 @@ describe("ambit status after the profile narrows", () => {
       `${CORE_TARGET}=ok`,
       `${FRONTEND_TARGET}=stale`,
       `${ENGINEERING_TARGET}=stale`,
+      `${CLAUDE_LINK}=ok`,
       `${MCP_FILE}=stale`,
     ]);
     expect(await detailOf(FRONTEND_TARGET)).toBe("ambit owns it, and nothing selects it now");

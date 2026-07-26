@@ -32,7 +32,7 @@ import { parseYamlMapping } from "../../src/model/yaml.js";
 
 const CATALOG_NAME = "company";
 const CATALOG_SOURCE = "path:../catalog";
-const SKILLS_DIR = ".claude/skills";
+const SKILLS_DIR = ".agents/skills";
 
 const CORE_SKILL = "acme.commons.use-company-context";
 const ENGINEERING_SKILL = "acme.engineering.use-code-review";

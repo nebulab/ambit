@@ -25,9 +25,10 @@
  * a prune that fails is retryable — state still owns what it was about to remove — and a failed
  * `apply` leaves the previous install standing rather than half-dismantled.
  *
- * The environment is captured here rather than inside an adapter, because `${VAR}` interpolation in
- * MCP headers is the one thing materialization reads outside its arguments, and an
- * adapter's `plan` has to stay a pure function of what it is given.
+ * Nothing here reads the environment on materialization's behalf. A `${VAR}` in an MCP entity becomes
+ * a reference in the target harness's own syntax rather than a resolved value, so an adapter's `plan`
+ * is a pure function of the bundle and the project, and the environment is `doctor`'s subject rather
+ * than install's input.
  */
 import type {
   AppliedArtifact,
@@ -35,7 +36,8 @@ import type {
   PlannedArtifact,
   ProjectPaths,
 } from "../harness/adapter.js";
-import { CLAUDE_HARNESS, claudeAdapter } from "../harness/claude.js";
+import { PROFILES } from "../harness/definitions.js";
+import { adapterFor } from "../harness/profile.js";
 import { loadCatalogs, mergeCatalogs, mergeConfigEntities } from "../model/catalog.js";
 import { loadProjectConfig } from "../model/config.js";
 import { configError } from "../errors.js";
@@ -63,9 +65,9 @@ import type { ArtifactMode, State } from "../model/state.js";
 import { STATE_VERSION, readState, writeState } from "../model/state.js";
 
 /** Every adapter this build ships, keyed by the name `harnesses` uses. */
-export const ADAPTERS: Readonly<Record<string, HarnessAdapter>> = {
-  [CLAUDE_HARNESS]: claudeAdapter,
-};
+export const ADAPTERS: Readonly<Record<string, HarnessAdapter>> = Object.fromEntries(
+  PROFILES.map((profile) => [profile.name, adapterFor(profile)]),
+);
 
 /** How an install was asked to behave. */
 export interface InstallOptions {
@@ -166,6 +168,40 @@ export function adaptersFor(harnesses: readonly string[]): readonly HarnessAdapt
 }
 
 /**
+ * Every adapter's plan, with each path-owned artifact planned exactly once.
+ *
+ * The skills directory is shared, so *every* harness plans the same `.agents/skills/<name>` targets,
+ * and two harnesses of one family plan the same skills link. Those are not two artifacts that happen
+ * to collide — a path is an artifact's identity — so the first adapter to name one plans it and the
+ * rest defer. Without this the second adapter's `apply` finds a symlink the first just created and
+ * refuses, state records the same path twice, and `install` prints it twice.
+ *
+ * Config entries are never deduplicated: ambit owns *keys* in those files rather than the files, so two
+ * harnesses writing into one file both write, and dropping the second's entries would quietly install
+ * less than the project asked for.
+ *
+ * @param adapters the harnesses to plan for, in the order they were configured — which is the order
+ *   that decides who plans a shared target, and is sorted, so it does not depend on `ambit.yml`'s
+ *   spelling.
+ */
+export function planFor(
+  adapters: readonly HarnessAdapter[],
+  bundle: Bundle,
+  project: ProjectPaths,
+): readonly AdapterPlan[] {
+  const claimed = new Set<string>();
+  return adapters.map((adapter) => ({
+    adapter,
+    plan: adapter.plan(bundle, project).filter((artifact) => {
+      if (artifact.kind === "harness-config") return true;
+      if (claimed.has(artifact.path)) return false;
+      claimed.add(artifact.path);
+      return true;
+    }),
+  }));
+}
+
+/**
  * Resolves the project and plans every adapter's writes, touching nothing.
  *
  * Everything up to the first write lives here so that `install`, `install --dry-run` and
@@ -187,9 +223,9 @@ export async function planInstall(
   const harnesses = [...new Set(config.harnesses)].sort(compare);
   const adapters = adaptersFor(harnesses);
 
-  // `process.env` is read once, here, so every adapter interpolates against the same environment,
-  // the cache is looked for in one place, and nothing deeper down reaches for ambient
-  // state of its own.
+  // `process.env` is read once, here, and only for source resolution — where the cache lives, and
+  // what a `git:` source authenticates with — so nothing deeper down reaches for ambient state of
+  // its own.
   const context: SourceContext = {
     projectDir,
     env: process.env,
@@ -205,13 +241,12 @@ export async function planInstall(
   const lock = buildLock(loaded, bundle);
   const project: ProjectPaths = {
     root: projectDir,
-    env: process.env,
     ...(options.mode !== undefined && { mode: options.mode }),
   };
 
   // Every adapter plans before any of them writes: the ownership check has to see every target
   // first, or a project whose second skill collides is left with its first one already installed.
-  const plans = adapters.map((adapter) => ({ adapter, plan: adapter.plan(bundle, project) }));
+  const plans = planFor(adapters, bundle, project);
 
   return {
     bundle,

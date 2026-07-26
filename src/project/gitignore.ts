@@ -134,10 +134,11 @@ function findBlock(lines: readonly string[]): Block | undefined {
 export function gitignoreEntries(artifacts: readonly OwnedArtifact[]): readonly string[] {
   const entries = [`${STATE_DIRNAME}/`];
   for (const artifact of artifacts) {
-    if (artifact.kind !== "skill-dir") continue;
+    if (artifact.kind !== "skill-dir" && artifact.kind !== "skills-link") continue;
     // No trailing slash, deliberately: a `path:` skill is installed as a symlink, git does
     // not read a symlink as a directory, and a `dir/` pattern would therefore leave every linked
-    // skill tracked. Without the slash one pattern covers both modes.
+    // skill tracked. Without the slash one pattern covers both modes — and the skills link, which is
+    // always a symlink, needs it for the same reason.
     entries.push(artifact.path);
   }
   return entries;
