@@ -33,14 +33,18 @@ jobs:
       id-token: write
     steps:
       - name: Check out the tag
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: npm
           # Writes the .npmrc that makes NODE_AUTH_TOKEN below the credential for this registry.
+          # That .npmrc refers to the variable, which is only in scope on the publish step, so the
+          # `npm ci` below runs against an unresolved `${NODE_AUTH_TOKEN}`. npm treats that as empty
+          # and fetches public packages anyway. setup-node used to paper over it by exporting a dummy
+          # token; v7 stopped, which is why this is written down rather than assumed.
           registry-url: https://registry.npmjs.org
 
       - name: Install dependencies
