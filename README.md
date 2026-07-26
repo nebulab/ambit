@@ -12,11 +12,7 @@ and writes it into each configured harness's own layout.
 - [Concepts](#concepts)
 - [File formats](#file-formats)
 - [Resolution](#resolution)
-- [The selection rule](#the-selection-rule)
-- [What install puts on disk](#what-install-puts-on-disk)
 - [CLI reference](#cli-reference)
-- [Determinism](#determinism)
-- [Compatibility with plain skills repos](#compatibility-with-plain-skills-repos)
 - [Development](#development)
 
 ## Install
