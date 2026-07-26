@@ -84,7 +84,8 @@ export type AnnotationKey = (typeof ANNOTATION_KEYS)[number];
 /**
  * How a catalog is parsed when the caller wants every problem rather than only the first — the validation split.
  *
- * Only `ambit validate` passes one. Everything else parses strictly, because a resolution that
+ * Only validation passes one — both `validate` commands, and every authoring mutation checking its
+ * own result. Everything else parses strictly, because a resolution that
  * carried on past a broken skill would install something nobody described.
  */
 export interface CatalogParseOptions {
@@ -295,8 +296,8 @@ async function sortedEntries(dir: string): Promise<readonly CatalogEntry[]> {
  * A catalog's files, read through an edit's pending contents where it has any.
  *
  * Every read parsing does goes through here, so an authoring command validating its own result sees
- * exactly what the next `ambit validate` would see — including files the edit creates, which are in no
- * directory listing yet, and files it removes, which are still in one.
+ * exactly what the next `ambit catalog validate` would see — including files the edit creates, which
+ * are in no directory listing yet, and files it removes, which are still in one.
  */
 class CatalogFiles {
   constructor(
@@ -643,7 +644,7 @@ export async function loadCatalogs(
     );
     // `ref` is a fact about the config entry, not about the directory that was parsed, so it is
     // attached here rather than threaded through parsing — which also keeps a catalog parsed
-    // straight off disk (`ambit validate --catalog`) from having to invent one.
+    // straight off disk (`ambit catalog validate`) from having to invent one.
     catalogs.push({ ...parsed, ...(entry.ref !== undefined && { ref: entry.ref }) });
   }
   return catalogs;

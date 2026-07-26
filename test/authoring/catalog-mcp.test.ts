@@ -123,9 +123,9 @@ async function server(name: string) {
   return (await parsed()).mcps.find((candidate) => candidate.name === name);
 }
 
-/** `ambit validate` against the catalog: what every mutation has to leave passing. */
+/** `ambit catalog validate` against the catalog: what every mutation has to leave passing. */
 async function validates(): Promise<CliResult> {
-  const result = await invoke("validate", "--catalog", catalogDir);
+  const result = await invoke("catalog", "validate", "--catalog", catalogDir);
   expect(result.code, result.stderr).toBe(ExitCode.Success);
   return result;
 }
@@ -249,7 +249,7 @@ describe("ambit catalog mcp new", () => {
   it("appears in `catalog dump`, which is the view resolution works from", async () => {
     await newClose();
 
-    const dump = await invoke("catalog", "dump", "--json", "--project", projectDir);
+    const dump = await invoke("dump-catalog", "--json", "--project", projectDir);
     const report = JSON.parse(dump.stdout) as {
       mcps: Record<string, { transport: { kind: string; url?: string } }>;
     };

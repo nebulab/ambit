@@ -1,5 +1,6 @@
 /**
- * Full-catalog validation — the CI command for a catalog repo.
+ * Full-catalog validation — what CI runs, for a catalog repo (`ambit catalog validate`) and for a
+ * project that consumes one (`ambit validate`).
  *
  * `resolve` and `install` hard-validate the selected closure only, so one broken skill nobody holds
  * cannot block everyone. That leaves a gap this closes: a dangling `requires`, a cycle, an
@@ -407,8 +408,8 @@ export async function validateProject(context: SourceContext): Promise<Validatio
 }
 
 /**
- * Validates one catalog directory on its own terms — `ambit validate --catalog <dir>`, the check a
- * catalog repo runs in CI.
+ * Validates one catalog directory on its own terms — `ambit catalog validate`, the check a catalog
+ * repo runs in CI.
  *
  * Nothing about a project is read: no `ambit.yml`, no other catalog, no cache. A catalog is not a
  * project, and a CI job for one has neither.

@@ -12,10 +12,10 @@
  *
  * - **Every write goes through the editor** ({@link applyCatalogEdit}), like every other authoring
  *   mutation, so the scaffold gets atomic writes, the root check, `--dry-run`, and — the one that
- *   matters — validation of the *result*: a scaffold that would not pass `ambit validate` is not
- *   written. The directories are therefore created by writing the `.gitkeep` files inside them, which
- *   is also what makes them survive the first commit; git tracks no empty directory, and a catalog that
- *   loses two of its three directories on the way into a repo is not a scaffolded repo.
+ *   matters — validation of the *result*: a scaffold that would not pass `ambit catalog validate` is
+ *   not written. The directories are therefore created by writing the `.gitkeep` files inside them,
+ *   which is also what makes them survive the first commit; git tracks no empty directory, and a
+ *   catalog that loses two of its three directories on the way into a repo is not a scaffolded repo.
  * - **An existing `scopes.yml` is refused; any other occupant is left alone.** The registry is what
  *   makes a directory a catalog, so its presence means the command was pointed at one that already
  *   exists (exit 2, nothing written). A catalog is normally initialized *inside* a repo that already
@@ -48,7 +48,7 @@ export const CATALOG_INIT_SCOPE = "core";
 /** The scaffolded README, where the selection rule is documented. */
 export const CATALOG_README_FILENAME = "README.md";
 
-/** The scaffolded CI workflow, which runs `ambit validate --catalog .`. */
+/** The scaffolded CI workflow, which runs `ambit catalog validate`. */
 export const CATALOG_WORKFLOW_FILENAME = ".github/workflows/validate.yml";
 
 /**
@@ -57,8 +57,14 @@ export const CATALOG_WORKFLOW_FILENAME = ".github/workflows/validate.yml";
  */
 export const CATALOG_KEEP_FILENAME = ".gitkeep";
 
-/** The command the scaffolded workflow runs, and the one the README tells a maintainer to run. */
-const VALIDATE_COMMAND = "npx --yes @nebulab/ambit validate --catalog .";
+/**
+ * The command the scaffolded workflow runs, and the one the README tells a maintainer to run.
+ *
+ * `ambit catalog validate` rather than `ambit validate`: the subject is this catalog on its own terms,
+ * and a catalog repo has no `ambit.yml` for the project-wide check to read. It needs no `--catalog`
+ * either — the flag defaults to the cwd, which in CI is the checkout root.
+ */
+const VALIDATE_COMMAND = "npx --yes @nebulab/ambit catalog validate";
 
 const REGISTRY_BLOCKS: readonly ScaffoldBlock[] = [
   {
@@ -169,12 +175,12 @@ users.
     ambit catalog mcp new <name> --stdio <command>        define an MCP server
     ambit catalog tree                                    see what each scope selects
     ambit catalog audit                                   find dead scopes and unreachable items
-    ambit validate --catalog .                            check the whole catalog
+    ambit catalog validate                                check the whole catalog
 
 Every command up there that changes a file takes \`--dry-run\`, which prints the diff it would write
-and touches nothing.
+and touches nothing. Each acts on the current directory unless given \`--catalog <dir>\`.
 
-\`ambit validate --catalog .\` is what \`${CATALOG_WORKFLOW_FILENAME}\` runs in CI.
+\`ambit catalog validate\` is what \`${CATALOG_WORKFLOW_FILENAME}\` runs in CI.
 `;
 
 /**

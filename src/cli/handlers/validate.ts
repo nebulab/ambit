@@ -1,21 +1,26 @@
 /**
- * `ambit validate` — full-catalog validation, for CI.
+ * Validation, for CI — one report in two commands, because there are two subjects to validate.
+ *
+ * `ambit validate` validates everything a project configures: every catalog it lists, its own
+ * declarations, and its own held scopes. `ambit catalog validate` validates one catalog directory on
+ * its own terms and reads no `ambit.yml`, since a catalog repo has none.
+ *
+ * They were one command with a `--catalog <dir>` flag that switched which of the two it meant, which
+ * put a project flag and a catalog flag on the same command and left `--offline` accepted on a run
+ * that resolves no source. The seam was already there under the CLI — {@link validateProject} and
+ * {@link validateCatalogDirectory} share nothing but the report they return — so the split is only the
+ * surface catching up with it. Both halves render through {@link toText} and {@link toJson} here, so
+ * neither can drift into its own idea of what a report looks like.
  *
  * The report is printed and the exit code carries the verdict, the way `status --check` does: a
  * catalog with problems is a finding about the catalog, not a failure of ambit's, and a CI job needs
  * both halves — the list to fix and the code to fail on.
  *
- * `--catalog <dir>` validates that directory alone and reads no `ambit.yml`, since a catalog repo has
- * none. Without it, the subject is the project: every catalog it lists, its own
- * declarations, and its own held scopes.
- *
  * A clean run still prints what it checked. "no problems found" on its own is indistinguishable from
  * a run that found nothing to look at — a catalog whose skills all failed to be discovered, say.
  */
-import path from "node:path";
-
 import type { CommandHandler } from "../commands.js";
-import { jsonRequested, sourceContextOf } from "../commands.js";
+import { catalogDirOf, jsonRequested, sourceContextOf } from "../commands.js";
 import { ExitCode } from "../../errors.js";
 import { printSections } from "../output.js";
 import type { ValidationProblem, ValidationReport } from "../../resolution/validate.js";
@@ -67,15 +72,18 @@ function toText(report: ValidationReport): readonly string[] {
   ];
 }
 
-export const validateHandler: CommandHandler = async (ctx) => {
-  const given = ctx.options.catalog;
-  const report =
-    typeof given === "string"
-      ? await validateCatalogDirectory(path.resolve(ctx.cwd, given))
-      : await validateProject(sourceContextOf(ctx));
+/** Prints one report and turns it into the exit code, for whichever subject produced it. */
+function report(ctx: Parameters<CommandHandler>[0], found: ValidationReport): ExitCode {
+  if (jsonRequested(ctx)) ctx.stdout(JSON.stringify(toJson(found), null, 2));
+  else printSections(toText(found), ctx.stdout);
 
-  if (jsonRequested(ctx)) ctx.stdout(JSON.stringify(toJson(report), null, 2));
-  else printSections(toText(report), ctx.stdout);
+  return isValid(found) ? ExitCode.Success : ExitCode.Resolution;
+}
 
-  return isValid(report) ? ExitCode.Success : ExitCode.Resolution;
-};
+/** `ambit validate` — everything the project configures. */
+export const validateHandler: CommandHandler = async (ctx) =>
+  report(ctx, await validateProject(sourceContextOf(ctx)));
+
+/** `ambit catalog validate` — one catalog directory, on its own terms. */
+export const catalogValidateHandler: CommandHandler = async (ctx) =>
+  report(ctx, await validateCatalogDirectory(catalogDirOf(ctx)));

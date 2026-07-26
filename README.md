@@ -131,8 +131,8 @@ next: write the skill's instructions in skills/acme/engineering/use-code-review/
 ambit writes the file and maintains its annotations. What the instructions _say_ is your judgement —
 exactly the judgement ambit refuses to make.
 
-`ambit catalog init` also scaffolds a GitHub Actions workflow running `ambit validate`, so a catalog
-repo is a CI'd repo from its first commit. It creates the root directory if it is missing — unlike
+`ambit catalog init` also scaffolds a GitHub Actions workflow running `ambit catalog validate`, so a
+catalog repo is a CI'd repo from its first commit. It creates the root directory if it is missing — unlike
 `ambit init`, which refuses one, because the scaffold creates directories regardless and
 `--catalog acme-skills` is the ordinary first use. `scopes.yml` is what "already a catalog" means, and
 it alone is refused; every other scaffolded file that already exists is left byte-identical and
@@ -458,10 +458,14 @@ precedence question. First-wins applies between catalogs and nowhere else.
 
 - `ambit resolve` and `ambit install` hard-validate only the **selected closure**, so one broken
   unrelated skill does not block everyone.
-- `ambit validate` validates the **entire catalog** — every scope registered, every `requires` target
-  resolvable, no cycles, no name shadowing, every skill name matching its path. This is the CI command
-  for catalog repos.
-- `ambit catalog audit` is the report about a catalog's _health_ where `validate` is the report about
+- Validation checks **everything**, selected or not — every scope registered, every `requires` target
+  resolvable, no cycles, no name shadowing, every skill name matching its path — and lists every
+  problem it finds rather than stopping at the first. It comes in two commands, one per subject:
+  - `ambit catalog validate` checks one catalog directory on its own terms, reading no `ambit.yml`.
+    This is the CI command for a catalog repo, and what `ambit catalog init` scaffolds a workflow for.
+  - `ambit validate` checks everything a project configures: every catalog it lists, its own `skills`
+    and `mcps` declarations, and its own held scopes. This is the CI command for a project.
+- `ambit catalog audit` is the report about a catalog's _health_ where validation is the report about
   its _validity_: dead scopes and unreachable items. The two deliberately do not learn each other's
   findings, so a catalog can be perfectly valid and still be reported as untidy.
 
@@ -783,14 +787,14 @@ refused, with the same message and exit code, because "what would happen" includ
 | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `ambit init`                                          | Scaffold an `ambit.yml`. Refuses a directory that already has one, `--dry-run` included, and does not create a missing directory.                                  |
 | `ambit scopes`                                        | List the merged registry with descriptions, marking which scopes this project holds.                                                                               |
-| `ambit catalog`                                       | Dump the merged catalog. (`ambit catalog dump` is the same command.)                                                                                               |
+| `ambit dump-catalog`                                  | Dump the merged catalog: every catalog the project lists, merged with its own declarations.                                                                        |
 | `ambit resolve [--explain]`                           | Compute the bundle and print it.                                                                                                                                   |
 | `ambit why <name>`                                    | Explain why one item is in the bundle, as a chain. A skill wins a bare name; `mcp.<name>` insists on a server, and a bare name no skill answers falls back to one. |
 | `ambit install [--frozen] [--adopt] [--copy\|--link]` | Resolve, write `ambit.lock`, materialize the bundle, prune what left it.                                                                                           |
 | `ambit status [--check]`                              | Compare what is installed against what resolve produces. `--check` exits 5 on drift.                                                                               |
 | `ambit prune`                                         | Remove owned artifacts not in the current bundle.                                                                                                                  |
 | `ambit clean`                                         | Remove everything ambit owns.                                                                                                                                      |
-| `ambit validate [--catalog DIR]`                      | Full-catalog validation, for CI.                                                                                                                                   |
+| `ambit validate`                                      | Validate everything this project configures, for CI. One catalog on its own is `ambit catalog validate`.                                                           |
 | `ambit doctor`                                        | Check env vars, the lock, ownership, drift, and materialization mode.                                                                                              |
 
 `--explain` annotates each item with why it was selected: `scope:function.sales`,
@@ -867,10 +871,15 @@ matters because the two act on different directories: consumer commands take `--
 `ambit.yml`, authoring commands take `--catalog <dir>` and read the catalog root. A catalog is not a
 project and has no `ambit.yml`.
 
+Every command below acts on a catalog, and `ambit catalog` holds nothing else — bare `ambit catalog`
+prints usage. Dumping the _merged_ catalog is a consumer command, `ambit dump-catalog`, because that
+view is several catalogs plus one `ambit.yml` and no catalog directory contains it.
+
 ```
 ambit catalog init                              scaffold a catalog repo
 ambit catalog tree [--json]                     the scope tree, and what each scope selects
 ambit catalog audit [--check]                   find dead scopes and unreachable items
+ambit catalog validate                          validate this catalog on its own terms, for CI
 
 ambit catalog scope add <name> --description <text>
 ambit catalog scope rm <name>

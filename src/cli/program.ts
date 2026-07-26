@@ -23,16 +23,16 @@ import {
   catalogSkillRenameHandler,
 } from "./handlers/catalog-skill.js";
 import { catalogTreeHandler } from "./handlers/catalog-tree.js";
-import { catalogHandler } from "./handlers/catalog.js";
 import { cleanHandler } from "./handlers/clean.js";
 import { doctorHandler } from "./handlers/doctor.js";
+import { dumpCatalogHandler } from "./handlers/dump-catalog.js";
 import { initHandler } from "./handlers/init.js";
 import { installHandler } from "./handlers/install.js";
 import { pruneHandler } from "./handlers/prune.js";
 import { resolveHandler } from "./handlers/resolve.js";
 import { scopesHandler } from "./handlers/scopes.js";
 import { statusHandler } from "./handlers/status.js";
-import { validateHandler } from "./handlers/validate.js";
+import { catalogValidateHandler, validateHandler } from "./handlers/validate.js";
 import { whyHandler } from "./handlers/why.js";
 import { VERSION } from "../version.js";
 
@@ -42,13 +42,12 @@ export type Io = Pick<CommandContext, "cwd" | "stdout" | "stderr">;
  * Handlers, keyed by the words a user types. Every command the surface declares now has one; a command
  * added without an entry here reports itself unimplemented (exit 1) rather than silently succeeding.
  *
- * `catalog dump` is the whole of `ambit catalog`: the group's default action dispatches to it, so
- * the two invocations cannot render the catalog differently.
+ * A group is absent on purpose: `catalog` holds commands and runs none itself, so bare
+ * `ambit catalog` prints usage rather than dispatching to whichever child was picked as its default.
  */
 export const HANDLERS: CommandHandlers = {
   "catalog annotate": catalogAnnotateHandler,
   "catalog audit": catalogAuditHandler,
-  "catalog dump": catalogHandler,
   "catalog init": catalogInitHandler,
   "catalog mcp new": catalogMcpNewHandler,
   "catalog mcp rm": catalogMcpRemoveHandler,
@@ -59,8 +58,10 @@ export const HANDLERS: CommandHandlers = {
   "catalog skill new": catalogSkillNewHandler,
   "catalog skill rm": catalogSkillRemoveHandler,
   "catalog tree": catalogTreeHandler,
+  "catalog validate": catalogValidateHandler,
   clean: cleanHandler,
   doctor: doctorHandler,
+  "dump-catalog": dumpCatalogHandler,
   init: initHandler,
   install: installHandler,
   prune: pruneHandler,
@@ -125,8 +126,8 @@ export function buildProgram(
     .addHelpCommand(false)
     .showHelpAfterError("(run `ambit --help` for usage)")
     // Every flag belongs to the command it follows. Without this, Commander gives an option to
-    // whichever command up the chain declares it, so `ambit catalog dump --json` would leave
-    // `--json` with the `catalog` group and `dump` believing it was never asked for.
+    // whichever command up the chain declares it, so `ambit catalog tree --json` would leave
+    // `--json` with the `catalog` group and `tree` believing it was never asked for.
     .enablePositionalOptions()
     .configureOutput({
       writeOut: (str) => io.stdout(str.replace(/\n$/, "")),

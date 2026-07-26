@@ -418,7 +418,7 @@ describe("the catalog editor: refusals", () => {
 
     expect(error.detail[0]).toBe("2 problems in the result, so nothing was written");
     expect(error.detail.at(-1)).toBe(
-      `correct what this command was asked to change, or run \`ambit validate --catalog ${catalogDir}\` for the whole report`,
+      `correct what this command was asked to change, or run \`ambit catalog validate --catalog ${catalogDir}\` for the whole report`,
     );
   });
 

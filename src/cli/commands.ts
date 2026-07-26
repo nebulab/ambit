@@ -74,25 +74,31 @@ export interface CommandSpec {
   readonly mutating?: boolean;
   /** What the command acts on. Absent means the project. */
   readonly subject?: CommandSubject;
-  /** Nested commands, for a name that is a group rather than a command. */
-  readonly subcommands?: readonly CommandSpec[];
   /**
-   * The subcommand a bare invocation of the group runs. A group without one prints its own usage
-   * instead, the way bare `ambit` does.
+   * Nested commands, for a name that is a group rather than a command.
+   *
+   * A group has no action of its own: bare `ambit catalog` prints its usage, the way bare `ambit`
+   * does. It cannot be given one — a group that also ran a command was how `ambit catalog` came to
+   * mean `ambit catalog dump`, and with it one word covering both a project and a catalog directory.
    */
-  readonly defaultSubcommand?: string;
+  readonly subcommands?: readonly CommandSpec[];
 }
 
 /**
- * The catalog-authoring surface, nested under `catalog` so the group
- * that dumps a catalog is also the group that maintains one.
+ * The catalog-authoring surface: every command whose subject is one catalog directory, grouped under
+ * the noun they all act on.
  *
- * Every command here takes `--catalog <dir>` and every mutation takes `--dry-run`, since authoring
- * rule 6 promises a diff and no writes. `dump` is the exception on both counts: it is the consumer
- * command `ambit catalog` has always been, so it keeps reading `ambit.yml`.
+ * Nothing a consumer reaches for lives here, which is what makes the group uniform. Every command
+ * takes `--catalog <dir>`, none takes `--offline` — a catalog directory is read off disk and resolves
+ * no source — and every mutation takes `--dry-run`, since authoring rule 6 promises a diff and no
+ * writes.
+ *
+ * Dumping the *merged* catalog is deliberately not one of them. That view is several catalogs plus one
+ * `ambit.yml`, which no catalog directory contains, so it is `ambit dump-catalog` at the top level:
+ * while it shared this word, one name covered two subjects and the group accepted `--project` while
+ * every command under it accepted `--catalog`.
  */
 const CATALOG_SUBCOMMANDS: readonly CommandSpec[] = [
-  { name: "dump", summary: "dump the merged catalog" },
   {
     name: "init",
     summary: "scaffold a catalog repo, as `ambit init` does a project",
@@ -109,6 +115,14 @@ const CATALOG_SUBCOMMANDS: readonly CommandSpec[] = [
     summary: "find dead scopes and unreachable items",
     subject: "catalog",
     options: [new Option("--check", "exit 6 when anything was found")],
+  },
+  {
+    // The mirror of `ambit validate`, and a separate command from it for the reason the group exists:
+    // the two check different subjects. This one reads one catalog directory and nothing else — no
+    // `ambit.yml`, no other catalog, no cache — which is exactly what a catalog repo's CI has.
+    name: "validate",
+    summary: "validate this catalog on its own terms, for CI",
+    subject: "catalog",
   },
   {
     name: "scope",
@@ -239,12 +253,7 @@ const CATALOG_SUBCOMMANDS: readonly CommandSpec[] = [
 export const COMMAND_SPECS: readonly CommandSpec[] = [
   { name: "init", summary: "scaffold an ambit.yml", mutating: true },
   { name: "scopes", summary: "list registered scopes with descriptions" },
-  {
-    name: "catalog",
-    summary: "dump the merged catalog, or author one",
-    subcommands: CATALOG_SUBCOMMANDS,
-    defaultSubcommand: "dump",
-  },
+  { name: "dump-catalog", summary: "dump the merged catalog" },
   {
     name: "resolve",
     summary: "compute the bundle and print it",
@@ -277,12 +286,13 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
   },
   { name: "prune", summary: "remove owned artifacts not in the current bundle", mutating: true },
   { name: "clean", summary: "remove everything ambit owns", mutating: true },
-  {
-    name: "validate",
-    summary: "full-catalog validation, for CI",
-    options: [new Option("--catalog <dir>", "validate this catalog directory")],
-  },
+  // Everything this project configures: every catalog it lists, its own declarations, its own held
+  // scopes. A single catalog on its own terms is `ambit catalog validate`, which is a different
+  // subject rather than the same command under a flag.
+  { name: "validate", summary: "validate everything this project configures, for CI" },
   { name: "doctor", summary: "check env vars, drift, ownership" },
+  // Last, because it is the whole of the authoring surface and no consumer reaches into it.
+  { name: "catalog", summary: "author and maintain a catalog", subcommands: CATALOG_SUBCOMMANDS },
 ];
 
 export type CommandOptions = Readonly<Record<string, unknown>>;
@@ -429,7 +439,8 @@ function contextOf(
  * travels out without being dressed up as an error.
  *
  * `trail` is the enclosing group's words, so a nested command finds its handler and names itself in
- * an error by the whole invocation (`catalog scope add`) rather than by the leaf.
+ * an error by the whole invocation (`catalog scope add`) rather than by the leaf. That whole
+ * invocation is also the key its handler and its rule are filed under.
  *
  * @throws {AmbitError} exit 1 when the command is declared in the surface but has no handler yet, and
  *   whatever this command's {@link CommandRule} refuses about the flags it was given.
@@ -444,11 +455,8 @@ export function buildCommand(
 ): Command {
   const words = [...trail, spec.name];
   const name = words.join(" ");
-  const acts = spec.subcommands === undefined || spec.defaultSubcommand !== undefined;
-  // What this command runs when it is the one invoked, which for a group is its default subcommand:
-  // the key its handler and its rule are both filed under, so bare `ambit catalog` and
-  // `ambit catalog dump` cannot be given different behaviour.
-  const invoked = spec.defaultSubcommand === undefined ? name : `${name} ${spec.defaultSubcommand}`;
+  // Whether this command does something itself, as opposed to only holding others.
+  const acts = spec.subcommands === undefined;
   const command = new Command(spec.name)
     .description(spec.summary)
     .helpOption("--help", "show usage");
@@ -456,9 +464,10 @@ export function buildCommand(
   for (const [argSpec, description] of spec.args ?? []) command.argument(argSpec, description);
   for (const option of spec.options ?? []) command.addOption(option);
   if (spec.mutating) command.addOption(dryRunOption());
-  // A group that does nothing by default takes no flags of its own: there is nothing for `--json` to
-  // shape when the answer is a usage message, and a group holding a flag its children also hold is a
-  // flag the group silently eats.
+  // A group takes no flags of its own: there is nothing for `--json` to shape when the answer is a
+  // usage message, and a group holding a flag its children also hold is a flag the group silently
+  // eats — which is how `ambit catalog` came to answer to `--project` while `ambit catalog tree`
+  // answered to `--catalog`.
   if (acts) for (const option of globalOptions(spec)) command.addOption(option);
 
   if (spec.subcommands) {
@@ -474,25 +483,23 @@ export function buildCommand(
   // the handler: it runs after parsing and before dispatch, and its refusal travels out of the parse
   // the way an unknown flag's does.
   //
-  // A hook also fires for every action *below* the command it is attached to, which is not what a rule
-  // about this command's own flags means — hence the guard. Each command below carries its own.
-  const rule = acts ? rules[invoked] : undefined;
-  if (rule !== undefined) {
-    command.hook("preAction", (_parent, actionCommand) => {
-      if (actionCommand === command) rule(contextOf(command, io));
-    });
-  }
+  // Commander fires a `preAction` hook for the command that acted and for every ancestor of it, so a
+  // hook on a *group* would see its children's invocations too. Only a leaf carries one — a group has
+  // no flags for a rule to be about — and a leaf has no descendants to be fired for, so what runs the
+  // rule is always the command the rule belongs to.
+  const rule = acts ? rules[name] : undefined;
+  if (rule !== undefined) command.hook("preAction", () => rule(contextOf(command, io)));
 
   command.action(async () => {
-    // A group with nothing to do by default is a request for usage rather than a mistake, exactly as
-    // bare `ambit` is. Printing it through `io` also keeps it out of Commander's own exit path.
+    // A group is a request for usage rather than a mistake, exactly as bare `ambit` is. Printing it
+    // through `io` also keeps it out of Commander's own exit path.
     if (!acts) {
       io.stdout(command.helpInformation().replace(/\n$/, ""));
       return onExit(ExitCode.Success);
     }
 
-    const handler = handlers[invoked];
-    if (!handler) throw notImplemented(invoked);
+    const handler = handlers[name];
+    if (!handler) throw notImplemented(name);
 
     onExit(await handler(contextOf(command, io)));
   });

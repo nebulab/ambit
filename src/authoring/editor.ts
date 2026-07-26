@@ -265,8 +265,8 @@ export class CatalogDocument {
  * The error for a mutation whose result would not validate.
  *
  * Exit 3, the code every other resolution problem uses, since these *are* those problems — the same
- * report `ambit validate` prints, raised instead of listed because there is no result to report on.
- * The messages are quoted rather than the whole report, which would bury the one line that matters
+ * report `ambit catalog validate` prints, raised instead of listed because there is no result to report
+ * on. The messages are quoted rather than the whole report, which would bury the one line that matters
  * under its own detail; the full report is one command away, and the message says which.
  */
 function refusedByValidation(root: string, report: ValidationReport): AmbitError {
@@ -274,7 +274,7 @@ function refusedByValidation(root: string, report: ValidationReport): AmbitError
   return resolutionError("refusing to write: the result would not validate", [
     `${problems.length} problem${problems.length === 1 ? "" : "s"} in the result, so nothing was written`,
     ...problems.map((problem) => problem.message),
-    `correct what this command was asked to change, or run \`ambit validate --catalog ${root}\` for the whole report`,
+    `correct what this command was asked to change, or run \`ambit catalog validate --catalog ${root}\` for the whole report`,
   ]);
 }
 

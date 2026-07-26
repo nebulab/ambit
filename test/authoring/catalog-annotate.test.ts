@@ -157,9 +157,9 @@ async function server(name: string): Promise<McpEntity | undefined> {
   return (await parsed()).mcps.find((candidate) => candidate.name === name);
 }
 
-/** `ambit validate` against the catalog: what every mutation has to leave passing. */
+/** `ambit catalog validate` against the catalog: what every mutation has to leave passing. */
 async function validates(): Promise<CliResult> {
-  const result = await invoke("validate", "--catalog", catalogDir);
+  const result = await invoke("catalog", "validate", "--catalog", catalogDir);
   expect(result.code, result.stderr).toBe(ExitCode.Success);
   return result;
 }

@@ -9,7 +9,7 @@
  * fail.
  *
  * Three claims carry it. The first is the split from `validate`: the authored catalog passes
- * `ambit validate` with zero problems while the audit reports three findings, which is the whole
+ * `ambit catalog validate` with zero problems while the audit reports three findings, which is the whole
  * reason this command exists as a separate report — dead weight is a smell, not a broken catalog.
  *
  * The second is that reachability is transitive and follows `requires` in both namespaces: a server
@@ -179,10 +179,10 @@ describe("ambit catalog audit", () => {
     );
   });
 
-  it("finds every one of them in a catalog `ambit validate` calls clean", async () => {
+  it("finds every one of them in a catalog `ambit catalog validate` calls clean", async () => {
     // The whole reason this is a second report: nothing here is a validation problem. A skill with no
     // scopes and a registered scope nobody declares are both perfectly legal.
-    const validated = await invoke("validate", "--catalog", authored);
+    const validated = await invoke("catalog", "validate", "--catalog", authored);
 
     expect(validated.code, validated.stderr).toBe(ExitCode.Success);
     expect(validated.stdout).toContain("problems (0)");

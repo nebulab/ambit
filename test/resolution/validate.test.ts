@@ -1,9 +1,12 @@
 /**
- * Full-catalog validation — `ambit validate`.
+ * Full-catalog validation — `ambit validate` for a project, `ambit catalog validate` for one catalog
+ * directory on its own terms. They are two commands over one report, so most cases here run the
+ * project half and the catalog half is asserted where the subject is what differs: no `ambit.yml`
+ * within reach, and nothing to say about shadowing when only one catalog was read.
  *
- * Two claims carry this suite. The first is the split itself: `validate` must find what `resolve`
- * deliberately ignores, so the broken-but-unselected cases assert *both* commands — exit 0 from one
- * and exit 3 from the other, on the same catalog.
+ * Two claims carry this suite. The first is the split from resolution: validation must find what
+ * `resolve` deliberately ignores, so the broken-but-unselected cases assert *both* commands — exit 0
+ * from one and exit 3 from the other, on the same catalog.
  *
  * The second is that a CI command lists every problem. Each case that could stop at the first one
  * plants two problems and asserts both, because "exits 3" would pass either way and the whole point
@@ -198,10 +201,11 @@ describe("ambit validate", () => {
 
   it("validates a catalog directory with no project config anywhere", async () => {
     // A catalog is not a project and has no `ambit.yml`, so the CI check for one cannot
-    // depend on finding a config — here there is none within reach of the cwd.
+    // depend on finding a config — here there is none within reach of the cwd. That is the whole
+    // reason `catalog validate` is its own command: nothing about it reads a project.
     await rm(path.join(projectDir, "ambit.yml"));
 
-    const result = await cliWithoutProject("validate", "--catalog", catalogDir);
+    const result = await cliWithoutProject("catalog", "validate", "--catalog", catalogDir);
 
     expect(result.code, result.stderr).toBe(ExitCode.Success);
     expect(result.stdout).toBe(CLEAN_REPORT);
@@ -441,10 +445,10 @@ describe("ambit validate: name↔path agreement", () => {
     expect(found.problems.map((problem) => problem.kind)).toEqual(["name-mismatch"]);
   });
 
-  it("still exits 2 for a mismatch outside `validate`", async () => {
+  it("still exits 2 for a mismatch outside validation", async () => {
     await writeMisnamedSkill("acme/misnamed/use-thing", "acme.something.else");
 
-    const result = await cli("catalog");
+    const result = await cli("dump-catalog");
 
     expect(result.code).toBe(ExitCode.Config);
     expect(result.stderr).toContain("does not match its path");
@@ -510,8 +514,8 @@ describe("ambit validate: shadowing", () => {
     ]);
   });
 
-  it("says nothing about shadowing when only one catalog is validated", async () => {
-    const result = await cliWithoutProject("validate", "--catalog", catalogDir);
+  it("says nothing about shadowing when `catalog validate` reads only one catalog", async () => {
+    const result = await cliWithoutProject("catalog", "validate", "--catalog", catalogDir);
 
     expect(result.code, result.stderr).toBe(ExitCode.Success);
   });
@@ -635,10 +639,10 @@ describe("ambit validate output", () => {
     expect(first.stdout).not.toContain(root);
   });
 
-  it("carries no machine paths under `--catalog` either, where the root is an argument", async () => {
+  it("carries no machine paths under `catalog validate` either, where the root is an argument", async () => {
     await writeMisnamedSkill("acme/misnamed/use-thing", "acme.something.else");
 
-    const result = await cliWithoutProject("validate", "--catalog", catalogDir);
+    const result = await cliWithoutProject("catalog", "validate", "--catalog", catalogDir);
 
     expect(result.code).toBe(ExitCode.Resolution);
     expect(result.stdout).not.toContain(root);
