@@ -2,9 +2,9 @@
  * Catalog parsing.
  *
  * A catalog is a plain skills repo: skills at `skills/<name>/SKILL.md`, MCP
- * entities at `mcps/<name>.yml`, and a `scopes.yml` registry at the root. Nothing here is
- * ambit-specific except one extra frontmatter key and the two extra files, which other tools
- * ignore — that compatibility is a hard requirement.
+ * entities at `mcps/<name>.yml`, hooks at `hooks/<name>/HOOK.yml`, and a `scopes.yml` registry at the
+ * root. Nothing here is ambit-specific except one extra frontmatter key and the extra directories,
+ * which other tools ignore — that compatibility is a hard requirement.
  *
  * A skill's name is not stored anywhere authoritative: it is derived from the path, and the
  * frontmatter `name` must agree. Disagreement is an error rather than a preference for one over
@@ -15,7 +15,7 @@
  * or a git repository fetched into the cache — is `sources.ts`'s job, so parsing is identical
  * whichever a catalog came from.
  *
- * A project can also declare a skill or a server itself, and those are folded into the
+ * A project can also declare a skill, a server or a hook itself, and those are folded into the
  * same merged namespace here rather than handled beside it — see {@link mergeConfigEntities} — so
  * resolution has exactly one place to look a name up.
  */
@@ -24,6 +24,8 @@ import path from "node:path";
 
 import type { CatalogRef, ConfigOrigin, ProjectConfig, SourceSkillRequest } from "./config.js";
 import { AmbitError, at, configError, resolutionError } from "../errors.js";
+import type { HookEntity } from "./hook-entity.js";
+import { parseHookEntity } from "./hook-entity.js";
 import type { McpEntity } from "./mcp-entity.js";
 import { parseMcpEntity } from "./mcp-entity.js";
 import type { ResolvedSource, SourceContext, SourceRequest } from "./sources.js";
@@ -45,8 +47,20 @@ export const SKILLS_DIRNAME = "skills";
 /** Where MCP entities live within a catalog. */
 export const MCPS_DIRNAME = "mcps";
 
+/** Where hooks live within a catalog. */
+export const HOOKS_DIRNAME = "hooks";
+
 /** The file whose presence makes a directory a skill. */
 export const SKILL_FILENAME = "SKILL.md";
+
+/**
+ * The file whose presence makes a directory a hook.
+ *
+ * A hook is always a directory, like a skill and unlike an MCP entity, because a hook may ship its
+ * own script — and one that does not is a directory holding only this file, so both kinds are found,
+ * named and materialized the same way.
+ */
+export const HOOK_FILENAME = "HOOK.yml";
 
 /**
  * MCP entity extensions, in preference order. One stem carrying both is an error.
@@ -151,6 +165,20 @@ export interface CatalogMcp extends McpEntity {
   readonly file: string;
 }
 
+/** A hook as one catalog declares it, carrying the directory it was read from. */
+export interface CatalogHook extends HookEntity {
+  /** The hook directory, relative to the catalog root, `/`-separated. */
+  readonly path: string;
+  /**
+   * Whether `command` names a script this hook's own directory ships.
+   *
+   * Derived from what the catalog holds rather than declared — see {@link shipsScript} — so a hook
+   * cannot claim to ship a file it does not, and a typo in a script name is refused instead of
+   * written through as a command line that will not run.
+   */
+  readonly shipsScript: boolean;
+}
+
 /** One parsed catalog. */
 export interface Catalog {
   readonly name: string;
@@ -175,6 +203,8 @@ export interface Catalog {
   readonly skills: readonly CatalogSkill[];
   /** MCP entities, sorted by name. */
   readonly mcps: readonly CatalogMcp[];
+  /** Hooks, sorted by name. */
+  readonly hooks: readonly CatalogHook[];
 }
 
 /** A skill in the merged view, tagged with the catalog it came from. */
@@ -210,6 +240,40 @@ export interface MergedMcp extends McpEntity {
 }
 
 /**
+ * A hook in the merged view, tagged with the catalog it came from.
+ *
+ * The union of what {@link MergedSkill} needs and what {@link MergedMcp} needs, because a hook is both
+ * kinds of thing at once: it renders into a harness's config file, and — when it ships a script — it
+ * also materializes a directory.
+ */
+export interface MergedHook extends HookEntity {
+  readonly catalog: string;
+  /**
+   * The hook directory inside that catalog, catalog-relative.
+   *
+   * Absent for a hook a project declares inline in its `ambit.yml`, which has no directory of its own
+   * — the same argument {@link MergedMcp.file} makes: `catalog` already names the config file, which
+   * is where a reader goes to change it.
+   */
+  readonly path?: string;
+  /** The commit the hook's bytes came from, when its catalog has one — see {@link MergedSkill.commit}. */
+  readonly commit?: string;
+  /**
+   * Absolute path to that catalog's root on disk, so materialization can find the script without
+   * looking the catalog up again. Absent for an inline hook, and deliberately absent from every
+   * output surface: it is machine-specific.
+   */
+  readonly catalogRoot?: string;
+  /**
+   * Whether `command` names a script the hook's own directory ships — see {@link CatalogHook.shipsScript}.
+   *
+   * Always false for an inline hook: `ambit.yml` declares no directory, so there is nowhere for a
+   * script to be shipped from and the command is a command line by construction.
+   */
+  readonly shipsScript: boolean;
+}
+
+/**
  * One name more than one catalog provides.
  *
  * Recorded rather than merely resolved, because the loss is otherwise silent in a way nobody can
@@ -230,6 +294,7 @@ export interface Shadowing {
 export interface Shadowings {
   readonly skills: ReadonlyMap<string, Shadowing>;
   readonly mcps: ReadonlyMap<string, Shadowing>;
+  readonly hooks: ReadonlyMap<string, Shadowing>;
 }
 
 /** Every configured catalog, merged into one namespace per kind. */
@@ -239,6 +304,7 @@ export interface MergedCatalog {
   readonly scopes: readonly ScopeDefinition[];
   readonly skills: readonly MergedSkill[];
   readonly mcps: readonly MergedMcp[];
+  readonly hooks: readonly MergedHook[];
   /** Which names came from more than one catalog, for `--explain` and `validate`. */
   readonly shadowing: Shadowings;
 }
@@ -404,23 +470,35 @@ function parseScopeRegistry(root: YamlMapping): readonly ScopeDefinition[] {
   );
 }
 
-/** The name↔path convention: the path under `skills/`, with `/` → `.`. */
+/**
+ * The name↔path convention: the path under `skills/` — or under `hooks/` — with `/` → `.`.
+ *
+ * One function for both namespaces rather than one each, because it is one convention: a hook is
+ * named from its directory exactly as a skill is, and two copies of the rule could drift.
+ */
 export function skillNameFromPath(relative: string): string {
   return relative.replaceAll("/", ".");
 }
 
-/** Every skill directory under `skills/`, relative to it and `/`-separated. */
-async function findSkillDirectories(files: CatalogFiles): Promise<readonly string[]> {
-  if (!(await files.isDirectory(SKILLS_DIRNAME))) return [];
+/**
+ * Every directory under `parent` holding `marker`, relative to `parent` and `/`-separated.
+ *
+ * The walk skills and hooks share: both are named from their path under one directory, and both are
+ * found by the file that marks one.
+ */
+async function findEntityDirectories(
+  files: CatalogFiles,
+  parent: string,
+  marker: string,
+): Promise<readonly string[]> {
+  if (!(await files.isDirectory(parent))) return [];
 
   const found: string[] = [];
   const walk = async (relative: string): Promise<void> => {
-    for (const entry of await files.entries(
-      relative === "" ? SKILLS_DIRNAME : `${SKILLS_DIRNAME}/${relative}`,
-    )) {
+    for (const entry of await files.entries(relative === "" ? parent : `${parent}/${relative}`)) {
       if (entry.directory) {
         await walk(relative === "" ? entry.name : `${relative}/${entry.name}`);
-      } else if (entry.name === SKILL_FILENAME) {
+      } else if (entry.name === marker) {
         found.push(relative);
       }
     }
@@ -428,6 +506,16 @@ async function findSkillDirectories(files: CatalogFiles): Promise<readonly strin
 
   await walk("");
   return found;
+}
+
+/** Every skill directory under `skills/`, relative to it and `/`-separated. */
+async function findSkillDirectories(files: CatalogFiles): Promise<readonly string[]> {
+  return findEntityDirectories(files, SKILLS_DIRNAME, SKILL_FILENAME);
+}
+
+/** Every hook directory under `hooks/`, relative to it and `/`-separated. */
+async function findHookDirectories(files: CatalogFiles): Promise<readonly string[]> {
+  return findEntityDirectories(files, HOOKS_DIRNAME, HOOK_FILENAME);
 }
 
 /**
@@ -535,6 +623,134 @@ async function parseMcpFile(files: CatalogFiles, stem: string, file: string): Pr
 }
 
 /**
+ * The program a `command` runs: its first whitespace-separated token.
+ *
+ * Only the program can name a shipped script. Everything after it is arguments, and a hook handing its
+ * own file to another program (`node hook.js`) is asking *that* program to find it — a shell fragment
+ * ambit does not parse and must not rewrite.
+ */
+function commandProgram(command: string): string {
+  return command.trim().split(/\s+/)[0] ?? "";
+}
+
+/**
+ * Whether a program reads as a path inside the hook's own directory rather than as a command line.
+ *
+ * A filename, a `./`-prefixed name, or anything carrying a `/` reads as a path; a bare word does not,
+ * which is what keeps `npx prettier --write` and `npm run format` from being looked for on disk. An
+ * absolute path and one climbing out through `..` cannot be inside the directory, so neither is a
+ * candidate either — they are commands the harness will run as written.
+ *
+ * The one thing this refuses that a reader might not expect is a bare program whose name carries a dot
+ * (`python3.11`): it reads as a filename, is looked for, is not found, and is refused naming the
+ * directory's contents. That is the deliberate trade — the alternative is a list of script extensions
+ * to keep current, and a misspelled script name silently written through as a command line, which is
+ * the failure the derivation exists to remove. Spelling it `/usr/bin/python3.11` says "a command" and
+ * is accepted.
+ */
+function readsAsPath(program: string): boolean {
+  if (program === "" || program.startsWith("/")) return false;
+
+  const segments = program.split("/");
+  if (segments.includes("..")) return false;
+  if (program.startsWith("./") || segments.length > 1) return true;
+
+  return program.includes(".");
+}
+
+/** Every file a hook's directory holds besides its own `HOOK.yml`, in path order. */
+async function hookDirectoryContents(
+  files: CatalogFiles,
+  directory: string,
+): Promise<readonly string[]> {
+  const found: string[] = [];
+  const walk = async (relative: string): Promise<void> => {
+    for (const entry of await files.entries(
+      relative === "" ? directory : `${directory}/${relative}`,
+    )) {
+      const within = relative === "" ? entry.name : `${relative}/${entry.name}`;
+      if (entry.directory) await walk(within);
+      else if (within !== HOOK_FILENAME) found.push(within);
+    }
+  };
+
+  await walk("");
+  return found;
+}
+
+/**
+ * Whether this hook's `command` names a script its own directory ships.
+ *
+ * Derived rather than declared: the catalog is asked what it actually holds. A `command` that reads as
+ * a path and is there ships a script; one that reads as a command line does not; and one that reads as
+ * a path and is *not* there is a mistake, refused naming the directory's contents — because writing it
+ * through as a command line would install a hook that cannot run, and say nothing.
+ *
+ * @param name the hook's name as its path derives it, which is what it will be installed under.
+ * @throws {AmbitError} exit 2 for a `command` that names a file the directory does not hold.
+ */
+async function shipsScript(
+  files: CatalogFiles,
+  mapping: YamlMapping,
+  directory: string,
+  name: string,
+  command: string,
+): Promise<boolean> {
+  const program = commandProgram(command);
+  if (!readsAsPath(program)) return false;
+
+  const reference = program.startsWith("./") ? program.slice(2) : program;
+  if (await files.isFile(`${directory}/${reference}`)) return true;
+
+  const contents = await hookDirectoryContents(files, directory);
+  throw mapping.keyError("command", `hook "${name}" ships no ${reference}`, [
+    `\`command\` reads as a path, so it must name a file ${directory} holds`,
+    contents.length === 0
+      ? `${directory} holds nothing but ${HOOK_FILENAME}`
+      : `${directory} holds: ${contents.join(", ")}`,
+    "correct the name, add the file to the hook's directory, or write a command line instead",
+  ]);
+}
+
+/**
+ * Parses one hook directory.
+ *
+ * A disagreement between `name` and the path is thrown rather than collected, unlike a skill's: the
+ * recovery there exists because every other tool installs a skill under its path's name, and nothing
+ * but ambit reads a `hooks/` directory at all.
+ *
+ * @throws {AmbitError} exit 2 for a malformed document, a `name` that disagrees with the path, or a
+ *   `command` naming a file the directory does not hold.
+ */
+async function parseHookDirectory(files: CatalogFiles, relative: string): Promise<CatalogHook> {
+  if (relative === "") {
+    throw configError(`${HOOKS_DIRNAME}/${HOOK_FILENAME} is not inside a hook directory`, [
+      "a hook's name is its path under `hooks/`, so it needs at least one directory",
+      `move it to ${HOOKS_DIRNAME}/<name>/${HOOK_FILENAME}`,
+    ]);
+  }
+
+  const directory = `${HOOKS_DIRNAME}/${relative}`;
+  const file = `${directory}/${HOOK_FILENAME}`;
+  const mapping = await files.mapping(file);
+  const entity = parseHookEntity(mapping);
+
+  const derived = skillNameFromPath(relative);
+  if (entity.name !== derived) {
+    throw mapping.keyError("name", `hook name "${entity.name}" does not match its path`, [
+      `${file} derives the name "${derived}"`,
+      "rename the directory, or correct `name` to match it",
+    ]);
+  }
+
+  return {
+    ...entity,
+    path: directory,
+    shipsScript: await shipsScript(files, mapping, directory, derived, entity.command),
+  };
+}
+
+/**
  * Adds where an error came from, so a message about `skills/a/b/SKILL.md` says which of several
  * sources holds that path. Prepended, keeping the concrete next step last.
  *
@@ -602,6 +818,11 @@ export async function parseCatalogDirectory(
       mcps.push(await parseMcpFile(files, stem, file));
     }
 
+    const hooks: CatalogHook[] = [];
+    for (const relative of await findHookDirectories(files)) {
+      hooks.push(await parseHookDirectory(files, relative));
+    }
+
     return {
       name,
       source,
@@ -610,6 +831,7 @@ export async function parseCatalogDirectory(
       scopes,
       skills: byName(skills),
       mcps: byName(mcps),
+      hooks: byName(hooks),
     };
   } catch (error) {
     throw inSource(`catalog "${name}"`, root, error);
@@ -745,7 +967,7 @@ function declarationConflict(
 
 /**
  * Folds a project's own declarations into the merged catalog: `skills` entries carrying their own
- * `source`, and inline `mcps`.
+ * `source`, inline `mcps`, and inline `hooks`.
  *
  * They join the same namespace rather than sitting beside it, so resolution has exactly one place
  * to look a name up — which also lets a catalog skill's `requires` reach a server the project
@@ -761,6 +983,7 @@ export async function mergeConfigEntities(
 ): Promise<MergedCatalog> {
   const skills = [...merged.skills];
   const mcps = [...merged.mcps];
+  const hooks = [...merged.hooks];
 
   for (const request of config.skills) {
     if (request.kind !== "source") continue;
@@ -793,7 +1016,22 @@ export async function mergeConfigEntities(
     mcps.push({ ...entity, catalog: config.origin.file });
   }
 
-  return { ...merged, skills: byName(skills), mcps: byName(mcps) };
+  for (const entity of config.hooks) {
+    const shadowed = merged.hooks.find((hook) => hook.name === entity.name);
+    if (shadowed !== undefined) {
+      throw declarationConflict(
+        "hook",
+        entity.name,
+        shadowed.catalog,
+        at(config.origin.file, config.origin.hookLines.get(entity.name)),
+        "remove the `hooks` entry to take the catalog's, or rename one of the two",
+      );
+    }
+    // No directory, so no script: an inline hook's `command` is a command line by construction.
+    hooks.push({ ...entity, catalog: config.origin.file, shipsScript: false });
+  }
+
+  return { ...merged, skills: byName(skills), mcps: byName(mcps), hooks: byName(hooks) };
 }
 
 /** One scope registration, remembering which catalog made it so a conflict can name both. */
@@ -848,7 +1086,7 @@ function mapByName<T>(entries: ReadonlyMap<string, T>): ReadonlyMap<string, T> {
 /**
  * Merges catalogs into one namespace per kind.
  *
- * On a duplicate skill or MCP name the earlier catalog in config order wins, and the shadowing is
+ * On a duplicate skill, MCP or hook name the earlier catalog in config order wins, and the shadowing is
  * recorded rather than discarded — see {@link Shadowing}. Scope registries merge on
  * matching descriptions and are rejected on differing ones.
  *
@@ -862,8 +1100,10 @@ export function mergeCatalogs(catalogs: readonly Catalog[]): MergedCatalog {
   const scopes = new Map<string, RegisteredScope>();
   const skills = new Map<string, MergedSkill>();
   const mcps = new Map<string, MergedMcp>();
+  const hooks = new Map<string, MergedHook>();
   const shadowedSkills = new Map<string, Shadowing>();
   const shadowedMcps = new Map<string, Shadowing>();
+  const shadowedHooks = new Map<string, Shadowing>();
 
   for (const catalog of catalogs) {
     for (const definition of catalog.scopes) {
@@ -898,6 +1138,23 @@ export function mergeCatalogs(catalogs: readonly Catalog[]): MergedCatalog {
       }
       mcps.set(mcp.name, { ...mcp, catalog: catalog.name });
     }
+
+    for (const hook of catalog.hooks) {
+      const winner = hooks.get(hook.name);
+      if (winner !== undefined) {
+        recordShadowing(shadowedHooks, hook.name, winner.catalog, catalog.name);
+        continue;
+      }
+      // `catalogRoot` for the same reason a skill carries one: a hook that ships a script is
+      // materialized out of the catalog it came from, and nothing downstream should have to look the
+      // catalog up again to find it.
+      hooks.set(hook.name, {
+        ...hook,
+        catalog: catalog.name,
+        ...(catalog.commit !== undefined && { commit: catalog.commit }),
+        catalogRoot: catalog.root,
+      });
+    }
   }
 
   return {
@@ -905,6 +1162,11 @@ export function mergeCatalogs(catalogs: readonly Catalog[]): MergedCatalog {
     scopes: byName([...scopes.values()].map((registered) => registered.definition)),
     skills: byName([...skills.values()]),
     mcps: byName([...mcps.values()]),
-    shadowing: { skills: mapByName(shadowedSkills), mcps: mapByName(shadowedMcps) },
+    hooks: byName([...hooks.values()]),
+    shadowing: {
+      skills: mapByName(shadowedSkills),
+      mcps: mapByName(shadowedMcps),
+      hooks: mapByName(shadowedHooks),
+    },
   };
 }

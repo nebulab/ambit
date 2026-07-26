@@ -36,6 +36,21 @@ function reason(bundle: Bundle, item: BundleItem, explain: boolean): string | un
   return explain ? formatReason(reasonOf(bundle, item)) : undefined;
 }
 
+/** The shadowings of the namespace `kind` names, so a lookup never has to know which map that is. */
+function shadowingsOf(
+  merged: MergedCatalog,
+  kind: BundleItem["kind"],
+): ReadonlyMap<string, Shadowing> {
+  switch (kind) {
+    case "skill":
+      return merged.shadowing.skills;
+    case "mcp":
+      return merged.shadowing.mcps;
+    case "hook":
+      return merged.shadowing.hooks;
+  }
+}
+
 /**
  * The shadowing an item carries, present only under `--explain` and only where two catalogs both
  * provided the name.
@@ -46,8 +61,7 @@ function shadowing(
   explain: boolean,
 ): Shadowing | undefined {
   if (!explain) return undefined;
-  const shadowed = item.kind === "skill" ? merged.shadowing.skills : merged.shadowing.mcps;
-  return shadowed.get(item.name);
+  return shadowingsOf(merged, item.kind).get(item.name);
 }
 
 function toJson(
@@ -57,14 +71,21 @@ function toJson(
 ): Readonly<Record<string, unknown>> {
   return {
     env: bundle.env,
-    // The event rather than an origin column: a hook the config declares itself has no catalog to
-    // name, and the event is what a reader scanning the list is looking for.
     hooks: keyed(
       bundle.hooks,
       (hook) => hook.name,
       (hook) => {
-        const why = reason(bundle, { kind: "hook", name: hook.name }, explain);
-        return { event: hook.event, ...(why !== undefined && { reason: why }) };
+        const item: BundleItem = { kind: "hook", name: hook.name };
+        const why = reason(bundle, item, explain);
+        const shadowed = shadowing(merged, item, explain);
+        // The event beside the origin, not instead of it: a hook a project declares inline names
+        // `ambit.yml` there, and the event is what a reader scanning the list is looking for.
+        return {
+          catalog: hook.catalog,
+          event: hook.event,
+          ...(why !== undefined && { reason: why }),
+          ...(shadowed !== undefined && { shadows: shadowed.shadows }),
+        };
       },
     ),
     mcps: keyed(
@@ -150,9 +171,11 @@ function toText(bundle: Bundle, merged: MergedCatalog, explain: boolean): readon
       "hooks",
       bundle.hooks.map((hook) => {
         const item: BundleItem = { kind: "hook", name: hook.name };
-        // A hook the config declares itself is one declaration, so there is no second copy of it
-        // for the shadowing cell to report.
-        return row([hook.name, hook.event], reason(bundle, item, explain), undefined);
+        return row(
+          [hook.name, hook.catalog, hook.event],
+          reason(bundle, item, explain),
+          shadowing(merged, item, explain),
+        );
       }),
     ),
     ...section(

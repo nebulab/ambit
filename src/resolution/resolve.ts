@@ -11,9 +11,10 @@
  * load-bearing, so it lives here rather than in any adapter.
  *
  * Nothing else is implicit: no scope is reserved, and a project selects exactly the scopes it
- * lists, expanded downward. Alongside that, a project may name skills and servers outright, and
- * declare hooks of its own — those are selected whatever their scopes, since asking for something
- * by name is already the decision that scopes exist to make. Everything selected either way is
+ * lists, expanded downward — a catalog's skills, servers and hooks all come down that route.
+ * Alongside it, a project may name skills and servers outright, and declare servers and hooks of its
+ * own: those are selected whatever their scopes, since asking for something by
+ * name is already the decision that scopes exist to make. Everything selected either way is
  * then closed over `requires`, so a skill can carry its dependencies into a bundle that would never
  * have selected them.
  *
@@ -21,10 +22,15 @@
  * into a bundle a list of names is not an answer to "why is this here?" — and the lock records the
  * reason too, so it has to be part of resolution rather than a reporting afterthought.
  */
-import type { MergedCatalog, MergedMcp, MergedSkill, ScopeDefinition } from "../model/catalog.js";
+import type {
+  MergedCatalog,
+  MergedHook,
+  MergedMcp,
+  MergedSkill,
+  ScopeDefinition,
+} from "../model/catalog.js";
 import { MCPS_DIRNAME, SCOPES_FILENAME, SKILL_FILENAME } from "../model/catalog.js";
 import type { ProjectConfig } from "../model/config.js";
-import type { HookEntity } from "../model/hook-entity.js";
 import { AmbitError, ExitCode, at, resolutionError } from "../errors.js";
 
 /**
@@ -97,7 +103,7 @@ export interface Bundle {
   /** Selected MCP servers, sorted by name. */
   readonly mcps: readonly MergedMcp[];
   /** Selected hooks, sorted by name. */
-  readonly hooks: readonly HookEntity[];
+  readonly hooks: readonly MergedHook[];
   /** Every env var the selection declares, unioned and sorted. */
   readonly env: readonly string[];
   /** Why each of the above is here, one entry per selected item. */
@@ -110,11 +116,6 @@ function compare(a: string, b: string): number {
 
 function sortedUnique(values: readonly string[]): readonly string[] {
   return [...new Set(values)].sort(compare);
-}
-
-/** Name order, for a list that arrives in whatever order it was written in. */
-function byName<T extends { readonly name: string }>(items: readonly T[]): readonly T[] {
-  return [...items].sort((a, b) => compare(a.name, b.name));
 }
 
 /**
@@ -428,9 +429,10 @@ export function unknownExplicitSkill(name: string, config: ProjectConfig): Ambit
 /**
  * The skills, servers and hooks config names outright, whatever scopes they declare.
  *
- * A `skills` entry carrying its own `source`, and every inline `mcps` entry, were folded into
- * `merged` before resolution (see `mergeConfigEntities`), so both `skills` forms resolve by name
- * here and neither needs a case of its own.
+ * A `skills` entry carrying its own `source`, and every inline `mcps` and `hooks` entry, were folded
+ * into `merged` before resolution (see `mergeConfigEntities`), so both `skills` forms resolve by name
+ * here and neither needs a case of its own. What is collected here is only which *names* the config
+ * asked for by writing them down, which is what makes their reason `explicit`.
  *
  * @throws {AmbitError} exit 3 for a name nothing provides.
  */
@@ -642,8 +644,8 @@ export function explainSelection(bundle: Bundle, item: BundleItem): readonly Rea
  * instead of at whichever surface happens to ask first.
  *
  * @param merged the catalogs, with the project's own declarations already folded in — a `skills`
- *   entry carrying a `source`, and inline `mcps` — as `mergeConfigEntities` does. A config's `hooks`
- *   are read from `config` itself, being the only surface that declares one.
+ *   entry carrying a `source`, inline `mcps`, and inline `hooks` — as `mergeConfigEntities` does, so
+ *   every namespace resolves by name here and no surface needs a case of its own.
  * @throws {AmbitError} exit 3 for a held scope the merged registry does not know, an explicit skill
  *   nothing provides, a requirement no catalog provides, or a `requires` cycle.
  */
@@ -666,9 +668,13 @@ export function resolveBundle(config: ProjectConfig, merged: MergedCatalog): Bun
     merged,
   );
 
-  // Sorted like the two lists filtered out of the merged catalog, since a bundle is compared byte
-  // for byte and the order a config happens to list its hooks in is not a contract.
-  const hooks = byName(config.hooks);
+  // A third filter of the merged catalog, so a catalog hook is reached by scope exactly as a server
+  // is, and an inline one — folded in as explicit — is selected whatever scopes it names. Filtering
+  // keeps the merged catalog's name order, so the order a config happens to list its hooks in is not
+  // a contract. Hooks are leaves, so no closure: nothing a hook declares reaches anything else.
+  const hooks = merged.hooks.filter(
+    (hook) => explicit.hooks.has(hook.name) || selectedByScope(selecting, hook.scopes),
+  );
 
   return {
     scopes: held,

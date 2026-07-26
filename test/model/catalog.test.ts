@@ -481,6 +481,9 @@ describe("ambit dump-catalog", () => {
     expect(result.code).toBe(ExitCode.Success);
     expect(JSON.parse(result.stdout)).toEqual({
       catalogs: [CATALOG_NAME],
+      // Empty until the fixture ships hooks of its own; the namespace is emitted regardless, so a
+      // consumer never has to tell "no hooks" from "an ambit that does not know about hooks".
+      hooks: {},
       scopes: {
         core: { description: "The universal floor — context everyone needs" },
         "function.engineering": { description: "Building and shipping software" },
@@ -593,6 +596,231 @@ describe("ambit dump-catalog", () => {
     const result = await cli("dump-catalog");
     expect(result.code).toBe(ExitCode.Config);
     expect(result.stderr).toContain("no ambit config");
+  });
+});
+
+/**
+ * `hooks/<name>/HOOK.yml`: the third namespace a catalog distributes, and the one whose declaration is
+ * not the whole truth about it.
+ *
+ * A hook is a directory for the same reason a skill is — it may ship bytes — so it is found, named and
+ * shadowed exactly as a skill is, and those cases are the cheap half. The half worth the file is
+ * `shipsScript`, which no document declares: `command` either names a file the directory holds or it
+ * does not, and the catalog is asked which. That makes a misspelled script name a refusal naming what
+ * the directory actually holds, rather than a command line quietly written into a harness config and
+ * discovered when the hook silently fails to run.
+ *
+ * The fixture catalog ships no hooks yet, so every case writes its own — which also means these cases
+ * are proof that `hooks/` is additive: nothing else in the suite changes when one appears.
+ */
+describe("catalog hooks", () => {
+  const HOOK_NAME = "block-rm";
+  const HOOK_DIR = `hooks/${HOOK_NAME}`;
+  const HOOK_FILE = `${HOOK_DIR}/HOOK.yml`;
+
+  /** The second catalog, for the one case about two of them providing one hook. */
+  const SHADOWING_CATALOG = "personal";
+
+  /** A hook document, its `name` given separately so a caller writes only what the case is about. */
+  function document(name: string, lines: readonly string[]): string {
+    return [`name: ${name}`, ...lines, ""].join("\n");
+  }
+
+  /** Writes a hook into a catalog beside the fixture, so two catalogs can provide one name. */
+  async function writeHookIn(
+    catalog: string,
+    name: string,
+    lines: readonly string[],
+  ): Promise<void> {
+    const target = path.join(root, catalog, "hooks", name.replaceAll(".", "/"), "HOOK.yml");
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeFile(target, document(name, lines), "utf8");
+  }
+
+  /** The fixture catalog's hooks, parsed. */
+  async function hooks() {
+    return (await parseCatalogDirectory(CATALOG_NAME, "path:../catalog", catalogDir)).hooks;
+  }
+
+  it("reads every hook directory, deriving the name and the path from it", async () => {
+    await writeCatalogFile(
+      HOOK_FILE,
+      document(HOOK_NAME, [
+        "description: Refuses a destructive rm before it runs",
+        "scopes: [function.engineering]",
+        "event: PreToolUse",
+        "matcher: Bash",
+        "command: npx block-rm",
+        "timeout: 30",
+        "env: [BLOCK_RM_TOKEN]",
+      ]),
+    );
+
+    expect(await hooks()).toEqual([
+      {
+        name: HOOK_NAME,
+        path: HOOK_DIR,
+        description: "Refuses a destructive rm before it runs",
+        scopes: ["function.engineering"],
+        event: "PreToolUse",
+        matcher: "Bash",
+        command: "npx block-rm",
+        timeout: 30,
+        env: ["BLOCK_RM_TOKEN"],
+        shipsScript: false,
+      },
+    ]);
+  });
+
+  it("joins a nested hook's path segments with `.`, exactly as a skill's are", async () => {
+    await writeCatalogFile(
+      "hooks/team/notify/HOOK.yml",
+      document("team.notify", ["event: Stop", "command: npx notify"]),
+    );
+
+    expect(await hooks()).toMatchObject([{ name: "team.notify", path: "hooks/team/notify" }]);
+  });
+
+  it("derives `shipsScript` from the directory, for a bare filename and for a nested one", async () => {
+    await writeCatalogFile(HOOK_FILE, document(HOOK_NAME, ["event: Stop", "command: hook.sh"]));
+    await writeCatalogFile(`${HOOK_DIR}/hook.sh`, "#!/bin/sh\nexit 0\n");
+    expect(await hooks()).toMatchObject([{ command: "hook.sh", shipsScript: true }]);
+
+    await writeCatalogFile(
+      HOOK_FILE,
+      document(HOOK_NAME, ["event: Stop", "command: ./bin/hook --verbose"]),
+    );
+    await writeCatalogFile(`${HOOK_DIR}/bin/hook`, "#!/bin/sh\nexit 0\n");
+    // The program is the only token that can name a shipped file; its arguments are the harness's.
+    expect(await hooks()).toMatchObject([{ command: "./bin/hook --verbose", shipsScript: true }]);
+  });
+
+  it("reads a command line as a command line, however many arguments it carries", async () => {
+    for (const command of ["npx prettier --write", "npm run format", "/usr/bin/say done"]) {
+      await writeCatalogFile(
+        HOOK_FILE,
+        document(HOOK_NAME, ["event: Stop", `command: ${command}`]),
+      );
+
+      expect(await hooks(), command).toMatchObject([{ command, shipsScript: false }]);
+    }
+  });
+
+  it("refuses a command that names a file the hook's directory does not hold, listing what it does", async () => {
+    await writeCatalogFile(HOOK_FILE, document(HOOK_NAME, ["event: Stop", "command: hook.sh"]));
+    await writeCatalogFile(`${HOOK_DIR}/hoook.sh`, "#!/bin/sh\nexit 0\n");
+    await writeCatalogFile(`${HOOK_DIR}/lib/helper.sh`, "#!/bin/sh\nexit 0\n");
+
+    const error = await rejection();
+    expect(error.message).toBe(`hook "${HOOK_NAME}" ships no hook.sh (${HOOK_FILE} line 3)`);
+    expect(error.detail).toContain(`${HOOK_DIR} holds: hoook.sh, lib/helper.sh`);
+    expect(error.detail.join("\n")).toContain("or write a command line instead");
+  });
+
+  it("says the directory holds nothing else when a hook ships no files at all", async () => {
+    await writeCatalogFile(HOOK_FILE, document(HOOK_NAME, ["event: Stop", "command: hook.sh"]));
+
+    expect((await rejection()).detail).toContain(`${HOOK_DIR} holds nothing but HOOK.yml`);
+  });
+
+  it("refuses a hook whose `name` disagrees with its path", async () => {
+    await writeCatalogFile(HOOK_FILE, document("wrong-name", ["event: Stop", "command: npx x"]));
+
+    const error = await rejection();
+    expect(error.message).toBe(
+      `hook name "wrong-name" does not match its path (${HOOK_FILE} line 1)`,
+    );
+    expect(error.detail.join("\n")).toContain(`derives the name "${HOOK_NAME}"`);
+  });
+
+  it("refuses a `HOOK.yml` that is in no hook directory at all", async () => {
+    await writeCatalogFile("hooks/HOOK.yml", document("x", ["event: Stop", "command: npx x"]));
+
+    expect((await rejection()).message).toBe("hooks/HOOK.yml is not inside a hook directory");
+  });
+
+  it("carries every hook entity rejection through, since one parser serves both surfaces", async () => {
+    await writeCatalogFile(HOOK_FILE, document(HOOK_NAME, ["event: OnTuesday", "command: npx x"]));
+
+    expect((await rejection()).message).toContain('unknown hook event "OnTuesday"');
+  });
+
+  it("shows hooks in `dump-catalog`, JSON and text, with the derivation JSON cannot see otherwise", async () => {
+    await writeCatalogFile(
+      HOOK_FILE,
+      document(HOOK_NAME, [
+        "scopes: [function.engineering]",
+        "event: PreToolUse",
+        "matcher: Bash",
+        "command: hook.sh",
+      ]),
+    );
+    await writeCatalogFile(`${HOOK_DIR}/hook.sh`, "#!/bin/sh\nexit 0\n");
+
+    const emitted = JSON.parse((await cli("dump-catalog", "--json")).stdout) as {
+      hooks: Record<string, unknown>;
+    };
+    expect(emitted.hooks).toEqual({
+      [HOOK_NAME]: {
+        catalog: CATALOG_NAME,
+        command: "hook.sh",
+        env: [],
+        event: "PreToolUse",
+        matcher: "Bash",
+        path: HOOK_DIR,
+        scopes: ["function.engineering"],
+        shipsScript: true,
+      },
+    });
+
+    const text = (await cli("dump-catalog")).stdout;
+    expect(text).toContain(
+      `${HOOK_NAME}  ${CATALOG_NAME}  function.engineering  PreToolUse  hook.sh (shipped)`,
+    );
+  });
+
+  it("lets the earlier catalog win a duplicate hook name, and records the shadowing", async () => {
+    await writeShadowingCatalog(SHADOWING_CATALOG);
+    await writeHookIn("catalog", HOOK_NAME, ["event: Stop", "command: npx company-notify"]);
+    await writeHookIn(SHADOWING_CATALOG, HOOK_NAME, ["event: Stop", "command: npx jane-notify"]);
+    await writeCatalogOrder([SHADOWING_CATALOG]);
+
+    const view = await merged();
+
+    expect(view.hooks).toHaveLength(1);
+    expect(view.hooks[0]).toMatchObject({
+      name: HOOK_NAME,
+      catalog: CATALOG_NAME,
+      command: "npx company-notify",
+    });
+    expect(view.shadowing.hooks.get(HOOK_NAME)).toEqual({
+      name: HOOK_NAME,
+      catalog: CATALOG_NAME,
+      shadows: [SHADOWING_CATALOG],
+    });
+  });
+
+  it("refuses an inline hook a catalog already provides, since a name means one thing", async () => {
+    await writeCatalogFile(HOOK_FILE, document(HOOK_NAME, ["event: Stop", "command: npx x"]));
+    await writeConfig(
+      [
+        "version: 1",
+        "catalogs:",
+        `  - name: ${CATALOG_NAME}`,
+        "    source: path:../catalog",
+        "hooks:",
+        `  - name: ${HOOK_NAME}`,
+        "    event: Stop",
+        "    command: npx mine",
+        "",
+      ].join("\n"),
+    );
+
+    const result = await cli("resolve");
+    expect(result.code).toBe(ExitCode.Resolution);
+    expect(result.stderr).toContain(
+      `hook "${HOOK_NAME}" is also provided by catalog "${CATALOG_NAME}" (ambit.yml line 6)`,
+    );
   });
 });
 

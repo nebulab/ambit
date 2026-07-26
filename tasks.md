@@ -140,7 +140,7 @@ additions to `test/harness/definitions.test.ts`.
 
 ## 7. Catalog hooks
 
-- [ ] `hooks/<name>/HOOK.yml`.
+- [x] `hooks/<name>/HOOK.yml`.
 
 **Slice** — hooks become distributable. Until now they only existed inline in one project's config.
 

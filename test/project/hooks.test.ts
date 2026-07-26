@@ -16,9 +16,10 @@
  * it and declares one is warned and left installed — the case that must not be an error, since one
  * harness's limitation cannot be allowed to cost every other harness its hooks.
  *
- * No catalog anywhere in here: an inline hook is selected because it was declared, so a project needs
+ * No catalog in any of that: an inline hook is selected because it was declared, so a project needs
  * nothing else to walk the entire path — and a test that resolves nothing cannot be reading some
- * fixture's hooks by accident.
+ * fixture's hooks by accident. The last block is the one exception, and it has to be: a hook can only
+ * ship a script from a directory, which only a catalog gives it.
  */
 import { lstat, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -692,5 +693,77 @@ describe("claude and cursor together", () => {
       ".cursor/hooks.json",
     ]);
     expect((await cli("status", "--check")).code).toBe(ExitCode.Success);
+  });
+});
+
+/**
+ * A hook that ships its own script, which is the one thing on this path not built yet.
+ *
+ * The only case here that needs a catalog: shipping bytes needs a directory to ship them from, and
+ * `ambit.yml` has none. Materializing that directory under `.agents/hooks/<name>/` is a later increment,
+ * and until it lands the honest answer is a refusal — a command naming a file the project does not hold
+ * would install cleanly, report as installed, and never run.
+ *
+ * **This whole block goes away with the guard it pins**, and is replaced by the install it currently
+ * refuses.
+ */
+describe("a hook that ships a script, before materialization exists", () => {
+  const SCRIPT_HOOK = "block-rm";
+
+  /** A catalog beside the project holding exactly one hook, which ships its own script. */
+  async function writeCatalog(): Promise<void> {
+    const catalogDir = path.join(root, "catalog");
+    const files: Readonly<Record<string, string>> = {
+      "scopes.yml": "scopes:\n  core:\n    description: Everyone\n",
+      [`hooks/${SCRIPT_HOOK}/HOOK.yml`]: [
+        `name: ${SCRIPT_HOOK}`,
+        "scopes: [core]",
+        "event: PreToolUse",
+        "matcher: Bash",
+        "command: hook.sh",
+        "",
+      ].join("\n"),
+      [`hooks/${SCRIPT_HOOK}/hook.sh`]: "#!/bin/sh\nexit 0\n",
+    };
+    for (const [relative, body] of Object.entries(files)) {
+      const target = path.join(catalogDir, relative);
+      await mkdir(path.dirname(target), { recursive: true });
+      await writeFile(target, body, "utf8");
+    }
+
+    await writeFile(
+      path.join(projectDir, "ambit.yml"),
+      `version: 1
+harnesses: [claude]
+catalogs:
+  - name: company
+    source: path:../catalog
+scopes: [core]
+`,
+      "utf8",
+    );
+  }
+
+  beforeEach(async () => {
+    await writeCatalog();
+  });
+
+  it("refuses the install, saying it is not supported yet and touching nothing", async () => {
+    const result = await cli("install");
+
+    expect(result.code).toBe(ExitCode.Config);
+    expect(result.stderr).toContain(
+      `hook "${SCRIPT_HOOK}" ships a script, which ambit cannot install yet`,
+    );
+    expect(result.stderr).toContain("materializing it is not supported yet");
+    expect(await pathExists(SETTINGS)).toBe(false);
+    expect(await pathExists(STATE_DIRNAME)).toBe(false);
+  });
+
+  it("still resolves it, so the refusal is about installing rather than about reading", async () => {
+    const result = await cli("resolve");
+
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+    expect(result.stdout).toContain(`${SCRIPT_HOOK}  company  PreToolUse`);
   });
 });

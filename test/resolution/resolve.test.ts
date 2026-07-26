@@ -822,12 +822,16 @@ describe("inline hooks", () => {
     expect([...written.reasons.hooks.keys()]).toEqual(["alpha", "zeta"]);
   });
 
-  it("lists a hook with its event, and its reason under `--explain`", async () => {
+  it("lists a hook with its origin and its event, and its reason under `--explain`", async () => {
     await writeProfile([], HOOK);
 
-    expect((await cli("resolve")).stdout).toContain(`hooks (1)\n  ${HOOK_NAME}  PostToolUse`);
+    // The origin column is the config file itself: that is where a reader goes to change an inline
+    // hook, and it is what a catalog hook's column names instead.
+    expect((await cli("resolve")).stdout).toContain(
+      `hooks (1)\n  ${HOOK_NAME}  ambit.yml  PostToolUse`,
+    );
     expect((await cli("resolve", "--explain")).stdout).toContain(
-      `${HOOK_NAME}  PostToolUse  explicit`,
+      `${HOOK_NAME}  ambit.yml  PostToolUse  explicit`,
     );
   });
 
@@ -835,14 +839,79 @@ describe("inline hooks", () => {
     await writeProfile([], HOOK);
 
     const plain = JSON.parse((await cli("resolve", "--json")).stdout) as {
-      hooks: Record<string, { event: string; reason?: string }>;
+      hooks: Record<string, { catalog: string; event: string; reason?: string }>;
     };
-    expect(plain.hooks).toEqual({ [HOOK_NAME]: { event: "PostToolUse" } });
+    expect(plain.hooks).toEqual({
+      [HOOK_NAME]: { catalog: "ambit.yml", event: "PostToolUse" },
+    });
 
     const explained = JSON.parse((await cli("resolve", "--explain", "--json")).stdout) as {
       hooks: Record<string, { reason?: string }>;
     };
     expect(explained.hooks[HOOK_NAME]?.reason).toBe("explicit");
+  });
+});
+
+/**
+ * A hook a *catalog* provides is selected by scope, exactly as a server is: it is reached by holding a
+ * scope it declares, or a scope above one, and declaring none leaves it reachable only by other means.
+ *
+ * That is the whole difference distribution makes to resolution — the same three routes, now with a
+ * third namespace coming down them — so what is asserted here is that the hook namespace goes through
+ * the merged catalog rather than being read off the config, which is where it started.
+ */
+describe("catalog hooks", () => {
+  const HOOK_NAME = "block-rm";
+
+  /** Adds a hook to the fixture catalog, its name derived from its path per §2. */
+  async function writeHook(name: string, lines: readonly string[]): Promise<void> {
+    const target = path.join(catalogDir, "hooks", name.replaceAll(".", "/"), "HOOK.yml");
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeFile(target, [`name: ${name}`, ...lines, ""].join("\n"), "utf8");
+  }
+
+  beforeEach(async () => {
+    await writeHook(HOOK_NAME, [
+      "scopes: [function.engineering.frontend]",
+      "event: PreToolUse",
+      "matcher: Bash",
+      "command: npx block-rm",
+    ]);
+  });
+
+  it("selects a catalog hook by a held scope, naming the scope that reached it", async () => {
+    const frontend = await bundle(["function.engineering.frontend"]);
+
+    expect(frontend.hooks.map((hook) => hook.name)).toEqual([HOOK_NAME]);
+    expect(frontend.hooks[0]).toMatchObject({ catalog: CATALOG_NAME, shipsScript: false });
+    expect(frontend.reasons.hooks.get(HOOK_NAME)).toEqual({
+      kind: "scope",
+      scope: "function.engineering.frontend",
+      held: "function.engineering.frontend",
+    });
+  });
+
+  it("reaches a hook down the subtree, and never up out of it", async () => {
+    const parent = await bundle(["function.engineering"]);
+    expect(parent.reasons.hooks.get(HOOK_NAME)).toMatchObject({ held: "function.engineering" });
+
+    const elsewhere = await bundle(["core"]);
+    expect(elsewhere.hooks).toEqual([]);
+  });
+
+  it("leaves a hook declaring no scopes out of every scope-selected bundle", async () => {
+    await writeHook("unscoped", ["event: Stop", "command: npx notify"]);
+
+    const everything = await bundle(["core", "function.engineering", "project.acme"]);
+    expect(everything.hooks.map((hook) => hook.name)).toEqual([HOOK_NAME]);
+  });
+
+  it("names the catalog it came from in `resolve`", async () => {
+    await writeProfile(["function.engineering"]);
+
+    expect((await cli("resolve")).stdout).toContain(
+      `hooks (1)\n  ${HOOK_NAME}  ${CATALOG_NAME}  PreToolUse`,
+    );
   });
 });
 

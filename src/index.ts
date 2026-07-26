@@ -17,6 +17,8 @@ export { VERSION } from "./version.js";
 export {
   AMBIT_FRONTMATTER_KEY,
   ANNOTATION_KEYS,
+  HOOKS_DIRNAME,
+  HOOK_FILENAME,
   MCPS_DIRNAME,
   MCP_EXTENSIONS,
   SCOPES_FILENAME,
@@ -34,11 +36,13 @@ export {
 export type {
   AnnotationKey,
   Catalog,
+  CatalogHook,
   CatalogMcp,
   CatalogOverlay,
   CatalogParseOptions,
   CatalogSkill,
   MergedCatalog,
+  MergedHook,
   MergedMcp,
   MergedSkill,
   ScopeDefinition,
