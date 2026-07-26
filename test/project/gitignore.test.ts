@@ -14,8 +14,10 @@ import { AmbitError, ExitCode } from "../../src/errors.js";
 import {
   BLOCK_BEGIN,
   BLOCK_END,
-  gitignoreEntries,
+  GITIGNORE_FILENAME,
+  gitignoreBlocks,
   removeGitignoreText,
+  SHARED_GITIGNORE_FILE,
   updateGitignoreText,
 } from "../../src/project/gitignore.js";
 import type { OwnedArtifact } from "../../src/model/state.js";
@@ -41,18 +43,37 @@ function rejection(body: () => unknown): AmbitError {
   throw new Error("expected a rejection");
 }
 
-describe("the managed block's contents", () => {
-  it("lists ambit's state directory and every installed skill directory", () => {
+describe("the managed blocks' contents", () => {
+  it("lists every installed skill directory in the shared directory's own file", () => {
     const artifacts: readonly OwnedArtifact[] = [
       { path: `${SKILLS_DIR}/acme.core`, kind: "skill-dir", mode: "link" },
       { path: `${SKILLS_DIR}/acme.frontend`, kind: "skill-dir", mode: "copy" },
     ];
 
-    expect(gitignoreEntries(artifacts)).toEqual([
-      ".ambit/",
-      `${SKILLS_DIR}/acme.core`,
-      `${SKILLS_DIR}/acme.frontend`,
+    expect(gitignoreBlocks(artifacts)).toEqual([
+      { file: GITIGNORE_FILENAME, entries: [".ambit/"] },
+      { file: SHARED_GITIGNORE_FILE, entries: ["/skills/acme.core", "/skills/acme.frontend"] },
     ]);
+  });
+
+  it("anchors a shared entry with a leading slash, so it cannot match at another depth", () => {
+    const artifacts: readonly OwnedArtifact[] = [
+      { path: `${SKILLS_DIR}/skills`, kind: "skill-dir", mode: "copy" },
+    ];
+
+    expect(gitignoreBlocks(artifacts)[1]?.entries).toEqual(["/skills/skills"]);
+  });
+
+  it("keeps at the root what a nested file cannot reach: the state dir and the skills link", () => {
+    const artifacts: readonly OwnedArtifact[] = [
+      { path: `${SKILLS_DIR}/acme.core`, kind: "skill-dir", mode: "link" },
+      { path: ".claude/skills", kind: "skills-link", mode: "link" },
+    ];
+
+    expect(gitignoreBlocks(artifacts)[0]).toEqual({
+      file: GITIGNORE_FILENAME,
+      entries: [".ambit/", ".claude/skills"],
+    });
   });
 
   it("leaves a co-owned config file out: `.mcp.json` is a file a team commits", () => {
@@ -60,7 +81,21 @@ describe("the managed block's contents", () => {
       { path: ".mcp.json", kind: "harness-config", managedKeys: ["mcpServers.scoped"] },
     ];
 
-    expect(gitignoreEntries(artifacts)).toEqual([".ambit/"]);
+    expect(gitignoreBlocks(artifacts)).toEqual([
+      { file: GITIGNORE_FILENAME, entries: [".ambit/"] },
+      { file: SHARED_GITIGNORE_FILE, entries: [] },
+    ]);
+  });
+
+  it("never lists the nested file itself: it is generated, but tracked", () => {
+    const artifacts: readonly OwnedArtifact[] = [
+      { path: `${SKILLS_DIR}/acme.core`, kind: "skill-dir", mode: "link" },
+    ];
+
+    for (const block of gitignoreBlocks(artifacts)) {
+      expect(block.entries).not.toContain(SHARED_GITIGNORE_FILE);
+      expect(block.entries).not.toContain(`/${GITIGNORE_FILENAME}`);
+    }
   });
 
   it("gives a skill directory no trailing slash, so the pattern also covers a symlinked one", () => {
@@ -68,7 +103,25 @@ describe("the managed block's contents", () => {
       { path: `${SKILLS_DIR}/acme.core`, kind: "skill-dir", mode: "link" },
     ];
 
-    expect(gitignoreEntries(artifacts)).not.toContain(`${SKILLS_DIR}/acme.core/`);
+    expect(gitignoreBlocks(artifacts)[1]?.entries).not.toContain("/skills/acme.core/");
+  });
+});
+
+describe("an empty block", () => {
+  it("renders no block at all, rather than a pair of markers with nothing between them", () => {
+    expect(updateGitignoreText(undefined, [], SHARED_GITIGNORE_FILE)).toBeUndefined();
+  });
+
+  it("takes an existing block back out, so a project that deselected every skill loses the file", () => {
+    const existing = `${BLOCK_BEGIN}\n/skills/acme.core\n${BLOCK_END}\n`;
+
+    expect(updateGitignoreText(existing, [], SHARED_GITIGNORE_FILE)).toBe("");
+  });
+
+  it("leaves lines it does not own behind when it removes the block", () => {
+    const existing = `# theirs\n\n${BLOCK_BEGIN}\n/skills/acme.core\n${BLOCK_END}\n`;
+
+    expect(updateGitignoreText(existing, [], SHARED_GITIGNORE_FILE)).toBe("# theirs\n");
   });
 });
 

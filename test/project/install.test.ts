@@ -28,7 +28,12 @@ import { adapterFor, SHARED_SKILLS_DIR } from "../../src/harness/profile.js";
 import { loadCatalogs, mergeCatalogs, mergeConfigEntities } from "../../src/model/catalog.js";
 import { loadProjectConfig } from "../../src/model/config.js";
 import { ExitCode } from "../../src/errors.js";
-import { BLOCK_BEGIN, BLOCK_END, GITIGNORE_FILENAME } from "../../src/project/gitignore.js";
+import {
+  BLOCK_BEGIN,
+  BLOCK_END,
+  GITIGNORE_FILENAME,
+  SHARED_GITIGNORE_FILE,
+} from "../../src/project/gitignore.js";
 import { installProject } from "../../src/project/install.js";
 import { LOCK_FILENAME } from "../../src/project/lock.js";
 import { run } from "../../src/cli/program.js";
@@ -711,37 +716,51 @@ describe(".mcp.json", () => {
 });
 
 /**
- * The managed `.gitignore` block, end to end.
+ * The managed `.gitignore` blocks, end to end.
  *
  * The text transformation is pinned in `test/gitignore.test.ts`; what these cases add is the part
- * only a real install can show — which paths land in the block, that the block tracks the bundle
- * across runs, and that a `.gitignore` someone else wrote survives being written into.
+ * only a real install can show — which paths land in which of the two files, that the nested block
+ * tracks the bundle across runs, and that a `.gitignore` someone else wrote survives being written
+ * into.
  */
 describe(".gitignore", () => {
   const HANDWRITTEN = "node_modules/\n.env\n";
 
-  /** The lines between the markers, which is exactly what ambit claims to own. */
-  async function managedBlock(): Promise<readonly string[]> {
-    const lines = (await readFile(path.join(projectDir, GITIGNORE_FILENAME), "utf8")).split("\n");
+  /** The lines between the markers of one file, which is exactly what ambit claims to own. */
+  async function managedBlock(file: string = GITIGNORE_FILENAME): Promise<readonly string[]> {
+    const lines = (await readFile(path.join(projectDir, file), "utf8")).split("\n");
     const start = lines.findIndex((line) => line.startsWith(BLOCK_BEGIN));
     const end = lines.findIndex((line) => line.startsWith(BLOCK_END));
-    expect(start, "no managed block in .gitignore").toBeGreaterThanOrEqual(0);
+    expect(start, `no managed block in ${file}`).toBeGreaterThanOrEqual(0);
     expect(end).toBeGreaterThan(start);
     return lines.slice(start + 1, end);
   }
 
-  it("lists ambit's state directory and every skill directory it installed", async () => {
+  it("lists every skill directory it installed in the shared directory's own file", async () => {
     expect((await cli("install")).code).toBe(ExitCode.Success);
 
-    // Not `.mcp.json` and not `ambit.lock`: a team commits both.
-    expect(await managedBlock()).toEqual([
-      `${SKILLS_DIR}/${CORE_SKILL}`,
-      `${SKILLS_DIR}/${FRONTEND_SKILL}`,
-      `${SKILLS_DIR}/${ENGINEERING_SKILL}`,
-      `${STATE_DIRNAME}/`,
-      // The link is a symlink git would otherwise track, so it needs a pattern of its own.
-      CLAUDE_LINK,
+    expect(await managedBlock(SHARED_GITIGNORE_FILE)).toEqual([
+      `/skills/${CORE_SKILL}`,
+      `/skills/${FRONTEND_SKILL}`,
+      `/skills/${ENGINEERING_SKILL}`,
     ]);
+  });
+
+  it("keeps at the root only what a nested file cannot reach", async () => {
+    expect((await cli("install")).code).toBe(ExitCode.Success);
+
+    // Not `.mcp.json` and not `ambit.lock`: a team commits both. Not `.agents/.gitignore` either —
+    // it is generated, but tracked. The link is a symlink git would otherwise track, and it lives
+    // outside the shared directory, so it needs a root pattern of its own.
+    expect(await managedBlock()).toEqual([`${STATE_DIRNAME}/`, CLAUDE_LINK]);
+  });
+
+  it("leaves the nested file itself tracked, so a clone inherits the ignore list", async () => {
+    expect((await cli("install")).code).toBe(ExitCode.Success);
+
+    for (const file of [GITIGNORE_FILENAME, SHARED_GITIGNORE_FILE]) {
+      expect(await managedBlock(file)).not.toContain(SHARED_GITIGNORE_FILE);
+    }
   });
 
   it("ignores a linked skill too, which git would otherwise track as a symlink", async () => {
@@ -750,7 +769,7 @@ describe(".gitignore", () => {
     // The fixture is a `path:` catalog, so these are links — and the pattern carries no
     // trailing slash precisely so that it still matches them.
     expect(await linkAt(`${SKILLS_DIR}/${CORE_SKILL}`)).toBeDefined();
-    expect(await managedBlock()).toContain(`${SKILLS_DIR}/${CORE_SKILL}`);
+    expect(await managedBlock(SHARED_GITIGNORE_FILE)).toContain(`/skills/${CORE_SKILL}`);
   });
 
   it("appends to a .gitignore the project already had, leaving its lines untouched", async () => {
@@ -770,11 +789,9 @@ describe(".gitignore", () => {
     const result = await cli("install");
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
-    expect(await managedBlock()).toEqual([
-      `${SKILLS_DIR}/${CORE_SKILL}`,
-      `${STATE_DIRNAME}/`,
-      CLAUDE_LINK,
-    ]);
+    expect(await managedBlock(SHARED_GITIGNORE_FILE)).toEqual([`/skills/${CORE_SKILL}`]);
+    // The root block is the stable one: narrowing the bundle does not touch it.
+    expect(await managedBlock()).toEqual([`${STATE_DIRNAME}/`, CLAUDE_LINK]);
   });
 
   it("rewrites its own block in place rather than adding a second one", async () => {
@@ -784,18 +801,38 @@ describe(".gitignore", () => {
 
     await cli("install");
 
-    const contents = await readFile(path.join(projectDir, GITIGNORE_FILENAME), "utf8");
-    expect(contents.split(BLOCK_BEGIN)).toHaveLength(2);
-    expect(contents).not.toContain(ENGINEERING_SKILL);
+    for (const file of [GITIGNORE_FILENAME, SHARED_GITIGNORE_FILE]) {
+      const contents = await readFile(path.join(projectDir, file), "utf8");
+      expect(contents.split(BLOCK_BEGIN), file).toHaveLength(2);
+      expect(contents, file).not.toContain(ENGINEERING_SKILL);
+    }
   });
 
-  it("writes nothing when the block already says what this install would write", async () => {
+  it("writes nothing when the blocks already say what this install would write", async () => {
     await cli("install");
-    const first = await readFile(path.join(projectDir, GITIGNORE_FILENAME), "utf8");
+    const before = await Promise.all(
+      [GITIGNORE_FILENAME, SHARED_GITIGNORE_FILE].map((file) =>
+        readFile(path.join(projectDir, file), "utf8"),
+      ),
+    );
 
     await cli("install");
 
-    expect(await readFile(path.join(projectDir, GITIGNORE_FILENAME), "utf8")).toBe(first);
+    for (const [index, file] of [GITIGNORE_FILENAME, SHARED_GITIGNORE_FILE].entries()) {
+      expect(await readFile(path.join(projectDir, file), "utf8"), file).toBe(before[index]);
+    }
+  });
+
+  it("removes the nested file when a project ends up installing no skills at all", async () => {
+    await cli("install");
+    expect(await pathExists(SHARED_GITIGNORE_FILE)).toBe(true);
+
+    await writeProfile([]);
+    expect((await cli("install")).code).toBe(ExitCode.Success);
+
+    // An empty bundle would leave a pair of markers with nothing between them, which says less than
+    // no file at all.
+    expect(await pathExists(SHARED_GITIGNORE_FILE)).toBe(false);
   });
 
   it("exits 2 rather than guessing at an unterminated block, leaving the file alone", async () => {
@@ -917,16 +954,18 @@ describe("ambit install failures", () => {
  * which is exactly what the `plan`/`apply` split exists to prevent.
  */
 describe("ambit install --dry-run", () => {
-  /** The two sections a preview adds after the ones install itself prints. */
-  const EXTRA_SECTIONS = (lock: string, gitignore: string): string =>
+  /** The `files` section, which says of each derived file whether install would rewrite it. */
+  const FILES_SECTION = (lock: string, root: string, shared: string): string =>
     [
-      "pruned (0)",
-      "  (none)",
-      "",
-      "files (2)",
-      `  ${LOCK_FILENAME}  ${lock}`,
-      `  ${GITIGNORE_FILENAME}  ${gitignore}`,
+      "files (3)",
+      `  ${LOCK_FILENAME}          ${lock}`,
+      `  ${GITIGNORE_FILENAME}          ${root}`,
+      `  ${SHARED_GITIGNORE_FILE}  ${shared}`,
     ].join("\n");
+
+  /** The two sections a preview adds after the ones install itself prints. */
+  const EXTRA_SECTIONS = (lock: string, root: string, shared: string): string =>
+    ["pruned (0)", "  (none)", "", FILES_SECTION(lock, root, shared)].join("\n");
 
   it("writes nothing at all", async () => {
     const result = await cli("install", "--dry-run");
@@ -943,15 +982,26 @@ describe("ambit install --dry-run", () => {
     const installed = await cli("install");
     expect(installed.code, installed.stderr).toBe(ExitCode.Success);
 
-    expect(preview.stdout).toBe(`${installed.stdout}\n\n${EXTRA_SECTIONS("changed", "changed")}`);
+    expect(preview.stdout).toBe(
+      `${installed.stdout}\n\n${EXTRA_SECTIONS("changed", "changed", "changed")}`,
+    );
   });
 
-  it("reports both derived files as unchanged once the project is installed", async () => {
+  it("reports every derived file as unchanged once the project is installed", async () => {
     await cli("install");
 
     const result = await cli("install", "--dry-run");
 
-    expect(result.stdout).toContain(EXTRA_SECTIONS("unchanged", "unchanged"));
+    expect(result.stdout).toContain(EXTRA_SECTIONS("unchanged", "unchanged", "unchanged"));
+  });
+
+  it("reports the root block unchanged and the nested one stale when only the bundle narrowed", async () => {
+    await cli("install");
+    await writeProfile(["core"]);
+
+    const result = await cli("install", "--dry-run");
+
+    expect(result.stdout).toContain(FILES_SECTION("changed", "unchanged", "changed"));
   });
 
   it("reports what the install would remove, and removes none of it", async () => {
@@ -967,7 +1017,10 @@ describe("ambit install --dry-run", () => {
         { kind: "skill-dir", mode: "link", path: `${SKILLS_DIR}/${CORE_SKILL}` },
         { kind: "skills-link", mode: "link", path: CLAUDE_LINK },
       ],
-      gitignoreChanged: true,
+      gitignore: [
+        { changed: false, file: GITIGNORE_FILENAME },
+        { changed: true, file: SHARED_GITIGNORE_FILE },
+      ],
       harnesses: ["claude"],
       lockChanged: true,
       pruned: [
@@ -1378,9 +1431,10 @@ describe("idempotence", () => {
     CLAUDE_LINK,
     MCP_FILE,
     LOCK_FILENAME,
-    // The managed block is a file install writes, so it belongs in the claim: this list is
+    // Both managed blocks are files install writes, so they belong in the claim: this list is
     // meant to fail when a new one appears.
     GITIGNORE_FILENAME,
+    SHARED_GITIGNORE_FILE,
     "ambit.yml",
   ];
 

@@ -41,12 +41,8 @@ import { adapterFor } from "../harness/profile.js";
 import { loadCatalogs, mergeCatalogs, mergeConfigEntities } from "../model/catalog.js";
 import { loadProjectConfig } from "../model/config.js";
 import { configError } from "../errors.js";
-import {
-  gitignoreEntries,
-  readGitignoreText,
-  updateGitignoreText,
-  writeGitignoreBlock,
-} from "./gitignore.js";
+import type { GitignoreStatus } from "./gitignore.js";
+import { gitignoreStatus, writeGitignoreBlocks } from "./gitignore.js";
 import type { Lock } from "./lock.js";
 import {
   assertLockCurrent,
@@ -124,8 +120,8 @@ export interface InstallPreview {
   readonly lock: Lock;
   /** Whether `ambit.lock` would change. */
   readonly lockChanged: boolean;
-  /** Whether the managed `.gitignore` block would change. */
-  readonly gitignoreChanged: boolean;
+  /** Whether each managed `.gitignore` block would change, one row per file. */
+  readonly gitignore: readonly GitignoreStatus[];
 }
 
 /** What an install did, for the command to report. */
@@ -286,12 +282,9 @@ export async function previewInstall(
   await authorizePlan(planned.artifacts, planned.prior, { adopt: options.adopt === true });
 
   const pruned = planPrune(planned.artifacts, planned.prior);
-  // The block install would write is derived from the artifacts it wrote, which here are the ones it
-  // would write; `updateGitignoreText` returning undefined is precisely "this file would not change".
-  const gitignore = updateGitignoreText(
-    await readGitignoreText(projectDir),
-    gitignoreEntries(planned.artifacts),
-  );
+  // The blocks install would write are derived from the artifacts it wrote, which here are the ones
+  // it would write.
+  const gitignore = await gitignoreStatus(projectDir, planned.artifacts);
 
   return {
     bundle: planned.bundle,
@@ -300,7 +293,7 @@ export async function previewInstall(
     pruned,
     lock: planned.lock,
     lockChanged: (await readLockText(projectDir)) !== planned.lockText,
-    gitignoreChanged: gitignore !== undefined,
+    gitignore,
   };
 }
 
@@ -336,11 +329,11 @@ export async function installProject(
   await writeLockText(projectDir, lockText);
   await writeState(projectDir, { version: STATE_VERSION, harnesses, artifacts });
 
-  // Last, and deliberately after state: the block is derived from what was just written and is
+  // Last, and deliberately after state: the blocks are derived from what was just written and are
   // rendered afresh every run, so a failure here is the one that costs nothing — the next install
-  // rewrites it — whereas failing before `writeState` would leave correctly installed artifacts
+  // rewrites them — whereas failing before `writeState` would leave correctly installed artifacts
   // unowned and the next plain install refusing them.
-  await writeGitignoreBlock(projectDir, artifacts);
+  await writeGitignoreBlocks(projectDir, artifacts);
 
   return { bundle, harnesses, artifacts, pruned, lock };
 }

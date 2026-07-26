@@ -20,7 +20,12 @@ import { buildFixtureCatalog } from "../../scripts/fixture-catalog.js";
 import { cleanProject, pruneProject } from "../../src/project/clean.js";
 import { diagnoseProject, isHealthy } from "../../src/project/doctor.js";
 import { ExitCode } from "../../src/errors.js";
-import { BLOCK_BEGIN, BLOCK_END, GITIGNORE_FILENAME } from "../../src/project/gitignore.js";
+import {
+  BLOCK_BEGIN,
+  BLOCK_END,
+  GITIGNORE_FILENAME,
+  SHARED_GITIGNORE_FILE,
+} from "../../src/project/gitignore.js";
 import { LOCK_FILENAME } from "../../src/project/lock.js";
 import { run } from "../../src/cli/program.js";
 import { STATE_DIRNAME, STATE_FILENAME, parseState } from "../../src/model/state.js";
@@ -128,11 +133,13 @@ async function ownedPathsNow(): Promise<readonly string[]> {
   return parseState(text, STATE_FILENAME).artifacts.map((artifact) => artifact.path);
 }
 
-/** The lines between the markers, or undefined when the file holds no block. */
-async function managedBlock(): Promise<readonly string[] | undefined> {
+/** The lines between one file's markers, or undefined when it holds no block. */
+async function managedBlock(
+  file: string = GITIGNORE_FILENAME,
+): Promise<readonly string[] | undefined> {
   let text: string;
   try {
-    text = await readFile(path.join(projectDir, GITIGNORE_FILENAME), "utf8");
+    text = await readFile(path.join(projectDir, file), "utf8");
   } catch {
     return undefined;
   }
@@ -216,18 +223,15 @@ describe("ambit prune", () => {
     );
   });
 
-  it("stops claiming what it removed, and rewrites the managed block to match", async () => {
+  it("stops claiming what it removed, and rewrites the managed blocks to match", async () => {
     await cli("install");
     await writeProfile(["core"]);
 
     await cli("prune");
 
     expect(await ownedPathsNow()).toEqual([`${SKILLS_DIR}/${CORE_SKILL}`, CLAUDE_LINK]);
-    expect(await managedBlock()).toEqual([
-      `${SKILLS_DIR}/${CORE_SKILL}`,
-      `${STATE_DIRNAME}/`,
-      CLAUDE_LINK,
-    ]);
+    expect(await managedBlock(SHARED_GITIGNORE_FILE)).toEqual([`/skills/${CORE_SKILL}`]);
+    expect(await managedBlock()).toEqual([`${STATE_DIRNAME}/`, CLAUDE_LINK]);
   });
 
   it("removes the server keys the narrowed bundle dropped, and keeps the file", async () => {
@@ -419,11 +423,13 @@ describe("ambit clean", () => {
     expect(await readMcpConfig()).toEqual({ mcpServers: {} });
   });
 
-  it("removes ambit's own state directory and its managed block", async () => {
+  it("removes ambit's own state directory and both managed blocks", async () => {
     await cli("clean");
 
     expect(await pathExists(STATE_DIRNAME)).toBe(false);
     expect(await managedBlock()).toBeUndefined();
+    // Its block was the whole of the nested file, so the file goes with it.
+    expect(await pathExists(SHARED_GITIGNORE_FILE)).toBe(false);
   });
 
   it("leaves the project holding only the files ambit does not own", async () => {
@@ -505,9 +511,10 @@ describe("ambit clean", () => {
         `  ${CLAUDE_LINK.padEnd(width)}  skills-link     -`,
         `  ${MCP_FILE.padEnd(width)}  harness-config  mcpServers.${SCOPED_MCP}`,
         "",
-        "records (2)",
+        "records (3)",
         `  ${STATE_FILE}`,
         `  ${GITIGNORE_FILENAME} (managed block)`,
+        `  ${SHARED_GITIGNORE_FILE} (managed block)`,
       ].join("\n"),
     );
   });
@@ -516,7 +523,7 @@ describe("ambit clean", () => {
     const result = await cli("clean", "--json");
 
     expect(JSON.parse(result.stdout)).toEqual({
-      gitignoreRemoved: true,
+      gitignoreRemoved: [GITIGNORE_FILENAME, SHARED_GITIGNORE_FILE],
       removed: [
         { kind: "skill-dir", path: `${SKILLS_DIR}/${CORE_SKILL}` },
         { kind: "skill-dir", path: `${SKILLS_DIR}/${FRONTEND_SKILL}` },
@@ -536,7 +543,7 @@ describe("ambit clean", () => {
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     expect(JSON.parse(result.stdout)).toEqual({
-      gitignoreRemoved: true,
+      gitignoreRemoved: [GITIGNORE_FILENAME, SHARED_GITIGNORE_FILE],
       removed: [
         { kind: "skill-dir", path: `${SKILLS_DIR}/${CORE_SKILL}` },
         { kind: "skill-dir", path: `${SKILLS_DIR}/${FRONTEND_SKILL}` },

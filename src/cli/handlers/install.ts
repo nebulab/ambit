@@ -7,13 +7,12 @@
  *
  * `--dry-run` prints the same two sections the install would print, plus the two things only a
  * preview can usefully say: what install would *remove* and whether the two derived
- * files — `ambit.lock` and the managed `.gitignore` block — would change. The artifact rows are
+ * files — `ambit.lock` and each managed `.gitignore` block — would change. The artifact rows are
  * identical in shape to the real run's, so the two outputs diff against each other.
  */
 import type { CommandContext, CommandHandler } from "../commands.js";
 import { dryRunRequested, jsonRequested, offlineRequested, projectDirOf } from "../commands.js";
 import { ExitCode } from "../../errors.js";
-import { GITIGNORE_FILENAME } from "../../project/gitignore.js";
 import type { InstallOptions, InstallPreview, InstallResult } from "../../project/install.js";
 import { installProject, previewInstall } from "../../project/install.js";
 import { LOCK_FILENAME } from "../../project/lock.js";
@@ -68,7 +67,7 @@ function toText(result: InstallResult): readonly string[] {
 function previewJson(preview: InstallPreview): Readonly<Record<string, unknown>> {
   return {
     artifacts: preview.artifacts.map(artifactJson),
-    gitignoreChanged: preview.gitignoreChanged,
+    gitignore: preview.gitignore.map((block) => ({ changed: block.changed, file: block.file })),
     harnesses: preview.harnesses,
     lockChanged: preview.lockChanged,
     pruned: preview.pruned.map(artifactJson),
@@ -86,7 +85,7 @@ function previewText(preview: InstallPreview): readonly string[] {
     ...section("pruned", removalRows(preview.pruned)),
     ...section("files", [
       [LOCK_FILENAME, preview.lockChanged ? "changed" : "unchanged"],
-      [GITIGNORE_FILENAME, preview.gitignoreChanged ? "changed" : "unchanged"],
+      ...preview.gitignore.map((block) => [block.file, block.changed ? "changed" : "unchanged"]),
     ]),
   ];
 }
