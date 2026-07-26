@@ -919,7 +919,30 @@ diff. `npm run fixture` builds the fixture catalog the suite resolves against.
 
 `AMBIT_SKIP_NETWORK_TESTS=1` skips the dotagents compatibility test without probing the registry.
 
-`PLAN.md` is the full build specification; source comments reference it by section (`spec §4.6`).
+Source comments cite the build specification by section (`spec §4.6`). That document was `PLAN.md`,
+retired once this README covered the same ground; `git log -- PLAN.md` still has it.
+
+### Source layout
+
+`src/` is grouped into dependency layers, and every import points strictly down this list — a module
+may only reach for things below it:
+
+```
+errors.ts, version.ts   ambient: the error type, the exit codes, the version
+model/                  what is on disk and how it is read and written; decides nothing
+resolution/             derive and verify the selected closure
+harness/                the adapter seam and its implementations
+authoring/              the `ambit catalog …` command family
+project/                act on a consuming project
+cli/                    presentation and dispatch — Commander wiring and one handler per command
+```
+
+`authoring/` and `project/` never import each other: curating a catalog and installing into a project
+are the two halves of the tool, and they meet only at `model/` and `resolution/`. The layering is
+enforced by `no-restricted-imports` in `eslint.config.js`, not by convention.
+
+`cli.ts` and `index.ts` stay at the root because they are the two build entry points — the bin and
+the library. `test/` mirrors the same structure.
 
 ## License
 

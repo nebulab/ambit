@@ -38,7 +38,7 @@ function selectionJson(selection: ScopeSelection): Readonly<Record<string, unkno
   return { mcps: selection.mcps, skills: selection.skills };
 }
 
-/** Keys in one order, sorted, so the emitted JSON is byte-stable (`keyed` in `src/output.ts`). */
+/** Keys in one order, sorted, so the emitted JSON is byte-stable (`keyed` in `src/cli/output.ts`). */
 function scopesJson(nodes: readonly ScopeNode[]): Readonly<Record<string, unknown>> {
   return keyed(
     nodes,

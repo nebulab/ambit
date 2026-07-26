@@ -8,7 +8,7 @@
  * MCP servers land in `.mcp.json`, whose shape is the harness's and not ambit's: each entity's
  * `transport` is mapped onto it here, because knowing that `http` means `type`/`url`/`headers` is
  * exactly the harness-specific knowledge this seam exists to contain. That file is co-owned —
- * ambit merges its own servers in and leaves anything else alone (see `harness-config.ts`).
+ * ambit merges its own servers in and leaves anything else alone (see `harness/config.ts`).
  *
  * How a skill's source reaches its target follows the source (spec §5). A remote source is copied:
  * it is pinned to a commit, so a copy cannot go stale, and nothing in the project should be editable
@@ -151,7 +151,7 @@ function planSkill(skill: MergedSkill, project: ProjectPaths): PlannedSkillDir {
  *
  * A bundle with no MCPs plans no artifact at all rather than an empty section, so a project that
  * never uses servers does not acquire a `.mcp.json` it did not ask for. Servers a previous install
- * wrote are `prune.ts`'s to remove, which is why it works from state rather than from this plan:
+ * wrote are `project/prune.ts`'s to remove, which is why it works from state rather than from this plan:
  * there is no artifact here to carry the news that a file's last managed key is gone.
  */
 function planMcpConfig(
@@ -208,7 +208,7 @@ async function linkSkillDir(artifact: PlannedSkillDir): Promise<void> {
  * keep a stale copy of it — and so a skill whose mode changed between runs becomes the other thing
  * rather than a copy sitting on top of a link. An unowned one is copied *over* rather than replaced —
  * a case an install never reaches, since ownership enforcement has already refused it or adopted it
- * into `prior` (`ownership.ts`). Keeping it a merge is deliberate anyway: `apply` called directly,
+ * into `prior` (`project/ownership.ts`). Keeping it a merge is deliberate anyway: `apply` called directly,
  * with a state that claims nothing, must not be able to delete a stranger's directory. Link mode has
  * no merge to fall back on, so there the same case is an error rather than a silent overwrite.
  *

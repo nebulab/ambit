@@ -417,7 +417,7 @@ describe("ambit clean", () => {
     await cli("clean");
 
     // `ambit.lock` is a record of a resolution rather than an artifact (spec §3.5), and `.mcp.json` is
-    // co-owned, so neither is ambit's to delete — see `src/clean.ts`. The `.gitignore` ambit created
+    // co-owned, so neither is ambit's to delete — see `src/project/clean.ts`. The `.gitignore` ambit created
     // goes, because ambit's block was the whole of it.
     expect(Object.keys(await snapshot()).sort()).toEqual(["ambit.yml", "ambit.lock", MCP_FILE].sort());
   });

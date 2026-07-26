@@ -95,7 +95,7 @@ interface Subject {
   readonly next?: string;
 }
 
-/** Keys in one order, sorted, so the emitted JSON is byte-stable (`keyed` in `src/output.ts`). */
+/** Keys in one order, sorted, so the emitted JSON is byte-stable (`keyed` in `src/cli/output.ts`). */
 function toJson(subject: Subject, result: ScopeEdit): Readonly<Record<string, unknown>> {
   return {
     files: result.changes.map((change) => ({ file: change.file, text: change.text })),

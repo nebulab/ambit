@@ -172,7 +172,7 @@ function treeBlock(tree: CatalogTreeChange): readonly string[] {
 
 /**
  * An edit as a titled, counted diff section, in the shape every other command's output sections take
- * (`section` in `src/output.ts`) so a preview reads like the rest of the tool.
+ * (`section` in `src/cli/output.ts`) so a preview reads like the rest of the tool.
  *
  * @param title the section's heading, conventionally `diff`.
  * @param changes the edit's file changes, in the path order {@link applyCatalogEdit} returns them in.

@@ -741,7 +741,7 @@ describe("usage errors below the top level", () => {
 });
 
 /**
- * The flag rules Commander runs before it dispatches (`RULES` in `src/program.ts`): the three rules
+ * The flag rules Commander runs before it dispatches (`RULES` in `src/cli/program.ts`): the three rules
  * `.makeOptionMandatory()` and `.conflicts()` cannot state without giving up the message spec §6 asks
  * for, declared with the command as a `preAction` hook instead of enforced by the handler that follows.
  *

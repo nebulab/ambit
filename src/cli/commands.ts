@@ -264,7 +264,7 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
       new Option("--adopt", "take ownership of existing unowned artifacts"),
       // Mutually exclusive: one copies every skill and the other symlinks every skill, so there is
       // no run that means both. Commander enforces it, which it can only do now that a subcommand
-      // inherits `exitOverride` and `configureOutput` (`inheritSettings` in `src/program.ts`) and its
+      // inherits `exitOverride` and `configureOutput` (`inheritSettings` in `src/cli/program.ts`) and its
       // refusal therefore travels out of `run()` as exit 2 instead of leaving the process.
       new Option("--copy", "copy local-source skills instead of symlinking").conflicts("link"),
       new Option("--link", "symlink skills instead of copying"),

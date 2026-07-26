@@ -7,7 +7,7 @@
  * there a state file" is the question someone asks after a clean that found less than they expected.
  *
  * What is deliberately absent from both: `ambit.lock` and a `.mcp.json` left holding an empty
- * `mcpServers`. Neither is ambit's to delete (see `clean.ts`), so neither is ambit's to report having
+ * `mcpServers`. Neither is ambit's to delete (see `project/clean.ts`), so neither is ambit's to report having
  * deleted.
  */
 import type { CleanResult } from "../../project/clean.js";

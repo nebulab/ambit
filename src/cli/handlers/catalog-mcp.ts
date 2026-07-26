@@ -193,7 +193,7 @@ export const catalogMcpNewRule: CommandRule = (ctx) => {
   transportOf(ctx, positional(ctx, 0, NEW_USAGE));
 };
 
-/** Keys in one order, so the emitted JSON is byte-stable (`keyed` in `src/output.ts`). */
+/** Keys in one order, so the emitted JSON is byte-stable (`keyed` in `src/cli/output.ts`). */
 function toJson(subject: Subject, result: McpEdit): Readonly<Record<string, unknown>> {
   return {
     ...subject.json,

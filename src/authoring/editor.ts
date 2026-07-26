@@ -45,7 +45,7 @@ import { EditableYaml } from "../model/yaml.js";
 
 /**
  * Where a write lands before it is renamed onto its target, so an interrupted one leaves the file it
- * was replacing untouched. The suffix is fixed rather than random for the reason `git.ts` uses one:
+ * was replacing untouched. The suffix is fixed rather than random for the reason `model/git.ts` uses one:
  * a leftover is recognizable, and neither `skills/**` nor `mcps/*` parsing looks at a file whose name
  * ends in anything but `SKILL.md` or `.yml`, so a stray one cannot be mistaken for catalog content.
  */

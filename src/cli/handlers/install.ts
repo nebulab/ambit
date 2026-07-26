@@ -27,7 +27,7 @@ import { artifactJson, artifactRows, removalRows } from "./artifacts.js";
  * Undefined — neither flag — is the mode that follows each skill's source, which is not the same as
  * either flag's value: it is the absence of an override.
  *
- * The two together never reach here: they are declared as conflicting options (`src/commands.ts`), so
+ * The two together never reach here: they are declared as conflicting options (`src/cli/commands.ts`), so
  * Commander refuses the invocation with exit 2 before any handler runs.
  */
 function modeOverride(ctx: CommandContext): ArtifactMode | undefined {

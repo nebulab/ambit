@@ -74,7 +74,7 @@ function pathRows(result: SkillEdit): readonly (readonly string[])[] {
   ];
 }
 
-/** Keys in one order, so the emitted JSON is byte-stable (`keyed` in `src/output.ts`). */
+/** Keys in one order, so the emitted JSON is byte-stable (`keyed` in `src/cli/output.ts`). */
 function toJson(subject: Subject, result: SkillEdit): Readonly<Record<string, unknown>> {
   return {
     ...subject.json,

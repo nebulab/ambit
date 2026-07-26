@@ -1,20 +1,19 @@
+/**
+ * The public surface, grouped by layer and alphabetical by module within each.
+ *
+ * Every symbol is named explicitly rather than re-exported wholesale, so adding something to the
+ * API is a deliberate edit here rather than a side effect of exporting it from its own module.
+ *
+ * The order follows `src/`'s dependency layers, top to bottom: ambient, then what is on disk
+ * (`model/`), what is derived from it (`resolution/`), and the three consumers — `harness/`,
+ * `authoring/`, `project/` — with `cli/` last.
+ */
+
+// ── ambient ───────────────────────────────────────────────────────────────────────────────────
 export { AmbitError, ExitCode } from "./errors.js";
-export type {
-  AppliedArtifact,
-  HarnessAdapter,
-  PlannedArtifact,
-  PlannedHarnessConfig,
-  PlannedSkillDir,
-  ProjectPaths,
-} from "./harness/adapter.js";
-export {
-  CLAUDE_HARNESS,
-  CLAUDE_MCP_FILE,
-  CLAUDE_MCP_SECTION,
-  CLAUDE_SKILLS_DIR,
-  claudeAdapter,
-  envPlaceholders,
-} from "./harness/claude.js";
+export { VERSION } from "./version.js";
+
+// ── model — what is on disk and how it is read and written ────────────────────────────────────
 export {
   AMBIT_FRONTMATTER_KEY,
   ANNOTATION_KEYS,
@@ -46,6 +45,145 @@ export type {
   Shadowing,
   Shadowings,
 } from "./model/catalog.js";
+export {
+  CONFIG_FILENAMES,
+  CONFIG_VERSION,
+  DEFAULT_HARNESSES,
+  existingConfigFiles,
+  findConfigFile,
+  loadProjectConfig,
+  parseProjectConfig,
+} from "./model/config.js";
+export type {
+  CatalogRef,
+  CatalogSkillRequest,
+  ConfigOrigin,
+  ProjectConfig,
+  SkillRequest,
+  SourceSkillRequest,
+} from "./model/config.js";
+export {
+  CACHE_DIRNAME,
+  REPOS_DIRNAME,
+  SOURCES_DIRNAME,
+  cacheRoot,
+  fetchGitSource,
+  gitCacheKey,
+} from "./model/git.js";
+export type { FetchedGitSource, GitFetchRequest } from "./model/git.js";
+export { MCP_TRANSPORT_KINDS, parseMcpEntity } from "./model/mcp-entity.js";
+export type { HttpTransport, McpEntity, McpTransport, StdioTransport } from "./model/mcp-entity.js";
+export { renderScaffold } from "./model/scaffold.js";
+export type { ScaffoldBlock } from "./model/scaffold.js";
+export { parseSource, resolveSource } from "./model/sources.js";
+export type {
+  GitSource,
+  PathSource,
+  ResolvedSource,
+  Source,
+  SourceContext,
+  SourceRequest,
+} from "./model/sources.js";
+export {
+  ARTIFACT_KINDS,
+  ARTIFACT_MODES,
+  EMPTY_STATE,
+  STATE_DIRNAME,
+  STATE_FILENAME,
+  STATE_VERSION,
+  ownedPaths,
+  parseState,
+  readState,
+  serializeState,
+  stateFilePath,
+  writeState,
+} from "./model/state.js";
+export type { ArtifactKind, ArtifactMode, OwnedArtifact, State } from "./model/state.js";
+export {
+  EditableYaml,
+  YamlMapping,
+  emitYaml,
+  parseFrontmatterMapping,
+  parseYamlMapping,
+  readFrontmatterMapping,
+  readYamlMapping,
+  splitFrontmatter,
+} from "./model/yaml.js";
+export type { FrontmatterSplit, PositionedString } from "./model/yaml.js";
+
+// ── resolution — derive and verify the selected closure ───────────────────────────────────────
+export {
+  MCP_REQUIREMENT_PREFIX,
+  SCOPE_SEPARATOR,
+  assertScopesRegistered,
+  closeOverRequires,
+  cycleError,
+  explainSelection,
+  formatReason,
+  inSubtree,
+  isSelected,
+  missingRequirement,
+  reasonOf,
+  resolveBundle,
+  scopeSuggestion,
+  skillFile,
+  unknownExplicitSkill,
+  unknownScopeError,
+} from "./resolution/resolve.js";
+export type {
+  Bundle,
+  BundleItem,
+  ItemKind,
+  ReasonedItem,
+  Selection,
+  SelectionReason,
+  SelectionReasons,
+} from "./resolution/resolve.js";
+export {
+  VALIDATION_PROBLEM_KINDS,
+  isValid,
+  validateCatalog,
+  validateCatalogDirectory,
+  validateProject,
+} from "./resolution/validate.js";
+export type {
+  ValidateOptions,
+  ValidationCounts,
+  ValidationProblem,
+  ValidationProblemKind,
+  ValidationReport,
+} from "./resolution/validate.js";
+
+// ── harness — the adapter seam and its implementations ────────────────────────────────────────
+export type {
+  AppliedArtifact,
+  HarnessAdapter,
+  PlannedArtifact,
+  PlannedHarnessConfig,
+  PlannedSkillDir,
+  ProjectPaths,
+} from "./harness/adapter.js";
+export {
+  CLAUDE_HARNESS,
+  CLAUDE_MCP_FILE,
+  CLAUDE_MCP_SECTION,
+  CLAUDE_SKILLS_DIR,
+  claudeAdapter,
+  envPlaceholders,
+} from "./harness/claude.js";
+export {
+  EMPTY_DOCUMENT,
+  managedKey,
+  mergeConfigSection,
+  readJsonDocument,
+  removeConfigKeys,
+  sectionKeys,
+  sectionOf,
+  serializeJsonDocument,
+} from "./harness/config.js";
+export type { ConfigEntry, JsonObject } from "./harness/config.js";
+
+// ── authoring — the `ambit catalog …` command family ──────────────────────────────────────────
 export { annotate, annotationDirname, isMcpTarget } from "./authoring/annotate.js";
 export type {
   AnnotateOptions,
@@ -67,6 +205,22 @@ export type {
   AuditFindingKind,
   AuditReport,
 } from "./authoring/audit.js";
+export {
+  CatalogDocument,
+  applyCatalogEdit,
+  catalogFilePath,
+  mcpDocumentPath,
+  skillDirectoryPath,
+  skillDocumentPath,
+} from "./authoring/editor.js";
+export type {
+  CatalogChange,
+  CatalogFileChange,
+  CatalogTreeChange,
+  EditOptions,
+  EditResult,
+  EditedFile,
+} from "./authoring/editor.js";
 export {
   CATALOG_INIT_SCOPE,
   CATALOG_KEEP_FILENAME,
@@ -105,45 +259,10 @@ export type {
 } from "./authoring/skill.js";
 export { buildScopeTree, flattenScopeTree, scopeTree, selectionSize } from "./authoring/tree.js";
 export type { ScopeNode, ScopeSelection } from "./authoring/tree.js";
+
+// ── project — act on a consuming project ──────────────────────────────────────────────────────
 export { cleanProject, pruneProject } from "./project/clean.js";
 export type { CleanOptions, CleanResult, PruneOptions, PruneResult } from "./project/clean.js";
-export {
-  COMMAND_SPECS,
-  catalogDirOf,
-  dryRunRequested,
-  jsonRequested,
-  offlineRequested,
-  optionList,
-  positional,
-  projectDirOf,
-  sourceContextOf,
-} from "./cli/commands.js";
-export type {
-  CommandContext,
-  CommandHandler,
-  CommandHandlers,
-  CommandRule,
-  CommandRules,
-  CommandSpec,
-  CommandSubject,
-} from "./cli/commands.js";
-export {
-  CONFIG_FILENAMES,
-  CONFIG_VERSION,
-  DEFAULT_HARNESSES,
-  existingConfigFiles,
-  findConfigFile,
-  loadProjectConfig,
-  parseProjectConfig,
-} from "./model/config.js";
-export type {
-  CatalogRef,
-  CatalogSkillRequest,
-  ConfigOrigin,
-  ProjectConfig,
-  SkillRequest,
-  SourceSkillRequest,
-} from "./model/config.js";
 export {
   DOCTOR_CHECKS,
   DOCTOR_SEVERITIES,
@@ -161,33 +280,6 @@ export type {
   DoctorReport,
   DoctorSeverity,
 } from "./project/doctor.js";
-export { changeKindOf, diffLines, diffSection, treeChangeSummary } from "./cli/diff.js";
-export type { ChangeKind } from "./cli/diff.js";
-export {
-  CatalogDocument,
-  applyCatalogEdit,
-  catalogFilePath,
-  mcpDocumentPath,
-  skillDirectoryPath,
-  skillDocumentPath,
-} from "./authoring/editor.js";
-export type {
-  CatalogChange,
-  CatalogFileChange,
-  CatalogTreeChange,
-  EditOptions,
-  EditResult,
-  EditedFile,
-} from "./authoring/editor.js";
-export {
-  CACHE_DIRNAME,
-  REPOS_DIRNAME,
-  SOURCES_DIRNAME,
-  cacheRoot,
-  fetchGitSource,
-  gitCacheKey,
-} from "./model/git.js";
-export type { FetchedGitSource, GitFetchRequest } from "./model/git.js";
 export {
   BLOCK_BEGIN,
   BLOCK_END,
@@ -199,17 +291,6 @@ export {
   updateGitignoreText,
   writeGitignoreBlock,
 } from "./project/gitignore.js";
-export {
-  EMPTY_DOCUMENT,
-  managedKey,
-  mergeConfigSection,
-  readJsonDocument,
-  removeConfigKeys,
-  sectionKeys,
-  sectionOf,
-  serializeJsonDocument,
-} from "./harness/config.js";
-export type { ConfigEntry, JsonObject } from "./harness/config.js";
 export { INIT_FILENAME, INIT_SCOPE, initProject, scaffoldConfig } from "./project/init.js";
 export type { InitOptions, InitResult } from "./project/init.js";
 export { ADAPTERS, adaptersFor, installProject, planInstall, previewInstall } from "./project/install.js";
@@ -231,92 +312,35 @@ export {
   writeLockText,
 } from "./project/lock.js";
 export type { Lock, LockCatalog, LockMcp, LockSkill } from "./project/lock.js";
-export { MCP_TRANSPORT_KINDS, parseMcpEntity } from "./model/mcp-entity.js";
-export type { HttpTransport, McpEntity, McpTransport, StdioTransport } from "./model/mcp-entity.js";
 export { authorizePlan, ownedKeys } from "./project/ownership.js";
 export type { OwnershipOptions } from "./project/ownership.js";
-export { buildProgram, run } from "./cli/program.js";
-export type { Io } from "./cli/program.js";
 export { planPrune, pruneArtifacts, remainingArtifacts } from "./project/prune.js";
 export type { PrunedArtifact } from "./project/prune.js";
-export {
-  MCP_REQUIREMENT_PREFIX,
-  SCOPE_SEPARATOR,
-  assertScopesRegistered,
-  closeOverRequires,
-  cycleError,
-  explainSelection,
-  formatReason,
-  inSubtree,
-  isSelected,
-  missingRequirement,
-  reasonOf,
-  resolveBundle,
-  scopeSuggestion,
-  skillFile,
-  unknownExplicitSkill,
-  unknownScopeError,
-} from "./resolution/resolve.js";
-export type {
-  Bundle,
-  BundleItem,
-  ItemKind,
-  ReasonedItem,
-  Selection,
-  SelectionReason,
-  SelectionReasons,
-} from "./resolution/resolve.js";
-export { renderScaffold } from "./model/scaffold.js";
-export type { ScaffoldBlock } from "./model/scaffold.js";
-export { parseSource, resolveSource } from "./model/sources.js";
-export type {
-  GitSource,
-  PathSource,
-  ResolvedSource,
-  Source,
-  SourceContext,
-  SourceRequest,
-} from "./model/sources.js";
-export {
-  ARTIFACT_KINDS,
-  ARTIFACT_MODES,
-  EMPTY_STATE,
-  STATE_DIRNAME,
-  STATE_FILENAME,
-  STATE_VERSION,
-  ownedPaths,
-  parseState,
-  readState,
-  serializeState,
-  stateFilePath,
-  writeState,
-} from "./model/state.js";
-export type { ArtifactKind, ArtifactMode, OwnedArtifact, State } from "./model/state.js";
 export { ARTIFACT_STATES, isClean, projectStatus, statusDrift, statusOfPlan } from "./project/status.js";
 export type { ArtifactState, ProjectStatus, StatusArtifact, StatusOptions } from "./project/status.js";
+
+// ── cli — presentation and dispatch ───────────────────────────────────────────────────────────
 export {
-  VALIDATION_PROBLEM_KINDS,
-  isValid,
-  validateCatalog,
-  validateCatalogDirectory,
-  validateProject,
-} from "./resolution/validate.js";
+  COMMAND_SPECS,
+  catalogDirOf,
+  dryRunRequested,
+  jsonRequested,
+  offlineRequested,
+  optionList,
+  positional,
+  projectDirOf,
+  sourceContextOf,
+} from "./cli/commands.js";
 export type {
-  ValidateOptions,
-  ValidationCounts,
-  ValidationProblem,
-  ValidationProblemKind,
-  ValidationReport,
-} from "./resolution/validate.js";
-export { VERSION } from "./version.js";
-export {
-  EditableYaml,
-  YamlMapping,
-  emitYaml,
-  parseFrontmatterMapping,
-  parseYamlMapping,
-  readFrontmatterMapping,
-  readYamlMapping,
-  splitFrontmatter,
-} from "./model/yaml.js";
-export type { FrontmatterSplit, PositionedString } from "./model/yaml.js";
+  CommandContext,
+  CommandHandler,
+  CommandHandlers,
+  CommandRule,
+  CommandRules,
+  CommandSpec,
+  CommandSubject,
+} from "./cli/commands.js";
+export { changeKindOf, diffLines, diffSection, treeChangeSummary } from "./cli/diff.js";
+export type { ChangeKind } from "./cli/diff.js";
+export { buildProgram, run } from "./cli/program.js";
+export type { Io } from "./cli/program.js";

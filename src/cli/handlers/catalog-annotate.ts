@@ -6,7 +6,7 @@
  * that is the question someone editing an annotation is actually asking. The subject is named once on its
  * own line, the way `ambit why` names the item it is explaining.
  *
- * Two refusals live here rather than in `catalog-annotate.ts`, because both are about argv rather than
+ * Two refusals live here rather than in `authoring/annotate.ts`, because both are about argv rather than
  * about the catalog: an invocation that asks for no change at all, and one that adds and removes the same
  * entry. Neither is a shape Commander's own primitives can state — both are about which *values* two
  * repeatable flags collected, not about which flags appeared — so {@link catalogAnnotateRule} states
@@ -158,7 +158,7 @@ function fileRows(result: AnnotateResult): readonly (readonly string[])[] {
   return result.changes.map((change) => [change.file, changeKindOf(change)]);
 }
 
-/** Keys in one order, so the emitted JSON is byte-stable (`keyed` in `src/output.ts`). */
+/** Keys in one order, so the emitted JSON is byte-stable (`keyed` in `src/cli/output.ts`). */
 function toJson(result: AnnotateResult): Readonly<Record<string, unknown>> {
   return {
     annotated: {

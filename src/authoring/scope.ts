@@ -19,7 +19,7 @@
  *   Renaming `function.engineering` and leaving `function.engineering.frontend` under a name no longer
  *   registered would quietly change what every project holding the parent gets. Every skill and every
  *   server declaring any renamed scope is rewritten in the *same* edit, which is what lets the result
- *   validate as a whole (see `CatalogOverlay` in `catalog.ts`).
+ *   validate as a whole (see `CatalogOverlay` in `model/catalog.ts`).
  *
  * All three write through the B02 editor, so they inherit atomic writes, the root check, `--dry-run`, and
  * validation of the result. None of them reads an `ambit.yml`: a catalog is not a project, so a rename
