@@ -1075,7 +1075,7 @@ npm run build
 ```
 
 `npm install` builds too, because `prepare` runs `build`. That is not for local convenience: it is what
-makes `npx github:aldesantis/ambit …` work at all — a git install runs `prepare` and never
+makes `npx github:nebulab/ambit …` work at all — a git install runs `prepare` and never
 `prepublishOnly`, so without it the `ambit` bin points at a `dist/` nobody built and the command is
 simply not found.
 

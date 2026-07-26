@@ -5,10 +5,10 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/aldesantis/ambit.git"
+    "url": "git+https://github.com/nebulab/ambit.git"
   },
-  "homepage": "https://github.com/aldesantis/ambit#readme",
-  "bugs": "https://github.com/aldesantis/ambit/issues",
+  "homepage": "https://github.com/nebulab/ambit#readme",
+  "bugs": "https://github.com/nebulab/ambit/issues",
   "type": "module",
   "engines": {
     "node": ">=20"
