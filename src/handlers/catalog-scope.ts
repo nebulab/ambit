@@ -9,15 +9,15 @@
  * nothing is not a preview but a no-op — re-running `add` reports the scope as registered and no files
  * changed, which is the honest answer and would read as a lie under "would register".
  *
- * `add`'s `--description` is required *here* rather than by Commander's `.makeOptionMandatory()`.
- * Commander's refusal now travels out as an exit code like any other (A30), so the reason is no longer
- * the defect but the message: spec §6 asks an error to name the offending file and give one concrete
- * next step, and `error: required option '--description <text>' not specified` does neither.
+ * `add`'s `--description` is mandatory, and refused by {@link catalogScopeAddRule} — declared with the
+ * command and run by Commander before dispatch — rather than by `.makeOptionMandatory()`, whose
+ * `error: required option '--description <text>' not specified` names no file and gives no next step,
+ * both of which spec §6 requires.
  */
 import { SCOPES_FILENAME } from "../catalog.js";
 import type { ScopeEdit } from "../catalog-scope.js";
 import { addScope, removeScope, renameScope } from "../catalog-scope.js";
-import type { CommandContext, CommandHandler } from "../commands.js";
+import type { CommandContext, CommandHandler, CommandRule } from "../commands.js";
 import { catalogDirOf, dryRunRequested, jsonRequested, positional } from "../commands.js";
 import { diffSection } from "../diff.js";
 import { ExitCode, at, configError } from "../errors.js";
@@ -44,6 +44,9 @@ const RENAME_NEXT_STEP =
 /** What separates the two halves of a rename row. The same arrow a requirement cycle prints. */
 const ARROW = "→";
 
+/** How `add` is invoked, for the messages that have to say so. */
+const ADD_USAGE = "ambit catalog scope add <name> --description <text>";
+
 /**
  * `--description`, which `add` requires.
  *
@@ -62,6 +65,20 @@ function requiredDescription(ctx: CommandContext, scope: string): string {
     'add `--description "<what the scope means>"`',
   ]);
 }
+
+/**
+ * `add`'s flag rule: a scope has to be given a description (spec §6).
+ *
+ * The same pure read of argv the handler makes, run once more and for its refusal alone. Reading it
+ * twice is what keeps the rule declarable with the command *and* the value read where it is used —
+ * cheaper, and far plainer, than carrying a hook's result into an action.
+ *
+ * @throws {AmbitError} exit 2 when `--description` is missing or blank, naming the registry and the
+ *   flag to add.
+ */
+export const catalogScopeAddRule: CommandRule = (ctx) => {
+  requiredDescription(ctx, positional(ctx, 0, ADD_USAGE));
+};
 
 function fileRows(result: ScopeEdit): readonly (readonly string[])[] {
   return result.changes.map((change) => [change.file]);
@@ -104,7 +121,7 @@ function report(ctx: CommandContext, subject: Subject, result: ScopeEdit): ExitC
 }
 
 export const catalogScopeAddHandler: CommandHandler = async (ctx) => {
-  const scope = positional(ctx, 0, "ambit catalog scope add <name> --description <text>");
+  const scope = positional(ctx, 0, ADD_USAGE);
   const description = requiredDescription(ctx, scope);
 
   const result = await addScope(catalogDirOf(ctx), scope, description, {

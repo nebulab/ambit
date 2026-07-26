@@ -1,14 +1,19 @@
 import { Command, CommanderError } from "commander";
 
-import type { CommandContext, CommandHandlers } from "./commands.js";
+import type { CommandContext, CommandHandlers, CommandRules } from "./commands.js";
 import { COMMAND_SPECS, buildCommand } from "./commands.js";
 import { AmbitError, ExitCode } from "./errors.js";
-import { catalogAnnotateHandler } from "./handlers/catalog-annotate.js";
+import { catalogAnnotateHandler, catalogAnnotateRule } from "./handlers/catalog-annotate.js";
 import { catalogAuditHandler } from "./handlers/catalog-audit.js";
 import { catalogInitHandler } from "./handlers/catalog-init.js";
-import { catalogMcpNewHandler, catalogMcpRemoveHandler } from "./handlers/catalog-mcp.js";
+import {
+  catalogMcpNewHandler,
+  catalogMcpNewRule,
+  catalogMcpRemoveHandler,
+} from "./handlers/catalog-mcp.js";
 import {
   catalogScopeAddHandler,
+  catalogScopeAddRule,
   catalogScopeRemoveHandler,
   catalogScopeRenameHandler,
 } from "./handlers/catalog-scope.js";
@@ -67,6 +72,23 @@ export const HANDLERS: CommandHandlers = {
 };
 
 /**
+ * Flag rules, keyed by the same words {@link HANDLERS} is: what each command refuses about the flags it
+ * was given, before it is dispatched (`buildCommand` hangs each one off its command as a `preAction`
+ * hook).
+ *
+ * Only three commands need one, and each is here rather than on a Commander primitive for the same
+ * reason: `.makeOptionMandatory()` and `.conflicts()` produce a message that names no file and gives no
+ * next step, which spec §6 requires of every error a user can reach. `install`'s `--copy`/`--link` is
+ * the counter-example that stayed on `.conflicts()` — Commander's wording for two flags that cannot
+ * appear together is already the whole of what there is to say.
+ */
+export const RULES: CommandRules = {
+  "catalog annotate": catalogAnnotateRule,
+  "catalog mcp new": catalogMcpNewRule,
+  "catalog scope add": catalogScopeAddRule,
+};
+
+/**
  * Copies the program's settings down the whole command tree.
  *
  * `Command.addCommand` — unlike `.command()`, which ambit cannot use because every command is built
@@ -89,7 +111,12 @@ function inheritSettings(parent: Command): void {
   }
 }
 
-export function buildProgram(io: Io, handlers: CommandHandlers, onExit: (code: ExitCode) => void): Command {
+export function buildProgram(
+  io: Io,
+  handlers: CommandHandlers,
+  onExit: (code: ExitCode) => void,
+  rules: CommandRules = RULES,
+): Command {
   const program = new Command()
     .name("ambit")
     .description("a deterministic dependency manager for AI-agent capabilities")
@@ -108,7 +135,7 @@ export function buildProgram(io: Io, handlers: CommandHandlers, onExit: (code: E
     .exitOverride();
 
   for (const spec of COMMAND_SPECS) {
-    program.addCommand(buildCommand(spec, handlers, io, onExit));
+    program.addCommand(buildCommand(spec, handlers, rules, io, onExit));
   }
   inheritSettings(program);
 
@@ -119,11 +146,21 @@ export function buildProgram(io: Io, handlers: CommandHandlers, onExit: (code: E
  * Runs the CLI and returns the process exit code. Never throws: every failure path is
  * translated into a code from spec §6, with the message already printed.
  */
-export async function run(argv: readonly string[], io: Io, handlers: CommandHandlers = HANDLERS): Promise<ExitCode> {
+export async function run(
+  argv: readonly string[],
+  io: Io,
+  handlers: CommandHandlers = HANDLERS,
+  rules: CommandRules = RULES,
+): Promise<ExitCode> {
   let code: ExitCode = ExitCode.Success;
-  const program = buildProgram(io, handlers, (handlerCode) => {
-    code = handlerCode;
-  });
+  const program = buildProgram(
+    io,
+    handlers,
+    (handlerCode) => {
+      code = handlerCode;
+    },
+    rules,
+  );
 
   // Bare `ambit` is a request for usage, not a mistake: print it and succeed.
   if (argv.length === 0) {

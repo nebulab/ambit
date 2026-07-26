@@ -8,8 +8,9 @@
  *
  * Two refusals live here rather than in `catalog-annotate.ts`, because both are about argv rather than
  * about the catalog: an invocation that asks for no change at all, and one that adds and removes the same
- * entry. Neither is expressible to Commander in the first place — both are about which *values* two
- * repeatable flags collected, not about which flags appeared — so the handler is where they belong.
+ * entry. Neither is a shape Commander's own primitives can state — both are about which *values* two
+ * repeatable flags collected, not about which flags appeared — so {@link catalogAnnotateRule} states
+ * them, declared with the command and run by Commander before dispatch.
  *
  * Both of them name a *directory* rather than a file, deliberately: neither has read the catalog yet, so
  * neither can know which §3.3 extension an entity carries, and a message that guessed `.yml` would send
@@ -17,7 +18,7 @@
  */
 import type { AnnotateResult, AnnotatedItem, AnnotationEdit, AnnotationKey } from "../catalog-annotate.js";
 import { annotate, annotationDirname } from "../catalog-annotate.js";
-import type { CommandContext, CommandHandler } from "../commands.js";
+import type { CommandContext, CommandHandler, CommandRule } from "../commands.js";
 import {
   catalogDirOf,
   dryRunRequested,
@@ -36,6 +37,9 @@ const WOULD_DECLARE = "would declare";
 
 /** How an empty annotation reads in the text report, as an artifact's absent mode does. */
 const NONE = "-";
+
+/** How the command is invoked, for the messages that have to say so. */
+const USAGE = "ambit catalog annotate <name> --add-scope <scope>";
 
 /** One annotation, and the two flags that change it. */
 interface AnnotationFlags {
@@ -127,6 +131,19 @@ function editsOf(ctx: CommandContext, name: string): Readonly<Partial<Record<Ann
   return edits;
 }
 
+/**
+ * The command's flag rule: at least one flag, and no entry both added and removed in one run.
+ *
+ * The same pure read of argv the handler makes, run once more and for its refusals alone. Reading it
+ * twice is what keeps the rule declarable with the command *and* the edits built where they are used —
+ * cheaper, and far plainer, than carrying a hook's result into an action.
+ *
+ * @throws {AmbitError} exit 2 when no flag was given, or one entry is both added and removed.
+ */
+export const catalogAnnotateRule: CommandRule = (ctx) => {
+  editsOf(ctx, positional(ctx, 0, USAGE));
+};
+
 /** One row per annotation the subject may declare, in the order §3.2 tabulates them. */
 function declareRows(annotated: AnnotatedItem): readonly (readonly string[])[] {
   return annotated.declares.map((list) => [
@@ -168,7 +185,7 @@ function toText(result: AnnotateResult, dryRun: boolean): readonly string[] {
 }
 
 export const catalogAnnotateHandler: CommandHandler = async (ctx) => {
-  const name = positional(ctx, 0, "ambit catalog annotate <name> --add-scope <scope>");
+  const name = positional(ctx, 0, USAGE);
   const edits = editsOf(ctx, name);
 
   const result = await annotate(catalogDirOf(ctx), name, {
