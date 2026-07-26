@@ -716,10 +716,12 @@ is stale — not even state — so pruning an untouched project cannot create th
 that never happened. `clean` resolves nothing: it answers from `.ambit/state.json` alone, so it works
 on the project you actually reach for it with, `ambit.yml` deleted or catalog unreachable.
 
-Both leave behind what ambit does not own: `ambit.lock` (a record teams commit, not an artifact), a
-`.mcp.json` left holding an empty `mcpServers` (the document is co-owned), and the harness's own
-`.claude/skills` directory. `prune` also leaves the lock *stale* on purpose — the lock is install's
-record of a resolution, and `doctor` is what says so.
+Both leave behind what ambit does not own: a `.mcp.json` left holding an empty `mcpServers` (the
+document is co-owned) and the harness's own `.claude/skills` directory. `clean` also leaves
+`ambit.lock` — a record teams commit, not an artifact ambit deletes. A `prune` that removed something
+*rewrites* the lock to the bundle it just resolved, the same bytes `install` would write, so the
+project it leaves behind passes `doctor` and `install --frozen` rather than reporting drift from the
+change it had just carried out. A prune with nothing stale writes nothing, lock included.
 
 ### Authoring commands
 

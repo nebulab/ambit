@@ -262,7 +262,7 @@ async function lockFindings(projectDir: string, expected: string): Promise<reado
   return [
     fail("lock", `${LOCK_FILENAME} is out of date`, [
       `resolving this project produces a different ${LOCK_FILENAME} than the one on disk`,
-      `\`ambit prune\` leaves the lock alone, so a prune is one way to arrive here`,
+      `${LOCK_FILENAME} is written by \`ambit install\` and \`ambit prune\`, so config or a catalog commit has moved since the last one`,
       "run `ambit install` to rewrite it",
     ]),
   ];

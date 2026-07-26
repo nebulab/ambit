@@ -14,6 +14,12 @@
  * or whose scopes were deleted — which is the state a project is usually in when someone reaches for
  * it. `prune` cannot: "not in the current bundle" is a question only resolution can answer.
  *
+ * That asymmetry is also why only `prune` rewrites `ambit.lock`. Having resolved, it knows exactly what
+ * install would record — the same `lockText` install writes — and a prune that left the lock describing
+ * the wider bundle would leave the project failing `doctor`'s lock check and `install --frozen` on
+ * account of the very change it had just carried out. `clean` resolves nothing, so it has no lock to
+ * write; it leaves the file alone for the reason below.
+ *
  * **What `clean` does not remove**, deliberately: `ambit.lock` and a `.mcp.json` left holding an empty
  * `mcpServers`. Neither is ambit's (spec §3.5 has teams committing the lock; §3.6 makes the config
  * file co-owned and only its keys ambit's), and the safety core's first rule is that ambit deletes
@@ -33,6 +39,7 @@ import {
   writeGitignoreBlock,
 } from "./gitignore.js";
 import { planInstall } from "./install.js";
+import { writeLockText } from "./lock.js";
 import type { PrunedArtifact } from "./prune.js";
 import { planPrune, pruneArtifacts, remainingArtifacts } from "./prune.js";
 import type { OwnedArtifact } from "./state.js";
@@ -87,10 +94,11 @@ async function exists(target: string): Promise<boolean> {
  * removes only what state already claims (spec §5 rule 1), so a project whose next `install` would
  * refuse an unowned target can still be pruned.
  *
- * The writes are ordered as install orders them — filesystem, then state, then the `.gitignore`
- * block — so a failure part way through leaves state still claiming what it was about to give up, and
- * the next run prunes the same set again. A run with nothing stale writes nothing at all, which is
- * what keeps `prune` on an untouched project from creating a state file or a `.gitignore` for it.
+ * The writes are ordered as install orders them — filesystem, then the lock, then state, then the
+ * `.gitignore` block — so a failure part way through leaves state still claiming what it was about to
+ * give up, and the next run prunes the same set again. A run with nothing stale writes nothing at all,
+ * which is what keeps `prune` on an untouched project from creating a state file, a lock, or a
+ * `.gitignore` for it.
  *
  * @param projectDir the project root, absolute.
  * @param options `--offline` and `--dry-run`.
@@ -116,6 +124,14 @@ export async function pruneProject(
   if (stale.length === 0) return { pruned: [], remaining: planned.prior.artifacts };
 
   const pruned = await pruneArtifacts(projectDir, planned.artifacts, planned.prior);
+
+  // The bundle install would resolve, which after this prune is also the bundle on disk — so the lock
+  // is `planned.lockText` verbatim, the same bytes through the same writer install uses. Writing it
+  // here is what keeps `doctor`'s lock check clean after a prune: a prune that removed the artifacts a
+  // narrowed `ambit.yml` dropped, but left the lock describing the wider bundle, left the project
+  // reporting drift it had just finished resolving.
+  await writeLockText(projectDir, planned.lockText);
+
   await writeState(projectDir, {
     version: STATE_VERSION,
     harnesses: planned.harnesses,
