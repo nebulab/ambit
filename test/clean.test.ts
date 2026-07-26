@@ -18,6 +18,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { buildFixtureCatalog } from "../scripts/fixture-catalog.js";
 import { cleanProject, pruneProject } from "../src/clean.js";
+import { diagnoseProject, isHealthy } from "../src/doctor.js";
 import { ExitCode } from "../src/errors.js";
 import { BLOCK_BEGIN, BLOCK_END, GITIGNORE_FILENAME } from "../src/gitignore.js";
 import { LOCK_FILENAME } from "../src/lock.js";
@@ -138,6 +139,37 @@ async function managedBlock(): Promise<readonly string[] | undefined> {
   return lines.slice(start + 1, end);
 }
 
+/**
+ * The lock a clean install of `scopes` writes, produced in a throwaway sibling project.
+ *
+ * The point of comparing against this rather than against a hand-written expectation is that it makes
+ * the claim the fix is about: what a prune leaves behind is what install would have written for the
+ * surviving set, not a document prune assembled by subtracting from the old one. The sibling sits
+ * beside the project so its `path:../catalog` names the same fixture.
+ */
+async function lockOfFreshInstall(scopes: readonly string[]): Promise<string> {
+  const reference = await mkdtemp(path.join(root, "reference-"));
+  const list = scopes.length === 0 ? "[]" : `\n${scopes.map((scope) => `  - ${scope}`).join("\n")}`;
+  await writeFile(
+    path.join(reference, "ambit.yml"),
+    `version: 1
+catalogs:
+  - name: ${CATALOG_NAME}
+    source: path:../catalog
+scopes: ${list}
+`,
+    "utf8",
+  );
+
+  const code = await run(["install", "--project", reference], {
+    cwd: root,
+    stdout: () => undefined,
+    stderr: () => undefined,
+  });
+  expect(code).toBe(ExitCode.Success);
+  return await readFile(path.join(reference, LOCK_FILENAME), "utf8");
+}
+
 /** A skill directory beside ambit's that no state claims. */
 async function writeForeignSkillDir(): Promise<void> {
   const target = path.join(projectDir, SKILLS_DIR, HANDMADE_SKILL);
@@ -219,14 +251,54 @@ describe("ambit prune", () => {
     });
   });
 
-  it("leaves `ambit.lock` alone: the lock is install's record, not an owned artifact", async () => {
+  it("rewrites `ambit.lock` to the bundle it pruned down to, byte for byte as install would", async () => {
     await cli("install");
-    const lock = await readFile(path.join(projectDir, LOCK_FILENAME), "utf8");
     await writeProfile(["core"]);
 
     await cli("prune");
 
+    // The reference is a fresh install of the narrowed profile into a second project: the lock a prune
+    // leaves must be the one install writes for the surviving set, not a subtraction of its own.
+    const pruned = await readFile(path.join(projectDir, LOCK_FILENAME), "utf8");
+    expect(pruned).toBe(await lockOfFreshInstall(["core"]));
+
+    // And it really did change — otherwise the assertion above would pass on a prune that wrote nothing.
+    expect(pruned).not.toBe(await lockOfFreshInstall(["core", "function.engineering"]));
+    expect(pruned).not.toContain(FRONTEND_SKILL);
+    expect(pruned).not.toContain(SCOPED_MCP);
+  });
+
+  it("leaves the lock byte-identical when it prunes nothing, rather than rewriting it in place", async () => {
+    await cli("install");
+    const lock = await readFile(path.join(projectDir, LOCK_FILENAME), "utf8");
+
+    await cli("prune");
+
     expect(await readFile(path.join(projectDir, LOCK_FILENAME), "utf8")).toBe(lock);
+  });
+
+  it("writes no lock under `--dry-run`, however much it says it would remove", async () => {
+    await cli("install");
+    const lock = await readFile(path.join(projectDir, LOCK_FILENAME), "utf8");
+    await writeProfile(["core"]);
+
+    const result = await cli("prune", "--dry-run");
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+
+    expect(await readFile(path.join(projectDir, LOCK_FILENAME), "utf8")).toBe(lock);
+  });
+
+  it("leaves a pruned project passing `ambit doctor`, lock check included", async () => {
+    expect((await cli("install")).code).toBe(ExitCode.Success);
+    await writeProfile(["core"]);
+
+    expect((await cli("prune")).code).toBe(ExitCode.Success);
+
+    // The whole point of rewriting the lock: the project a prune leaves is one `doctor` calls healthy,
+    // where it used to report `ambit.lock is out of date` for the change the prune had just made.
+    const report = await diagnoseProject(projectDir);
+    expect(report.findings.map((finding) => `${finding.check}/${finding.severity}`)).toEqual([]);
+    expect(isHealthy(report)).toBe(true);
   });
 
   it("changes no bytes when the bundle is unchanged", async () => {

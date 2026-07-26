@@ -278,15 +278,21 @@ describe("ambit doctor against the lock", () => {
     expect(await detailOf(LOCK_FILE)).toContain("run `ambit install` to write it");
   });
 
-  it("reports the lock `ambit prune` deliberately leaves behind", async () => {
+  it("says nothing about the lock after a prune, which rewrites it along with state", async () => {
     await writeProfile(["core"]);
     expect((await cli("prune")).code).toBe(ExitCode.Success);
 
-    // Pruning removes artifacts and rewrites state, so the project itself is consistent — the lock is
-    // the only thing still describing the wider bundle.
-    expect(await findings()).toEqual([`lock/fail: ${LOCK_FILE} is out of date`]);
+    // Pruning removes artifacts, rewrites state *and* rewrites the lock, so nothing is left describing
+    // the wider bundle. This used to be the one way to reach a stale lock without editing it by hand.
+    expect(await findings()).toEqual([]);
+    expect((await cli("doctor")).code).toBe(ExitCode.Success);
+  });
+
+  it("names the two commands that write the lock when one of them has not been run", async () => {
+    await writeFile(path.join(projectDir, LOCK_FILE), "version: 1\n", "utf8");
+
     expect(await detailOf(LOCK_FILE)).toContain(
-      "`ambit prune` leaves the lock alone, so a prune is one way to arrive here",
+      `${LOCK_FILE} is written by \`ambit install\` and \`ambit prune\`, so config or a catalog commit has moved since the last one`,
     );
   });
 });
