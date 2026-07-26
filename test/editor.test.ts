@@ -36,10 +36,11 @@ name: acme.sales.use-close
 description: Calls the Close CRM REST API.
 # Bash stays out of this one: the skill only ever reads.
 allowed-tools: [Read, Grep]
-scopes: [core]
-requires:
-  - acme.commons.use-company-context
-env: [CLOSE_API_KEY]
+ambit:
+  scopes: [core]
+  requires:
+    - acme.commons.use-company-context
+  env: [CLOSE_API_KEY]
 ---
 
 # Close CRM
@@ -126,7 +127,7 @@ describe("the catalog editor: round-tripping", () => {
     await write(ANNOTATED_SKILL_PATH, ANNOTATED_SKILL);
     const document = await CatalogDocument.open(catalogDir, ANNOTATED_SKILL_PATH);
 
-    document.setStringList(["scopes"], ["core", "function.engineering"]);
+    document.setStringList(["ambit", "scopes"], ["core", "function.engineering"]);
     await applyCatalogEdit(catalogDir, [document.change()]);
 
     // The unknown key, the comment above it, the key order, the flow layout of the list, the block
@@ -137,21 +138,21 @@ describe("the catalog editor: round-tripping", () => {
   });
 
   it("writes a list ambit adds as a block sequence, the way `emitYaml` would", async () => {
-    await write(ANNOTATED_SKILL_PATH, ANNOTATED_SKILL.replace("env: [CLOSE_API_KEY]\n", ""));
+    await write(ANNOTATED_SKILL_PATH, ANNOTATED_SKILL.replace("  env: [CLOSE_API_KEY]\n", ""));
     const document = await CatalogDocument.open(catalogDir, ANNOTATED_SKILL_PATH);
 
-    document.setStringList(["env"], ["CLOSE_API_KEY"]);
+    document.setStringList(["ambit", "env"], ["CLOSE_API_KEY"]);
 
     // A key the author never wrote has no layout to preserve, so it takes ambit's own (spec §3.0),
     // and it lands after the keys that were already there rather than being sorted into them.
-    expect(document.text()).toContain("env:\n  - CLOSE_API_KEY\n---");
+    expect(document.text()).toContain("  env:\n    - CLOSE_API_KEY\n---");
   });
 
   it("leaves an emptied list as an empty list rather than a null", async () => {
     await write(ANNOTATED_SKILL_PATH, ANNOTATED_SKILL);
     const document = await CatalogDocument.open(catalogDir, ANNOTATED_SKILL_PATH);
 
-    document.setStringList(["requires"], []);
+    document.setStringList(["ambit", "requires"], []);
 
     // "declares none" and "says nothing" are different claims about a skill (spec §3.2), and only the
     // first survives a re-parse under §3.0, which rejects an explicit null.
@@ -246,7 +247,7 @@ describe("the catalog editor: writing", () => {
     registry.setString(["scopes", "function.sales", "description"], "Selling the work");
     await write(ANNOTATED_SKILL_PATH, ANNOTATED_SKILL);
     const skill = await CatalogDocument.open(catalogDir, ANNOTATED_SKILL_PATH);
-    skill.setStringList(["scopes"], ["core", "function.sales"]);
+    skill.setStringList(["ambit", "scopes"], ["core", "function.sales"]);
 
     const result = await applyCatalogEdit(catalogDir, [skill.change(), registry.change()]);
 
@@ -265,7 +266,7 @@ describe("the catalog editor: writing", () => {
     const registry = await CatalogDocument.open(catalogDir, "scopes.yml");
     registry.setString(["scopes", "function.sales", "description"], "Selling the work");
     const skill = await CatalogDocument.open(catalogDir, ANNOTATED_SKILL_PATH);
-    skill.setStringList(["scopes"], ["core", "function.sales"]);
+    skill.setStringList(["ambit", "scopes"], ["core", "function.sales"]);
 
     const result = await applyCatalogEdit(catalogDir, [registry.change(), skill.change()]);
 
@@ -275,7 +276,16 @@ describe("the catalog editor: writing", () => {
 
   it("creates a file, and validates it as part of the catalog it is joining", async () => {
     const file = skillDocumentPath("acme.sales.use-pipeline");
-    const text = ["---", "name: acme.sales.use-pipeline", "scopes: [core]", "---", "", "# Pipeline", ""].join("\n");
+    const text = [
+      "---",
+      "name: acme.sales.use-pipeline",
+      "ambit:",
+      "  scopes: [core]",
+      "---",
+      "",
+      "# Pipeline",
+      "",
+    ].join("\n");
 
     const result = await applyCatalogEdit(catalogDir, [{ file, text }]);
 
@@ -366,7 +376,7 @@ describe("the catalog editor: refusals", () => {
   it("refuses a write whose result would not validate, leaving the file byte-identical", async () => {
     await write(ANNOTATED_SKILL_PATH, ANNOTATED_SKILL);
     const document = await CatalogDocument.open(catalogDir, ANNOTATED_SKILL_PATH);
-    document.setStringList(["scopes"], ["core", "function.sails"]);
+    document.setStringList(["ambit", "scopes"], ["core", "function.sails"]);
 
     const error = await rejection(
       () => applyCatalogEdit(catalogDir, [document.change()]),
@@ -383,7 +393,7 @@ describe("the catalog editor: refusals", () => {
   it("says how many problems it found, and where the whole report is", async () => {
     await write(ANNOTATED_SKILL_PATH, ANNOTATED_SKILL);
     const document = await CatalogDocument.open(catalogDir, ANNOTATED_SKILL_PATH);
-    document.setStringList(["scopes"], ["one.unknown", "two.unknown"]);
+    document.setStringList(["ambit", "scopes"], ["one.unknown", "two.unknown"]);
 
     const error = await rejection(
       () => applyCatalogEdit(catalogDir, [document.change()]),

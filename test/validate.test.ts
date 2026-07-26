@@ -67,15 +67,31 @@ ${extra.map((line) => `${line}\n`).join("")}`,
   );
 }
 
+/**
+ * The annotation lines as §3.2 nests them: under a top-level `ambit:`, indented with it.
+ *
+ * Callers still pass `scopes:` and `requires:` as they are tabulated, so a fixture reads like the
+ * format's own documentation and only one place knows where the block goes.
+ */
+function ambitBlock(annotations: readonly string[]): readonly string[] {
+  return annotations.length === 0 ? [] : ["ambit:", ...annotations.map((line) => `  ${line}`)];
+}
+
 /** Adds a skill to the catalog copy this test owns, its name derived from its path per §2. */
 async function writeSkill(relative: string, annotations: readonly string[] = []): Promise<void> {
   const target = path.join(catalogDir, "skills", relative, "SKILL.md");
   await mkdir(path.dirname(target), { recursive: true });
   await writeFile(
     target,
-    ["---", `name: ${skillNameFromPath(relative)}`, ...annotations, "---", "", "# fixture", ""].join(
-      "\n",
-    ),
+    [
+      "---",
+      `name: ${skillNameFromPath(relative)}`,
+      ...ambitBlock(annotations),
+      "---",
+      "",
+      "# fixture",
+      "",
+    ].join("\n"),
     "utf8",
   );
 }

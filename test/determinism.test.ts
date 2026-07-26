@@ -383,7 +383,9 @@ describe("a report of problems is in the same order whatever order directories a
     await mkdir(path.dirname(target), { recursive: true });
     await writeFile(
       target,
-      ["---", `name: ${declared}`, "scopes: [core]", "---", "", "# fixture", ""].join("\n"),
+      ["---", `name: ${declared}`, "ambit:", "  scopes: [core]", "---", "", "# fixture", ""].join(
+        "\n",
+      ),
       "utf8",
     );
   }

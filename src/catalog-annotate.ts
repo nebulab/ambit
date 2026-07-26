@@ -17,10 +17,14 @@
  *   the same to the parser (spec §3.2), but only one of them is a statement the author made, and a
  *   command that deleted the key would quietly undo the annotation rather than empty it.
  *
- * The two subjects it edits are asymmetric, because §3.2 and §3.3 are: a skill declares `scopes`,
- * `requires`, and `env`, while an MCP entity has no `requires` at all — a server is *required*, it does
- * not require. Asking to change one is refused rather than ignored, naming the skill-side flag that
- * does what the reader meant.
+ * The two subjects it edits are asymmetric, because §3.2 and §3.3 are, in two ways. A skill declares
+ * `scopes`, `requires`, and `env`, while an MCP entity has no `requires` at all — a server is
+ * *required*, it does not require; asking to change one is refused rather than ignored, naming the
+ * skill-side flag that does what the reader meant. And a skill's annotations are nested under
+ * `ambit:` while an entity's sit at the top level, because a `SKILL.md`'s frontmatter is the
+ * harness's document and an `mcps/<name>.yml` is ambit's own end to end — so the two differ only in
+ * where the keys are written, which is a key path this module carries per subject rather than a
+ * branch inside the loop that writes them.
  *
  * `--add-scope` is pre-checked against the registry ({@link assertRegisteredScopes}) so a typo gets its
  * "did you mean"; `--add-requires` deliberately is not, because validation's own message already names
@@ -29,8 +33,15 @@
  */
 import path from "node:path";
 
-import type { Catalog } from "./catalog.js";
-import { MCPS_DIRNAME, SKILL_FILENAME, SKILLS_DIRNAME, parseCatalogDirectory } from "./catalog.js";
+import type { AnnotationKey, Catalog } from "./catalog.js";
+import {
+  AMBIT_FRONTMATTER_KEY,
+  ANNOTATION_KEYS,
+  MCPS_DIRNAME,
+  SKILL_FILENAME,
+  SKILLS_DIRNAME,
+  parseCatalogDirectory,
+} from "./catalog.js";
 import { mcpDocumentFile, unknownMcp } from "./catalog-mcp.js";
 import { assertRegisteredScopes } from "./catalog-scope.js";
 import { unknownSkill } from "./catalog-skill.js";
@@ -39,14 +50,6 @@ import { CatalogDocument, applyCatalogEdit } from "./editor.js";
 import type { AmbitError } from "./errors.js";
 import { at, configError } from "./errors.js";
 import { MCP_REQUIREMENT_PREFIX } from "./resolve.js";
-
-/**
- * The list-valued annotations, in the order spec §3.2 tabulates them — which is also the order they are
- * reported in, so the report reads like the format's own documentation.
- */
-export const ANNOTATION_KEYS = ["scopes", "requires", "env"] as const;
-
-export type AnnotationKey = (typeof ANNOTATION_KEYS)[number];
 
 /** What an annotatable subject is: the two file shapes §3.2 and §3.3 describe. */
 export type AnnotatedKind = "skill" | "mcp";
@@ -140,8 +143,13 @@ interface Subject {
   readonly kind: AnnotatedKind;
   readonly name: string;
   readonly file: string;
-  /** The keys this shape may declare, in {@link ANNOTATION_KEYS} order. */
+  /** The keys this shape may declare, in `ANNOTATION_KEYS` order. */
   readonly keys: readonly AnnotationKey[];
+  /**
+   * The mapping the keys are written inside, as a path from the document root: `["ambit"]` for a
+   * skill (spec §3.2), and the root itself for an entity (spec §3.3).
+   */
+  readonly under: readonly string[];
   readonly current: Readonly<Record<AnnotationKey, readonly string[]>>;
 }
 
@@ -185,6 +193,7 @@ async function subjectOf(root: string, catalog: Catalog, name: string): Promise<
       name: entity.name,
       file: await mcpDocumentFile(root, entity.name),
       keys: MCP_ANNOTATION_KEYS,
+      under: [],
       current: { scopes: entity.scopes, requires: [], env: entity.env },
     };
   }
@@ -197,6 +206,7 @@ async function subjectOf(root: string, catalog: Catalog, name: string): Promise<
     name: skill.name,
     file: `${skill.path}/${SKILL_FILENAME}`,
     keys: ANNOTATION_KEYS,
+    under: [AMBIT_FRONTMATTER_KEY],
     current: { scopes: skill.scopes, requires: skill.requires, env: skill.env },
   };
 }
@@ -251,7 +261,9 @@ export async function annotate(
     declares.push({ key, values });
     // Only a change of membership is written. Rewriting a list whose entries are the same would cost
     // the author their layout and any duplicate they wrote, for no change anybody asked for.
-    if (!sameList(values, sortedUnique(current))) document.setStringList([key], values);
+    if (!sameList(values, sortedUnique(current))) {
+      document.setStringList([...subject.under, key], values);
+    }
   }
 
   const result = await applyCatalogEdit(root, document.changed ? [document.change()] : [], options);

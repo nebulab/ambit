@@ -28,7 +28,12 @@
 import path from "node:path";
 
 import type { Catalog, CatalogSkill, ScopeDefinition } from "./catalog.js";
-import { SCOPES_FILENAME, SKILL_FILENAME, parseCatalogDirectory } from "./catalog.js";
+import {
+  AMBIT_FRONTMATTER_KEY,
+  SCOPES_FILENAME,
+  SKILL_FILENAME,
+  parseCatalogDirectory,
+} from "./catalog.js";
 import { mcpDocumentFile } from "./catalog-mcp.js";
 import type { CatalogChange, EditOptions, EditedFile } from "./editor.js";
 import { CatalogDocument, applyCatalogEdit } from "./editor.js";
@@ -51,8 +56,18 @@ const DESCRIPTION_KEY = "description";
  * The key a skill or an MCP entity declares its scopes under (spec §3.2, §3.3). The same word as
  * {@link REGISTRY_KEY} and a different document — a rename rewrites both, and confusing the two would be
  * a hard bug to see.
+ *
+ * Where it sits differs by document: a skill's is under `ambit:`, since a `SKILL.md`'s frontmatter is
+ * the harness's and ambit is namespaced inside it (spec §3.2), while an entity's is at the root of a
+ * file ambit owns end to end (spec §3.3). See {@link SKILL_SCOPES_PATH} and {@link MCP_SCOPES_PATH}.
  */
 const DECLARED_KEY = "scopes";
+
+/** Where a skill declares its scopes, as a path from the frontmatter root (spec §3.2). */
+const SKILL_SCOPES_PATH: readonly string[] = [AMBIT_FRONTMATTER_KEY, DECLARED_KEY];
+
+/** Where an MCP entity declares its scopes, as a path from the document root (spec §3.3). */
+const MCP_SCOPES_PATH: readonly string[] = [DECLARED_KEY];
 
 /** What an edit to the registry amounted to. */
 export interface ScopeEdit {
@@ -413,7 +428,7 @@ export async function renameScope(
     const declared = rewritten(skill.scopes, renames);
     if (declared === undefined) continue;
     const document = await CatalogDocument.open(root, skillDocumentOf(skill));
-    document.setStringList([DECLARED_KEY], declared);
+    document.setStringList(SKILL_SCOPES_PATH, declared);
     documents.push(document);
   }
 
@@ -424,7 +439,7 @@ export async function renameScope(
     // legal as `.yml` (spec §3.3), and rewriting the other one would leave two files defining one
     // server — which parsing rejects, so the rename would fail with nothing written.
     const document = await CatalogDocument.open(root, await mcpDocumentFile(root, mcp.name));
-    document.setStringList([DECLARED_KEY], declared);
+    document.setStringList(MCP_SCOPES_PATH, declared);
     documents.push(document);
   }
 

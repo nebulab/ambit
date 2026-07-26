@@ -3,7 +3,7 @@
  *
  * A catalog is a plain skills repo: skills at `skills/<namespace>/<name>/SKILL.md`, MCP
  * entities at `mcps/<name>.yml`, and a `scopes.yml` registry at the root. Nothing here is
- * ambit-specific except the extra frontmatter keys and the two extra files, which other tools
+ * ambit-specific except one extra frontmatter key and the two extra files, which other tools
  * ignore — that compatibility is a hard requirement (spec §1).
  *
  * A skill's name is not stored anywhere authoritative: it is derived from the path, and the
@@ -58,6 +58,28 @@ export const MCP_EXTENSIONS: readonly string[] = [".yml", ".yaml"];
 
 const SCOPES_KEYS = ["scopes"] as const;
 const SCOPE_KEYS = ["description"] as const;
+
+/**
+ * The one top-level `SKILL.md` frontmatter key ambit owns (spec §3.2).
+ *
+ * Every annotation lives under it, so the block a harness reads and the block ambit reads cannot
+ * collide however either grows: a harness that one day defines its own `scopes` or `requires` takes
+ * the top-level name, and ambit's are a level down where they always were. The cost is one line of
+ * nesting; the alternative was a standing bet that no harness ever picks those two words.
+ */
+export const AMBIT_FRONTMATTER_KEY = "ambit";
+
+/**
+ * The keys ambit reads under {@link AMBIT_FRONTMATTER_KEY}, in the order spec §3.2 tabulates them —
+ * which is also the order `catalog annotate` reports them in, so the report reads like the format's
+ * own documentation.
+ *
+ * Lives here rather than beside the command that edits them because this is where they are *read*:
+ * one list, so the parser and the writer cannot drift apart on what an annotation is.
+ */
+export const ANNOTATION_KEYS = ["scopes", "requires", "env"] as const;
+
+export type AnnotationKey = (typeof ANNOTATION_KEYS)[number];
 
 /**
  * How a catalog is parsed when the caller wants every problem rather than only the first (spec §4's
@@ -410,16 +432,25 @@ async function findSkillDirectories(files: CatalogFiles): Promise<readonly strin
 /**
  * What ambit reads off a skill's frontmatter once its name is settled (spec §3.2).
  *
- * Unknown keys are deliberately allowed, unlike everywhere else: this frontmatter is the harness's,
- * and ambit only adds keys to it.
+ * Two opposite stances on unknown keys, and both are deliberate. At the top level they are allowed,
+ * unlike everywhere else, because that block is the harness's and ambit is a guest in it. Under
+ * `ambit:` they are rejected like everywhere else, because that block is ambit's: a misspelled
+ * `scope:` there would otherwise be a skill that declares nothing and warns nobody, which is the
+ * same silence the namespace exists to remove.
+ *
+ * @throws {AmbitError} exit 2 for an `ambit:` that is not a mapping, or a key under it that §3.2
+ *   does not define.
  */
 function skillAnnotations(mapping: YamlMapping): Omit<CatalogSkill, "name" | "path"> {
   const description = mapping.optionalString("description");
+  const ambit = mapping.optionalMapping(AMBIT_FRONTMATTER_KEY);
+  ambit?.rejectUnknownKeys(ANNOTATION_KEYS);
+
   return {
     ...(description !== undefined && { description }),
-    scopes: mapping.optionalStringList("scopes") ?? [],
-    requires: mapping.optionalStringList("requires") ?? [],
-    env: mapping.optionalStringList("env") ?? [],
+    scopes: ambit?.optionalStringList("scopes") ?? [],
+    requires: ambit?.optionalStringList("requires") ?? [],
+    env: ambit?.optionalStringList("env") ?? [],
   };
 }
 

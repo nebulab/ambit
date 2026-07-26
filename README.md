@@ -325,34 +325,43 @@ contradicts the entry's own `ref` is an error rather than a silent winner.
 
 ### `SKILL.md` frontmatter — skill annotations
 
-Annotations are **top-level frontmatter keys**, alongside whatever the harness already uses. Other
-tools ignore keys they do not know.
+Annotations live under **one top-level key, `ambit:`**, alongside whatever the harness already uses.
+Other tools ignore keys they do not know, so the whole of ambit's addition is one mapping they never
+look inside.
 
 ```yaml
 ---
 name: acme.sales.use-close
 description: "Calls the Close CRM REST API…"
-scopes: [function.sales]
-requires:
-  - acme.commons.use-company-context
-  - mcp.close
-env: [CLOSE_API_KEY]
+ambit:
+  scopes: [function.sales]
+  requires:
+    - acme.commons.use-company-context
+    - mcp.close
+  env: [CLOSE_API_KEY]
 ---
 ```
 
 | Key | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `scopes` | string[] | no | Absent or empty = never selected by scope; reachable only via `requires` or an explicit listing. |
-| `requires` | string[] | no | Skill names, or MCP names prefixed `mcp.`. |
-| `env` | string[] | no | Env vars the skill itself reads (not via an MCP). |
+| `ambit` | map | no | Every annotation below. Absent means the skill declares nothing. |
+| `ambit.scopes` | string[] | no | Absent or empty = never selected by scope; reachable only via `requires` or an explicit listing. |
+| `ambit.requires` | string[] | no | Skill names, or MCP names prefixed `mcp.`. |
+| `ambit.env` | string[] | no | Env vars the skill itself reads (not via an MCP). |
 
 `name` and `description` are the harness's own keys. ambit reads `name` and requires it to match the
 directory path.
 
-> **Collision risk.** These are unnamespaced top-level keys. If a harness later defines its own
-> `scopes` or `requires` with different meanings, this breaks. It is a known bet, taken because
-> namespacing would make the file less readable and because unknown keys are ignored today. If it
-> happens, ambit's keys move; nothing else about the model changes.
+**One key, so nothing can collide.** A harness that one day defines its own `scopes` or `requires`
+takes the top-level name and ambit's stay a level down, where they always were. The cost is a line of
+nesting and it buys the guarantee outright.
+
+**Unknown keys go two ways, deliberately.** At the top level they are kept: that block is the
+harness's and ambit is a guest in it. Under `ambit:` they are rejected: that block is ambit's, so a
+misspelled `scope:` is an error rather than a skill that declares nothing and warns nobody.
+
+`ambit.yml`, `mcps/<name>.yml`, and `scopes.yml` are ambit's own documents end to end and are
+**not** namespaced — they hold no other tool's keys to collide with.
 
 ### `mcps/<name>.yml` — MCP entities
 
@@ -788,10 +797,11 @@ diff (1)
   skills/acme/engineering/use-storybook/SKILL.md (updated)
     ...
       name: acme.engineering.use-storybook
-      scopes:
-        - function.engineering.frontend
-    + env:
-    +   - STORYBOOK_TOKEN
+      ambit:
+        scopes:
+          - function.engineering.frontend
+    +   env:
+    +     - STORYBOOK_TOKEN
       ---
 
       # acme.engineering.use-storybook
@@ -893,8 +903,8 @@ message may still name an absolute path — that is where naming the exact file 
 
 **A catalog is a plain skills repo.** Skills live at `skills/<namespace>/<name>/SKILL.md` with the name
 derived from the path, which is exactly what dotagents, skills.sh, and anything else in this shape
-expect. ambit's additions — extra frontmatter keys, a `mcps/` directory, a `scopes.yml` — are additive
-and ignored by other tools.
+expect. ambit's additions — one `ambit:` frontmatter key, a `mcps/` directory, a `scopes.yml` — are
+additive and ignored by other tools.
 
 This is a hard requirement, not a nice-to-have, and it is enforced by a test rather than asserted in
 prose: `test/dotagents.test.ts` runs `npx @sentry/dotagents install` against a catalog and checks that

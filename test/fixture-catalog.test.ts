@@ -40,6 +40,19 @@ function frontmatter(source: string): Record<string, unknown> {
   return parse(match![1]!) as Record<string, unknown>;
 }
 
+/**
+ * The `ambit:` block of a frontmatter, where every annotation §3.2 defines lives.
+ *
+ * Read through the raw `yaml` parser rather than through ambit's own, like everything else in this
+ * file: the fixture is what proves ambit's parser right, so a test that used it to read the fixture
+ * would prove nothing.
+ */
+function annotations(source: string): Record<string, unknown> {
+  const block = frontmatter(source).ambit;
+  expect(block, "frontmatter has no `ambit:` block").toBeTypeOf("object");
+  return (block ?? {}) as Record<string, unknown>;
+}
+
 const EXPECTED_FILES = [
   FIXTURE_MARKER,
   "mcps/fixture.yml",
@@ -93,7 +106,7 @@ describe("fixture catalog", () => {
 
     const declared = new Set<string>();
     for (const skill of SKILL_PATHS) {
-      for (const scope of (frontmatter(await readFile(path.join(dir, skill), "utf8")).scopes ??
+      for (const scope of (annotations(await readFile(path.join(dir, skill), "utf8")).scopes ??
         []) as string[]) {
         declared.add(scope);
       }
@@ -119,8 +132,8 @@ describe("fixture catalog", () => {
   it("covers one skill per scope, including a nested one", async () => {
     const scopesByName: Record<string, unknown> = {};
     for (const skill of SKILL_PATHS) {
-      const meta = frontmatter(await readFile(path.join(dir, skill), "utf8"));
-      scopesByName[meta.name as string] = meta.scopes;
+      const source = await readFile(path.join(dir, skill), "utf8");
+      scopesByName[frontmatter(source).name as string] = annotations(source).scopes;
     }
 
     expect(scopesByName).toEqual({
@@ -132,7 +145,7 @@ describe("fixture catalog", () => {
   });
 
   it("has a project skill that reaches a skill and an MCP by requires alone", async () => {
-    const meta = frontmatter(
+    const meta = annotations(
       await readFile(path.join(dir, "skills/acme/projects/use-acme-brief/SKILL.md"), "utf8"),
     );
 
@@ -140,7 +153,7 @@ describe("fixture catalog", () => {
   });
 
   it("declares env vars a bundle can be missing", async () => {
-    const frontend = frontmatter(
+    const frontend = annotations(
       await readFile(
         path.join(dir, "skills/acme/engineering/frontend/use-design-tokens/SKILL.md"),
         "utf8",

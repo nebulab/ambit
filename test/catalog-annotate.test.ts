@@ -57,10 +57,11 @@ name: acme.sales.use-close
 description: Calls the Close CRM REST API.
 # Bash stays out of this one: the skill only ever reads.
 allowed-tools: [Read, Grep]
-scopes: [core]
-requires:
-  - acme.commons.use-company-context
-env: [CLOSE_API_KEY]
+ambit:
+  scopes: [core]
+  requires:
+    - acme.commons.use-company-context
+  env: [CLOSE_API_KEY]
 ---
 
 # Close CRM
@@ -248,6 +249,20 @@ describe("ambit catalog annotate, on a skill", () => {
     await validates();
   });
 
+  it("creates the `ambit:` mapping when a skill has never carried one", async () => {
+    // The namespace has to appear from nothing for a skill a harness wrote and ambit is only now
+    // annotating, which is the first thing anyone does to a plain skills repo.
+    const bare = `---\nname: ${CLOSE_SKILL}\ndescription: Calls the Close CRM REST API.\n---\n\n# Close CRM\n`;
+    await write(CLOSE_SKILL_FILE, bare);
+
+    await succeeds(CLOSE_SKILL, "--add-scope", CORE_SCOPE);
+
+    expect(await read(CLOSE_SKILL_FILE)).toBe(
+      bare.replace("---\n\n# Close", `ambit:\n  scopes:\n    - ${CORE_SCOPE}\n---\n\n# Close`),
+    );
+    await validates();
+  });
+
   it("writes a key the document never had at the end, as a block sequence", async () => {
     await succeeds(CORE_SKILL, "--add-requires", REVIEW_SKILL);
 
@@ -255,8 +270,8 @@ describe("ambit catalog annotate, on a skill", () => {
     // the keys that were already there rather than being sorted into them.
     expect(await read(CORE_SKILL_FILE)).toBe(
       fixture(CORE_SKILL_FILE).replace(
-        `scopes: [${CORE_SCOPE}]\n---`,
-        `scopes: [${CORE_SCOPE}]\nrequires:\n  - ${REVIEW_SKILL}\n---`,
+        `  scopes: [${CORE_SCOPE}]\n---`,
+        `  scopes: [${CORE_SCOPE}]\n  requires:\n    - ${REVIEW_SKILL}\n---`,
       ),
     );
     await validates();
@@ -487,7 +502,7 @@ describe("ambit catalog annotate, output", () => {
 
     expect(result.stdout).toContain("would declare (3)");
     expect(result.stdout).toContain(`  ${CORE_SKILL_FILE} (updated)`);
-    expect(result.stdout).toContain(`+ scopes: [${CORE_SCOPE}, ${ENGINEERING}]`);
+    expect(result.stdout).toContain(`+   scopes: [${CORE_SCOPE}, ${ENGINEERING}]`);
     expect(await snapshot()).toEqual(before);
   });
 });
