@@ -27,16 +27,18 @@
  * leaves two lines behind. The empty `.claude/skills` directory a pruned skill leaves goes the same
  * way: it is the harness's directory, and git does not track an empty one, so removing it would buy
  * nothing and cost the same rule. What `clean` *does* remove beyond the owned artifacts is ambit's own
- * `.ambit/` directory and its `.gitignore` block, both of which are ambit's by definition.
+ * `.ambit/` directory and its `.gitignore` blocks, all of which are ambit's by definition.
  */
 import { lstat, rm } from "node:fs/promises";
 import path from "node:path";
 
 import {
+  GITIGNORE_FILENAME,
   readGitignoreText,
-  removeGitignoreBlock,
+  removeGitignoreBlocks,
   removeGitignoreText,
-  writeGitignoreBlock,
+  SHARED_GITIGNORE_FILE,
+  writeGitignoreBlocks,
 } from "./gitignore.js";
 import { planInstall } from "./install.js";
 import { writeLockText } from "./lock.js";
@@ -79,8 +81,24 @@ export interface CleanResult {
   readonly removed: readonly PrunedArtifact[];
   /** Whether `.ambit/` was there to remove. */
   readonly stateRemoved: boolean;
-  /** Whether the managed `.gitignore` block was there to remove. */
-  readonly gitignoreRemoved: boolean;
+  /** The `.gitignore` files a managed block was there to remove from. */
+  readonly gitignoreRemoved: readonly string[];
+}
+
+/**
+ * Which files a `clean` would take a block out of, for `--dry-run`.
+ *
+ * Asked of the same reader the real removal uses, so a preview cannot disagree with what follows it —
+ * including by refusing, since an ambiguous block throws here exactly as it would there.
+ */
+async function plannedGitignoreRemovals(projectDir: string): Promise<readonly string[]> {
+  const files: string[] = [];
+  for (const file of [GITIGNORE_FILENAME, SHARED_GITIGNORE_FILE]) {
+    if (removeGitignoreText(await readGitignoreText(projectDir, file), file) !== undefined) {
+      files.push(file);
+    }
+  }
+  return files;
 }
 
 /** Whether anything at all sits at a path. */
@@ -143,7 +161,7 @@ export async function pruneProject(
     harnesses: planned.harnesses,
     artifacts: remaining,
   });
-  await writeGitignoreBlock(projectDir, remaining);
+  await writeGitignoreBlocks(projectDir, remaining);
 
   return { pruned, remaining };
 }
@@ -173,12 +191,12 @@ export async function cleanProject(
     return {
       removed: planPrune([], prior),
       stateRemoved: await exists(stateFilePath(projectDir)),
-      gitignoreRemoved: removeGitignoreText(await readGitignoreText(projectDir)) !== undefined,
+      gitignoreRemoved: await plannedGitignoreRemovals(projectDir),
     };
   }
 
   const removed = await pruneArtifacts(projectDir, [], prior);
-  const gitignoreRemoved = await removeGitignoreBlock(projectDir);
+  const gitignoreRemoved = await removeGitignoreBlocks(projectDir);
 
   const stateRemoved = await exists(stateFilePath(projectDir));
   await rm(stateDir, { recursive: true, force: true });

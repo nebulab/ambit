@@ -2,7 +2,7 @@
  * `ambit clean` — remove everything ambit owns.
  *
  * Two sections, because clean removes two different kinds of thing: the artifacts state records, and
- * the two places ambit keeps its own record of having run — `.ambit/` and the managed `.gitignore`
+ * the places ambit keeps its own record of having run — `.ambit/` and each managed `.gitignore`
  * block. The second section names them individually rather than reporting a boolean, because "was
  * there a state file" is the question someone asks after a clean that found less than they expected.
  *
@@ -15,18 +15,17 @@ import { cleanProject } from "../../project/clean.js";
 import type { CommandHandler } from "../commands.js";
 import { dryRunRequested, jsonRequested, projectDirOf } from "../commands.js";
 import { ExitCode } from "../../errors.js";
-import { GITIGNORE_FILENAME } from "../../project/gitignore.js";
 import { printSections, section } from "../output.js";
 import { STATE_DIRNAME, STATE_FILENAME } from "../../model/state.js";
 import { artifactJson, removalRows } from "./artifacts.js";
 
-/** How the state file and the managed block are named in the report. */
+/** How the state file and a managed block are named in the report. */
 const STATE_PATH = `${STATE_DIRNAME}/${STATE_FILENAME}`;
-const BLOCK_PATH = `${GITIGNORE_FILENAME} (managed block)`;
+const blockPath = (file: string): string => `${file} (managed block)`;
 
 function toJson(result: CleanResult): Readonly<Record<string, unknown>> {
   return {
-    gitignoreRemoved: result.gitignoreRemoved,
+    gitignoreRemoved: [...result.gitignoreRemoved],
     removed: result.removed.map(artifactJson),
     stateRemoved: result.stateRemoved,
   };
@@ -36,7 +35,7 @@ function toJson(result: CleanResult): Readonly<Record<string, unknown>> {
 function recordRows(result: CleanResult): readonly (readonly string[])[] {
   return [
     ...(result.stateRemoved ? [[STATE_PATH]] : []),
-    ...(result.gitignoreRemoved ? [[BLOCK_PATH]] : []),
+    ...result.gitignoreRemoved.map((file) => [blockPath(file)]),
   ];
 }
 

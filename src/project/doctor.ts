@@ -29,12 +29,7 @@ import { lstat } from "node:fs/promises";
 
 import type { PlannedArtifact, PlannedHarnessConfig, PlannedSkillDir } from "../harness/adapter.js";
 import { referencedNames } from "../harness/env.js";
-import {
-  GITIGNORE_FILENAME,
-  gitignoreEntries,
-  readGitignoreText,
-  updateGitignoreText,
-} from "./gitignore.js";
+import { gitignoreStatus } from "./gitignore.js";
 import type { MergedMcp } from "../model/catalog.js";
 import { managedKey } from "../model/documents/index.js";
 import { planInstall } from "./install.js";
@@ -321,9 +316,9 @@ function driftStep(state: StatusArtifact["state"]): string {
  * Everything install would change about the project: `status`'s findings, plus the one file `status`
  * has no row for.
  *
- * The managed `.gitignore` block is checked here because nothing else checks it at all. It carries no
- * state entry — the markers are the record (`gitignore.ts`) — so it cannot be a `status` row, and a
- * block someone edited or deleted is otherwise fixed silently by the next install.
+ * The managed `.gitignore` blocks are checked here because nothing else checks them at all. They
+ * carry no state entry — the markers are the record (`gitignore.ts`) — so neither can be a `status`
+ * row, and a block someone edited or deleted is otherwise fixed silently by the next install.
  *
  * `unowned` is excluded: it is the ownership check's, and reporting it twice would double every
  * finding about a crashed install.
@@ -342,20 +337,21 @@ async function driftFindings(
       ]),
     );
 
-  // `updateGitignoreText` returning undefined is precisely "this file would not change", which is the
-  // same question install's `--dry-run` asks it.
-  const gitignore = updateGitignoreText(
-    await readGitignoreText(projectDir),
-    gitignoreEntries(artifacts),
-  );
-  if (gitignore === undefined) return rows;
+  // The same question install's `--dry-run` asks, of the same renderer that writes — and asked per
+  // file, because the two blocks go stale for different reasons: the nested one whenever the bundle
+  // changes, the root one almost never.
+  const gitignore = await gitignoreStatus(projectDir, artifacts);
 
   return [
     ...rows,
-    fail("drift", `${GITIGNORE_FILENAME} does not hold the block install would write`, [
-      "ambit owns the lines between `# BEGIN ambit` and `# END ambit`, and rewrites them each install",
-      "run `ambit install` to rewrite the block",
-    ]),
+    ...gitignore
+      .filter((block) => block.changed)
+      .map((block) =>
+        fail("drift", `${block.file} does not hold the block install would write`, [
+          "ambit owns the lines between `# BEGIN ambit` and `# END ambit`, and rewrites them each install",
+          "run `ambit install` to rewrite the block",
+        ]),
+      ),
   ];
 }
 

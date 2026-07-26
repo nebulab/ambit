@@ -179,7 +179,7 @@ export type {
   ProjectPaths,
 } from "./harness/adapter.js";
 export { claude, codex, cursor, opencode, PROFILES, vscode } from "./harness/definitions.js";
-export { adapterFor, SHARED_SKILLS_DIR } from "./harness/profile.js";
+export { adapterFor, SHARED_AGENTS_DIR, SHARED_SKILLS_DIR } from "./harness/profile.js";
 export type { HarnessProfile, McpLayout } from "./harness/profile.js";
 export {
   bracedRef,
@@ -293,13 +293,16 @@ export {
   BLOCK_BEGIN,
   BLOCK_END,
   GITIGNORE_FILENAME,
-  gitignoreEntries,
+  gitignoreBlocks,
+  gitignoreStatus,
   readGitignoreText,
-  removeGitignoreBlock,
+  removeGitignoreBlocks,
   removeGitignoreText,
+  SHARED_GITIGNORE_FILE,
   updateGitignoreText,
-  writeGitignoreBlock,
+  writeGitignoreBlocks,
 } from "./project/gitignore.js";
+export type { GitignoreStatus, IgnoreBlock } from "./project/gitignore.js";
 export { INIT_FILENAME, INIT_SCOPE, initProject, scaffoldConfig } from "./project/init.js";
 export type { InitOptions, InitResult } from "./project/init.js";
 export {

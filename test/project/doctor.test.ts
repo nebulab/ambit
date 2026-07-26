@@ -436,8 +436,8 @@ describe("ambit doctor before an install", () => {
       "drift=fail",
       "mode=ok",
     ]);
-    // The lock, the managed block, three missing skills, the skills link, and `.mcp.json`.
-    expect(doctorFailures(await diagnoseProject(projectDir))).toHaveLength(7);
+    // The lock, both managed blocks, three missing skills, the skills link, and `.mcp.json`.
+    expect(doctorFailures(await diagnoseProject(projectDir))).toHaveLength(8);
   });
 
   it("resolves the catalog, so a broken config is an error rather than a finding", async () => {

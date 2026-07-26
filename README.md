@@ -682,26 +682,51 @@ The cost is that ambit can no longer tell from the file whether a variable is se
 answers that by reading the environment, which is where the answer actually is — and its remedy is
 "set the variable", with nothing to reinstall afterwards.
 
-### `.gitignore`
+### `.gitignore` — two files, because one of them churns
 
-ambit rewrites a delimited managed block in place, listing `.ambit/`, every installed skill path, and
-the skills link:
+ambit rewrites a delimited managed block in place. There are two, and which paths go where is decided
+by what a nested `.gitignore` can express: git matches a pattern only against paths beneath the file
+holding it.
+
+Every installed skill is a path under `.agents/`, so those are listed in `.agents/.gitignore` —
+the layout dotagents established:
 
 ```
 # BEGIN ambit - managed block, rewritten by `ambit install`; edits are lost
-.agents/skills/acme.commons.use-house-style
-.agents/skills/acme.engineering.use-code-review
+/skills/acme.commons.use-house-style
+/skills/acme.engineering.use-code-review
+# END ambit
+```
+
+What stays at the project root is what has nowhere else to go — `.ambit/`, and the skills link, which
+belongs to a harness rather than to that directory:
+
+```
+# BEGIN ambit - managed block, rewritten by `ambit install`; edits are lost
 .ambit/
 .claude/skills
 # END ambit
 ```
 
+**The split is about churn, not tidiness.** The skill list changes whenever the bundle does; the root
+block is two or three lines and identical from one install to the next. A project's root `.gitignore`
+is a file people read, and it should not be rewritten every time a scope is added.
+
+`.agents/.gitignore` is **left tracked**. It is generated, but generated from `ambit.yml` and
+`ambit.lock`, which a project commits, and it is byte-stable — so committing it costs a reviewable
+diff and buys a fresh clone and every git worktree the ignore list without running ambit first.
+Ignoring it would need a root line to hide it and leave a worktree reporting every copied skill as
+untracked. A project that selects no skills gets no nested file at all, and one that deselects its
+last skill has the file removed rather than left holding two markers with nothing between them.
+
 Never `ambit.lock` and never a harness config file — both are things a team may want to commit. Skill
 paths carry no trailing slash on purpose: git does not match a `dir/` pattern against a symlink, and a
-linked skill would stay tracked. The link needs a line for the same reason.
+linked skill would stay tracked. The link needs a line for the same reason. A nested entry is anchored
+with a leading `/` so a skill named `skills` cannot start matching at another depth.
 
-Two shapes are refused (exit 2, file left byte-identical): more than one `# BEGIN ambit` line, and a
-begin marker with no `# END ambit` after it.
+Two shapes are refused per file (exit 2, file left byte-identical): more than one `# BEGIN ambit`
+line, and a begin marker with no `# END ambit` after it. `install --dry-run`, `doctor` and `clean`
+report the two files separately, since they go stale for different reasons.
 
 ### Ownership — the safety core
 
@@ -1017,9 +1042,10 @@ That test is the one thing in the suite allowed to touch the network. It skips w
 when the registry is unreachable outside CI, and fails inside it.
 
 The compatibility runs the other way too: ambit installs skills into `.agents/skills/` with
-`.claude/skills` pointing at it, which is the layout dotagents itself uses — so a project that used
-dotagents migrates without moving a file, and ambit adopts the directory it left behind (see
-[Skills](#skills--agentsskillsname)).
+`.claude/skills` pointing at it, and lists them in `.agents/.gitignore`, which is the layout dotagents
+itself uses — so a project that used dotagents migrates without moving a file, and ambit adopts the
+directory it left behind (see [Skills](#skills--agentsskillsname)). The one difference is that ambit
+leaves that ignore file tracked; see [`.gitignore`](#gitignore--two-files-because-one-of-them-churns).
 
 ambit **replaces** dotagents rather than wrapping it. dotagents' model — a flat, hand-listed set of
 skills — cannot express scope-driven selection, and three of its behaviours fight this design:

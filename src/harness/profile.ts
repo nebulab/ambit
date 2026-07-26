@@ -31,13 +31,22 @@ import type { ArtifactMode, State } from "../model/state.js";
 import { ownedPaths } from "../model/state.js";
 
 /**
+ * The directory the shared skills layout lives under, project-relative.
+ *
+ * Named separately from {@link SHARED_SKILLS_DIR} because it is also the directory whose own
+ * `.gitignore` lists what ambit installed there — see `project/gitignore.ts`. One constant, so
+ * "which directory is ambit's" has one answer.
+ */
+export const SHARED_AGENTS_DIR = ".agents";
+
+/**
  * Where every harness's skills are materialized, project-relative.
  *
  * One location for all of them, because three of the five read it natively and the other two are
  * happy to be pointed at it. The alternative — a directory per harness — would materialize the same
  * skill several times in one project and give a reader several copies to wonder about.
  */
-export const SHARED_SKILLS_DIR = ".agents/skills";
+export const SHARED_SKILLS_DIR = `${SHARED_AGENTS_DIR}/skills`;
 
 /** Where a harness reads its MCP servers from. */
 export interface McpLayout {
