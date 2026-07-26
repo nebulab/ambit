@@ -425,8 +425,8 @@ ambit catalog mcp new|rm       maintain an MCP entity
 ambit catalog annotate <name>  change a skill or MCP's scopes, requires, or env
 ```
 
-**Global flags:** `--project <dir>` (default cwd), `--json`, `--offline`, `--quiet`,
-`--no-color`, `--dry-run` (on mutating commands).
+**Global flags:** `--project <dir>` (default cwd), `--json`, `--offline`, `--dry-run` (on
+mutating commands).
 
 `--frozen` fails if resolution would change `ambit.lock` — the CI check that a committed
 lock is current.

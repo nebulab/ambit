@@ -639,7 +639,6 @@ the cache, `clean` included.
 | `--json` | Machine-readable output. Every command supports it. |
 | `--offline` | Resolve from the cache alone. On consumer commands only — an authoring command reads one directory and resolves no source. |
 | `--dry-run` | On mutating commands: report what would happen and touch nothing. |
-| `--quiet`, `--no-color` | Accepted everywhere for script compatibility. ambit emits no progress chatter and no color today, so both are currently no-ops. |
 | `--help` | Usage for the program or for any command, at any depth, on stdout at exit 0. |
 | `--version` | Print the ambit version. Program-level. |
 
