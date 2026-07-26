@@ -142,6 +142,13 @@ async function writeSkill(relative: string, annotations: readonly string[]): Pro
   );
 }
 
+/** Adds a hook to the fixture catalog, its name derived from its path per §2. */
+async function writeHook(name: string, lines: readonly string[]): Promise<void> {
+  const target = path.join(catalogDir, "hooks", name.replaceAll(".", "/"), "HOOK.yml");
+  await mkdir(path.dirname(target), { recursive: true });
+  await writeFile(target, [`name: ${name}`, ...lines, ""].join("\n"), "utf8");
+}
+
 /**
  * Writes a skill into a directory that is not a catalog — no registry, no `mcps/` — which is what a
  * `skills` entry carrying its own `source` points at.
@@ -506,6 +513,31 @@ describe("unresolvable requirements", () => {
     expect(result.stderr).toContain('requires an MCP entity named "absent"');
     expect(result.stderr).toContain("mcps/");
   });
+
+  it("names the hook, not the prefixed requirement, for a `hook.` target", async () => {
+    await writeSkill("broken-dangling-hook", ["scopes: [core]", "requires: [hook.absent]"]);
+
+    const result = await cli("resolve");
+
+    expect(result.code).toBe(ExitCode.Resolution);
+    expect(result.stderr).toContain(
+      'unresolvable requirement "hook.absent" (skills/broken-dangling-hook/SKILL.md)',
+    );
+    expect(result.stderr).toContain('requires a hook named "absent"');
+    expect(result.stderr).toContain("add it under hooks/ in a catalog");
+  });
+
+  it("does not accept a skill of that name for a prefixed requirement", async () => {
+    // `hook.` names a namespace, not a spelling: a skill called `absent` cannot satisfy
+    // `hook.absent`, or the prefix would be decoration.
+    await writeSkill("absent", ["scopes: [core]"]);
+    await writeSkill("broken-wrong-namespace", ["scopes: [core]", "requires: [hook.absent]"]);
+
+    const result = await cli("resolve");
+
+    expect(result.code).toBe(ExitCode.Resolution);
+    expect(result.stderr).toContain('unresolvable requirement "hook.absent"');
+  });
 });
 
 describe("requirement cycles", () => {
@@ -863,13 +895,6 @@ describe("inline hooks", () => {
 describe("catalog hooks", () => {
   const HOOK_NAME = "block-rm";
 
-  /** Adds a hook to the fixture catalog, its name derived from its path per §2. */
-  async function writeHook(name: string, lines: readonly string[]): Promise<void> {
-    const target = path.join(catalogDir, "hooks", name.replaceAll(".", "/"), "HOOK.yml");
-    await mkdir(path.dirname(target), { recursive: true });
-    await writeFile(target, [`name: ${name}`, ...lines, ""].join("\n"), "utf8");
-  }
-
   beforeEach(async () => {
     await writeHook(HOOK_NAME, [
       "scopes: [function.engineering.frontend]",
@@ -912,6 +937,79 @@ describe("catalog hooks", () => {
     expect((await cli("resolve")).stdout).toContain(
       `hooks (1)\n  ${HOOK_NAME}  ${CATALOG_NAME}  PreToolUse`,
     );
+  });
+});
+
+/**
+ * A `hook.<name>` requirement is the third route into a bundle, and the only one that reaches a hook
+ * nobody named: a skill whose instructions are unsafe without its guard carries the guard.
+ *
+ * Every hook here declares no scope at all, so being required is doing all the work — a hook the scope
+ * route could also have reached would prove nothing about the edge.
+ */
+describe("hooks reached through `requires`", () => {
+  const HOOK_NAME = "guard";
+
+  beforeEach(async () => {
+    await writeHook(HOOK_NAME, [
+      "event: PreToolUse",
+      "matcher: Bash",
+      "command: npx guard",
+      "env: [GUARD_TOKEN]",
+    ]);
+  });
+
+  it("pulls a hook in behind the skill that requires it, and names the requirer", async () => {
+    await writeSkill("risky", ["scopes: [core]", `requires: [hook.${HOOK_NAME}]`]);
+
+    const required = await bundle(["core"]);
+
+    expect(required.hooks.map((hook) => hook.name)).toEqual([HOOK_NAME]);
+    expect(required.reasons.hooks.get(HOOK_NAME)).toEqual({
+      kind: "required-by",
+      requirer: "risky",
+    });
+  });
+
+  it("unions a required hook's env, so the closure feeds the credential list too", async () => {
+    await writeSkill("risky", ["scopes: [core]", `requires: [hook.${HOOK_NAME}]`]);
+
+    expect((await bundle(["core"])).env).toContain("GUARD_TOKEN");
+  });
+
+  it("reaches a hook down a chain, not only from a skill a scope selected", async () => {
+    await writeSkill("chain-leaf", [`requires: [hook.${HOOK_NAME}]`]);
+    await writeSkill("chain-root", ["scopes: [core]", "requires: [chain-leaf]"]);
+
+    const required = await bundle(["core"]);
+
+    expect(required.hooks.map((hook) => hook.name)).toEqual([HOOK_NAME]);
+    expect(required.reasons.hooks.get(HOOK_NAME)).toEqual({
+      kind: "required-by",
+      requirer: "chain-leaf",
+    });
+  });
+
+  it("leaves the hook out when nothing selected requires it", async () => {
+    // The same catalog, the same hook: what differs is that the requiring skill is not selected, so
+    // the edge exists and reaches nothing.
+    await writeSkill("risky", ["scopes: [project.acme]", `requires: [hook.${HOOK_NAME}]`]);
+
+    expect((await bundle(["core"])).hooks).toEqual([]);
+  });
+
+  it("satisfies a requirement from an inline hook, and still calls that one explicit", async () => {
+    // An inline `hooks` entry is folded into the merged catalog, so a `requires` edge resolves against
+    // it exactly as against a catalog's — and being named outright is the shorter true answer, which
+    // is the precedence every namespace's reason follows.
+    await writeSkill("risky", ["scopes: [core]", "requires: [hook.declared]"]);
+    const inline = await bundle(
+      ["core"],
+      ["hooks:", "  - name: declared", "    event: Stop", "    command: npx notify"],
+    );
+
+    expect(inline.hooks.map((hook) => hook.name)).toEqual(["declared"]);
+    expect(inline.reasons.hooks.get("declared")).toEqual({ kind: "explicit" });
   });
 });
 
@@ -1114,6 +1212,52 @@ describe("ambit why", () => {
     expect((await cli("why", `mcp.${CORE_SKILL}`)).stdout).toContain(`mcp ${CORE_SKILL}`);
   });
 
+  it("prints the chain to a hook a skill required, ending on the hook", async () => {
+    await writeHook("guard", ["event: PreToolUse", "matcher: Bash", "command: npx guard"]);
+    await writeSkill("risky", ["scopes: [core]", "requires: [hook.guard]"]);
+    await writeProfile(["core"]);
+
+    const result = await cli("why", "hook.guard");
+
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+    expect(result.stdout).toBe(
+      [
+        "hook guard",
+        "",
+        "chain (2)",
+        "  risky  skill  scope:core",
+        "  guard  hook   required-by:risky",
+      ].join("\n"),
+    );
+    // A bare name reaches it too, since nothing else holds it.
+    expect((await cli("why", "guard")).stdout).toBe(result.stdout);
+  });
+
+  it("insists on the hook for a `hook.`-prefixed name a skill also answers to", async () => {
+    await writeHook(CORE_SKILL, ["scopes: [core]", "event: Stop", "command: npx notify"]);
+    await writeProfile(["core"]);
+
+    expect((await cli("why", CORE_SKILL)).stdout).toContain(`skill ${CORE_SKILL}`);
+    expect((await cli("why", `hook.${CORE_SKILL}`)).stdout).toContain(`hook ${CORE_SKILL}`);
+  });
+
+  it("points at `requires` for an unselected hook, which no `skills` entry can reach", async () => {
+    await writeHook("guard", [
+      "scopes: [project.acme]",
+      "event: PreToolUse",
+      "matcher: Bash",
+      "command: npx guard",
+    ]);
+    await writeProfile(["core"]);
+
+    const result = await cli("why", "hook.guard");
+
+    expect(result.code).toBe(ExitCode.Resolution);
+    expect(result.stderr).toContain('hook "guard" is not in the bundle');
+    expect(result.stderr).toContain("hold one of its scopes (project.acme)");
+    expect(result.stderr).toContain("have a selected skill `require` hook.guard");
+  });
+
   it("reports an explicit entry as the whole chain, since nothing precedes it", async () => {
     await writeProfile([], ["skills:", `  - ${ENGINEERING_SKILL}`]);
 
@@ -1169,7 +1313,7 @@ describe("ambit why", () => {
     const result = await cli("why", "absent-skill");
 
     expect(result.code).toBe(ExitCode.Resolution);
-    expect(result.stderr).toContain('unknown skill or MCP server "absent-skill"');
+    expect(result.stderr).toContain('unknown skill, MCP server or hook "absent-skill"');
     expect(result.stderr).toContain("run `ambit catalog` to see what is available");
   });
 });

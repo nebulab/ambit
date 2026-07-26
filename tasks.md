@@ -160,7 +160,7 @@ catalog order like a skill; additions to `test/model/catalog.test.ts`.
 
 ## 8. `hook.<name>` in `requires`
 
-- [ ] The third requirement prefix.
+- [x] The third requirement prefix.
 
 **Slice** — a skill can pull its hook in, which is how a hook reaches a project without being named.
 
@@ -251,6 +251,11 @@ on `ScopeSelection:40` and in `selectionSize`.
 
 **Done when** — `test/golden/catalog-tree.json` regenerated (every node's counts change — read the
 diff), plus tests for the doctor warning and the audit finding.
+
+> note (task 8): `audit`'s dead-scope rule already counts hook declarations, through a local
+> `scopesHooksDeclare` in `audit.ts` — a scope only a hook declared read as unused, which was live the
+> moment catalog hooks parsed. Once `ScopeSelection` carries `hooks`, fold that back into
+> `selectionSize` and delete the helper, so one function answers "what does this scope select?" again.
 
 ## 14. Authoring
 

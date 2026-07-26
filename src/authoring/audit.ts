@@ -40,7 +40,7 @@ import type { Catalog, CatalogSkill } from "../model/catalog.js";
 import { SCOPES_FILENAME, SKILL_FILENAME, parseCatalogDirectory } from "../model/catalog.js";
 import { buildScopeTree, flattenScopeTree, selectionSize } from "./tree.js";
 import { at } from "../errors.js";
-import { MCP_REQUIREMENT_PREFIX } from "../resolution/resolve.js";
+import { MCP_REQUIREMENT_PREFIX, inSubtree } from "../resolution/resolve.js";
 
 /**
  * What kind of finding a report entry is, so `--json` can be filtered without parsing prose.
@@ -156,12 +156,38 @@ function reachableItems(catalog: Catalog): Reachable {
 }
 
 /**
+ * Registered scopes some hook's subtree reaches: every registered scope equal to one a hook declares,
+ * or above it.
+ *
+ * Read here rather than off {@link buildScopeTree}, because `ScopeSelection` counts the two namespaces
+ * `catalog tree` renders and a hook is not one of them yet. The subtree rule is applied the same way
+ * regardless — a held scope selects every scope beneath it — so a parent of a hook's scope is as alive
+ * as the scope itself, which is what keeps this answer and the tree's from disagreeing.
+ */
+function scopesHooksDeclare(catalog: Catalog): ReadonlySet<string> {
+  const registered = registeredScopes(catalog);
+  const declared = catalog.hooks
+    .flatMap((hook) => hook.scopes)
+    .filter((scope) => registered.has(scope));
+
+  return new Set(
+    catalog.scopes
+      .filter((definition) => declared.some((scope) => inSubtree(definition.name, scope)))
+      .map((definition) => definition.name),
+  );
+}
+
+/**
  * Registered scopes that select nothing, in registry order.
  *
  * The count comes from {@link buildScopeTree}, so "selects" here means exactly what it means in
  * `catalog tree` and in `expandHeldScopes`: this scope's own declarers plus every registered
  * descendant's. A parent nothing declares directly is therefore only reported when its whole subtree
  * is empty too.
+ *
+ * Hooks are counted through {@link scopesHooksDeclare} rather than through the tree, since they are a
+ * third namespace the tree does not render yet. Missing them would report a scope only a hook declares
+ * as dead — advising someone to unregister the scope their hook is selected by.
  */
 function deadScopeFindings(catalog: Catalog): readonly AuditFinding[] {
   const selected = new Map(
@@ -170,12 +196,15 @@ function deadScopeFindings(catalog: Catalog): readonly AuditFinding[] {
       selectionSize(node.direct) + selectionSize(node.inherited),
     ]),
   );
+  const hooked = scopesHooksDeclare(catalog);
 
   return catalog.scopes
-    .filter((definition) => (selected.get(definition.name) ?? 0) === 0)
+    .filter(
+      (definition) => (selected.get(definition.name) ?? 0) === 0 && !hooked.has(definition.name),
+    )
     .map((definition) =>
       finding("dead-scope", `unused scope "${definition.name}" ${at(SCOPES_FILENAME, undefined)}`, [
-        "no skill and no MCP server declares it, and nothing registered beneath it does either",
+        "no skill, MCP server or hook declares it, and nothing registered beneath it does either",
         "holding it selects nothing, so every picker rendering this registry offers a choice with no effect",
         `declare it with \`ambit catalog annotate <name> --add-scope ${definition.name}\`, or unregister it with \`ambit catalog scope rm ${definition.name}\``,
       ]),

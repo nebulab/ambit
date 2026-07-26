@@ -20,7 +20,7 @@
  * when its whole subtree selects nothing, so registering a parent of a declared scope adds no finding
  * while registering an unrelated one does (matching `catalog tree`'s own claim).
  */
-import { mkdtemp, rename, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -164,7 +164,7 @@ describe("ambit catalog audit", () => {
         "",
         "findings (3)",
         `  unused scope "${DEAD_SCOPE}" (scopes.yml)`,
-        "      no skill and no MCP server declares it, and nothing registered beneath it does either",
+        "      no skill, MCP server or hook declares it, and nothing registered beneath it does either",
         "      holding it selects nothing, so every picker rendering this registry offers a choice with no effect",
         `      declare it with \`ambit catalog annotate <name> --add-scope ${DEAD_SCOPE}\`, or unregister it with \`ambit catalog scope rm ${DEAD_SCOPE}\``,
         `  unreachable skill "${ORPHAN_SKILL}" (skills/orphan/SKILL.md)`,
@@ -317,6 +317,54 @@ describe("what makes a registered scope dead", () => {
 
   it("reports a scope nothing beneath it declares either", async () => {
     await author(fixture, "scope", "add", "person.jane", "--description", "Jane's own things");
+
+    expect((await auditJson(fixture)).findings.map((found) => found.message)).toEqual([
+      'unused scope "person.jane" (scopes.yml)',
+    ]);
+  });
+
+  /**
+   * Hand-writes a hook, since `catalog hook new` does not exist yet — the rest of this suite goes
+   * through the authoring commands and this is the one thing that cannot.
+   */
+  async function writeHook(dir: string, name: string, scopes: readonly string[]): Promise<void> {
+    const target = path.join(dir, "hooks", name, "HOOK.yml");
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeFile(
+      target,
+      [
+        `name: ${name}`,
+        `scopes: [${scopes.join(", ")}]`,
+        "event: Stop",
+        "command: npx notify",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+  }
+
+  it("reports no finding for a scope only a hook declares", async () => {
+    // A hook is a third thing a scope selects, so a scope that selects one is not dead — telling
+    // someone to unregister the scope their hook is reached by would be advice that breaks it.
+    await author(fixture, "scope", "add", "person.jane", "--description", "Jane's own things");
+    await writeHook(fixture, "notify", ["person.jane"]);
+
+    expect((await auditJson(fixture)).findings).toEqual([]);
+  });
+
+  it("reports no finding for a parent of a scope only a hook declares", async () => {
+    await author(fixture, "scope", "add", "person", "--description", "Everyone's own things");
+    await author(fixture, "scope", "add", "person.jane", "--description", "Jane's own things");
+    await writeHook(fixture, "notify", ["person.jane"]);
+
+    expect((await auditJson(fixture)).findings).toEqual([]);
+  });
+
+  it("still reports a scope whose only hook declares a different one", async () => {
+    // The registry decides what a declaration reaches, for a hook as for everything else: an
+    // unregistered scope on a hook keeps no registered scope alive.
+    await author(fixture, "scope", "add", "person.jane", "--description", "Jane's own things");
+    await writeHook(fixture, "notify", ["person.janet"]);
 
     expect((await auditJson(fixture)).findings.map((found) => found.message)).toEqual([
       'unused scope "person.jane" (scopes.yml)',

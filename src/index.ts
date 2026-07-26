@@ -140,6 +140,7 @@ export type { FrontmatterSplit, PositionedString } from "./model/yaml.js";
 
 // ── resolution — derive and verify the selected closure ───────────────────────────────────────
 export {
+  HOOK_REQUIREMENT_PREFIX,
   MCP_REQUIREMENT_PREFIX,
   SCOPE_SEPARATOR,
   assertScopesRegistered,
@@ -151,6 +152,8 @@ export {
   isSelected,
   missingRequirement,
   reasonOf,
+  requirementFor,
+  requirementTarget,
   resolveBundle,
   scopeSuggestion,
   skillFile,

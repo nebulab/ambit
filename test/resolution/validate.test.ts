@@ -31,13 +31,15 @@ const CATALOG_NAME = "company";
 const FIXTURE_SCOPES = 4;
 const FIXTURE_SKILLS = 4;
 const FIXTURE_MCPS = 2;
+/** None yet: the shared fixture grows hooks with the rest of the backlog. */
+const FIXTURE_HOOKS = 0;
 
 /** `writeProfile` puts the first held scope here, after the four-line preamble and `scopes:`. */
 const FIRST_SCOPE_LINE = 6;
 
 /** What a clean catalog reports: what was checked, and an explicitly empty problem list. */
 const CLEAN_REPORT = [
-  `checked ${FIXTURE_SCOPES} scopes, ${FIXTURE_SKILLS} skills, ${FIXTURE_MCPS} mcps`,
+  `checked ${FIXTURE_SCOPES} scopes, ${FIXTURE_SKILLS} skills, ${FIXTURE_MCPS} mcps, ${FIXTURE_HOOKS} hooks`,
   "",
   "problems (0)",
   "  (none)",
@@ -135,6 +137,21 @@ async function writeMcp(
   );
 }
 
+/**
+ * Adds a hook, its name derived from its directory per §2.
+ *
+ * @param within the catalog root to write it into, so a shadowing case can put one copy in each.
+ */
+async function writeHook(
+  name: string,
+  lines: readonly string[],
+  within = catalogDir,
+): Promise<void> {
+  const target = path.join(within, "hooks", name.replaceAll(".", "/"), "HOOK.yml");
+  await mkdir(path.dirname(target), { recursive: true });
+  await writeFile(target, [`name: ${name}`, ...lines, ""].join("\n"), "utf8");
+}
+
 /** Runs the CLI against the project, collecting stdout and stderr. */
 async function cli(
   ...argv: readonly string[]
@@ -171,11 +188,17 @@ interface ProblemRecord {
 }
 
 /** The `--json` report, parsed. */
-async function report(
-  ...argv: readonly string[]
-): Promise<{ valid: boolean; problems: readonly ProblemRecord[] }> {
+async function report(...argv: readonly string[]): Promise<{
+  valid: boolean;
+  checked: Readonly<Record<string, number>>;
+  problems: readonly ProblemRecord[];
+}> {
   const result = await cli(...argv, "--json");
-  return JSON.parse(result.stdout) as { valid: boolean; problems: readonly ProblemRecord[] };
+  return JSON.parse(result.stdout) as {
+    valid: boolean;
+    checked: Readonly<Record<string, number>>;
+    problems: readonly ProblemRecord[];
+  };
 }
 
 beforeEach(async () => {
@@ -253,6 +276,44 @@ describe("ambit validate: unregistered scopes", () => {
     });
     expect(found.problems[0]?.detail[0]).toBe(
       'MCP server "loose" (catalog "company") declares it, but no catalog\'s scopes.yml registers it',
+    );
+  });
+
+  it("reports one for a hook too, naming the hook and its catalog", async () => {
+    await writeHook("guard", ["scopes: [marketing]", "event: Stop", "command: npx notify"]);
+
+    const found = await report("validate");
+
+    expect(found.valid).toBe(false);
+    expect(found.problems).toHaveLength(1);
+    expect(found.problems[0]).toMatchObject({
+      kind: "unregistered-scope",
+      message: 'unregistered scope "marketing" (hooks/guard/HOOK.yml)',
+    });
+    expect(found.problems[0]?.detail[0]).toBe(
+      'hook "guard" (catalog "company") declares it, but no catalog\'s scopes.yml registers it',
+    );
+  });
+
+  it("cites the config file for a hook the project declares inline, which has no directory", async () => {
+    await writeProfile(
+      ["core"],
+      [
+        "hooks:",
+        "  - name: custom",
+        "    scopes: [marketing]",
+        "    event: Stop",
+        "    command: x",
+      ],
+    );
+
+    const found = await report("validate");
+
+    expect(found.problems.map((problem) => problem.message)).toEqual([
+      'unregistered scope "marketing" (ambit.yml)',
+    ]);
+    expect(found.problems[0]?.detail[0]).toBe(
+      'hook "custom" (catalog "ambit.yml") declares it, but no catalog\'s scopes.yml registers it',
     );
   });
 
@@ -347,6 +408,37 @@ describe("ambit validate: requirements and cycles", () => {
     expect(found.problems).toHaveLength(1);
     expect(found.problems[0]?.kind).toBe("unresolvable-requirement");
     expect(found.problems[0]?.detail[0]).toContain('an MCP entity named "absent"');
+  });
+
+  it("reports a missing hook by its bare name", async () => {
+    await writeSkill("broken-unselected", ["requires: [hook.absent]"]);
+
+    const resolved = await cli("resolve");
+    const found = await report("validate");
+
+    // The same split the describe is about: nothing selects the skill, so `resolve` never walks the
+    // edge and only `validate` reports it.
+    expect(resolved.code, resolved.stderr).toBe(ExitCode.Success);
+    expect(found.problems).toHaveLength(1);
+    expect(found.problems[0]?.kind).toBe("unresolvable-requirement");
+    expect(found.problems[0]?.detail[0]).toContain('a hook named "absent"');
+    expect(found.problems[0]?.detail[1]).toContain("hooks/");
+  });
+
+  it("resolves a `hook.` requirement against the hooks a catalog provides", async () => {
+    await writeHook("guard", ["event: Stop", "command: npx notify"]);
+    await writeSkill("well-formed", ["requires: [hook.guard]"]);
+
+    expect((await report("validate")).problems).toEqual([]);
+  });
+
+  it("follows no edge out of a hook when hunting cycles, since a hook has no `requires`", async () => {
+    // A hook named like a skill in the cycle would send a one-step walk round it twice; the prefix
+    // decides the namespace, so the edge simply ends.
+    await writeHook("cycle-a", ["event: Stop", "command: npx notify"]);
+    await writeSkill("cycle-a", ["requires: [hook.cycle-a]"]);
+
+    expect((await report("validate")).problems).toEqual([]);
   });
 
   it("reports a cycle among skills no scope selects, printing the whole path", async () => {
@@ -493,6 +585,23 @@ describe("ambit validate: shadowing", () => {
     });
   });
 
+  it("reports a hook two catalogs provide, after the skills and the servers", async () => {
+    await writeHook("guard", ["event: Stop", "command: npx notify"]);
+    await writeHook("guard", ["event: Stop", "command: npx notify"], path.join(root, SECOND));
+
+    const found = await report("validate");
+
+    expect(found.problems.at(-1)).toMatchObject({
+      kind: "shadowed-name",
+      message: `shadowed hook "guard" (catalog "${CATALOG_NAME}")`,
+      detail: [
+        `catalog "${CATALOG_NAME}" provides the copy resolution uses`,
+        `also provided by: ${SECOND}`,
+        "rename one of the copies, or drop the catalog that should not provide it",
+      ],
+    });
+  });
+
   it("keeps skills and servers in name order within their kinds", async () => {
     const found = await report("validate");
 
@@ -578,7 +687,12 @@ describe("ambit validate output", () => {
 
     expect(result.code).toBe(ExitCode.Resolution);
     expect(JSON.parse(result.stdout)).toEqual({
-      checked: { mcps: FIXTURE_MCPS, scopes: FIXTURE_SCOPES, skills: FIXTURE_SKILLS + 1 },
+      checked: {
+        hooks: FIXTURE_HOOKS,
+        mcps: FIXTURE_MCPS,
+        scopes: FIXTURE_SCOPES,
+        skills: FIXTURE_SKILLS + 1,
+      },
       problems: [
         {
           detail: [
@@ -595,9 +709,31 @@ describe("ambit validate output", () => {
 
   it("emits `valid: true` for a clean catalog rather than an empty document", async () => {
     expect(await report("validate")).toEqual({
-      checked: { mcps: FIXTURE_MCPS, scopes: FIXTURE_SCOPES, skills: FIXTURE_SKILLS },
+      checked: {
+        hooks: FIXTURE_HOOKS,
+        mcps: FIXTURE_MCPS,
+        scopes: FIXTURE_SCOPES,
+        skills: FIXTURE_SKILLS,
+      },
       problems: [],
       valid: true,
+    });
+  });
+
+  it("counts the hooks it checked, so a clean run says the third namespace was looked at", async () => {
+    await writeHook("guard", ["event: Stop", "command: npx notify"]);
+
+    const result = await cli("validate");
+
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+    expect(result.stdout).toContain(
+      `checked ${FIXTURE_SCOPES} scopes, ${FIXTURE_SKILLS} skills, ${FIXTURE_MCPS} mcps, 1 hook`,
+    );
+    expect((await report("validate")).checked).toEqual({
+      hooks: 1,
+      mcps: FIXTURE_MCPS,
+      scopes: FIXTURE_SCOPES,
+      skills: FIXTURE_SKILLS,
     });
   });
 
@@ -608,7 +744,7 @@ describe("ambit validate output", () => {
 
     expect(result.stdout).toBe(
       [
-        `checked ${FIXTURE_SCOPES} scopes, ${FIXTURE_SKILLS + 1} skills, ${FIXTURE_MCPS} mcps`,
+        `checked ${FIXTURE_SCOPES} scopes, ${FIXTURE_SKILLS + 1} skills, ${FIXTURE_MCPS} mcps, ${FIXTURE_HOOKS} hooks`,
         "",
         "problems (1)",
         '  unregistered scope "marmalade" (skills/typo-thing/SKILL.md)',
