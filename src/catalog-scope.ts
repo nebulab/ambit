@@ -5,9 +5,11 @@
  * names these scopes by hand, and a held scope selects its whole subtree (spec §2), so the three edits
  * here are deliberately not symmetric:
  *
- * - **`add` is declarative.** It makes the registry say what it was asked, whether or not the entry was
- *   already there — which is also the only way to correct a description, since nothing else edits one.
- *   Registering what is already registered therefore writes nothing at all rather than failing.
+ * - **`add` refuses a name the registry already holds.** Registering a scope is not rewording one:
+ *   quietly overwriting the entry that is there would let a re-run redefine what every project holding
+ *   that scope gets, and the description is the label a picker shows for it (spec §3.4). Nothing else in
+ *   the CLI edits a description, so the refusal sends the reader to `scopes.yml` itself rather than to a
+ *   command that does not exist.
  * - **`rm` refuses while anything still declares the scope**, naming every declarer. The editor would
  *   refuse the write anyway — a declared scope nothing registers is a validation problem — but the useful
  *   answer is the list of files to fix, not the news that the result would not validate. It unregisters
@@ -119,6 +121,24 @@ function stillDeclared(scope: string, declarers: Declarers): AmbitError {
     ...declarers.lines,
     `clear it from each with \`ambit catalog annotate <name> --remove-scope ${scope}\`${naming}, or rename it with \`ambit catalog scope mv ${scope} <new>\``,
   ]);
+}
+
+/**
+ * The error for registering a name the registry already holds (spec §6).
+ *
+ * The next step is hand-editing, uniquely among this module's refusals, because it is the only thing
+ * that is true: no command rewords a registered scope, and `rm` then `add` would move the entry to the
+ * end of the mapping and take the author's comment with it (authoring rule 2). Naming a command that
+ * would quietly reformat the file is worse advice than naming the file.
+ */
+function alreadyHeld(scope: string): AmbitError {
+  return resolutionError(
+    `scope "${scope}" is already registered ${at(SCOPES_FILENAME, undefined)}`,
+    [
+      "registering is not rewording: overwriting the entry would redefine a scope projects already hold",
+      `edit its \`${DESCRIPTION_KEY}\` in ${SCOPES_FILENAME} by hand — no command rewords one — or register a name no entry there uses`,
+    ],
+  );
 }
 
 /** The error for a rename onto a name the registry already holds (spec §6). */
@@ -236,16 +256,20 @@ function changesOf(documents: readonly CatalogDocument[]): readonly CatalogChang
 }
 
 /**
- * Registers `scope`, or gives it a new description.
+ * Registers `scope`, refusing a name the registry already holds.
  *
  * A new entry lands at the end of the registry in block layout, where the editor puts every key ambit
  * adds — the alternative, sorting the mapping, would reorder entries the author placed (authoring
  * rule 2).
  *
+ * The collision is asked of the one document this command writes rather than of a parsed catalog: the
+ * question is whether the key is there to be overwritten, and the file the refusal names is this one.
+ *
  * @param root the catalog root, absolute.
  * @param options `--dry-run`.
  * @throws {AmbitError} exit 2 for a name with an empty segment, a registry that cannot be read, or a
- *   write that fails; exit 3 if the result would not validate.
+ *   write that fails; exit 3 for a name the registry already holds — with nothing written, under
+ *   `--dry-run` too — or if the result would not validate.
  */
 export async function addScope(
   root: string,
@@ -256,6 +280,7 @@ export async function addScope(
   assertScopeName(scope);
 
   const registry = await CatalogDocument.open(root, SCOPES_FILENAME);
+  if (registry.has([REGISTRY_KEY, scope])) throw alreadyHeld(scope);
   registry.setString([REGISTRY_KEY, scope, DESCRIPTION_KEY], description);
 
   const result = await applyCatalogEdit(root, changesOf([registry]), options);

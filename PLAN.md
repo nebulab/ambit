@@ -762,13 +762,13 @@ mutation ends by re-validating.
 
 - [x] **B04 — Scope registry commands.**
   **Depends:** B03
-  **Do:** `catalog scope add|rm|mv`. `add` requires a description. `rm` refuses while anything
-  still declares the scope. `mv` renames the scope **and every descendant**, rewriting every
-  skill and MCP that declares any of them.
-  **Done when:** `add` emits a byte-stable registry and re-running it is a no-op; `rm` of a
-  declared scope exits 3 naming every declarer; `mv function.engineering` also renames
-  `function.engineering.frontend` and rewrites both declarers; comments in `scopes.yml`
-  survive; `validate` passes after each.
+  **Do:** `catalog scope add|rm|mv`. `add` requires a description, and refuses a name the
+  registry already holds. `rm` refuses while anything still declares the scope. `mv` renames the
+  scope **and every descendant**, rewriting every skill and MCP that declares any of them.
+  **Done when:** `add` emits a byte-stable registry and re-running it exits 3 with nothing
+  written; `rm` of a declared scope exits 3 naming every declarer; `mv function.engineering`
+  also renames `function.engineering.frontend` and rewrites both declarers; comments in
+  `scopes.yml` survive; `validate` passes after each.
 
 - [x] **B05 — Skill commands.**
   **Depends:** B04

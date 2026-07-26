@@ -6,8 +6,8 @@
  * diff authoring rule 6 promises, rendered by the one renderer every authoring preview uses.
  *
  * The heading follows `--dry-run` rather than `written`, unlike `catalog init`'s: here a run that changed
- * nothing is not a preview but a no-op — re-running `add` reports the scope as registered and no files
- * changed, which is the honest answer and would read as a lie under "would register".
+ * nothing is not a preview but a no-op — `mv <name> <name>` reports the scope as renamed and no files
+ * changed, which is the honest answer and would read as a lie under "would rename".
  *
  * `add`'s `--description` is required *here* rather than by Commander's `.makeOptionMandatory()`.
  * Commander's refusal now travels out as an exit code like any other (A30), so the reason is no longer
