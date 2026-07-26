@@ -3,30 +3,23 @@
 A deterministic dependency manager for AI-agent capabilities: skills and MCP servers, selected by
 scope.
 
-Agent harnesses (Claude Code, Codex, Cursor, opencode, VS Code) load _skills_ — folders of
-instructions — and connect to _MCP servers_. Picking those by hand, per project, per person, does not
-scale past one person: a designer and a backend engineer at the same company need
-overlapping-but-different sets, and nobody wants to hand-maintain a config file per human.
+Agent harnesses (Claude Code, Codex, Cursor, opencode, VS Code) load _skills_, folders of
+instructions, and connect to _MCP servers_. ambit makes picking them declarative. A project declares
+the **scopes** it holds; skills and MCP servers in a **catalog** declare which scopes they belong to;
+ambit resolves the two into a **bundle** and writes it into each configured harness's own layout.
 
-ambit makes the selection declarative. A project declares the **scopes** it holds; skills and MCP
-servers in a **catalog** declare which scopes they belong to; ambit resolves the two into a **bundle**
-and writes it into each configured harness's own layout.
-
-**ambit contains no AI.** It is a resolver and an installer — same inputs, same output, every time.
-Anything requiring judgement (which scopes a person holds, what a skill should say) happens outside
-and hands ambit a config file.
+**ambit contains no AI.** It is a resolver and an installer: same inputs, same output, every time.
 
 - [Install](#install)
 - [Quick start](#quick-start)
 - [Concepts](#concepts)
 - [File formats](#file-formats)
 - [Resolution](#resolution)
-- [The selection rule](#the-selection-rule) — read this before you design a catalog
+- [The selection rule](#the-selection-rule)
 - [What install puts on disk](#what-install-puts-on-disk)
 - [CLI reference](#cli-reference)
 - [Determinism](#determinism)
 - [Compatibility with plain skills repos](#compatibility-with-plain-skills-repos)
-- [Not in scope](#not-in-scope)
 - [Development](#development)
 
 ## Install
@@ -47,9 +40,8 @@ created ambit.yml
 next: add a catalog under `catalogs`, edit `scopes`, then run `ambit install`
 ```
 
-The scaffolded `ambit.yml` holds `core` and no catalog, so `ambit install` on it is an honest failure
-rather than a silently empty bundle — `core` is a convention no resolver knows, and the file's comments
-say so. Point it at a catalog and list the scopes this project holds:
+The scaffold holds `core` and no catalog, so `ambit install` fails until you point it at one. Add a
+catalog and list the scopes this project holds:
 
 ```yaml
 version: 1
@@ -65,7 +57,7 @@ catalogs:
     ref: main
 ```
 
-Then look before you leap, and install:
+Then:
 
 ```
 $ ambit scopes                 # what the catalog offers, and what this project holds
@@ -128,27 +120,23 @@ files (1)
 next: write the skill's instructions in skills/acme/engineering/use-code-review/SKILL.md
 ```
 
-ambit writes the file and maintains its annotations. What the instructions _say_ is your judgement —
-exactly the judgement ambit refuses to make.
+ambit writes the file and maintains its frontmatter; the instructions are yours.
 
-`ambit catalog init` also scaffolds a GitHub Actions workflow running `ambit catalog validate`, so a
-catalog repo is a CI'd repo from its first commit. It creates the root directory if it is missing — unlike
-`ambit init`, which refuses one, because the scaffold creates directories regardless and
-`--catalog acme-skills` is the ordinary first use. `scopes.yml` is what "already a catalog" means, and
-it alone is refused; every other scaffolded file that already exists is left byte-identical and
-reported as `kept`, since a catalog is normally initialized inside a repo that already has a README.
+`ambit catalog init` creates the root directory if it is missing, and scaffolds a GitHub Actions
+workflow that runs `ambit catalog validate`. It refuses a directory that already has a `scopes.yml`.
+Every other scaffolded file that already exists is left byte-identical and reported as `kept`.
 
 ## Concepts
 
 | Term                | Meaning                                                                                                                                              |
 | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Catalog**         | A source of skills and MCP definitions — a git repo or a local directory.                                                                            |
+| **Catalog**         | A source of skills and MCP definitions: a git repo or a local directory.                                                                             |
 | **Skill**           | A directory containing `SKILL.md`. Its name is its path under `skills/` with `/` → `.`, so `skills/acme/sales/use-close/` is `acme.sales.use-close`. |
 | **MCP entity**      | A server definition in the catalog's `mcps/` directory.                                                                                              |
 | **Scope**           | A dotted, nestable label for _who needs a thing_: `function.engineering`, `project.vision-group`, `person.jane-doe`.                                 |
 | **Project**         | A directory containing `ambit.yml`.                                                                                                                  |
 | **Bundle**          | The resolved set of skills and MCP servers for a project.                                                                                            |
-| **Harness adapter** | Code that writes a bundle into one agent tool's layout. One implementation, five descriptions: `claude`, `codex`, `cursor`, `opencode`, `vscode`.    |
+| **Harness adapter** | Code that writes a bundle into one agent tool's layout: `claude`, `codex`, `cursor`, `opencode`, `vscode`.                                           |
 | **Owned artifact**  | A file or directory ambit created, recorded in `.ambit/state.json`. ambit never touches anything else.                                               |
 
 A catalog looks like this:
@@ -165,11 +153,10 @@ acme-skills/
 
 ## File formats
 
-Everything is YAML — config, catalog metadata, the lockfile, and the skill frontmatter harnesses
-already read. One format, one parser, one set of rules. (`.ambit/state.json` is the exception, and
-is JSON for the reason given below.)
+Everything is YAML: config, catalog metadata, the lockfile, and the skill frontmatter harnesses
+already read. `.ambit/state.json` is the exception.
 
-### `ambit.yml` — project config
+### `ambit.yml`: project config
 
 At the project root. `ambit.yaml` is accepted; having both is an error.
 
@@ -177,7 +164,7 @@ At the project root. `ambit.yaml` is accepted; having both is an error.
 version: 1
 harnesses: [claude]
 
-# Scopes this project holds. Nothing is implicit — list everything, including the
+# Scopes this project holds. Nothing is implicit: list everything, including the
 # catalog's universal scope if it has one.
 scopes:
   - core
@@ -193,9 +180,8 @@ catalogs:
     source: git@github.com:jane/skills-private.git
     ref: main
 
-# Extra skills, regardless of scope.
-# A string is shorthand for a name looked up in the configured catalogs.
-# A mapping declares a skill from a source that isn't a full catalog.
+# Extra skills, regardless of scope. A string is a name looked up in the configured
+# catalogs; a mapping declares a skill from a source that isn't a full catalog.
 skills:
   - acme.marketing.use-luma
   - name: readwise-cli
@@ -212,24 +198,23 @@ mcps:
     env: [SOME_TOKEN]
 ```
 
-| Field       | Type                    | Required | Notes                                                                                                                                             |
-| ----------- | ----------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `version`   | int                     | yes      | Must be `1`.                                                                                                                                      |
-| `harnesses` | string[]                | no       | Any of `claude`, `codex`, `cursor`, `opencode`, `vscode`. Default `[claude]`. An unknown name is an error naming the five.                        |
-| `scopes`    | string[]                | no       | Held scopes, exactly as listed. Nothing is added implicitly. Absent or empty means nothing is selected by scope — only explicit `skills` entries. |
-| `catalogs`  | list of maps            | no       | `name`, `source`, `ref?`. `name` unique.                                                                                                          |
-| `skills`    | list of strings or maps | no       | String = a name from a catalog. Map = `name`, `source`, `ref?`, `path?`.                                                                          |
-| `mcps`      | list of maps            | no       | Inline server definitions, in the shape below.                                                                                                    |
+| Field       | Type                    | Required | Notes                                                                                                                                            |
+| ----------- | ----------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `version`   | int                     | yes      | Must be `1`.                                                                                                                                     |
+| `harnesses` | string[]                | no       | Any of `claude`, `codex`, `cursor`, `opencode`, `vscode`. Default `[claude]`. An unknown name is an error naming the five.                       |
+| `scopes`    | string[]                | no       | Held scopes, exactly as listed. Nothing is added implicitly. Absent or empty means nothing is selected by scope, only explicit `skills` entries. |
+| `catalogs`  | list of maps            | no       | `name`, `source`, `ref?`. `name` unique.                                                                                                         |
+| `skills`    | list of strings or maps | no       | String: a name from a catalog. Map: `name`, `source`, `ref?`, `path?`.                                                                           |
+| `mcps`      | list of maps            | no       | Inline server definitions, in the shape below.                                                                                                   |
 
 **Source formats:** `owner/repo`, `owner/repo@ref` (GitHub shorthand), `https://github.com/owner/repo`,
 `git@host:owner/repo.git`, `git:<any-git-url>`, `path:./relative/dir`. A `@ref` shorthand that
-contradicts the entry's own `ref` is an error rather than a silent winner.
+contradicts the entry's own `ref` is an error.
 
-### `SKILL.md` frontmatter — skill annotations
+### `SKILL.md` frontmatter: skill annotations
 
-Annotations live under **one top-level key, `ambit:`**, alongside whatever the harness already uses.
-Other tools ignore keys they do not know, so the whole of ambit's addition is one mapping they never
-look inside.
+Annotations live under **one top-level key, `ambit:`**, so they can never collide with a harness's own
+keys.
 
 ```yaml
 ---
@@ -244,28 +229,23 @@ ambit:
 ---
 ```
 
-| Key              | Type     | Required | Notes                                                                                            |
-| ---------------- | -------- | -------- | ------------------------------------------------------------------------------------------------ |
-| `ambit`          | map      | no       | Every annotation below. Absent means the skill declares nothing.                                 |
-| `ambit.scopes`   | string[] | no       | Absent or empty = never selected by scope; reachable only via `requires` or an explicit listing. |
-| `ambit.requires` | string[] | no       | Skill names, or MCP names prefixed `mcp.`.                                                       |
-| `ambit.env`      | string[] | no       | Env vars the skill itself reads (not via an MCP).                                                |
+| Key              | Type     | Required | Notes                                                                                           |
+| ---------------- | -------- | -------- | ----------------------------------------------------------------------------------------------- |
+| `ambit`          | map      | no       | Every annotation below. Absent means the skill declares nothing.                                |
+| `ambit.scopes`   | string[] | no       | Absent or empty: never selected by scope, reachable only via `requires` or an explicit listing. |
+| `ambit.requires` | string[] | no       | Skill names, or MCP names prefixed `mcp.`.                                                      |
+| `ambit.env`      | string[] | no       | Env vars the skill itself reads (not via an MCP).                                               |
 
 `name` and `description` are the harness's own keys. ambit reads `name` and requires it to match the
 directory path.
 
-**One key, so nothing can collide.** A harness that one day defines its own `scopes` or `requires`
-takes the top-level name and ambit's stay a level down, where they always were. The cost is a line of
-nesting and it buys the guarantee outright.
+Unknown keys at the top level are **kept**; unknown keys under `ambit:` are **rejected**, so a
+misspelled `scope:` is an error rather than a skill that silently declares nothing.
 
-**Unknown keys go two ways, deliberately.** At the top level they are kept: that block is the
-harness's and ambit is a guest in it. Under `ambit:` they are rejected: that block is ambit's, so a
-misspelled `scope:` is an error rather than a skill that declares nothing and warns nobody.
+`ambit.yml`, `mcps/<name>.yml`, and `scopes.yml` are ambit's own documents end to end, and are not
+namespaced.
 
-`ambit.yml`, `mcps/<name>.yml`, and `scopes.yml` are ambit's own documents end to end and are
-**not** namespaced — they hold no other tool's keys to collide with.
-
-### `mcps/<name>.yml` — MCP entities
+### `mcps/<name>.yml`: MCP entities
 
 ```yaml
 name: sentry
@@ -297,22 +277,18 @@ env: [SENTRY_TOKEN]
 | `transport.http.headers`  | map      | no            | `${VAR}` becomes a reference in each harness's own syntax.          |
 | `env`                     | string[] | no            | Env vars this server needs.                                         |
 
-**`${VAR}` is a reference, wherever it appears in a transport — never a value.** ambit rewrites it into
+**`${VAR}` is a reference, wherever it appears in a transport, never a value.** ambit rewrites it into
 the syntax the target harness expands when it spawns the server: in a header, in the `url`, and in a
-stdio `args` entry, which is how a bridge like `mcp-remote` carries a credential. `env` is the list of
-variables the server itself needs; a stdio server gets a passthrough entry per name. Nothing in either
-is ever resolved at install time — see [MCP servers](#mcp-servers--the-harnesss-own-config-file).
+stdio `args` entry. `env` lists the variables the server itself needs; a stdio server gets a
+passthrough entry per name. Nothing in either is resolved at install time. See
+[MCP servers](#mcp-servers).
 
 `transport` must contain **exactly one** key. Zero keys, two keys, or an unrecognized kind is an error
-naming the supported kinds — it is the discriminator, so it must never be ambiguous. Keeping the kind
-as a nested key rather than a `type:` field scopes each kind's fields to it, so a future kind (sse,
-websocket) adds nothing to the top level.
+naming the supported kinds.
 
-**A server is installed if its scopes match, or a selected skill requires it.** Both paths are needed:
-some servers are worth having because of who you are, with no skill involved; others must follow a
-skill into the bundle even when their scopes differ.
+**A server is installed if its scopes match, or a selected skill requires it.**
 
-### `scopes.yml` — the catalog's scope registry
+### `scopes.yml`: the catalog's scope registry
 
 At the catalog root.
 
@@ -326,11 +302,10 @@ scopes:
     description: The Vision Group engagement
 ```
 
-Every scope a skill or MCP declares must be registered here, so a typo fails loudly instead of
-silently matching nothing. The registry is also the human-readable list a consuming tool renders as a
-picker, so descriptions are not optional decoration.
+Every scope a skill or MCP declares must be registered here, so a typo is an error rather than a
+silent miss. Descriptions are required: consuming tools render the registry as a scope picker.
 
-### `ambit.lock` — the resolution result
+### `ambit.lock`: the resolution result
 
 Generated YAML, written by `install`. Commit it when a team wants reproducible installs; gitignore it
 when config is per-person. Sorted keys, no timestamps, byte-stable.
@@ -355,20 +330,16 @@ skills:
 version: 1
 ```
 
-Nothing parses the lock: `install --frozen` compares its **bytes** against what resolving now would
-produce, which is why nothing about it can drift out of sync with the resolver. A git-sourced catalog
-also records the `commit` its `ref` resolved to.
+Nothing parses the lock. `install --frozen` compares its **bytes** against what resolving now would
+produce. A git-sourced catalog also records the `commit` its `ref` resolved to.
 
-The lock records no materialization mode — whether a skill was copied or linked is a per-run choice,
-not part of a resolution.
+The lock records no materialization mode: whether a skill was copied or linked is a per-run choice.
 
-### `.ambit/state.json` — what is actually on disk
+### `.ambit/state.json`: what is actually on disk
 
-Generated, always gitignored, machine-local, and **JSON rather than YAML**: nothing reads it by hand,
-and JSON's single unambiguous serialization is what a crash-safety record wants.
-
-It lists every **owned artifact** by project-relative path. This is what makes pruning safe — ambit
-deletes only what this file says it created.
+Generated, always gitignored, machine-local, and JSON rather than YAML. It lists every **owned
+artifact** by project-relative path, which is what makes pruning safe: ambit deletes only what this
+file says it created.
 
 ```json
 {
@@ -401,29 +372,20 @@ deletes only what this file says it created.
 }
 ```
 
-| Kind             | Owned as          | Extra fields                                                                  |
-| ---------------- | ----------------- | ----------------------------------------------------------------------------- |
-| `skill-dir`      | the whole path    | `mode`: `copy` or `link`.                                                     |
-| `skills-link`    | the whole path    | `mode`, always `link`. The directory a harness reads skills through.          |
-| `harness-config` | the keys it names | `managedKeys`, and `format` — `json`, `jsonc` or `toml`; absent means `json`. |
-
-`format` is recorded rather than re-derived because `prune` and `clean` act from this file alone: they
-have to edit a `.codex/config.toml` without resolving the project, and on a project whose `ambit.yml`
-is gone or whose catalog is unreachable, "which harness wanted this file" is not a question with an
-answer.
+| Kind             | Owned as          | Extra fields                                                                 |
+| ---------------- | ----------------- | ---------------------------------------------------------------------------- |
+| `skill-dir`      | the whole path    | `mode`: `copy` or `link`.                                                    |
+| `skills-link`    | the whole path    | `mode`, always `link`. The directory a harness reads skills through.         |
+| `harness-config` | the keys it names | `managedKeys`, and `format`: `json`, `jsonc` or `toml`. Absent means `json`. |
 
 ### YAML rules
-
-These are not stylistic. Getting them wrong produces silent, hard-to-trace corruption, so ambit
-refuses instead.
 
 - **Core schema only** (YAML 1.2, the `yaml` package). No custom tags, no arbitrary type resolution.
 - **Everything that identifies something is a string.** Git refs are the trap: `1234567` parses as an
   integer and `1e5` as a float. A value arriving as a number or boolean where a string is required is
   an error, not a silent `String()`. Quote your refs.
-- **Duplicate keys are an error**, naming the key and both line numbers — most parsers keep the last
-  one silently.
-- **Tabs are an error**, reported as "YAML does not permit tabs for indentation" with the line number.
+- **Duplicate keys are an error**, naming the key and both line numbers.
+- **Tabs are an error**, reported with the line number.
 - **An empty file, or a document that is not a mapping**, is an error rather than an empty config.
 - **`null` is not "missing".** An explicitly null value where a value is required is an error; absent
   keys take their defaults.
@@ -451,33 +413,32 @@ refuses instead.
 10. **Union `env`** across every selected skill and server.
 11. **Emit the bundle**, sorted by name.
 
-A config `skills` or `mcps` entry whose name a catalog also provides is an error (exit 3), not a
-precedence question. First-wins applies between catalogs and nowhere else.
+A config `skills` or `mcps` entry whose name a catalog also provides is an error (exit 3). First-wins
+applies between catalogs and nowhere else.
 
 ### Validation split
 
 - `ambit resolve` and `ambit install` hard-validate only the **selected closure**, so one broken
   unrelated skill does not block everyone.
-- Validation checks **everything**, selected or not — every scope registered, every `requires` target
-  resolvable, no cycles, no name shadowing, every skill name matching its path — and lists every
-  problem it finds rather than stopping at the first. It comes in two commands, one per subject:
+- Validation checks **everything**, selected or not: every scope registered, every `requires` target
+  resolvable, no cycles, no name shadowing, every skill name matching its path. It lists every problem
+  rather than stopping at the first, and comes in two commands:
   - `ambit catalog validate` checks one catalog directory on its own terms, reading no `ambit.yml`.
-    This is the CI command for a catalog repo, and what `ambit catalog init` scaffolds a workflow for.
+    This is the CI command for a catalog repo.
   - `ambit validate` checks everything a project configures: every catalog it lists, its own `skills`
     and `mcps` declarations, and its own held scopes. This is the CI command for a project.
-- `ambit catalog audit` is the report about a catalog's _health_ where validation is the report about
-  its _validity_: dead scopes and unreachable items. The two deliberately do not learn each other's
-  findings, so a catalog can be perfectly valid and still be reported as untidy.
+- `ambit catalog audit` reports a catalog's _health_ where validation reports its _validity_: dead
+  scopes and unreachable items. A valid catalog can still be untidy.
 
 ## The selection rule
 
 **A held scope selects itself and every scope beneath it. Descendants only.**
 
 Holding `function.engineering` selects things scoped `function.engineering` _and_
-`function.engineering.frontend`. Holding `function.engineering.frontend` selects only that subtree —
-it does **not** reach up to `function.engineering`.
+`function.engineering.frontend`. Holding `function.engineering.frontend` selects only that subtree; it
+does **not** reach up to `function.engineering`.
 
-That single rule is the whole resolver, and it makes the shape of your scope tree load-bearing:
+That rule is the whole resolver, so the shape of your scope tree is load-bearing:
 
 ```
 $ ambit catalog tree
@@ -487,7 +448,7 @@ scopes (3)
     function.engineering.frontend  1 direct  0 inherited  Browser-side work
 ```
 
-A project holding `function.engineering` gets both engineering skills — one directly, one inherited
+A project holding `function.engineering` gets both engineering skills, one directly and one inherited
 from the child scope:
 
 ```
@@ -515,39 +476,36 @@ skills (1)
 
 ### Nest or make siblings?
 
-This is the decision catalog authors get wrong, and the only fix is restructuring the tree — which
-means every project's `ambit.yml` has to be edited to match. Get it right first.
+The only fix for getting this wrong is restructuring the tree, which means editing every project's
+`ambit.yml` to match. Get it right first.
 
-- **Nest** only when selecting the parent genuinely implies wanting _every_ child. Everyone doing
-  engineering work should have the frontend conventions too? Then `function.engineering.frontend` is a
+- **Nest** only when selecting the parent genuinely implies wanting _every_ child. If everyone doing
+  engineering work should have the frontend conventions too, then `function.engineering.frontend` is a
   child of `function.engineering`.
 - **Make siblings** of anything people pick independently. If some engineers want the frontend set and
-  some want the backend set and nobody wants both, they are siblings — `discipline.frontend` and
-  `discipline.backend` — with no parent that selects them together.
+  some want the backend set and nobody wants both, they are siblings (`discipline.frontend` and
+  `discipline.backend`) with no parent that selects them together.
 
-The test to apply to any candidate parent: _would I be annoyed to receive everything under this?_ If
-yes, the children belong somewhere else.
+The test for any candidate parent: _would I be annoyed to receive everything under this?_ If yes, the
+children belong somewhere else.
 
-Two corollaries worth internalising:
+Two corollaries:
 
 - **A scope with no children is a leaf you can always split later.** Adding
-  `function.engineering.frontend` under an existing `function.engineering` is backwards-compatible —
+  `function.engineering.frontend` under an existing `function.engineering` is backwards-compatible:
   every project already holding the parent picks the new child up automatically. Splitting a parent
   _apart_ into siblings is not.
-- **There is no "select the parent from the child" escape hatch.** If a skill is genuinely needed by
-  both `function.engineering` and `function.design`, give it both scopes. `scopes` is a list.
+- **There is no "select the parent from the child" escape hatch.** If a skill is needed by both
+  `function.engineering` and `function.design`, give it both scopes. `scopes` is a list.
 
 ### Nothing is implicit
 
 **ambit reserves no scope names.** A project gets exactly the scopes it lists. Catalogs conventionally
-use `core` for the universal floor, but that is a naming convention, not a rule the resolver knows,
-and a project that wants it must say so.
+use `core` for the universal floor, but that is a naming convention, not a rule the resolver knows.
 
-The tradeoff is deliberate: someone who writes `scopes: [function.sales]` and forgets `core` gets a
-bundle with no company context and no house style, and nothing warns them. That is the cost of a
-resolver with no special cases. Two things soften it — `ambit init` scaffolds `core` into the starter
-config with a comment explaining why, and a consuming tool that writes `ambit.yml` should always write
-the universal scope explicitly.
+Write `scopes: [function.sales]` and forget `core`, and you get a bundle with no company context and no
+warning. `ambit init` scaffolds `core` into the starter config, and a tool that generates `ambit.yml`
+should always write the universal scope explicitly.
 
 A scope a project holds but the catalog never registered is an error, not a silent miss:
 
@@ -571,27 +529,19 @@ error: unknown scope "function.enginering" (ambit.yml line 4)
 | `opencode` | `.agents/skills` (native)           | `.opencode/opencode.jsonc` | `mcp`         | JSONC  |
 
 Each layout is what that tool's own documentation tells a person to write by hand, so an installed
-config is indistinguishable from a hand-written one — which is what makes the harness willing to read
-it and a person willing to look at it. Codex wants no `type` and TOML; Cursor infers the transport from
-the presence of `url` and wants no `type` either; VS Code wants an explicit one on both transports and
-calls its section `servers`; opencode says `local`/`remote` and takes the command as one array.
+config is indistinguishable from a hand-written one.
 
-There is **one adapter**, and a harness is a description of these five columns plus the shape of one
-server. Adding a harness is adding a profile; if it required editing the adapter, the seam would be in
-the wrong place.
+### Skills
 
-### Skills → `.agents/skills/<name>/`
-
-One location for every harness. Three of the five read it natively, and the other two are pointed at
-it with a directory symlink — the layout dotagents uses, and the reason a project can list several
-harnesses without materializing the same skill several times for someone to wonder about.
+Skills are materialized into `.agents/skills/<name>/`, one location for every harness. Three of the
+five read it natively; the other two are pointed at it with a directory symlink.
 
 - **Remote-source skills are copied.** They are pinned to a commit and immutable.
 - **`path:` local-source skills are symlinked**, so editing the installed skill edits the tracked
-  source rather than a stale duplicate. Links are relative, so a project and its catalog move
-  together and no absolute path lands in the working tree.
-- `--copy` and `--link` override that per run. They are mutually exclusive. Nothing persists the
-  choice; it is not a config key.
+  source rather than a stale duplicate. Links are relative, so no absolute path lands in the working
+  tree.
+- `--copy` and `--link` override that per run. They are mutually exclusive, and nothing persists the
+  choice.
 
 ```
 $ ls -l .agents/skills
@@ -601,26 +551,20 @@ $ ls -l .claude
 skills -> ../.agents/skills
 ```
 
-Because a linked skill _is_ the catalog's copy, editing one is never drift. Content drift is only a
-question about a copy — and there, `status` compares the copy against its source, so it reports
-upstream change as well as local edits.
+Editing a linked skill is never drift: the link _is_ the catalog's copy. Drift is only a question about
+a copy, and there `status` compares the copy against its source, reporting upstream change as well as
+local edits.
 
-The link is an owned artifact of its own (`skills-link`), and it is the one place ambit owns a whole
-harness directory rather than a path or a key inside a file. That is coarser than the rest of the
-ownership model, so it is fenced: `.claude/skills` is replaced only when it does not exist, when state
-already owns it, or when it is a directory **every entry of which ambit installed** — which is what an
-install from before the shared layout leaves behind, and replacing it then loses nothing. One
-hand-written skill in there and install refuses and names `--adopt`. An empty bundle plans no link at
-all, so a project that selects nothing acquires nothing.
+The link is an owned artifact of its own (`skills-link`), and the one place ambit owns a whole harness
+directory rather than a path or a key. It is fenced accordingly: `.claude/skills` is replaced only when
+it does not exist, when state already owns it, or when it is a directory **every entry of which ambit
+installed**. One hand-written skill in there and install refuses, naming `--adopt`. An empty bundle
+plans no link at all, and `claude` plus `cursor` name the same link, so it is written once.
 
-Two consequences worth knowing. A tree walker that does not skip inward-pointing symlinks sees every
-skill twice, once at `.agents/skills/x` and once through `.claude/skills/x`. And `claude` plus `cursor`
-name the same link, so it is planned, written, owned and ignored exactly once.
+### MCP servers
 
-### MCP servers → the harness's own config file
-
-Each entity's `transport` maps onto the harness's own server shape — `stdio` to `command`/`args`,
-`http` to `url`/`headers` — in that harness's file and format:
+Each entity's `transport` maps onto the harness's own server shape (`stdio` to `command`/`args`, `http`
+to `url`/`headers`) in that harness's file and format:
 
 ```json
 {
@@ -647,53 +591,41 @@ Authorization = "Bearer ${SENTRY_TOKEN}"
 
 Every one of these files is **co-owned**: ambit owns only the server keys it wrote, recorded per key in
 state. Servers you added by hand are preserved untouched, and only a colliding server _name_ is a
-conflict. That holds for the two formats that carry a person's prose as well: a JSONC config's comments
-and trailing commas survive a merge, and `.codex/config.toml` is edited by splicing the
-`[mcp_servers.<name>]` table and leaving every other byte alone, because that file holds someone's
-model, sandbox and approval settings.
+conflict. A JSONC config's comments and trailing commas survive a merge, and `.codex/config.toml` is
+edited by splicing the `[mcp_servers.<name>]` table and leaving every other byte alone.
 
-The cost of editing TOML lexically is that a few legal shapes have no span to replace — a server
-written as an inline table, through dotted keys outside a table header, or as `[[mcp_servers.x]]`.
-Those are **refused**, exit 2 with the file untouched, rather than guessed at. Refusing beats
-corrupting a config ambit does not own. It also means a hand-reformatted `[mcp_servers.x]` table reads
-as drift, since TOML cannot be compared structurally without a parser; JSON and JSONC are compared as
-values, so reformatting them is not drift.
+TOML is edited lexically, so three legal shapes have no span to replace: an inline table, dotted keys
+outside a table header, and `[[mcp_servers.x]]`. Those are **refused**, exit 2 with the file untouched.
+A hand-reformatted `[mcp_servers.x]` table also reads as drift; JSON and JSONC are compared as values,
+so reformatting them is not.
 
 #### `${VAR}` is written as a reference, never as a value
 
-ambit does not resolve environment variables into these files at all. It translates the catalog's
-`${VAR}` into the syntax the harness itself expands when it spawns the server:
+ambit does not resolve environment variables into these files. It translates the catalog's `${VAR}`
+into the syntax the harness itself expands when it spawns the server:
 
-| Harness            | Reference    | Notes                                                                 |
-| ------------------ | ------------ | --------------------------------------------------------------------- |
-| `claude`, `codex`  | `${VAR}`     | Plain shell syntax — which is why the catalog's spelling is that one. |
-| `cursor`, `vscode` | `${env:VAR}` |                                                                       |
-| `opencode`         | `{env:VAR}`  | `${VAR}` in a local server's `environment`.                           |
+| Harness            | Reference    | Notes                                       |
+| ------------------ | ------------ | ------------------------------------------- |
+| `claude`, `codex`  | `${VAR}`     | Plain shell syntax.                         |
+| `cursor`, `vscode` | `${env:VAR}` |                                             |
+| `opencode`         | `{env:VAR}`  | `${VAR}` in a local server's `environment`. |
 
 Codex gets one refinement: a header whose value is _nothing but_ a reference becomes an
-`env_http_headers` entry naming the variable, which keeps the credential out of the file entirely. A
-header with a reference embedded in a larger string — `Bearer ${TOKEN}` — cannot be expressed that way
-and stays in `http_headers` with the reference intact.
+`env_http_headers` entry naming the variable, keeping the credential out of the file entirely. A header
+with a reference embedded in a larger string (`Bearer ${TOKEN}`) cannot be expressed that way and stays
+in `http_headers`.
 
-This is a deliberate reversal of the obvious design, for three reasons. A resolved credential would sit
-in `.mcp.json`, a file ambit does not gitignore because teams legitimately commit it, and one
-`git add -A` later it is in history. A reference is what every one of these tools' own documentation
-tells people to write by hand. And the installed file is then **identical on every machine**, so two
-people resolving the same bundle get the same bytes and `ambit status` never reports drift because
-someone else's shell holds a different token.
+No credential lands in a file a team commits, and the installed file is identical on every machine, so
+`status` never reports drift over someone else's token. `ambit doctor` reads the environment to tell
+you whether a variable is actually set.
 
-The cost is that ambit can no longer tell from the file whether a variable is set. `ambit doctor`
-answers that by reading the environment, which is where the answer actually is — and its remedy is
-"set the variable", with nothing to reinstall afterwards.
+### `.gitignore`
 
-### `.gitignore` — two files, because one of them churns
-
-ambit rewrites a delimited managed block in place. There are two, and which paths go where is decided
-by what a nested `.gitignore` can express: git matches a pattern only against paths beneath the file
+ambit rewrites a delimited managed block in place, in two files. Which paths go where is decided by
+what a nested `.gitignore` can express: git matches a pattern only against paths beneath the file
 holding it.
 
-Every installed skill is a path under `.agents/`, so those are listed in `.agents/.gitignore` —
-the layout dotagents established:
+Every installed skill is a path under `.agents/`, so those are listed in `.agents/.gitignore`:
 
 ```
 # BEGIN ambit - managed block, rewritten by `ambit install`; edits are lost
@@ -702,7 +634,7 @@ the layout dotagents established:
 # END ambit
 ```
 
-What stays at the project root is what has nowhere else to go — `.ambit/`, and the skills link, which
+What stays at the project root is what has nowhere else to go: `.ambit/`, and the skills link, which
 belongs to a harness rather than to that directory:
 
 ```
@@ -712,27 +644,24 @@ belongs to a harness rather than to that directory:
 # END ambit
 ```
 
-**The split is about churn, not tidiness.** The skill list changes whenever the bundle does; the root
-block is two or three lines and identical from one install to the next. A project's root `.gitignore`
-is a file people read, and it should not be rewritten every time a scope is added.
+The split keeps churn out of the root file: the skill list changes whenever the bundle does, while the
+root block is two or three lines and identical from one install to the next.
 
-`.agents/.gitignore` is **left tracked**. It is generated, but generated from `ambit.yml` and
-`ambit.lock`, which a project commits, and it is byte-stable — so committing it costs a reviewable
-diff and buys a fresh clone and every git worktree the ignore list without running ambit first.
-Ignoring it would need a root line to hide it and leave a worktree reporting every copied skill as
-untracked. A project that selects no skills gets no nested file at all, and one that deselects its
-last skill has the file removed rather than left holding two markers with nothing between them.
+`.agents/.gitignore` is **left tracked**. It is byte-stable and generated from files a project commits,
+so committing it gives a fresh clone and every git worktree the ignore list without running ambit
+first. A project that selects no skills gets no nested file at all, and one that deselects its last
+skill has the file removed.
 
-Never `ambit.lock` and never a harness config file — both are things a team may want to commit. Skill
-paths carry no trailing slash on purpose: git does not match a `dir/` pattern against a symlink, and a
-linked skill would stay tracked. The link needs a line for the same reason. A nested entry is anchored
-with a leading `/` so a skill named `skills` cannot start matching at another depth.
+Neither block ever lists `ambit.lock` or a harness config file, both of which a team may want to
+commit. Skill paths carry no trailing slash, because git does not match a `dir/` pattern against a
+symlink. A nested entry is anchored with a leading `/` so a skill named `skills` cannot start matching
+at another depth.
 
-Two shapes are refused per file (exit 2, file left byte-identical): more than one `# BEGIN ambit`
-line, and a begin marker with no `# END ambit` after it. `install --dry-run`, `doctor` and `clean`
-report the two files separately, since they go stale for different reasons.
+Two shapes are refused per file (exit 2, file left byte-identical): more than one `# BEGIN ambit` line,
+and a begin marker with no `# END ambit` after it. `install --dry-run`, `doctor` and `clean` report the
+two files separately.
 
-### Ownership — the safety core
+### Ownership
 
 1. ambit deletes or overwrites **only** paths `.ambit/state.json` lists as owned.
 2. If a target path exists and is not owned, ambit **stops** rather than clobbering it:
@@ -746,40 +675,37 @@ error: refusing to overwrite unowned path
 
 3. `install` **prunes**: owned artifacts absent from the new bundle are removed, then state is
    rewritten. Narrow a project's scopes and the skills that left the bundle leave the disk.
-4. State is written **after** the filesystem changes succeed, so a crash leaves artifacts owned and
-   recoverable rather than orphaned.
+4. State is written **after** the filesystem changes succeed.
 
-The cost of rule 4 is worth knowing: a run that crashed mid-apply leaves artifacts present but
-_unowned_, so the next plain `install` refuses them. `status` reports them as `unowned` and `doctor`
-names `--adopt`.
+Rule 4 means a run that crashed mid-apply leaves artifacts present but _unowned_, so the next plain
+`install` refuses them. `status` reports them as `unowned` and `doctor` names `--adopt`.
 
 ### Cache and offline
 
-Git catalogs are bare-cloned into `$XDG_CACHE_HOME/ambit/` (falling back to `~/.cache/ambit/`), keyed
-by host/owner/repo, and fetched on demand. A cached clone is refetched only when it cannot answer the
-ref, so `ref: main` pins to the commit first seen — reproducibility comes from the lock, not from the
-network.
+Git catalogs are bare-cloned into `$XDG_CACHE_HOME/ambit/` (falling back to `~/.cache/ambit/`), keyed by
+host/owner/repo, and fetched on demand. A cached clone is refetched only when it cannot answer the ref,
+so `ref: main` pins to the commit first seen. Reproducibility comes from the lock, not the network.
 
 `--offline` refuses the clone and the fetch and nothing else, failing with exit 4 naming what the cache
-is missing. `path:` sources never consult the cache at all. Nothing ambit does removes anything from
-the cache, `clean` included.
+is missing. `path:` sources never consult the cache. Nothing ambit does removes anything from the cache,
+`clean` included.
 
 ## CLI reference
 
 ### Global flags
 
-| Flag              | Notes                                                                                                                      |
-| ----------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `--project <dir>` | The project to act on. Default: cwd. On consumer commands.                                                                 |
-| `--catalog <dir>` | The catalog root to act on. Default: cwd. On authoring commands.                                                           |
-| `--json`          | Machine-readable output. Every command supports it.                                                                        |
-| `--offline`       | Resolve from the cache alone. On consumer commands only — an authoring command reads one directory and resolves no source. |
-| `--dry-run`       | On mutating commands: report what would happen and touch nothing.                                                          |
-| `--help`          | Usage for the program or for any command, at any depth, on stdout at exit 0.                                               |
-| `--version`       | Print the ambit version. Program-level.                                                                                    |
+| Flag              | Notes                                                                                                                     |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `--project <dir>` | The project to act on. Default: cwd. On consumer commands.                                                                |
+| `--catalog <dir>` | The catalog root to act on. Default: cwd. On authoring commands.                                                          |
+| `--json`          | Machine-readable output. Every command supports it.                                                                       |
+| `--offline`       | Resolve from the cache alone. On consumer commands only: an authoring command reads one directory and resolves no source. |
+| `--dry-run`       | On mutating commands: report what would happen and touch nothing.                                                         |
+| `--help`          | Usage for the program or for any command, at any depth, on stdout at exit 0.                                              |
+| `--version`       | Print the ambit version. Program-level.                                                                                   |
 
 `--dry-run` still checks ownership and `--frozen`: a preview of an install that would be refused is
-refused, with the same message and exit code, because "what would happen" includes stopping.
+refused, with the same message and exit code.
 
 ### Consumer commands
 
@@ -800,8 +726,7 @@ refused, with the same message and exit code, because "what would happen" includ
 `--explain` annotates each item with why it was selected: `scope:function.sales`,
 `required-by:acme.sales.use-close`, `explicit`, or `catalog:company (shadows personal)`.
 
-`--frozen` fails if resolution would change `ambit.lock` — the CI check that a committed lock is
-current:
+`--frozen` fails if resolution would change `ambit.lock`, the CI check that a committed lock is current:
 
 ```
 $ ambit install --frozen
@@ -810,8 +735,8 @@ error: ambit.lock is out of date
        run `ambit install` without `--frozen`, then commit the result
 ```
 
-`ambit status` answers exactly one question — would `ambit install` change this? Every row is one
-artifact in one of five states (`missing`, `modified`, `ok`, `stale`, `unowned`):
+`ambit status` answers one question: would `ambit install` change this? Every row is one artifact in one
+of five states (`missing`, `modified`, `ok`, `stale`, `unowned`):
 
 ```
 $ ambit status --check
@@ -823,8 +748,8 @@ artifacts (5)
   .mcp.json                                        harness-config  ok
 ```
 
-`ambit doctor` runs five checks in a fixed order and reports two severities. Only a failure reaches
-exit 6; a warning exits 0:
+`ambit doctor` runs five checks in a fixed order and reports two severities. Only a failure reaches exit
+6; a warning exits 0:
 
 ```
 $ ambit doctor
@@ -845,35 +770,29 @@ warnings (0)
   (none)
 ```
 
-There is nothing to reinstall after setting it: the file holds a reference, so the harness picks the
-value up the next time it spawns the server. The check reads the environment rather than the installed
-bytes, which is also why its answer does not depend on which harness's file the reference landed in.
+There is nothing to reinstall after setting the variable: the file holds a reference, so the harness
+picks the value up the next time it spawns the server. Mode divergence is the only warning; a project
+installed with `--copy` warns and still passes.
 
-Mode divergence is the only warning: a project installed with `--copy` reports warnings and still
-passes, because both modes put identical bytes in front of the harness.
+`ambit prune` writes nothing at all when nothing is stale, not even state. A prune that removed
+something _rewrites_ the lock to the bundle it just resolved, so the project it leaves behind passes
+`doctor` and `install --frozen`.
 
-`ambit prune` and `ambit clean` are the two narrow commands. `prune` writes nothing at all when nothing
-is stale — not even state — so pruning an untouched project cannot create the records of an install
-that never happened. `clean` resolves nothing: it answers from `.ambit/state.json` alone, so it works
-on the project you actually reach for it with, `ambit.yml` deleted or catalog unreachable.
+`ambit clean` resolves nothing: it answers from `.ambit/state.json` alone, so it works with `ambit.yml`
+deleted or the catalog unreachable.
 
-Both leave behind what ambit does not own: a `.mcp.json` left holding an empty `mcpServers` (the
-document is co-owned) and the harness's own `.claude` directory. `clean` also leaves
-`ambit.lock` — a record teams commit, not an artifact ambit deletes. A `prune` that removed something
-_rewrites_ the lock to the bundle it just resolved, the same bytes `install` would write, so the
-project it leaves behind passes `doctor` and `install --frozen` rather than reporting drift from the
-change it had just carried out. A prune with nothing stale writes nothing, lock included.
+Both leave behind what ambit does not own: a `.mcp.json` holding an empty `mcpServers`, the harness's
+own `.claude` directory, and `ambit.lock`.
 
 ### Authoring commands
 
-Consumer commands serve someone _using_ a catalog; these serve someone _maintaining_ one. The split
-matters because the two act on different directories: consumer commands take `--project <dir>` and read
-`ambit.yml`, authoring commands take `--catalog <dir>` and read the catalog root. A catalog is not a
-project and has no `ambit.yml`.
+Consumer commands serve someone _using_ a catalog; these serve someone _maintaining_ one. They act on
+different directories: consumer commands take `--project <dir>` and read `ambit.yml`, authoring
+commands take `--catalog <dir>` and read the catalog root. A catalog is not a project and has no
+`ambit.yml`.
 
-Every command below acts on a catalog, and `ambit catalog` holds nothing else — bare `ambit catalog`
-prints usage. Dumping the _merged_ catalog is a consumer command, `ambit dump-catalog`, because that
-view is several catalogs plus one `ambit.yml` and no catalog directory contains it.
+Bare `ambit catalog` prints usage. Dumping the _merged_ catalog is a consumer command,
+`ambit dump-catalog`.
 
 ```
 ambit catalog init                              scaffold a catalog repo
@@ -899,26 +818,22 @@ ambit catalog annotate <name> [--add-scope <s>…]     [--remove-scope <s>…]
                               [--add-env <v>…]       [--remove-env <v>…]
 ```
 
-List-valued flags are repeatable rather than comma-separated (`--scope a --scope b`): a scope name can
-hold a comma far more easily than an argv entry can.
+List-valued flags are repeatable rather than comma-separated (`--scope a --scope b`).
 
-**Rules every authoring command obeys.** These are what make editing a catalog as deterministic as
-resolving one:
+**Rules every authoring command obeys:**
 
 1. **Never break the plain skills repo.** Authored output stays readable by any tool that derives a
    name from a path.
 2. **Surgical edits.** Changing an annotation preserves comments, unknown keys, the order of keys ambit
-   did not touch, and the markdown body **byte-for-byte**. A catalog is hand-maintained; a tool that
-   reformats it on every edit is a tool nobody runs twice. An edit that would change no bytes writes
-   nothing at all — not even an mtime.
+   did not touch, and the markdown body **byte-for-byte**. An edit that would change no bytes writes
+   nothing at all, not even an mtime.
 3. **Sorted, quoted, byte-stable output** wherever ambit owns the shape of a document. A list ambit
-   rewrites comes out sorted and deduplicated, because argv order is not information — with one
-   deliberate exception, a stdio transport's `args`, which is nothing _but_ order.
+   rewrites comes out sorted and deduplicated, with one exception: a stdio transport's `args`, which is
+   nothing _but_ order.
 4. **Validate before writing, not after.** Every mutation runs the `validate` checks against the
-   _result_ and refuses to write if they fail — exit 3, every file left byte-identical. A mutation
-   cannot leave a catalog broken. The corollary is that a pre-existing problem anywhere in a catalog
-   blocks every mutation until it is fixed.
-5. **Atomic writes**, and never a path outside the catalog root — exit 2, naming the path.
+   _result_ and refuses to write if they fail (exit 3, every file left byte-identical). A pre-existing
+   problem anywhere in a catalog therefore blocks every mutation until it is fixed.
+5. **Atomic writes**, and never a path outside the catalog root (exit 2, naming the path).
 6. **`--dry-run` prints the diff** it would write and touches nothing:
 
 ```
@@ -945,19 +860,20 @@ diff (1)
     ...
 ```
 
-The three verbs are deliberately not symmetric. `scope add` **registers, it does not reword** — a name
-the registry already holds is refused (exit 3, nothing written), because overwriting the entry would
-redefine a scope every project holding it already names. No command rewords a registered scope, so the
-refusal tells you to edit that entry's `description` in `scopes.yml` by hand. `scope rm` unregisters
-one entry, never a descendant, and refuses while any skill or server still declares it, naming every
-declarer with its file. `scope mv` renames the scope **and its whole registered subtree**, rewriting
-every declarer in the same edit — because a rename has to move exactly the scopes a held one would
-reach, or renaming would silently change what holding a scope selects. It closes by telling you to
-update each project's `ambit.yml`, since a catalog command edits none.
+The three scope verbs are deliberately not symmetric:
+
+- `scope add` **registers, it does not reword.** A name the registry already holds is refused (exit 3,
+  nothing written). No command rewords a registered scope; edit the `description` in `scopes.yml` by
+  hand.
+- `scope rm` unregisters one entry, never a descendant, and refuses while any skill or server still
+  declares it, naming every declarer with its file.
+- `scope mv` renames the scope **and its whole registered subtree**, rewriting every declarer in the
+  same edit. It closes by telling you to update each project's `ambit.yml`, since a catalog command
+  edits none.
 
 `skill mv` moves the directory with `rename`, so a skill's `references/logo.png` survives, and rewrites
-the moved document's `name` and every `requires` naming the old name in the same edit. Neither `rm` nor
-`mv` will touch a skill directory that holds another skill.
+the moved document's `name` and every `requires` naming the old name. Neither `rm` nor `mv` will touch
+a skill directory that holds another skill.
 
 `ambit catalog audit` finds what no profile can reach. Reachability is transitive over `requires`, so a
 skill required only by an unreachable skill is itself unreachable, and a scope is dead only when its
@@ -978,12 +894,11 @@ findings (2)
       give it a scope with `ambit catalog annotate acme.labs.use-scratch --add-scope <scope>`, or remove it with `ambit catalog skill rm acme.labs.use-scratch`
 ```
 
-Plain `audit` exits 0 however much it found — a report that broke a build by existing is a report
-nobody adds to CI. `--check` is what turns findings into exit 6.
+Plain `audit` exits 0 however much it found; `--check` turns findings into exit 6.
 
-Because `audit` judges one catalog directory, it cannot see a project: an item some project lists
+Because `audit` judges one catalog directory, it cannot see a project. An item some project lists
 explicitly in `skills`, or one another catalog's skill requires, is reachable there and still reported
-here. That is the honest answer for a catalog repo's own CI.
+here.
 
 ### Exit codes
 
@@ -992,12 +907,12 @@ here. That is the honest answer for a catalog repo's own CI.
 | 0    | Success                                                                              |
 | 1    | Unexpected internal error                                                            |
 | 2    | Config or ownership error                                                            |
-| 3    | Resolution error — unknown scope, missing requirement, cycle, name conflict          |
+| 3    | Resolution error: unknown scope, missing requirement, cycle, name conflict           |
 | 4    | Network or cache error                                                               |
 | 5    | Drift detected (`status --check`, `install --frozen`)                                |
 | 6    | A health check found something (`doctor` failures, `catalog audit --check` findings) |
 
-A usage error — an unknown flag, a missing argument — is exit 2 at any depth.
+A usage error (an unknown flag, a missing argument) is exit 2 at any depth.
 
 ### Error messages
 
@@ -1017,51 +932,40 @@ error: refusing to overwrite unowned path
        move it aside, or run `ambit install --adopt` to take ownership
 ```
 
-`validate`, `status --check`, `doctor` and `catalog audit --check` are the four commands that _report_
-rather than throw: their findings go to stdout, so `--json` stays parseable, and the non-zero code
-travels out beside a full report instead of stopping at the first problem.
+`validate`, `status --check`, `doctor` and `catalog audit --check` _report_ rather than throw: findings
+go to stdout, so `--json` stays parseable, and the non-zero code travels out beside a full report.
 
 ## Determinism
 
-Resolving twice produces byte-identical output. Resolving with a shuffled filesystem read order
-produces identical output. That is a tested property, not an aspiration: every collection is sorted
-before iteration, no output depends on object key order, and no report ambit prints or file ambit
-generates carries a timestamp, a clock time, or an absolute path from the machine it ran on.
-
-The last of those is load-bearing for the goldens and for anything that pipes ambit's `--json` around:
-a catalog's location on disk is machine-specific, so it appears in no report and in no lock. (An error
-message may still name an absolute path — that is where naming the exact file is the whole point.)
+Resolving twice produces byte-identical output, and so does resolving with a shuffled filesystem read
+order. That is a tested property: every collection is sorted before iteration, no output depends on
+object key order, and nothing ambit prints or generates carries a timestamp or a machine-specific
+absolute path. Error messages are the exception, since naming the exact file is the point.
 
 ## Compatibility with plain skills repos
 
 **A catalog is a plain skills repo.** Skills live at `skills/<namespace>/<name>/SKILL.md` with the name
-derived from the path, which is exactly what dotagents, skills.sh, and anything else in this shape
-expect. ambit's additions — one `ambit:` frontmatter key, a `mcps/` directory, a `scopes.yml` — are
-additive and ignored by other tools.
+derived from the path, which is what dotagents, skills.sh, and anything else in this shape expect.
+ambit's additions (one `ambit:` frontmatter key, a `mcps/` directory, a `scopes.yml`) are additive and
+ignored by other tools.
 
-This is a hard requirement, not a nice-to-have, and it is enforced by a test rather than asserted in
-prose: `test/dotagents.test.ts` runs `npx @sentry/dotagents install` against a catalog and checks that
-dotagents installs exactly the skills ambit's own parser finds, under exactly the names ambit derives,
-with every `SKILL.md` byte-identical. It runs against the hand-written fixture catalog _and_ against
-one produced by `ambit catalog init` plus `ambit catalog skill new`, so ambit's own authored output is
-covered by the promise too. The package is deliberately unpinned: the promise is about the release
-people actually have.
+A test enforces this. `test/dotagents.test.ts` runs `npx @sentry/dotagents install` against a catalog
+and checks that dotagents installs exactly the skills ambit's own parser finds, under exactly the names
+ambit derives, with every `SKILL.md` byte-identical. It covers the hand-written fixture catalog _and_
+one produced by `ambit catalog init` plus `ambit catalog skill new`. This is the one test allowed to
+touch the network: it skips with a printed reason when the registry is unreachable outside CI, and
+fails inside it.
 
-That test is the one thing in the suite allowed to touch the network. It skips with a printed reason
-when the registry is unreachable outside CI, and fails inside it.
+Compatibility runs the other way too. `.agents/skills/` with `.claude/skills` pointing at it, and the
+skill list in `.agents/.gitignore`, is the layout dotagents itself uses, so a project that used
+dotagents migrates without moving a file and ambit adopts the directory it left behind. The one
+difference is that ambit leaves that ignore file tracked.
 
-The compatibility runs the other way too: ambit installs skills into `.agents/skills/` with
-`.claude/skills` pointing at it, and lists them in `.agents/.gitignore`, which is the layout dotagents
-itself uses — so a project that used dotagents migrates without moving a file, and ambit adopts the
-directory it left behind (see [Skills](#skills--agentsskillsname)). The one difference is that ambit
-leaves that ignore file tracked; see [`.gitignore`](#gitignore--two-files-because-one-of-them-churns).
-
-ambit **replaces** dotagents rather than wrapping it. dotagents' model — a flat, hand-listed set of
-skills — cannot express scope-driven selection, and three of its behaviours fight this design:
-`install` does not prune skills removed from config; `sync` adopts orphaned skills back into the
-lockfile, so deselecting something and syncing brings it back; and local path skills are copied, so
-the file the agent reads is a stale duplicate of the tracked source. ambit fixes all three by owning
-the install path — real pruning, strict ownership, and symlinks for local sources.
+ambit **replaces** dotagents rather than wrapping it. A flat, hand-listed set of skills cannot express
+scope-driven selection, and three dotagents behaviors fight this design: `install` does not prune
+skills removed from config; `sync` adopts orphaned skills back into the lockfile, so deselecting
+something and syncing brings it back; and local path skills are copied, so the file the agent reads is
+a stale duplicate of the tracked source. ambit fixes all three by owning the install path.
 
 ## Development
 
@@ -1074,28 +978,18 @@ npm run format    # prettier --write; `format:check` is the CI variant
 npm run build
 ```
 
-`npm install` builds too, because `prepare` runs `build`. That is not for local convenience: it is what
-makes `npx github:nebulab/ambit …` work at all — a git install runs `prepare` and never
-`prepublishOnly`, so without it the `ambit` bin points at a `dist/` nobody built and the command is
-simply not found.
+Those six are what CI runs, so a green local run is the whole story. `npm install` also builds, because
+`prepare` runs `build`, which is what makes `npx github:nebulab/ambit …` work.
 
-Those five are what CI runs, so a green local run is the whole story. Formatting is Prettier's
-decision and not worth discussing in review — `prettier.config.js` sets one option and takes every
-other default. `test/golden/` is deliberately exempt: those files are recorded program output, and
-formatting them would assert Prettier's JSON style instead of ambit's.
-
-`test/golden/` holds the golden files; regenerate them with `UPDATE_GOLDEN=1 npm test` and read the
-diff. `npm run fixture` builds the fixture catalog the suite resolves against.
-
-`AMBIT_SKIP_NETWORK_TESTS=1` skips the dotagents compatibility test without probing the registry.
-
-The build specification that guided this codebase was `PLAN.md`, retired once this README covered
-the same ground; `git log -- PLAN.md` still has it.
+`test/golden/` holds the golden files and is exempt from Prettier, since they are recorded program
+output. Regenerate them with `UPDATE_GOLDEN=1 npm test` and read the diff. `npm run fixture` builds the
+fixture catalog the suite resolves against. `AMBIT_SKIP_NETWORK_TESTS=1` skips the dotagents
+compatibility test without probing the registry.
 
 ### Source layout
 
-`src/` is grouped into dependency layers, and every import points strictly down this list — a module
-may only reach for things below it:
+`src/` is grouped into dependency layers, and every import points strictly down this list. A module may
+only reach for things below it:
 
 ```
 errors.ts, version.ts   ambient: the error type, the exit codes, the version
@@ -1105,19 +999,14 @@ resolution/             derive and verify the selected closure
 harness/                the adapter seam, one adapter, and five harness profiles
 authoring/              the `ambit catalog …` command family
 project/                act on a consuming project
-cli/                    presentation and dispatch — Commander wiring and one handler per command
+cli/                    presentation and dispatch: Commander wiring and one handler per command
 ```
 
-`model/documents/` sits under `model/` rather than beside the harness profiles that name a format,
-because a reader/writer of a file decides nothing — and because the layering forbids `model/ →
-harness/`, while `model/state.ts` records which format a config file is.
+`authoring/` and `project/` never import each other; they meet only at `model/` and `resolution/`. The
+layering is enforced by `no-restricted-imports` in `eslint.config.js`.
 
-`authoring/` and `project/` never import each other: curating a catalog and installing into a project
-are the two halves of the tool, and they meet only at `model/` and `resolution/`. The layering is
-enforced by `no-restricted-imports` in `eslint.config.js`, not by convention.
-
-`cli.ts` and `index.ts` stay at the root because they are the two build entry points — the bin and
-the library. `test/` mirrors the same structure.
+`cli.ts` and `index.ts` stay at the root as the two build entry points, the bin and the library.
+`test/` mirrors the same structure.
 
 ## License
 
