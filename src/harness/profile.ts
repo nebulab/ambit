@@ -251,7 +251,7 @@ async function applySkillsLink(
  * conflict.
  */
 async function applyHarnessConfig(artifact: PlannedHarnessConfig): Promise<AppliedArtifact> {
-  const driver = driverFor(artifact.format);
+  const driver = driverFor(artifact.format, artifact.shape);
   const text = await readDocumentText(artifact.target, artifact.path);
   const merged = driver.mergeSection(text, artifact.section, artifact.entries, artifact.path);
 
@@ -262,6 +262,7 @@ async function applyHarnessConfig(artifact: PlannedHarnessConfig): Promise<Appli
     path: artifact.path,
     kind: artifact.kind,
     format: artifact.format,
+    ...(artifact.shape !== undefined && { shape: artifact.shape }),
     managedKeys: artifact.managedKeys,
   };
 }

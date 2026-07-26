@@ -70,7 +70,7 @@ which needs no graph.
 
 ## 3. The array-section driver
 
-- [ ] `src/model/documents/json-array.ts` and its selection.
+- [x] `src/model/documents/json-array.ts` and its selection.
 
 **Slice** — the load-bearing piece, pure and filesystem-free. `plan.md` §4 calls this the actual work
 in the change; it gets its own task so it gets its own direct tests.

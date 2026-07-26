@@ -63,8 +63,14 @@ export type {
   SourceSkillRequest,
 } from "./model/config.js";
 export {
+  DIGEST_LENGTH,
   DOCUMENT_FORMATS,
+  DOCUMENT_SHAPES,
+  arrayEntryKey,
+  arraySectionDriver,
   driverFor,
+  entryDigest,
+  jsonArrayDriver,
   jsonDriver,
   jsoncDriver,
   managedKey,
@@ -75,6 +81,7 @@ export type {
   ConfigEntry,
   DocumentDriver,
   DocumentFormat,
+  DocumentShape,
   JsonObject,
 } from "./model/documents/index.js";
 export {

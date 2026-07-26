@@ -14,10 +14,17 @@ import { configError } from "../../errors.js";
 const EMPTY: JsonObject = {};
 
 /**
+ * Parses a JSON document, treating an absent file as an empty one.
+ *
+ * Exported because the array-section driver (`json-array.ts`) reads the same files in the same
+ * syntax and differs only in what it does with one section of them — so the two share this and
+ * {@link serializeJsonDocument} rather than each having its own idea of what a JSON document is,
+ * which is what keeps their refusals worded identically.
+ *
  * @throws {AmbitError} exit 2 for malformed JSON or a non-object root. Overwriting either would
  *   destroy content ambit does not own, which is exactly what the ownership rules forbid.
  */
-function parse(text: string | undefined, file: string): JsonObject {
+export function parseJsonDocument(text: string | undefined, file: string): JsonObject {
   if (text === undefined) return EMPTY;
 
   let document: unknown;
@@ -47,17 +54,18 @@ function sectionOf(document: JsonObject, section: string): JsonObject {
 }
 
 /** Renders a document as the bytes written to disk: two-space indent, trailing newline. */
-function serialize(document: JsonObject): string {
+export function serializeJsonDocument(document: JsonObject): string {
   return `${JSON.stringify(document, null, 2)}\n`;
 }
 
 export const jsonDriver: DocumentDriver = {
   format: "json",
 
-  sectionKeys: (text, section, file) => new Set(Object.keys(sectionOf(parse(text, file), section))),
+  sectionKeys: (text, section, file) =>
+    new Set(Object.keys(sectionOf(parseJsonDocument(text, file), section))),
 
   entryMatches: (text, section, entry, file) =>
-    structurallyEqual(entry.value, sectionOf(parse(text, file), section)[entry.key]),
+    structurallyEqual(entry.value, sectionOf(parseJsonDocument(text, file), section)[entry.key]),
 
   mergeSection: (
     text: string | undefined,
@@ -65,7 +73,7 @@ export const jsonDriver: DocumentDriver = {
     entries: readonly ConfigEntry[],
     file: string,
   ): string => {
-    const document = parse(text, file);
+    const document = parseJsonDocument(text, file);
     const existing = document[section];
     if (existing !== undefined && !isRecord(existing)) {
       throw configError(`"${section}" in ${file} is not a JSON object`, [
@@ -77,7 +85,7 @@ export const jsonDriver: DocumentDriver = {
     const merged: Record<string, unknown> = { ...existing };
     for (const entry of entries) merged[entry.key] = entry.value;
 
-    return serialize({ ...document, [section]: merged });
+    return serializeJsonDocument({ ...document, [section]: merged });
   },
 
   /**
@@ -91,7 +99,7 @@ export const jsonDriver: DocumentDriver = {
     keys: readonly string[],
     file: string,
   ): string | undefined => {
-    const document = parse(text, file);
+    const document = parseJsonDocument(text, file);
     const existing = document[section];
     if (!isRecord(existing)) return undefined;
 
@@ -101,6 +109,6 @@ export const jsonDriver: DocumentDriver = {
     const kept: Record<string, unknown> = { ...existing };
     for (const key of present) delete kept[key];
 
-    return serialize({ ...document, [section]: kept });
+    return serializeJsonDocument({ ...document, [section]: kept });
   },
 };

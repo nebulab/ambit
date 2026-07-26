@@ -183,7 +183,7 @@ async function checkConfigKeys(
   prior: State,
   options: OwnershipOptions,
 ): Promise<void> {
-  const present = driverFor(artifact.format).sectionKeys(
+  const present = driverFor(artifact.format, artifact.shape).sectionKeys(
     await readDocumentText(artifact.target, artifact.path),
     artifact.section,
     artifact.path,

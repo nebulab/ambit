@@ -319,7 +319,7 @@ async function configVerdict(
   const text = await readDocumentText(target, file);
 
   for (const artifact of artifacts) {
-    const driver = driverFor(artifact.format);
+    const driver = driverFor(artifact.format, artifact.shape);
     const present = driver.sectionKeys(text, artifact.section, file);
     for (const entry of artifact.entries) {
       const key = managedKey(artifact.section, entry.key);

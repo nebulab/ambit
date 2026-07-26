@@ -10,7 +10,7 @@
  * the only form that survives the project being moved — and its absolute `target`, so `apply`
  * writes exactly what `plan` decided and never re-derives a location.
  */
-import type { ConfigEntry, DocumentFormat } from "../model/documents/index.js";
+import type { ConfigEntry, DocumentFormat, DocumentShape } from "../model/documents/index.js";
 import type { Bundle } from "../resolution/resolve.js";
 import type { ArtifactMode, OwnedArtifact, State } from "../model/state.js";
 
@@ -91,6 +91,14 @@ export interface PlannedHarnessConfig {
   readonly section: string;
   /** How the file is parsed and written — which driver reads and edits it. */
   readonly format: DocumentFormat;
+  /**
+   * How the managed section is laid out: a table keyed by name, or one array per event.
+   *
+   * Carried beside `format` because the format cannot pick a driver on its own — `.mcp.json` and
+   * `.claude/settings.json` are both JSON. Absent reads as `"map"`, which is what every MCP config
+   * is.
+   */
+  readonly shape?: DocumentShape;
   /** What ambit puts there, sorted by key. */
   readonly entries: readonly ConfigEntry[];
   /** `<section>.<key>` for each entry — what state records as owned. */

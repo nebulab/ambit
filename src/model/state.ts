@@ -14,7 +14,12 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { configError } from "../errors.js";
-import { DOCUMENT_FORMATS, type DocumentFormat } from "./documents/format.js";
+import {
+  DOCUMENT_FORMATS,
+  DOCUMENT_SHAPES,
+  type DocumentFormat,
+  type DocumentShape,
+} from "./documents/format.js";
 
 /** The machine-local directory ambit keeps its state in. Always gitignored. */
 export const STATE_DIRNAME = ".ambit";
@@ -52,6 +57,15 @@ export interface OwnedArtifact {
    * `json`, which is what every artifact written before this field existed was.
    */
   readonly format?: DocumentFormat;
+  /**
+   * Set for `harness-config`: how the managed section is laid out.
+   *
+   * Recorded for the same reason `format` is, and it is not derivable from `format`: `.mcp.json` and
+   * `.claude/settings.json` are both JSON, and the second holds one array per event rather than a
+   * table keyed by name. Absent reads as `"map"`, which is what every artifact written before this
+   * field existed was.
+   */
+  readonly shape?: DocumentShape;
 }
 
 /** The contents of `.ambit/state.json`. */
@@ -92,6 +106,7 @@ function artifactJson(artifact: OwnedArtifact): Readonly<Record<string, unknown>
     }),
     ...(artifact.mode !== undefined && { mode: artifact.mode }),
     path: artifact.path,
+    ...(artifact.shape !== undefined && { shape: artifact.shape }),
   };
 }
 
@@ -153,12 +168,21 @@ function parseArtifact(value: unknown, file: string, index: number): OwnedArtifa
     stateError(file, `"${label}.format" must be one of: ${DOCUMENT_FORMATS.join(", ")}`);
   }
 
+  const shape = value.shape;
+  if (
+    shape !== undefined &&
+    (typeof shape !== "string" || !(DOCUMENT_SHAPES as readonly string[]).includes(shape))
+  ) {
+    stateError(file, `"${label}.shape" must be one of: ${DOCUMENT_SHAPES.join(", ")}`);
+  }
+
   const managedKeys = value.managedKeys;
   return {
     path: target,
     kind: kind as ArtifactKind,
     ...(mode !== undefined && { mode: mode as ArtifactMode }),
     ...(format !== undefined && { format: format as DocumentFormat }),
+    ...(shape !== undefined && { shape: shape as DocumentShape }),
     ...(managedKeys !== undefined && {
       managedKeys: stringList(managedKeys, file, `${label}.managedKeys`),
     }),

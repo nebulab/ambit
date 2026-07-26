@@ -24,6 +24,21 @@ export const DOCUMENT_FORMATS = ["json", "jsonc", "toml"] as const;
 /** Which of them a given file is. */
 export type DocumentFormat = (typeof DOCUMENT_FORMATS)[number];
 
+/**
+ * The two shapes a managed section can have.
+ *
+ * `map` is a table keyed by an entity's name — `mcpServers.<name>` — where identity is written in the
+ * document and a merge is a key assignment. `array` is `<Event>: [entries]`, the shape every harness
+ * uses for hooks, where nothing in the document says which entry belongs to whom: identity has to be
+ * derived from the entry's content, and a merge is an append.
+ *
+ * A shape is not a property of the format. `.mcp.json` and `.claude/settings.json` are both JSON, so
+ * the format alone cannot pick a driver and both have to be carried.
+ */
+export const DOCUMENT_SHAPES = ["map", "array"] as const;
+
+export type DocumentShape = (typeof DOCUMENT_SHAPES)[number];
+
 /** One key ambit owns inside a section, and the value it writes there. */
 export interface ConfigEntry {
   readonly key: string;
