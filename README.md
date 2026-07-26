@@ -1039,6 +1039,11 @@ npm run format    # prettier --write; `format:check` is the CI variant
 npm run build
 ```
 
+`npm install` builds too, because `prepare` runs `build`. That is not for local convenience: it is what
+makes `npx github:aldesantis/ambit …` work at all — a git install runs `prepare` and never
+`prepublishOnly`, so without it the `ambit` bin points at a `dist/` nobody built and the command is
+simply not found.
+
 Those five are what CI runs, so a green local run is the whole story. Formatting is Prettier's
 decision and not worth discussing in review — `prettier.config.js` sets one option and takes every
 other default. `test/golden/` is deliberately exempt: those files are recorded program output, and
