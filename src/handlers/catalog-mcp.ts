@@ -6,11 +6,13 @@
  * `--dry-run` rather than `written`, as it does for the scope and skill commands.
  *
  * What is particular to this handler is the transport, and all of it lives here. `--stdio`/`--http` are
- * argv syntax, so turning them into the one {@link McpTransport} §3.3 allows is the boundary's job — and
- * it is enforced *here* rather than by Commander's `.conflicts()` for the message: an error has to name
- * the offending file and the supported kinds (spec §6), which `error: option '--http <url>' cannot be
- * used with option '--stdio <command>'` does not, and Commander can say nothing at all about *neither*
- * flag. Below this line the transport is a type that cannot name zero or two kinds.
+ * argv syntax, so turning them into the one {@link McpTransport} §3.3 allows is the boundary's job. Every
+ * way that can fail is refused by {@link catalogMcpNewRule}, declared with the command and run by
+ * Commander before dispatch — but by a rule rather than by `.conflicts()`, for the message: an error has
+ * to name the offending file and the supported kinds (spec §6), which
+ * `error: option '--http <url>' cannot be used with option '--stdio <command>'` does not, and Commander
+ * can say nothing at all about *neither* flag. Below this line the transport is a type that cannot name
+ * zero or two kinds.
  *
  * Every flag that belongs to the other kind is refused rather than ignored: `--header` with `--stdio`
  * would otherwise be typed, accepted, and silently dropped, which is the one outcome worse than an
@@ -20,7 +22,7 @@
 import type { McpEdit, McpSummary } from "../catalog-mcp.js";
 import { newMcp, removeMcp } from "../catalog-mcp.js";
 import { MCPS_DIRNAME } from "../catalog.js";
-import type { CommandContext, CommandHandler } from "../commands.js";
+import type { CommandContext, CommandHandler, CommandRule } from "../commands.js";
 import {
   catalogDirOf,
   dryRunRequested,
@@ -58,6 +60,9 @@ const SUPPORTED = `supported kinds: ${MCP_TRANSPORT_KINDS.join(", ")}`;
 
 /** The one line every transport refusal ends on: the concrete next step spec §6 requires. */
 const GIVE_ONE = `give exactly one of \`--${STDIO_FLAG} <command>\` or \`--${HTTP_FLAG} <url>\``;
+
+/** How `new` is invoked, for the messages that have to say so. */
+const NEW_USAGE = `ambit catalog mcp new <name> --${STDIO_FLAG} <command>`;
 
 /** What a command tells the reader, on top of the files it touched. */
 interface Subject {
@@ -173,6 +178,21 @@ function transportOf(ctx: CommandContext, name: string): McpTransport {
   throw transportRefusal(name, "names no transport");
 }
 
+/**
+ * `new`'s flag rule: exactly one transport, and no flag belonging to the kind it did not name (spec
+ * §3.3).
+ *
+ * The same pure read of argv the handler makes, run once more and for its refusals alone. Reading it
+ * twice is what keeps the rule declarable with the command *and* the transport built where it is used —
+ * cheaper, and far plainer, than carrying a hook's result into an action.
+ *
+ * @throws {AmbitError} exit 2 when neither or both kinds are named, when a flag belonging to the other
+ *   kind is given, or when a `--header` entry cannot be read.
+ */
+export const catalogMcpNewRule: CommandRule = (ctx) => {
+  transportOf(ctx, positional(ctx, 0, NEW_USAGE));
+};
+
 /** Keys in one order, so the emitted JSON is byte-stable (`keyed` in `src/output.ts`). */
 function toJson(subject: Subject, result: McpEdit): Readonly<Record<string, unknown>> {
   return {
@@ -218,7 +238,7 @@ function newNextStep(created: McpSummary): string {
 }
 
 export const catalogMcpNewHandler: CommandHandler = async (ctx) => {
-  const name = positional(ctx, 0, "ambit catalog mcp new <name> --stdio <command>");
+  const name = positional(ctx, 0, NEW_USAGE);
   const transport = transportOf(ctx, name);
   const env = optionList(ctx, "env");
 

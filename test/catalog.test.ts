@@ -13,10 +13,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildFixtureCatalog } from "../scripts/fixture-catalog.js";
 import type { MergedCatalog } from "../src/catalog.js";
 import { loadCatalogs, mergeCatalogs, parseCatalogDirectory } from "../src/catalog.js";
-import type { CommandHandlers } from "../src/commands.js";
+import type { CommandHandlers, CommandRules } from "../src/commands.js";
 import { loadProjectConfig } from "../src/config.js";
 import { AmbitError, ExitCode } from "../src/errors.js";
-import { HANDLERS, run } from "../src/program.js";
+import { HANDLERS, RULES, run } from "../src/program.js";
 import type { SourceContext } from "../src/sources.js";
 
 const CATALOG_NAME = "company";
@@ -161,10 +161,13 @@ interface CliResult {
  *
  * @param handlers the wiring to run against, defaulting to the real one. Given explicitly by the one
  *   case that needs a command with no handler, now that every declared command has one.
+ * @param rules the flag rules to run against, defaulting to the real ones. Given explicitly by the
+ *   cases that assert *where* a rule runs rather than what any particular one says.
  */
 async function invoke(
   argv: readonly string[],
   handlers: CommandHandlers = HANDLERS,
+  rules: CommandRules = RULES,
 ): Promise<CliResult> {
   const out: string[] = [];
   const err: string[] = [];
@@ -176,6 +179,7 @@ async function invoke(
       stderr: (line) => err.push(line),
     },
     handlers,
+    rules,
   );
   return { code, stdout: out.join("\n"), stderr: err.join("\n") };
 }
@@ -697,6 +701,119 @@ describe("usage errors below the top level", () => {
     expect(result.code, result.stderr).toBe(ExitCode.Success);
     expect(result.stdout).toContain("Usage: ambit catalog scope add");
     expect(result.stderr).toBe("");
+  });
+});
+
+/**
+ * The flag rules Commander runs before it dispatches (`RULES` in `src/program.ts`): the three rules
+ * `.makeOptionMandatory()` and `.conflicts()` cannot state without giving up the message spec §6 asks
+ * for, declared with the command as a `preAction` hook instead of enforced by the handler that follows.
+ *
+ * Each case runs against a wiring whose handler would succeed and only record that it was reached, so
+ * what is asserted is that the refusal arrived *before* the handler — the whole of what moving the rule
+ * onto Commander changed — while the wording each rule produces stays pinned where it always was, in
+ * `test/catalog-scope.test.ts`, `test/catalog-mcp.test.ts` and `test/catalog-annotate.test.ts`.
+ */
+describe("the flag rules Commander enforces before a handler runs", () => {
+  /** A wiring in which one command's handler succeeds, doing nothing but recording the visit. */
+  function stub(name: string): { handlers: CommandHandlers; reached: () => boolean } {
+    let visited = false;
+    return {
+      handlers: {
+        ...HANDLERS,
+        [name]: () => {
+          visited = true;
+          return ExitCode.Success;
+        },
+      },
+      reached: () => visited,
+    };
+  }
+
+  it("refuses `scope add` with no description before the handler, naming the registry", async () => {
+    const stubbed = stub("catalog scope add");
+
+    const result = await invoke(
+      ["catalog", "scope", "add", "person.jane", "--catalog", catalogDir],
+      stubbed.handlers,
+    );
+
+    expect(result.code).toBe(ExitCode.Config);
+    expect(result.stderr).toContain('scope "person.jane" needs a description (scopes.yml)');
+    expect(result.stderr).toContain("--description");
+    expect(stubbed.reached()).toBe(false);
+  });
+
+  it("refuses `mcp new` naming no transport before the handler, naming its file", async () => {
+    const stubbed = stub("catalog mcp new");
+
+    const result = await invoke(
+      ["catalog", "mcp", "new", "notes", "--catalog", catalogDir],
+      stubbed.handlers,
+    );
+
+    expect(result.code).toBe(ExitCode.Config);
+    expect(result.stderr).toContain('MCP server "notes" names no transport (mcps/notes.yml)');
+    expect(result.stderr).toContain("supported kinds: http, stdio");
+    expect(stubbed.reached()).toBe(false);
+  });
+
+  it("refuses an `annotate` contradiction before the handler, naming both flags", async () => {
+    const stubbed = stub("catalog annotate");
+
+    const result = await invoke(
+      [
+        "catalog",
+        "annotate",
+        CORE_SKILL,
+        "--add-scope",
+        "core",
+        "--remove-scope",
+        "core",
+        "--catalog",
+        catalogDir,
+      ],
+      stubbed.handlers,
+    );
+
+    expect(result.code).toBe(ExitCode.Config);
+    expect(result.stderr).toContain(
+      "`--add-scope core` and `--remove-scope core` contradict each other (skills)",
+    );
+    expect(stubbed.reached()).toBe(false);
+  });
+
+  it("dispatches to the handler once a rule accepts the flags it was given", async () => {
+    // The control on the three above: a hook that refused everything, or one wired to the wrong key,
+    // would pass them all and fail here.
+    const stubbed = stub("catalog scope add");
+
+    const result = await invoke(
+      ["catalog", "scope", "add", "person.jane", "--description", "Jane's own things", "--catalog", catalogDir],
+      stubbed.handlers,
+    );
+
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+    expect(stubbed.reached()).toBe(true);
+  });
+
+  it("runs a group's default rule exactly once, whether or not the default is typed", async () => {
+    // A hook fires for every action below the command it hangs off as well as for that command's own,
+    // so `catalog`'s copy of the `catalog dump` rule has to stand down when `dump` is what ran — or the
+    // rule sees the group's flags, and sees them twice.
+    const seen: (string | undefined)[] = [];
+    const rules: CommandRules = {
+      "catalog dump": (ctx) => {
+        seen.push(typeof ctx.options.project === "string" ? ctx.options.project : undefined);
+      },
+    };
+
+    for (const argv of [["catalog"], ["catalog", "dump"]]) {
+      const result = await invoke([...argv, "--project", projectDir], HANDLERS, rules);
+      expect(result.code, result.stderr).toBe(ExitCode.Success);
+    }
+
+    expect(seen).toEqual([projectDir, projectDir]);
   });
 });
 

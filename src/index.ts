@@ -120,6 +120,8 @@ export type {
   CommandContext,
   CommandHandler,
   CommandHandlers,
+  CommandRule,
+  CommandRules,
   CommandSpec,
   CommandSubject,
 } from "./commands.js";

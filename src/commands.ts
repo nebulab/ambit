@@ -120,9 +120,10 @@ const CATALOG_SUBCOMMANDS: readonly CommandSpec[] = [
         args: [["<name>", "scope name"]],
         subject: "catalog",
         mutating: true,
-        // Mandatory in behaviour but not through Commander's `.makeOptionMandatory()`: the handler
-        // refuses it instead, in spec §6's message shape, which names `scopes.yml` and says what to
-        // pass — see `src/handlers/catalog-scope.ts`.
+        // Mandatory, but through a `CommandRule` rather than `.makeOptionMandatory()`: Commander's own
+        // refusal reads `error: required option '--description <text>' not specified`, which names no
+        // file and gives no next step. `catalogScopeAddRule` refuses it before the handler runs, in
+        // spec §6's shape.
         options: [new Option("--description <text>", "what the scope means")],
       },
       {
@@ -190,6 +191,9 @@ const CATALOG_SUBCOMMANDS: readonly CommandSpec[] = [
         args: [["<name>", "server name"]],
         subject: "catalog",
         mutating: true,
+        // Exactly one of `--stdio`/`--http`, and no flag belonging to the other kind — a rule rather
+        // than `.conflicts()`, which can say nothing about *neither* flag and would name neither the
+        // file nor the supported kinds. `catalogMcpNewRule` refuses all of it before the handler runs.
         options: [
           new Option("--stdio <command>", "spawn this command as the server"),
           repeatable("--arg <arg>", "an argument for the stdio command"),
@@ -213,6 +217,9 @@ const CATALOG_SUBCOMMANDS: readonly CommandSpec[] = [
     args: [["<name>", "skill name, or `mcp.<name>` for a server"]],
     subject: "catalog",
     mutating: true,
+    // At least one flag, and never one entry both added and removed — `catalogAnnotateRule`, since
+    // both are about the *values* two repeatable flags collected rather than about which flags
+    // appeared, which is not a shape Commander's own primitives can state.
     options: [
       repeatable("--add-scope <scope>", "add a scope"),
       repeatable("--remove-scope <scope>", "remove a scope"),
@@ -289,6 +296,24 @@ export interface CommandContext {
 }
 
 export type CommandHandler = (ctx: CommandContext) => Promise<ExitCode> | ExitCode;
+
+/**
+ * A rule about the flags one command was given, which Commander enforces before it dispatches
+ * ({@link buildCommand} attaches it as a `preAction` hook).
+ *
+ * It exists for the rules Commander's own primitives cannot state without giving up the message:
+ * `.makeOptionMandatory()` says `error: required option '--description <text>' not specified`, and
+ * `.conflicts()` can say nothing at all about a *missing* transport, where spec §6 asks every error to
+ * name the offending file, name the offending identifier, and give one concrete next step. A rule is
+ * declared with its command like any of them and throws one of ambit's own errors, so the refusal is
+ * Commander's to make and the message stays what §6 requires.
+ *
+ * It reads argv and nothing else — a rule that touched disk or printed would be a handler — and it runs
+ * before the handler, so the handler is only ever entered on an invocation the rule accepted.
+ *
+ * @throws {AmbitError} whatever the rule refuses, already in spec §6's message shape.
+ */
+export type CommandRule = (ctx: CommandContext) => void;
 
 /** The project directory a command acts on: `--project` if given, otherwise the cwd. */
 export function projectDirOf(ctx: CommandContext): string {
@@ -376,11 +401,26 @@ export function sourceContextOf(ctx: CommandContext): SourceContext {
  */
 export type CommandHandlers = Readonly<Record<string, CommandHandler>>;
 
+/**
+ * Flag rules, keyed exactly as {@link CommandHandlers} is: by the words a user types. Absent means the
+ * command's flags need no rule beyond what Commander already states in its declaration.
+ */
+export type CommandRules = Readonly<Record<string, CommandRule>>;
+
 export function notImplemented(name: string): AmbitError {
   return new AmbitError(ExitCode.Internal, `command "${name}" is not implemented yet`, [
     "it is declared in the CLI surface but has no behaviour on this build",
     "run `ambit --help` to see what does work",
   ]);
+}
+
+/** What a rule and a handler both read: the flags and positionals Commander parsed for one command. */
+function contextOf(
+  command: Command,
+  io: Pick<CommandContext, "cwd" | "stdout" | "stderr">,
+): CommandContext {
+  const args = command.processedArgs.filter((value): value is string => typeof value === "string");
+  return { options: command.opts(), args, ...io };
 }
 
 /**
@@ -391,11 +431,13 @@ export function notImplemented(name: string): AmbitError {
  * `trail` is the enclosing group's words, so a nested command finds its handler and names itself in
  * an error by the whole invocation (`catalog scope add`) rather than by the leaf.
  *
- * @throws {AmbitError} exit 1 when the command is declared in the surface but has no handler yet.
+ * @throws {AmbitError} exit 1 when the command is declared in the surface but has no handler yet, and
+ *   whatever this command's {@link CommandRule} refuses about the flags it was given.
  */
 export function buildCommand(
   spec: CommandSpec,
   handlers: CommandHandlers,
+  rules: CommandRules,
   io: Pick<CommandContext, "cwd" | "stdout" | "stderr">,
   onExit: (code: ExitCode) => void,
   trail: readonly string[] = [],
@@ -403,6 +445,10 @@ export function buildCommand(
   const words = [...trail, spec.name];
   const name = words.join(" ");
   const acts = spec.subcommands === undefined || spec.defaultSubcommand !== undefined;
+  // What this command runs when it is the one invoked, which for a group is its default subcommand:
+  // the key its handler and its rule are both filed under, so bare `ambit catalog` and
+  // `ambit catalog dump` cannot be given different behaviour.
+  const invoked = spec.defaultSubcommand === undefined ? name : `${name} ${spec.defaultSubcommand}`;
   const command = new Command(spec.name).description(spec.summary).helpOption("--help", "show usage");
 
   for (const [argSpec, description] of spec.args ?? []) command.argument(argSpec, description);
@@ -418,8 +464,21 @@ export function buildCommand(
     // otherwise Commander claims a flag it recognizes wherever in argv it appears.
     command.enablePositionalOptions();
     for (const child of spec.subcommands) {
-      command.addCommand(buildCommand(child, handlers, io, onExit, words));
+      command.addCommand(buildCommand(child, handlers, rules, io, onExit, words));
     }
+  }
+
+  // A rule is Commander's to enforce, so it hangs off the command rather than off the first lines of
+  // the handler: it runs after parsing and before dispatch, and its refusal travels out of the parse
+  // the way an unknown flag's does.
+  //
+  // A hook also fires for every action *below* the command it is attached to, which is not what a rule
+  // about this command's own flags means — hence the guard. Each command below carries its own.
+  const rule = acts ? rules[invoked] : undefined;
+  if (rule !== undefined) {
+    command.hook("preAction", (_parent, actionCommand) => {
+      if (actionCommand === command) rule(contextOf(command, io));
+    });
   }
 
   command.action(async () => {
@@ -430,13 +489,10 @@ export function buildCommand(
       return onExit(ExitCode.Success);
     }
 
-    const invoked =
-      spec.defaultSubcommand === undefined ? name : `${name} ${spec.defaultSubcommand}`;
     const handler = handlers[invoked];
     if (!handler) throw notImplemented(invoked);
 
-    const args = command.processedArgs.filter((value): value is string => typeof value === "string");
-    onExit(await handler({ options: command.opts(), args, ...io }));
+    onExit(await handler(contextOf(command, io)));
   });
 
   return command;
