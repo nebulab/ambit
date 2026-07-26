@@ -678,6 +678,19 @@ describe("usage errors below the top level", () => {
     expect(result.stdout).toBe("");
   });
 
+  it("refuses `--quiet` and `--no-color`, which no command accepts", async () => {
+    // Both were once accepted everywhere and read nowhere: ambit prints no progress chatter to
+    // suppress and no color to disable. Rejecting them is the intended behaviour — a script passing
+    // `--quiet` should hear that ambit cannot honour it, not be silently ignored.
+    for (const flag of ["--quiet", "--no-color"]) {
+      const result = await invoke(["scopes", flag]);
+
+      expect(result.code).toBe(ExitCode.Config);
+      expect(result.stderr).toContain(`error: unknown option '${flag}'`);
+      expect(result.stdout).toBe("");
+    }
+  });
+
   it("prints a nested subcommand's usage on `--help`, at exit 0", async () => {
     const result = await invoke([...NESTED, "--help"]);
 

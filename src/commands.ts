@@ -22,24 +22,25 @@ export type CommandSubject = "project" | "catalog";
  * `--project <dir>` names a project, `--catalog <dir>` names a catalog root, and both default to the
  * cwd. An authoring command also drops `--offline`: it reads one directory on disk, resolves no
  * source, and so has neither a fetch to refuse nor a cache to fall back to.
+ *
+ * `--quiet` and `--no-color` are deliberately absent. Both were accepted here and read nowhere: ambit
+ * prints no progress chatter to suppress and no color to disable, so each parsed cleanly and then did
+ * nothing. A flag that lies about what it does is worse than one that does not exist — a script
+ * passing `--quiet` now gets a usage error instead of silence it never actually asked for. Re-add
+ * either only alongside the output it controls.
  */
 function globalOptions(spec: CommandSpec): Option[] {
   const json = new Option("--json", "machine-readable output");
-  const rest = [
-    new Option("--quiet", "suppress progress output"),
-    new Option("--no-color", "disable colorized output"),
-  ];
 
   if (spec.subject === "catalog") {
     const catalog = new Option("--catalog <dir>", "catalog directory").default(undefined, "cwd");
-    return [catalog, json, ...rest];
+    return [catalog, json];
   }
 
   return [
     new Option("--project <dir>", "project directory").default(undefined, "cwd"),
     json,
     new Option("--offline", "use only cached catalogs"),
-    ...rest,
   ];
 }
 
