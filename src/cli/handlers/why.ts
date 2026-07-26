@@ -14,15 +14,15 @@
  * bundle" is a resolution answer a script has to be able to detect, and the two ways of getting
  * there — no catalog provides it, or nothing selects it — call for different fixes.
  */
-import type { MergedCatalog, MergedMcp, MergedSkill } from "../catalog.js";
-import { loadCatalogs, mergeCatalogs, mergeConfigEntities } from "../catalog.js";
+import type { MergedCatalog, MergedMcp, MergedSkill } from "../../model/catalog.js";
+import { loadCatalogs, mergeCatalogs, mergeConfigEntities } from "../../model/catalog.js";
 import type { CommandHandler } from "../commands.js";
 import { jsonRequested, sourceContextOf } from "../commands.js";
-import type { ProjectConfig } from "../config.js";
-import { loadProjectConfig } from "../config.js";
-import { AmbitError, ExitCode, resolutionError } from "../errors.js";
+import type { ProjectConfig } from "../../model/config.js";
+import { loadProjectConfig } from "../../model/config.js";
+import { AmbitError, ExitCode, resolutionError } from "../../errors.js";
 import { printSections, section } from "../output.js";
-import type { Bundle, BundleItem, ReasonedItem, SelectionReason } from "../resolve.js";
+import type { Bundle, BundleItem, ReasonedItem, SelectionReason } from "../../resolution/resolve.js";
 import {
   MCP_REQUIREMENT_PREFIX,
   explainSelection,
@@ -30,7 +30,7 @@ import {
   isSelected,
   reasonOf,
   resolveBundle,
-} from "../resolve.js";
+} from "../../resolution/resolve.js";
 
 /** How an item is named in messages. */
 function subject(item: BundleItem): string {

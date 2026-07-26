@@ -25,9 +25,9 @@
 import { readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { configError } from "./errors.js";
-import type { OwnedArtifact } from "./state.js";
-import { STATE_DIRNAME } from "./state.js";
+import { configError } from "../errors.js";
+import type { OwnedArtifact } from "../model/state.js";
+import { STATE_DIRNAME } from "../model/state.js";
 
 /** The file the block lives in, at the project root. */
 export const GITIGNORE_FILENAME = ".gitignore";

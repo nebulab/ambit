@@ -32,10 +32,10 @@ import { promisify } from "node:util";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { buildFixtureCatalog } from "../scripts/fixture-catalog.js";
-import { SKILL_FILENAME, parseCatalogDirectory } from "../src/catalog.js";
-import { CATALOG_INIT_SCOPE } from "../src/catalog-init.js";
+import { SKILL_FILENAME, parseCatalogDirectory } from "../src/model/catalog.js";
+import { CATALOG_INIT_SCOPE } from "../src/authoring/init.js";
 import { ExitCode } from "../src/errors.js";
-import { run } from "../src/program.js";
+import { run } from "../src/cli/program.js";
 
 /** Unpinned on purpose: the promise is about whatever dotagents currently ships. */
 const DOTAGENTS_PACKAGE = "@sentry/dotagents";

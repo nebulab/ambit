@@ -14,13 +14,13 @@
  * `error: required option '--description <text>' not specified` names no file and gives no next step,
  * both of which spec §6 requires.
  */
-import { SCOPES_FILENAME } from "../catalog.js";
-import type { ScopeEdit } from "../catalog-scope.js";
-import { addScope, removeScope, renameScope } from "../catalog-scope.js";
+import { SCOPES_FILENAME } from "../../model/catalog.js";
+import type { ScopeEdit } from "../../authoring/scope.js";
+import { addScope, removeScope, renameScope } from "../../authoring/scope.js";
 import type { CommandContext, CommandHandler, CommandRule } from "../commands.js";
 import { catalogDirOf, dryRunRequested, jsonRequested, positional } from "../commands.js";
 import { diffSection } from "../diff.js";
-import { ExitCode, at, configError } from "../errors.js";
+import { ExitCode, at, configError } from "../../errors.js";
 import { printSections, section } from "../output.js";
 
 /** The first section's title: past tense for a run that happened, conditional for a preview. */

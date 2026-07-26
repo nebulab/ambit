@@ -25,10 +25,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { buildFixtureCatalog } from "../scripts/fixture-catalog.js";
-import { CATALOG_INIT_SCOPE } from "../src/catalog-init.js";
-import { ExitCode } from "../src/errors.js";
-import { run } from "../src/program.js";
+import { buildFixtureCatalog } from "../../scripts/fixture-catalog.js";
+import { CATALOG_INIT_SCOPE } from "../../src/authoring/init.js";
+import { ExitCode } from "../../src/errors.js";
+import { run } from "../../src/cli/program.js";
 
 /** The scope `catalog init` registers, and the one the reachable skill declares. */
 const CORE = CATALOG_INIT_SCOPE;

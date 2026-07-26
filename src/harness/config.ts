@@ -14,7 +14,7 @@
  */
 import { readFile } from "node:fs/promises";
 
-import { configError } from "./errors.js";
+import { configError } from "../errors.js";
 
 /** One key ambit owns inside a section, and the value it writes there. */
 export interface ConfigEntry {

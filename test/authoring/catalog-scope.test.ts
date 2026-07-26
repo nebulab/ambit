@@ -17,10 +17,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { FIXTURE_CATALOG_FILES, buildFixtureCatalog } from "../scripts/fixture-catalog.js";
-import { parseCatalogDirectory } from "../src/catalog.js";
-import { ExitCode } from "../src/errors.js";
-import { run } from "../src/program.js";
+import { FIXTURE_CATALOG_FILES, buildFixtureCatalog } from "../../scripts/fixture-catalog.js";
+import { parseCatalogDirectory } from "../../src/model/catalog.js";
+import { ExitCode } from "../../src/errors.js";
+import { run } from "../../src/cli/program.js";
 
 /** The scope the fixture nests one level, and the two files that declare either end of it. */
 const PARENT = "function.engineering";

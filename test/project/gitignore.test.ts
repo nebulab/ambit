@@ -10,15 +10,15 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { AmbitError, ExitCode } from "../src/errors.js";
+import { AmbitError, ExitCode } from "../../src/errors.js";
 import {
   BLOCK_BEGIN,
   BLOCK_END,
   gitignoreEntries,
   removeGitignoreText,
   updateGitignoreText,
-} from "../src/gitignore.js";
-import type { OwnedArtifact } from "../src/state.js";
+} from "../../src/project/gitignore.js";
+import type { OwnedArtifact } from "../../src/model/state.js";
 
 const SKILLS_DIR = ".claude/skills";
 const ENTRIES = [".ambit/", `${SKILLS_DIR}/acme.core`];

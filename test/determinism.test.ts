@@ -36,7 +36,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 
 import { buildFixtureCatalog } from "../scripts/fixture-catalog.js";
 import { ExitCode } from "../src/errors.js";
-import { run } from "../src/program.js";
+import { run } from "../src/cli/program.js";
 
 /** Which permutation directory listings come back in. */
 type ReadOrder = "natural" | "reversed" | "rotated";

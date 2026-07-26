@@ -29,15 +29,15 @@
 import { stat } from "node:fs/promises";
 import path from "node:path";
 
-import type { Catalog, CatalogMcp, CatalogSkill } from "./catalog.js";
-import { MCPS_DIRNAME, MCP_EXTENSIONS, SKILL_FILENAME, parseCatalogDirectory } from "./catalog.js";
+import type { Catalog, CatalogMcp, CatalogSkill } from "../model/catalog.js";
+import { MCPS_DIRNAME, MCP_EXTENSIONS, SKILL_FILENAME, parseCatalogDirectory } from "../model/catalog.js";
 import type { EditOptions, EditResult } from "./editor.js";
 import { applyCatalogEdit, mcpDocumentPath } from "./editor.js";
-import type { AmbitError } from "./errors.js";
-import { at, configError, resolutionError } from "./errors.js";
-import type { McpTransport } from "./mcp.js";
-import { MCP_REQUIREMENT_PREFIX } from "./resolve.js";
-import { emitYaml } from "./yaml.js";
+import type { AmbitError } from "../errors.js";
+import { at, configError, resolutionError } from "../errors.js";
+import type { McpTransport } from "../model/mcp-entity.js";
+import { MCP_REQUIREMENT_PREFIX } from "../resolution/resolve.js";
+import { emitYaml } from "../model/yaml.js";
 
 /** The keys an entity document holds (spec §3.3). */
 const NAME_KEY = "name";

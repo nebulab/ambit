@@ -23,17 +23,17 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { FixtureGitCatalog } from "../scripts/fixture-catalog.js";
-import { buildFixtureCatalog, buildFixtureGitCatalog } from "../scripts/fixture-catalog.js";
-import { loadCatalogs } from "../src/catalog.js";
-import { loadProjectConfig } from "../src/config.js";
-import { ExitCode } from "../src/errors.js";
-import { REPOS_DIRNAME, SOURCES_DIRNAME, cacheRoot, gitCacheKey } from "../src/git.js";
-import { LOCK_FILENAME } from "../src/lock.js";
-import { run } from "../src/program.js";
-import { STATE_DIRNAME, STATE_FILENAME, parseState } from "../src/state.js";
-import type { YamlMapping } from "../src/yaml.js";
-import { parseYamlMapping } from "../src/yaml.js";
+import type { FixtureGitCatalog } from "../../scripts/fixture-catalog.js";
+import { buildFixtureCatalog, buildFixtureGitCatalog } from "../../scripts/fixture-catalog.js";
+import { loadCatalogs } from "../../src/model/catalog.js";
+import { loadProjectConfig } from "../../src/model/config.js";
+import { ExitCode } from "../../src/errors.js";
+import { REPOS_DIRNAME, SOURCES_DIRNAME, cacheRoot, gitCacheKey } from "../../src/model/git.js";
+import { LOCK_FILENAME } from "../../src/project/lock.js";
+import { run } from "../../src/cli/program.js";
+import { STATE_DIRNAME, STATE_FILENAME, parseState } from "../../src/model/state.js";
+import type { YamlMapping } from "../../src/model/yaml.js";
+import { parseYamlMapping } from "../../src/model/yaml.js";
 
 const CATALOG_NAME = "company";
 const CORE_SKILL = "acme.commons.use-company-context";

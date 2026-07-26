@@ -16,9 +16,9 @@
  * neither can know which §3.3 extension an entity carries, and a message that guessed `.yml` would send
  * the reader to a file that is not there.
  */
-import type { AnnotateResult, AnnotatedItem, AnnotationEdit } from "../catalog-annotate.js";
-import { annotate, annotationDirname } from "../catalog-annotate.js";
-import type { AnnotationKey } from "../catalog.js";
+import type { AnnotateResult, AnnotatedItem, AnnotationEdit } from "../../authoring/annotate.js";
+import { annotate, annotationDirname } from "../../authoring/annotate.js";
+import type { AnnotationKey } from "../../model/catalog.js";
 import type { CommandContext, CommandHandler, CommandRule } from "../commands.js";
 import {
   catalogDirOf,
@@ -28,8 +28,8 @@ import {
   positional,
 } from "../commands.js";
 import { changeKindOf, diffSection } from "../diff.js";
-import type { AmbitError } from "../errors.js";
-import { ExitCode, at, configError } from "../errors.js";
+import type { AmbitError } from "../../errors.js";
+import { ExitCode, at, configError } from "../../errors.js";
 import { keyed, printSections, section } from "../output.js";
 
 /** What the first section is titled: the item's state, hedged under `--dry-run`. */

@@ -33,7 +33,7 @@
  */
 import path from "node:path";
 
-import type { AnnotationKey, Catalog } from "./catalog.js";
+import type { AnnotationKey, Catalog } from "../model/catalog.js";
 import {
   AMBIT_FRONTMATTER_KEY,
   ANNOTATION_KEYS,
@@ -41,15 +41,15 @@ import {
   SKILL_FILENAME,
   SKILLS_DIRNAME,
   parseCatalogDirectory,
-} from "./catalog.js";
-import { mcpDocumentFile, unknownMcp } from "./catalog-mcp.js";
-import { assertRegisteredScopes } from "./catalog-scope.js";
-import { unknownSkill } from "./catalog-skill.js";
+} from "../model/catalog.js";
+import { mcpDocumentFile, unknownMcp } from "./mcp.js";
+import { assertRegisteredScopes } from "./scope.js";
+import { unknownSkill } from "./skill.js";
 import type { EditOptions, EditResult } from "./editor.js";
 import { CatalogDocument, applyCatalogEdit } from "./editor.js";
-import type { AmbitError } from "./errors.js";
-import { at, configError } from "./errors.js";
-import { MCP_REQUIREMENT_PREFIX } from "./resolve.js";
+import type { AmbitError } from "../errors.js";
+import { at, configError } from "../errors.js";
+import { MCP_REQUIREMENT_PREFIX } from "../resolution/resolve.js";
 
 /** What an annotatable subject is: the two file shapes §3.2 and §3.3 describe. */
 export type AnnotatedKind = "skill" | "mcp";

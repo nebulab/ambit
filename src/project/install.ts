@@ -34,11 +34,11 @@ import type {
   HarnessAdapter,
   PlannedArtifact,
   ProjectPaths,
-} from "./adapter.js";
-import { CLAUDE_HARNESS, claudeAdapter } from "./adapters/claude.js";
-import { loadCatalogs, mergeCatalogs, mergeConfigEntities } from "./catalog.js";
-import { loadProjectConfig } from "./config.js";
-import { configError } from "./errors.js";
+} from "../harness/adapter.js";
+import { CLAUDE_HARNESS, claudeAdapter } from "../harness/claude.js";
+import { loadCatalogs, mergeCatalogs, mergeConfigEntities } from "../model/catalog.js";
+import { loadProjectConfig } from "../model/config.js";
+import { configError } from "../errors.js";
 import {
   gitignoreEntries,
   readGitignoreText,
@@ -56,11 +56,11 @@ import {
 import { authorizePlan } from "./ownership.js";
 import type { PrunedArtifact } from "./prune.js";
 import { planPrune, pruneArtifacts } from "./prune.js";
-import type { Bundle } from "./resolve.js";
-import { resolveBundle } from "./resolve.js";
-import type { SourceContext } from "./sources.js";
-import type { ArtifactMode, State } from "./state.js";
-import { STATE_VERSION, readState, writeState } from "./state.js";
+import type { Bundle } from "../resolution/resolve.js";
+import { resolveBundle } from "../resolution/resolve.js";
+import type { SourceContext } from "../model/sources.js";
+import type { ArtifactMode, State } from "../model/state.js";
+import { STATE_VERSION, readState, writeState } from "../model/state.js";
 
 /** Every adapter this build ships, keyed by the name `harnesses` uses. */
 export const ADAPTERS: Readonly<Record<string, HarnessAdapter>> = {

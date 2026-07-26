@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { AmbitError, ExitCode } from "../src/errors.js";
+import { AmbitError, ExitCode } from "../../src/errors.js";
 import {
   YamlMapping,
   emitYaml,
@@ -16,7 +16,7 @@ import {
   parseYamlMapping,
   readFrontmatterMapping,
   readYamlMapping,
-} from "../src/yaml.js";
+} from "../../src/model/yaml.js";
 
 /** Runs `body`, asserting it rejected the document as a config error (exit 2). */
 function rejection(body: () => unknown): AmbitError {

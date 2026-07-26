@@ -27,19 +27,19 @@
  */
 import { lstat } from "node:fs/promises";
 
-import type { PlannedArtifact, PlannedHarnessConfig, PlannedSkillDir } from "./adapter.js";
-import { envPlaceholders } from "./adapters/claude.js";
+import type { PlannedArtifact, PlannedHarnessConfig, PlannedSkillDir } from "../harness/adapter.js";
+import { envPlaceholders } from "../harness/claude.js";
 import {
   GITIGNORE_FILENAME,
   gitignoreEntries,
   readGitignoreText,
   updateGitignoreText,
 } from "./gitignore.js";
-import { managedKey } from "./harness-config.js";
+import { managedKey } from "../harness/config.js";
 import { planInstall } from "./install.js";
 import { LOCK_FILENAME, readLockText } from "./lock.js";
-import type { Bundle } from "./resolve.js";
-import type { ArtifactMode } from "./state.js";
+import type { Bundle } from "../resolution/resolve.js";
+import type { ArtifactMode } from "../model/state.js";
 import type { StatusArtifact } from "./status.js";
 import { statusOfPlan } from "./status.js";
 

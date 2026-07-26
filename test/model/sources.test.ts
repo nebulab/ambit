@@ -9,10 +9,10 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { AmbitError, ExitCode } from "../src/errors.js";
-import { CACHE_DIRNAME, cacheRoot, gitCacheKey } from "../src/git.js";
-import type { Source } from "../src/sources.js";
-import { parseSource } from "../src/sources.js";
+import { AmbitError, ExitCode } from "../../src/errors.js";
+import { CACHE_DIRNAME, cacheRoot, gitCacheKey } from "../../src/model/git.js";
+import type { Source } from "../../src/model/sources.js";
+import { parseSource } from "../../src/model/sources.js";
 
 const SUBJECT = 'catalog "company"';
 const WHERE = "(ambit.yml)";

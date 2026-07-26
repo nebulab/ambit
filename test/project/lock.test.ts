@@ -14,17 +14,17 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { buildFixtureCatalog } from "../scripts/fixture-catalog.js";
-import type { Catalog } from "../src/catalog.js";
-import { mergeCatalogs, mergeConfigEntities, parseCatalogDirectory } from "../src/catalog.js";
-import { loadProjectConfig } from "../src/config.js";
-import { ExitCode } from "../src/errors.js";
-import { LOCK_FILENAME, buildLock, serializeLock } from "../src/lock.js";
-import { run } from "../src/program.js";
-import type { Bundle } from "../src/resolve.js";
-import { resolveBundle } from "../src/resolve.js";
-import type { SourceContext } from "../src/sources.js";
-import { parseYamlMapping } from "../src/yaml.js";
+import { buildFixtureCatalog } from "../../scripts/fixture-catalog.js";
+import type { Catalog } from "../../src/model/catalog.js";
+import { mergeCatalogs, mergeConfigEntities, parseCatalogDirectory } from "../../src/model/catalog.js";
+import { loadProjectConfig } from "../../src/model/config.js";
+import { ExitCode } from "../../src/errors.js";
+import { LOCK_FILENAME, buildLock, serializeLock } from "../../src/project/lock.js";
+import { run } from "../../src/cli/program.js";
+import type { Bundle } from "../../src/resolution/resolve.js";
+import { resolveBundle } from "../../src/resolution/resolve.js";
+import type { SourceContext } from "../../src/model/sources.js";
+import { parseYamlMapping } from "../../src/model/yaml.js";
 
 const CATALOG_NAME = "company";
 const CATALOG_SOURCE = "path:../catalog";

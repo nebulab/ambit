@@ -10,14 +10,14 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { buildFixtureCatalog } from "../scripts/fixture-catalog.js";
-import type { MergedCatalog } from "../src/catalog.js";
-import { loadCatalogs, mergeCatalogs, parseCatalogDirectory } from "../src/catalog.js";
-import type { CommandHandlers, CommandRules } from "../src/commands.js";
-import { loadProjectConfig } from "../src/config.js";
-import { AmbitError, ExitCode } from "../src/errors.js";
-import { HANDLERS, RULES, run } from "../src/program.js";
-import type { SourceContext } from "../src/sources.js";
+import { buildFixtureCatalog } from "../../scripts/fixture-catalog.js";
+import type { MergedCatalog } from "../../src/model/catalog.js";
+import { loadCatalogs, mergeCatalogs, parseCatalogDirectory } from "../../src/model/catalog.js";
+import type { CommandHandlers, CommandRules } from "../../src/cli/commands.js";
+import { loadProjectConfig } from "../../src/model/config.js";
+import { AmbitError, ExitCode } from "../../src/errors.js";
+import { HANDLERS, RULES, run } from "../../src/cli/program.js";
+import type { SourceContext } from "../../src/model/sources.js";
 
 const CATALOG_NAME = "company";
 const CODE_REVIEW = "skills/acme/engineering/use-code-review/SKILL.md";

@@ -18,12 +18,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { buildFixtureCatalog } from "../scripts/fixture-catalog.js";
-import type { Catalog } from "../src/catalog.js";
-import { parseCatalogDirectory } from "../src/catalog.js";
-import { ExitCode } from "../src/errors.js";
-import { run } from "../src/program.js";
-import { emitYaml } from "../src/yaml.js";
+import { buildFixtureCatalog } from "../../scripts/fixture-catalog.js";
+import type { Catalog } from "../../src/model/catalog.js";
+import { parseCatalogDirectory } from "../../src/model/catalog.js";
+import { ExitCode } from "../../src/errors.js";
+import { run } from "../../src/cli/program.js";
+import { emitYaml } from "../../src/model/yaml.js";
 
 /** The fixture's own two servers: one nothing may remove, one nothing requires. */
 const REQUIRED = "fixture";

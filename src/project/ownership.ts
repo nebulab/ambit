@@ -18,11 +18,11 @@
  */
 import { lstat } from "node:fs/promises";
 
-import type { PlannedArtifact, PlannedHarnessConfig, PlannedSkillDir } from "./adapter.js";
-import { configError } from "./errors.js";
-import { managedKey, readJsonDocument, sectionKeys } from "./harness-config.js";
-import type { OwnedArtifact, State } from "./state.js";
-import { ownedPaths } from "./state.js";
+import type { PlannedArtifact, PlannedHarnessConfig, PlannedSkillDir } from "../harness/adapter.js";
+import { configError } from "../errors.js";
+import { managedKey, readJsonDocument, sectionKeys } from "../harness/config.js";
+import type { OwnedArtifact, State } from "../model/state.js";
+import { ownedPaths } from "../model/state.js";
 
 /** How an install was told to treat a target ambit does not own. */
 export interface OwnershipOptions {

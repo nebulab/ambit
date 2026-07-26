@@ -7,11 +7,11 @@
  * heading — rather than printing nothing, so a quiet prune is distinguishable from a prune that did
  * not run.
  */
-import type { PruneResult } from "../clean.js";
-import { pruneProject } from "../clean.js";
+import type { PruneResult } from "../../project/clean.js";
+import { pruneProject } from "../../project/clean.js";
 import type { CommandHandler } from "../commands.js";
 import { dryRunRequested, jsonRequested, offlineRequested, projectDirOf } from "../commands.js";
-import { ExitCode } from "../errors.js";
+import { ExitCode } from "../../errors.js";
 import { printSections, section } from "../output.js";
 import { artifactJson, removalRows } from "./artifacts.js";
 

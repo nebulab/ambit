@@ -10,9 +10,9 @@
  * the only form that survives the project being moved — and its absolute `target`, so `apply`
  * writes exactly what `plan` decided and never re-derives a location.
  */
-import type { ConfigEntry } from "./harness-config.js";
-import type { Bundle } from "./resolve.js";
-import type { ArtifactMode, OwnedArtifact, State } from "./state.js";
+import type { ConfigEntry } from "./config.js";
+import type { Bundle } from "../resolution/resolve.js";
+import type { ArtifactMode, OwnedArtifact, State } from "../model/state.js";
 
 /** Where — and how — a bundle is being materialized. */
 export interface ProjectPaths {

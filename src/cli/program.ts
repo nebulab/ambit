@@ -2,7 +2,7 @@ import { Command, CommanderError } from "commander";
 
 import type { CommandContext, CommandHandlers, CommandRules } from "./commands.js";
 import { COMMAND_SPECS, buildCommand } from "./commands.js";
-import { AmbitError, ExitCode } from "./errors.js";
+import { AmbitError, ExitCode } from "../errors.js";
 import { catalogAnnotateHandler, catalogAnnotateRule } from "./handlers/catalog-annotate.js";
 import { catalogAuditHandler } from "./handlers/catalog-audit.js";
 import { catalogInitHandler } from "./handlers/catalog-init.js";
@@ -34,7 +34,7 @@ import { scopesHandler } from "./handlers/scopes.js";
 import { statusHandler } from "./handlers/status.js";
 import { validateHandler } from "./handlers/validate.js";
 import { whyHandler } from "./handlers/why.js";
-import { VERSION } from "./version.js";
+import { VERSION } from "../version.js";
 
 export type Io = Pick<CommandContext, "cwd" | "stdout" | "stderr">;
 

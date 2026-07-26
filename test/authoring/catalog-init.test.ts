@@ -18,16 +18,16 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { parseCatalogDirectory } from "../src/catalog.js";
+import { parseCatalogDirectory } from "../../src/model/catalog.js";
 import {
   CATALOG_INIT_SCOPE,
   CATALOG_README_FILENAME,
   CATALOG_WORKFLOW_FILENAME,
-} from "../src/catalog-init.js";
-import { ExitCode } from "../src/errors.js";
-import { run } from "../src/program.js";
-import { isValid, validateCatalogDirectory } from "../src/validate.js";
-import { emitYaml } from "../src/yaml.js";
+} from "../../src/authoring/init.js";
+import { ExitCode } from "../../src/errors.js";
+import { run } from "../../src/cli/program.js";
+import { isValid, validateCatalogDirectory } from "../../src/resolution/validate.js";
+import { emitYaml } from "../../src/model/yaml.js";
 
 /** Every file the scaffold writes, in the order the command reports them. */
 const SCAFFOLD_FILES = [

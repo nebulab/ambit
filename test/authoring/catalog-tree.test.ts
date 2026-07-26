@@ -24,15 +24,16 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { buildFixtureCatalog } from "../scripts/fixture-catalog.js";
-import { parseCatalogDirectory, skillNameFromPath } from "../src/catalog.js";
-import { buildScopeTree, flattenScopeTree } from "../src/catalog-tree.js";
-import { ExitCode } from "../src/errors.js";
-import { run } from "../src/program.js";
-import { expandHeldScopes } from "../src/resolve.js";
+import { buildFixtureCatalog } from "../../scripts/fixture-catalog.js";
+import { parseCatalogDirectory, skillNameFromPath } from "../../src/model/catalog.js";
+import { buildScopeTree, flattenScopeTree } from "../../src/authoring/tree.js";
+import { ExitCode } from "../../src/errors.js";
+import { run } from "../../src/cli/program.js";
+import { expandHeldScopes } from "../../src/resolution/resolve.js";
 
 const GOLDEN_FILE = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
+  "..",
   "golden",
   "catalog-tree.json",
 );

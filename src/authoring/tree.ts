@@ -29,9 +29,9 @@
  */
 import path from "node:path";
 
-import type { Catalog, ScopeDefinition } from "./catalog.js";
-import { parseCatalogDirectory } from "./catalog.js";
-import { SCOPE_SEPARATOR } from "./resolve.js";
+import type { Catalog, ScopeDefinition } from "../model/catalog.js";
+import { parseCatalogDirectory } from "../model/catalog.js";
+import { SCOPE_SEPARATOR } from "../resolution/resolve.js";
 
 /**
  * What a scope selects, by name and by kind — the two namespaces `catalog dump` keys separately, in the

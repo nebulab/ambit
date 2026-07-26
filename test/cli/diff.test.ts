@@ -8,7 +8,7 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { changeKindOf, diffLines, diffSection } from "../src/diff.js";
+import { changeKindOf, diffLines, diffSection } from "../../src/cli/diff.js";
 
 /** Enough lines that context and elision are both exercised. */
 function numbered(count: number): string {

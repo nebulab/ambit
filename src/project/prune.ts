@@ -32,11 +32,11 @@
 import { rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import type { PlannedArtifact } from "./adapter.js";
-import { configError } from "./errors.js";
-import { readJsonDocument, removeConfigKeys, serializeJsonDocument } from "./harness-config.js";
-import type { ArtifactKind, OwnedArtifact, State } from "./state.js";
-import { STATE_DIRNAME, STATE_FILENAME } from "./state.js";
+import type { PlannedArtifact } from "../harness/adapter.js";
+import { configError } from "../errors.js";
+import { readJsonDocument, removeConfigKeys, serializeJsonDocument } from "../harness/config.js";
+import type { ArtifactKind, OwnedArtifact, State } from "../model/state.js";
+import { STATE_DIRNAME, STATE_FILENAME } from "../model/state.js";
 
 /** The empty key set a config file the plan does not mention stands in with. */
 const NO_KEYS: ReadonlySet<string> = new Set<string>();

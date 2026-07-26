@@ -35,13 +35,13 @@
 import { mkdir, readFile, readdir, rename, rm, rmdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import type { CatalogOverlay } from "./catalog.js";
-import { MCPS_DIRNAME, SKILLS_DIRNAME, SKILL_FILENAME } from "./catalog.js";
-import type { AmbitError } from "./errors.js";
-import { configError, resolutionError } from "./errors.js";
-import type { ValidationReport } from "./validate.js";
-import { isValid, validateCatalogDirectory } from "./validate.js";
-import { EditableYaml } from "./yaml.js";
+import type { CatalogOverlay } from "../model/catalog.js";
+import { MCPS_DIRNAME, SKILLS_DIRNAME, SKILL_FILENAME } from "../model/catalog.js";
+import type { AmbitError } from "../errors.js";
+import { configError, resolutionError } from "../errors.js";
+import type { ValidationReport } from "../resolution/validate.js";
+import { isValid, validateCatalogDirectory } from "../resolution/validate.js";
+import { EditableYaml } from "../model/yaml.js";
 
 /**
  * Where a write lands before it is renamed onto its target, so an interrupted one leaves the file it

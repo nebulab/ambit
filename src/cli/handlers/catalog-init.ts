@@ -12,12 +12,12 @@
  * hedge (`would create`) and the bytes themselves are the only thing worth previewing — the same call
  * `ambit init --dry-run` makes.
  */
-import type { CatalogInitResult } from "../catalog-init.js";
-import { initCatalog } from "../catalog-init.js";
+import type { CatalogInitResult } from "../../authoring/init.js";
+import { initCatalog } from "../../authoring/init.js";
 import type { CommandHandler } from "../commands.js";
 import { catalogDirOf, dryRunRequested, jsonRequested } from "../commands.js";
 import { diffSection } from "../diff.js";
-import { ExitCode } from "../errors.js";
+import { ExitCode } from "../../errors.js";
 import { printSections, section } from "../output.js";
 
 /** The one thing left to do: a catalog with no skills installs nothing. */

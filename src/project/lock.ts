@@ -18,11 +18,11 @@
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import type { Catalog } from "./catalog.js";
-import { configError, driftError } from "./errors.js";
-import type { Bundle } from "./resolve.js";
-import { formatReason, reasonOf } from "./resolve.js";
-import { emitYaml } from "./yaml.js";
+import type { Catalog } from "../model/catalog.js";
+import { configError, driftError } from "../errors.js";
+import type { Bundle } from "../resolution/resolve.js";
+import { formatReason, reasonOf } from "../resolution/resolve.js";
+import { emitYaml } from "../model/yaml.js";
 
 /** The lockfile's name, at the project root beside `ambit.yml`. */
 export const LOCK_FILENAME = "ambit.lock";

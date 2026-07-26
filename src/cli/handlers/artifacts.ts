@@ -7,7 +7,7 @@
  * same JSON keys, and a path that is always project-relative so nothing machine-specific reaches
  * either output.
  */
-import type { OwnedArtifact } from "../state.js";
+import type { OwnedArtifact } from "../../model/state.js";
 
 /** Stands in for a cell an artifact kind has nothing to put in: a config file's mode, a directory's keys. */
 export const NO_DETAIL = "-";

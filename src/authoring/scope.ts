@@ -27,24 +27,24 @@
  */
 import path from "node:path";
 
-import type { Catalog, CatalogSkill, ScopeDefinition } from "./catalog.js";
+import type { Catalog, CatalogSkill, ScopeDefinition } from "../model/catalog.js";
 import {
   AMBIT_FRONTMATTER_KEY,
   SCOPES_FILENAME,
   SKILL_FILENAME,
   parseCatalogDirectory,
-} from "./catalog.js";
-import { mcpDocumentFile } from "./catalog-mcp.js";
+} from "../model/catalog.js";
+import { mcpDocumentFile } from "./mcp.js";
 import type { CatalogChange, EditOptions, EditedFile } from "./editor.js";
 import { CatalogDocument, applyCatalogEdit } from "./editor.js";
-import type { AmbitError } from "./errors.js";
-import { at, configError, resolutionError } from "./errors.js";
+import type { AmbitError } from "../errors.js";
+import { at, configError, resolutionError } from "../errors.js";
 import {
   MCP_REQUIREMENT_PREFIX,
   SCOPE_SEPARATOR,
   inSubtree,
   scopeSuggestion,
-} from "./resolve.js";
+} from "../resolution/resolve.js";
 
 /** The registry's one top-level key (spec §3.4). */
 const REGISTRY_KEY = "scopes";

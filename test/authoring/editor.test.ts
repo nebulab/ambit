@@ -18,10 +18,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { FIXTURE_CATALOG_FILES, FIXTURE_MARKER, buildFixtureCatalog } from "../scripts/fixture-catalog.js";
-import { CatalogDocument, applyCatalogEdit, mcpDocumentPath, skillDocumentPath } from "../src/editor.js";
-import { AmbitError, ExitCode } from "../src/errors.js";
-import { isValid, validateCatalogDirectory } from "../src/validate.js";
+import { FIXTURE_CATALOG_FILES, FIXTURE_MARKER, buildFixtureCatalog } from "../../scripts/fixture-catalog.js";
+import { CatalogDocument, applyCatalogEdit, mcpDocumentPath, skillDocumentPath } from "../../src/authoring/editor.js";
+import { AmbitError, ExitCode } from "../../src/errors.js";
+import { isValid, validateCatalogDirectory } from "../../src/resolution/validate.js";
 
 /** The fixture's YAML-bearing files: everything but the marker, which is prose. */
 const FIXTURE_DOCUMENTS = Object.keys(FIXTURE_CATALOG_FILES)

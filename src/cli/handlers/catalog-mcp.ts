@@ -19,9 +19,9 @@
  * error. `rm` closes with nothing, deliberately: no project's `ambit.yml` can name a catalog's server —
  * §3.1's `mcps` declares one rather than selecting one — so there is nothing for its author to update.
  */
-import type { McpEdit, McpSummary } from "../catalog-mcp.js";
-import { newMcp, removeMcp } from "../catalog-mcp.js";
-import { MCPS_DIRNAME } from "../catalog.js";
+import type { McpEdit, McpSummary } from "../../authoring/mcp.js";
+import { newMcp, removeMcp } from "../../authoring/mcp.js";
+import { MCPS_DIRNAME } from "../../model/catalog.js";
 import type { CommandContext, CommandHandler, CommandRule } from "../commands.js";
 import {
   catalogDirOf,
@@ -31,13 +31,13 @@ import {
   positional,
 } from "../commands.js";
 import { changeKindOf, diffSection } from "../diff.js";
-import { mcpDocumentPath } from "../editor.js";
-import type { AmbitError } from "../errors.js";
-import { ExitCode, at, configError } from "../errors.js";
-import type { McpTransport } from "../mcp.js";
-import { MCP_TRANSPORT_KINDS } from "../mcp.js";
+import { mcpDocumentPath } from "../../authoring/editor.js";
+import type { AmbitError } from "../../errors.js";
+import { ExitCode, at, configError } from "../../errors.js";
+import type { McpTransport } from "../../model/mcp-entity.js";
+import { MCP_TRANSPORT_KINDS } from "../../model/mcp-entity.js";
 import { printSections, section } from "../output.js";
-import { MCP_REQUIREMENT_PREFIX } from "../resolve.js";
+import { MCP_REQUIREMENT_PREFIX } from "../../resolution/resolve.js";
 
 /** The first section's title: past tense for a run that happened, conditional for a preview. */
 interface Heading {

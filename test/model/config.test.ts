@@ -14,8 +14,8 @@ import {
   findConfigFile,
   loadProjectConfig,
   parseProjectConfig,
-} from "../src/config.js";
-import { AmbitError, ExitCode } from "../src/errors.js";
+} from "../../src/model/config.js";
+import { AmbitError, ExitCode } from "../../src/errors.js";
 
 const FILE = "ambit.yml";
 

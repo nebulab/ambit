@@ -16,20 +16,20 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { buildFixtureCatalog } from "../scripts/fixture-catalog.js";
+import { buildFixtureCatalog } from "../../scripts/fixture-catalog.js";
 import {
   loadCatalogs,
   mergeCatalogs,
   mergeConfigEntities,
   skillNameFromPath,
-} from "../src/catalog.js";
-import type { ProjectConfig } from "../src/config.js";
-import { loadProjectConfig } from "../src/config.js";
-import { AmbitError, ExitCode } from "../src/errors.js";
-import { run } from "../src/program.js";
-import type { Bundle } from "../src/resolve.js";
-import { assertScopesRegistered, expandHeldScopes, resolveBundle } from "../src/resolve.js";
-import type { SourceContext } from "../src/sources.js";
+} from "../../src/model/catalog.js";
+import type { ProjectConfig } from "../../src/model/config.js";
+import { loadProjectConfig } from "../../src/model/config.js";
+import { AmbitError, ExitCode } from "../../src/errors.js";
+import { run } from "../../src/cli/program.js";
+import type { Bundle } from "../../src/resolution/resolve.js";
+import { assertScopesRegistered, expandHeldScopes, resolveBundle } from "../../src/resolution/resolve.js";
+import type { SourceContext } from "../../src/model/sources.js";
 
 const CATALOG_NAME = "company";
 
@@ -40,6 +40,7 @@ const PROJECT_SKILL = "acme.projects.use-acme-brief";
 
 const GOLDEN_DIR = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
+  "..",
   "golden",
   "resolve",
 );

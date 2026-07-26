@@ -10,13 +10,13 @@
  * than a summary of it. `--json` output carries no absolute paths and sorts every key, so it is
  * comparable between machines and stable enough to commit as a golden file.
  */
-import type { Catalog, MergedCatalog, MergedMcp, MergedSkill, ScopeDefinition } from "../catalog.js";
-import { loadCatalogs, mergeCatalogs } from "../catalog.js";
+import type { Catalog, MergedCatalog, MergedMcp, MergedSkill, ScopeDefinition } from "../../model/catalog.js";
+import { loadCatalogs, mergeCatalogs } from "../../model/catalog.js";
 import type { CommandHandler } from "../commands.js";
 import { jsonRequested, sourceContextOf } from "../commands.js";
-import { loadProjectConfig } from "../config.js";
-import { ExitCode } from "../errors.js";
-import type { McpTransport } from "../mcp.js";
+import { loadProjectConfig } from "../../model/config.js";
+import { ExitCode } from "../../errors.js";
+import type { McpTransport } from "../../model/mcp-entity.js";
 import { keyed, printSections, section } from "../output.js";
 
 /** Stands in for an empty scope list, which means "not selectable by scope" (spec §3.2). */

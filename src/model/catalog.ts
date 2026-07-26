@@ -23,9 +23,9 @@ import { readdir, stat } from "node:fs/promises";
 import path from "node:path";
 
 import type { CatalogRef, ConfigOrigin, ProjectConfig, SourceSkillRequest } from "./config.js";
-import { AmbitError, at, configError, resolutionError } from "./errors.js";
-import type { McpEntity } from "./mcp.js";
-import { parseMcpEntity } from "./mcp.js";
+import { AmbitError, at, configError, resolutionError } from "../errors.js";
+import type { McpEntity } from "./mcp-entity.js";
+import { parseMcpEntity } from "./mcp-entity.js";
 import type { ResolvedSource, SourceContext, SourceRequest } from "./sources.js";
 import { resolveSource } from "./sources.js";
 import type { YamlMapping } from "./yaml.js";

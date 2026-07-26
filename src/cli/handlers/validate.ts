@@ -16,10 +16,10 @@ import path from "node:path";
 
 import type { CommandHandler } from "../commands.js";
 import { jsonRequested, sourceContextOf } from "../commands.js";
-import { ExitCode } from "../errors.js";
+import { ExitCode } from "../../errors.js";
 import { printSections } from "../output.js";
-import type { ValidationProblem, ValidationReport } from "../validate.js";
-import { isValid, validateCatalogDirectory, validateProject } from "../validate.js";
+import type { ValidationProblem, ValidationReport } from "../../resolution/validate.js";
+import { isValid, validateCatalogDirectory, validateProject } from "../../resolution/validate.js";
 
 function problemJson(problem: ValidationProblem): Readonly<Record<string, unknown>> {
   return { detail: problem.detail, kind: problem.kind, message: problem.message };

@@ -26,18 +26,18 @@
 import { lstat, readFile, readdir, readlink } from "node:fs/promises";
 import path from "node:path";
 
-import type { PlannedArtifact, PlannedHarnessConfig, PlannedSkillDir, ProjectPaths } from "./adapter.js";
-import { loadCatalogs, mergeCatalogs, mergeConfigEntities } from "./catalog.js";
-import { loadProjectConfig } from "./config.js";
-import { configError } from "./errors.js";
-import type { JsonObject } from "./harness-config.js";
-import { managedKey, readJsonDocument, sectionOf } from "./harness-config.js";
+import type { PlannedArtifact, PlannedHarnessConfig, PlannedSkillDir, ProjectPaths } from "../harness/adapter.js";
+import { loadCatalogs, mergeCatalogs, mergeConfigEntities } from "../model/catalog.js";
+import { loadProjectConfig } from "../model/config.js";
+import { configError } from "../errors.js";
+import type { JsonObject } from "../harness/config.js";
+import { managedKey, readJsonDocument, sectionOf } from "../harness/config.js";
 import { adaptersFor } from "./install.js";
 import { ownedKeys } from "./ownership.js";
-import { resolveBundle } from "./resolve.js";
-import type { SourceContext } from "./sources.js";
-import type { ArtifactKind, State } from "./state.js";
-import { ownedPaths, readState } from "./state.js";
+import { resolveBundle } from "../resolution/resolve.js";
+import type { SourceContext } from "../model/sources.js";
+import type { ArtifactKind, State } from "../model/state.js";
+import { ownedPaths, readState } from "../model/state.js";
 
 /**
  * What comparing one artifact against the project concluded.

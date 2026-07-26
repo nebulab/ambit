@@ -28,20 +28,20 @@ import type {
   PlannedHarnessConfig,
   PlannedSkillDir,
   ProjectPaths,
-} from "../adapter.js";
-import type { MergedMcp, MergedSkill } from "../catalog.js";
-import type { ConfigEntry, JsonObject } from "../harness-config.js";
+} from "./adapter.js";
+import type { MergedMcp, MergedSkill } from "../model/catalog.js";
+import type { ConfigEntry, JsonObject } from "./config.js";
 import {
   managedKey,
   mergeConfigSection,
   readJsonDocument,
   serializeJsonDocument,
-} from "../harness-config.js";
+} from "./config.js";
 import { configError } from "../errors.js";
-import type { McpTransport } from "../mcp.js";
-import type { Bundle } from "../resolve.js";
-import type { ArtifactMode, State } from "../state.js";
-import { ownedPaths } from "../state.js";
+import type { McpTransport } from "../model/mcp-entity.js";
+import type { Bundle } from "../resolution/resolve.js";
+import type { ArtifactMode, State } from "../model/state.js";
+import { ownedPaths } from "../model/state.js";
 
 /** The harness name this adapter answers to in `ambit.yml`'s `harnesses`. */
 export const CLAUDE_HARNESS = "claude";

@@ -11,10 +11,10 @@
  */
 import type { CommandHandler } from "../commands.js";
 import { jsonRequested, offlineRequested, projectDirOf } from "../commands.js";
-import { ExitCode } from "../errors.js";
+import { ExitCode } from "../../errors.js";
 import { printSections, section } from "../output.js";
-import type { ProjectStatus, StatusArtifact } from "../status.js";
-import { isClean, projectStatus } from "../status.js";
+import type { ProjectStatus, StatusArtifact } from "../../project/status.js";
+import { isClean, projectStatus } from "../../project/status.js";
 
 function artifactJson(artifact: StatusArtifact): Readonly<Record<string, unknown>> {
   return {

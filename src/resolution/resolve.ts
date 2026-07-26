@@ -21,10 +21,10 @@
  * into a bundle a list of names is not an answer to "why is this here?" — and the lock records the
  * reason too (spec §3.5), so it has to be part of resolution rather than a reporting afterthought.
  */
-import type { MergedCatalog, MergedMcp, MergedSkill, ScopeDefinition } from "./catalog.js";
-import { MCPS_DIRNAME, SCOPES_FILENAME, SKILL_FILENAME } from "./catalog.js";
-import type { ProjectConfig } from "./config.js";
-import { AmbitError, ExitCode, at, resolutionError } from "./errors.js";
+import type { MergedCatalog, MergedMcp, MergedSkill, ScopeDefinition } from "../model/catalog.js";
+import { MCPS_DIRNAME, SCOPES_FILENAME, SKILL_FILENAME } from "../model/catalog.js";
+import type { ProjectConfig } from "../model/config.js";
+import { AmbitError, ExitCode, at, resolutionError } from "../errors.js";
 
 /**
  * What separates a scope from its children (spec §2).

@@ -13,10 +13,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { buildFixtureCatalog } from "../scripts/fixture-catalog.js";
-import { ExitCode } from "../src/errors.js";
-import { run } from "../src/program.js";
-import { isClean, projectStatus, statusDrift } from "../src/status.js";
+import { buildFixtureCatalog } from "../../scripts/fixture-catalog.js";
+import { ExitCode } from "../../src/errors.js";
+import { run } from "../../src/cli/program.js";
+import { isClean, projectStatus, statusDrift } from "../../src/project/status.js";
 
 const CATALOG_NAME = "company";
 const SKILLS_DIR = ".claude/skills";

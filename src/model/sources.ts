@@ -18,7 +18,7 @@
 import { stat } from "node:fs/promises";
 import path from "node:path";
 
-import { configError } from "./errors.js";
+import { configError } from "../errors.js";
 import { fetchGitSource } from "./git.js";
 
 /** The prefix marking a source as a local directory (spec §3.1). */

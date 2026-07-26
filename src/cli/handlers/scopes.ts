@@ -17,11 +17,11 @@
  * command someone reads *to fix that typo*, and a picker that refuses to render is a picker that
  * cannot correct anything. Such a scope simply appears in no row, since the registry is the subject.
  */
-import { loadCatalogs, mergeCatalogs } from "../catalog.js";
+import { loadCatalogs, mergeCatalogs } from "../../model/catalog.js";
 import type { CommandHandler } from "../commands.js";
 import { jsonRequested, sourceContextOf } from "../commands.js";
-import { loadProjectConfig } from "../config.js";
-import { ExitCode } from "../errors.js";
+import { loadProjectConfig } from "../../model/config.js";
+import { ExitCode } from "../../errors.js";
 import { keyed, printSections, section } from "../output.js";
 
 /** The `held` column's two values, so the table lines up and neither reads as missing data. */

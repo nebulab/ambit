@@ -8,9 +8,9 @@
 import { stat } from "node:fs/promises";
 import path from "node:path";
 
-import { at, configError } from "./errors.js";
-import type { McpEntity } from "./mcp.js";
-import { parseMcpEntity } from "./mcp.js";
+import { at, configError } from "../errors.js";
+import type { McpEntity } from "./mcp-entity.js";
+import { parseMcpEntity } from "./mcp-entity.js";
 import type { PositionedString } from "./yaml.js";
 import { YamlMapping, parseYamlMapping, readYamlMapping } from "./yaml.js";
 

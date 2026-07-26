@@ -2,8 +2,8 @@ import path from "node:path";
 
 import { Command, Option } from "commander";
 
-import { AmbitError, ExitCode } from "./errors.js";
-import type { SourceContext } from "./sources.js";
+import { AmbitError, ExitCode } from "../errors.js";
+import type { SourceContext } from "../model/sources.js";
 
 /**
  * What a command acts on. Consumer commands read a project's `ambit.yml`; authoring commands read a

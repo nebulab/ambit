@@ -37,8 +37,8 @@ import type {
 } from "yaml";
 import { LineCounter, isMap, isScalar, isSeq, parseDocument, stringify, visit } from "yaml";
 
-import type { AmbitError } from "./errors.js";
-import { at, configError } from "./errors.js";
+import type { AmbitError } from "../errors.js";
+import { at, configError } from "../errors.js";
 
 /**
  * The tags the YAML 1.2 core schema resolves. A node carrying anything else is using a custom

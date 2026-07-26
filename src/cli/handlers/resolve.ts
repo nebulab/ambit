@@ -16,15 +16,15 @@
  * can be shadowed while every item has a reason. Folding the first into the second would cost a
  * shadowed item its reason, in `--explain` and in `ambit why`'s chain both.
  */
-import type { MergedCatalog, Shadowing } from "../catalog.js";
-import { formatShadowing, loadCatalogs, mergeCatalogs, mergeConfigEntities } from "../catalog.js";
+import type { MergedCatalog, Shadowing } from "../../model/catalog.js";
+import { formatShadowing, loadCatalogs, mergeCatalogs, mergeConfigEntities } from "../../model/catalog.js";
 import type { CommandHandler } from "../commands.js";
 import { jsonRequested, sourceContextOf } from "../commands.js";
-import { loadProjectConfig } from "../config.js";
-import { ExitCode } from "../errors.js";
+import { loadProjectConfig } from "../../model/config.js";
+import { ExitCode } from "../../errors.js";
 import { keyed, printSections, section } from "../output.js";
-import type { Bundle, BundleItem } from "../resolve.js";
-import { formatReason, reasonOf, resolveBundle } from "../resolve.js";
+import type { Bundle, BundleItem } from "../../resolution/resolve.js";
+import { formatReason, reasonOf, resolveBundle } from "../../resolution/resolve.js";
 
 /** The reason column and key, present only under `--explain`. */
 function reason(bundle: Bundle, item: BundleItem, explain: boolean): string | undefined {

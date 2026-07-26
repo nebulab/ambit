@@ -16,14 +16,14 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { buildFixtureCatalog } from "../scripts/fixture-catalog.js";
-import { cleanProject, pruneProject } from "../src/clean.js";
-import { diagnoseProject, isHealthy } from "../src/doctor.js";
-import { ExitCode } from "../src/errors.js";
-import { BLOCK_BEGIN, BLOCK_END, GITIGNORE_FILENAME } from "../src/gitignore.js";
-import { LOCK_FILENAME } from "../src/lock.js";
-import { run } from "../src/program.js";
-import { STATE_DIRNAME, STATE_FILENAME, parseState } from "../src/state.js";
+import { buildFixtureCatalog } from "../../scripts/fixture-catalog.js";
+import { cleanProject, pruneProject } from "../../src/project/clean.js";
+import { diagnoseProject, isHealthy } from "../../src/project/doctor.js";
+import { ExitCode } from "../../src/errors.js";
+import { BLOCK_BEGIN, BLOCK_END, GITIGNORE_FILENAME } from "../../src/project/gitignore.js";
+import { LOCK_FILENAME } from "../../src/project/lock.js";
+import { run } from "../../src/cli/program.js";
+import { STATE_DIRNAME, STATE_FILENAME, parseState } from "../../src/model/state.js";
 
 const CATALOG_NAME = "company";
 const SKILLS_DIR = ".claude/skills";

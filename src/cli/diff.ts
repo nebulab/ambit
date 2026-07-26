@@ -13,7 +13,7 @@
  * renderer does guarantee is determinism: the operations are the longest-common-subsequence of the two
  * line lists with removals ordered before additions at every tie, so one edit renders one way.
  */
-import type { CatalogTreeChange, EditedFile } from "./editor.js";
+import type { CatalogTreeChange, EditedFile } from "../authoring/editor.js";
 
 /** Unchanged lines kept either side of a change, so a reader can find it in the file. */
 const CONTEXT_LINES = 3;

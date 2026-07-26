@@ -13,9 +13,9 @@
  */
 import type { CommandHandler } from "../commands.js";
 import { dryRunRequested, jsonRequested, projectDirOf } from "../commands.js";
-import { ExitCode } from "../errors.js";
-import type { InitResult } from "../init.js";
-import { initProject } from "../init.js";
+import { ExitCode } from "../../errors.js";
+import type { InitResult } from "../../project/init.js";
+import { initProject } from "../../project/init.js";
 
 function toJson(result: InitResult): Readonly<Record<string, unknown>> {
   return { created: result.created, file: result.file, text: result.text };

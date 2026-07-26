@@ -15,9 +15,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { buildFixtureCatalog } from "../scripts/fixture-catalog.js";
-import { ExitCode } from "../src/errors.js";
-import { run } from "../src/program.js";
+import { buildFixtureCatalog } from "../../scripts/fixture-catalog.js";
+import { ExitCode } from "../../src/errors.js";
+import { run } from "../../src/cli/program.js";
 
 const CATALOG_NAME = "company";
 const SECOND = "personal";

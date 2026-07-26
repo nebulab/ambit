@@ -13,9 +13,9 @@
  */
 import type { CommandHandler } from "../commands.js";
 import { jsonRequested, offlineRequested, projectDirOf } from "../commands.js";
-import type { DoctorFinding, DoctorReport } from "../doctor.js";
-import { diagnoseProject, doctorFailures, doctorWarnings, isHealthy } from "../doctor.js";
-import { ExitCode } from "../errors.js";
+import type { DoctorFinding, DoctorReport } from "../../project/doctor.js";
+import { diagnoseProject, doctorFailures, doctorWarnings, isHealthy } from "../../project/doctor.js";
+import { ExitCode } from "../../errors.js";
 import { printSections, section } from "../output.js";
 
 function findingJson(finding: DoctorFinding): Readonly<Record<string, unknown>> {

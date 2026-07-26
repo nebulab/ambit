@@ -12,13 +12,13 @@
  */
 import type { CommandContext, CommandHandler } from "../commands.js";
 import { dryRunRequested, jsonRequested, offlineRequested, projectDirOf } from "../commands.js";
-import { ExitCode } from "../errors.js";
-import { GITIGNORE_FILENAME } from "../gitignore.js";
-import type { InstallOptions, InstallPreview, InstallResult } from "../install.js";
-import { installProject, previewInstall } from "../install.js";
-import { LOCK_FILENAME } from "../lock.js";
+import { ExitCode } from "../../errors.js";
+import { GITIGNORE_FILENAME } from "../../project/gitignore.js";
+import type { InstallOptions, InstallPreview, InstallResult } from "../../project/install.js";
+import { installProject, previewInstall } from "../../project/install.js";
+import { LOCK_FILENAME } from "../../project/lock.js";
 import { printSections, section } from "../output.js";
-import type { ArtifactMode } from "../state.js";
+import type { ArtifactMode } from "../../model/state.js";
 import { artifactJson, artifactRows, removalRows } from "./artifacts.js";
 
 /**

@@ -15,8 +15,8 @@
  * list, so renaming or deleting one leaves that project naming something this catalog no longer
  * provides.
  */
-import type { SkillEdit } from "../catalog-skill.js";
-import { newSkill, removeSkill, renameSkill } from "../catalog-skill.js";
+import type { SkillEdit } from "../../authoring/skill.js";
+import { newSkill, removeSkill, renameSkill } from "../../authoring/skill.js";
 import type { CommandContext, CommandHandler } from "../commands.js";
 import {
   catalogDirOf,
@@ -26,8 +26,8 @@ import {
   positional,
 } from "../commands.js";
 import { changeKindOf, diffSection, treeChangeSummary } from "../diff.js";
-import { skillDocumentPath } from "../editor.js";
-import { ExitCode } from "../errors.js";
+import { skillDocumentPath } from "../../authoring/editor.js";
+import { ExitCode } from "../../errors.js";
 import { printSections, section } from "../output.js";
 
 /** The first section's title: past tense for a run that happened, conditional for a preview. */

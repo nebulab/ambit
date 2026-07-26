@@ -29,7 +29,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import { configError, networkError } from "./errors.js";
+import { configError, networkError } from "../errors.js";
 
 /** The directory ambit owns inside the XDG cache root (spec §5). */
 export const CACHE_DIRNAME = "ambit";

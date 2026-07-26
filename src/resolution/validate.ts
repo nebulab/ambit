@@ -32,18 +32,18 @@ import type {
   MergedMcp,
   MergedSkill,
   Shadowing,
-} from "./catalog.js";
+} from "../model/catalog.js";
 import {
   SCOPES_FILENAME,
   loadCatalogs,
   mergeCatalogs,
   mergeConfigEntities,
   parseCatalogDirectory,
-} from "./catalog.js";
-import type { ProjectConfig } from "./config.js";
-import { loadProjectConfig } from "./config.js";
-import type { AmbitError } from "./errors.js";
-import { at, resolutionError } from "./errors.js";
+} from "../model/catalog.js";
+import type { ProjectConfig } from "../model/config.js";
+import { loadProjectConfig } from "../model/config.js";
+import type { AmbitError } from "../errors.js";
+import { at, resolutionError } from "../errors.js";
 import {
   MCP_REQUIREMENT_PREFIX,
   cycleError,
@@ -53,7 +53,7 @@ import {
   unknownExplicitSkill,
   unknownScopeError,
 } from "./resolve.js";
-import type { SourceContext } from "./sources.js";
+import type { SourceContext } from "../model/sources.js";
 
 /**
  * What kind of problem a report entry is, so `--json` can be filtered without parsing prose.

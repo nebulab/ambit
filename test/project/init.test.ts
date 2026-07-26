@@ -17,11 +17,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { parseProjectConfig } from "../src/config.js";
-import { ExitCode } from "../src/errors.js";
-import { INIT_FILENAME, INIT_SCOPE, scaffoldConfig } from "../src/init.js";
-import { run } from "../src/program.js";
-import { emitYaml } from "../src/yaml.js";
+import { parseProjectConfig } from "../../src/model/config.js";
+import { ExitCode } from "../../src/errors.js";
+import { INIT_FILENAME, INIT_SCOPE, scaffoldConfig } from "../../src/project/init.js";
+import { run } from "../../src/cli/program.js";
+import { emitYaml } from "../../src/model/yaml.js";
 
 /** What the scaffold sets, stated here rather than imported so the test is an independent claim. */
 const SCAFFOLD_VALUES = { harnesses: ["claude"], scopes: ["core"], version: 1 };

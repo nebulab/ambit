@@ -36,11 +36,11 @@
  */
 import path from "node:path";
 
-import type { Catalog, CatalogSkill } from "./catalog.js";
-import { SCOPES_FILENAME, SKILL_FILENAME, parseCatalogDirectory } from "./catalog.js";
-import { buildScopeTree, flattenScopeTree, selectionSize } from "./catalog-tree.js";
-import { at } from "./errors.js";
-import { MCP_REQUIREMENT_PREFIX } from "./resolve.js";
+import type { Catalog, CatalogSkill } from "../model/catalog.js";
+import { SCOPES_FILENAME, SKILL_FILENAME, parseCatalogDirectory } from "../model/catalog.js";
+import { buildScopeTree, flattenScopeTree, selectionSize } from "./tree.js";
+import { at } from "../errors.js";
+import { MCP_REQUIREMENT_PREFIX } from "../resolution/resolve.js";
 
 /**
  * What kind of finding a report entry is, so `--json` can be filtered without parsing prose.

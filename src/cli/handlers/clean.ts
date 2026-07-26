@@ -10,14 +10,14 @@
  * `mcpServers`. Neither is ambit's to delete (see `clean.ts`), so neither is ambit's to report having
  * deleted.
  */
-import type { CleanResult } from "../clean.js";
-import { cleanProject } from "../clean.js";
+import type { CleanResult } from "../../project/clean.js";
+import { cleanProject } from "../../project/clean.js";
 import type { CommandHandler } from "../commands.js";
 import { dryRunRequested, jsonRequested, projectDirOf } from "../commands.js";
-import { ExitCode } from "../errors.js";
-import { GITIGNORE_FILENAME } from "../gitignore.js";
+import { ExitCode } from "../../errors.js";
+import { GITIGNORE_FILENAME } from "../../project/gitignore.js";
 import { printSections, section } from "../output.js";
-import { STATE_DIRNAME, STATE_FILENAME } from "../state.js";
+import { STATE_DIRNAME, STATE_FILENAME } from "../../model/state.js";
 import { artifactJson, removalRows } from "./artifacts.js";
 
 /** How the state file and the managed block are named in the report. */

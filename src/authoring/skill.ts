@@ -27,19 +27,19 @@
  */
 import path from "node:path";
 
-import type { Catalog, CatalogSkill } from "./catalog.js";
+import type { Catalog, CatalogSkill } from "../model/catalog.js";
 import {
   AMBIT_FRONTMATTER_KEY,
   SKILLS_DIRNAME,
   SKILL_FILENAME,
   parseCatalogDirectory,
-} from "./catalog.js";
-import { assertRegisteredScopes } from "./catalog-scope.js";
+} from "../model/catalog.js";
+import { assertRegisteredScopes } from "./scope.js";
 import type { CatalogChange, EditOptions, EditResult } from "./editor.js";
 import { CatalogDocument, applyCatalogEdit, skillDirectoryPath, skillDocumentPath } from "./editor.js";
-import type { AmbitError } from "./errors.js";
-import { at, configError, resolutionError } from "./errors.js";
-import { emitYaml } from "./yaml.js";
+import type { AmbitError } from "../errors.js";
+import { at, configError, resolutionError } from "../errors.js";
+import { emitYaml } from "../model/yaml.js";
 
 /**
  * What joins a skill name's segments, which is what `/` becomes in its path (spec §2). The same

@@ -18,10 +18,10 @@
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { CONFIG_FILENAMES, CONFIG_VERSION, DEFAULT_HARNESSES, existingConfigFiles } from "./config.js";
-import { configError } from "./errors.js";
-import type { ScaffoldBlock } from "./scaffold.js";
-import { renderScaffold } from "./scaffold.js";
+import { CONFIG_FILENAMES, CONFIG_VERSION, DEFAULT_HARNESSES, existingConfigFiles } from "../model/config.js";
+import { configError } from "../errors.js";
+import type { ScaffoldBlock } from "../model/scaffold.js";
+import { renderScaffold } from "../model/scaffold.js";
 
 /** The name `init` writes: the first of the two accepted config filenames (spec §3.1). */
 export const INIT_FILENAME = CONFIG_FILENAMES[0];

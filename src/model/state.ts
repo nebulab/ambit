@@ -13,7 +13,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { configError } from "./errors.js";
+import { configError } from "../errors.js";
 
 /** The machine-local directory ambit keeps its state in. Always gitignored. */
 export const STATE_DIRNAME = ".ambit";

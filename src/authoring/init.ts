@@ -29,12 +29,12 @@
  */
 import { stat } from "node:fs/promises";
 
-import { MCPS_DIRNAME, SCOPES_FILENAME, SKILLS_DIRNAME, SKILL_FILENAME } from "./catalog.js";
+import { MCPS_DIRNAME, SCOPES_FILENAME, SKILLS_DIRNAME, SKILL_FILENAME } from "../model/catalog.js";
 import type { CatalogFileChange, EditOptions, EditedFile } from "./editor.js";
 import { applyCatalogEdit, catalogFilePath } from "./editor.js";
-import { configError } from "./errors.js";
-import type { ScaffoldBlock } from "./scaffold.js";
-import { renderScaffold } from "./scaffold.js";
+import { configError } from "../errors.js";
+import type { ScaffoldBlock } from "../model/scaffold.js";
+import { renderScaffold } from "../model/scaffold.js";
 
 /**
  * The scope the scaffolded registry holds.

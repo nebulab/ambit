@@ -16,11 +16,11 @@
  * every list is sorted, and no absolute path reaches either output form, which is what lets the JSON be a
  * golden file.
  */
-import type { ScopeNode, ScopeSelection } from "../catalog-tree.js";
-import { flattenScopeTree, scopeTree, selectionSize } from "../catalog-tree.js";
+import type { ScopeNode, ScopeSelection } from "../../authoring/tree.js";
+import { flattenScopeTree, scopeTree, selectionSize } from "../../authoring/tree.js";
 import type { CommandHandler } from "../commands.js";
 import { catalogDirOf, jsonRequested } from "../commands.js";
-import { ExitCode } from "../errors.js";
+import { ExitCode } from "../../errors.js";
 import { keyed, printSections, section } from "../output.js";
 
 /** The section title: the registry is what is being drawn, as `ambit scopes` and `catalog dump` name it. */

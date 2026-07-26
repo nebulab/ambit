@@ -20,11 +20,11 @@
  * Read-only, so there is no `--dry-run` and no diff, and the determinism rules apply unchanged
  * (spec §4): every list is sorted upstream, and no absolute path reaches either output form.
  */
-import type { AuditFinding, AuditReport } from "../catalog-audit.js";
-import { auditCatalogDirectory, isTidy } from "../catalog-audit.js";
+import type { AuditFinding, AuditReport } from "../../authoring/audit.js";
+import { auditCatalogDirectory, isTidy } from "../../authoring/audit.js";
 import type { CommandHandler } from "../commands.js";
 import { catalogDirOf, jsonRequested } from "../commands.js";
-import { ExitCode } from "../errors.js";
+import { ExitCode } from "../../errors.js";
 import { printSections } from "../output.js";
 
 function findingJson(finding: AuditFinding): Readonly<Record<string, unknown>> {
