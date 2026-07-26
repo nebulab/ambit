@@ -1,5 +1,5 @@
 /**
- * `ambit catalog dump` — dump the merged catalog (spec §6), and the default action of the `catalog`
+ * `ambit catalog dump` — dump the merged catalog, and the default action of the `catalog`
  * group, so bare `ambit catalog` is this command rather than a second rendering of it.
  *
  * It is the one command under `catalog` that reads a *project*: the merged view is what several
@@ -19,7 +19,7 @@ import { ExitCode } from "../../errors.js";
 import type { McpTransport } from "../../model/mcp-entity.js";
 import { keyed, printSections, section } from "../output.js";
 
-/** Stands in for an empty scope list, which means "not selectable by scope" (spec §3.2). */
+/** Stands in for an empty scope list, which means "not selectable by scope". */
 const UNSCOPED = "-";
 
 function transportJson(transport: McpTransport): Readonly<Record<string, unknown>> {

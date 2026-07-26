@@ -7,12 +7,12 @@ import type { SourceContext } from "../model/sources.js";
 
 /**
  * What a command acts on. Consumer commands read a project's `ambit.yml`; authoring commands read a
- * catalog root, which has no `ambit.yml` at all (spec §6, "Catalog authoring").
+ * catalog root, which has no `ambit.yml` at all.
  */
 export type CommandSubject = "project" | "catalog";
 
 /**
- * Flags every command accepts, per spec §6.
+ * Flags every command accepts.
  *
  * They are attached to each subcommand rather than only to the root program so that
  * `ambit install --dry-run` works — Commander only accepts program-level options before the
@@ -52,7 +52,7 @@ function dryRunOption(): Option {
 /**
  * A flag that may be given more than once, collecting its values in the order given —
  * `--scope a --scope b` rather than `--scope a,b`, because a scope name can hold a comma far more
- * easily than an argv entry can (spec §6).
+ * easily than an argv entry can.
  *
  * The value is absent rather than `[]` when the flag never appeared, so a handler can tell "no
  * entries asked for" from "an empty list asked for".
@@ -84,7 +84,7 @@ export interface CommandSpec {
 }
 
 /**
- * The catalog-authoring surface (spec §6, "Catalog authoring"), nested under `catalog` so the group
+ * The catalog-authoring surface, nested under `catalog` so the group
  * that dumps a catalog is also the group that maintains one.
  *
  * Every command here takes `--catalog <dir>` and every mutation takes `--dry-run`, since authoring
@@ -123,7 +123,7 @@ const CATALOG_SUBCOMMANDS: readonly CommandSpec[] = [
         // Mandatory, but through a `CommandRule` rather than `.makeOptionMandatory()`: Commander's own
         // refusal reads `error: required option '--description <text>' not specified`, which names no
         // file and gives no next step. `catalogScopeAddRule` refuses it before the handler runs, in
-        // spec §6's shape.
+        // the standard error shape.
         options: [new Option("--description <text>", "what the scope means")],
       },
       {
@@ -232,7 +232,7 @@ const CATALOG_SUBCOMMANDS: readonly CommandSpec[] = [
 ];
 
 /**
- * The full CLI surface from spec §6, declared in one place so usage output and dispatch
+ * The full CLI surface, declared in one place so usage output and dispatch
  * cannot drift apart. Commands are wired to behaviour as the build reaches them; until then
  * they report that they are unimplemented rather than pretending to work.
  */
@@ -303,7 +303,7 @@ export type CommandHandler = (ctx: CommandContext) => Promise<ExitCode> | ExitCo
  *
  * It exists for the rules Commander's own primitives cannot state without giving up the message:
  * `.makeOptionMandatory()` says `error: required option '--description <text>' not specified`, and
- * `.conflicts()` can say nothing at all about a *missing* transport, where spec §6 asks every error to
+ * `.conflicts()` can say nothing at all about a *missing* transport, where every error has to
  * name the offending file, name the offending identifier, and give one concrete next step. A rule is
  * declared with its command like any of them and throws one of ambit's own errors, so the refusal is
  * Commander's to make and the message stays what §6 requires.
@@ -311,7 +311,7 @@ export type CommandHandler = (ctx: CommandContext) => Promise<ExitCode> | ExitCo
  * It reads argv and nothing else — a rule that touched disk or printed would be a handler — and it runs
  * before the handler, so the handler is only ever entered on an invocation the rule accepted.
  *
- * @throws {AmbitError} whatever the rule refuses, already in spec §6's message shape.
+ * @throws {AmbitError} whatever the rule refuses, already in the standard message shape.
  */
 export type CommandRule = (ctx: CommandContext) => void;
 
@@ -325,7 +325,7 @@ export function projectDirOf(ctx: CommandContext): string {
  * The catalog directory an authoring command acts on: `--catalog` if given, otherwise the cwd.
  *
  * The mirror of {@link projectDirOf}, and separate from it on purpose: a catalog is not a project and
- * has no `ambit.yml` (spec §6), so a command reads exactly one of the two and the flag it accepts says
+ * has no `ambit.yml`, so a command reads exactly one of the two and the flag it accepts says
  * which.
  */
 export function catalogDirOf(ctx: CommandContext): string {
@@ -368,13 +368,13 @@ export function jsonRequested(ctx: CommandContext): boolean {
   return ctx.options.json === true;
 }
 
-/** Whether `--offline` was requested: resolve from the cache alone (spec §5). */
+/** Whether `--offline` was requested: resolve from the cache alone. */
 export function offlineRequested(ctx: CommandContext): boolean {
   return ctx.options.offline === true;
 }
 
 /**
- * Whether `--dry-run` was requested: report what the command would do and touch nothing (spec §6).
+ * Whether `--dry-run` was requested: report what the command would do and touch nothing.
  *
  * Only a mutating command is given the flag (`dryRunOption`), so every command that can read this is
  * one that has something to withhold.
@@ -385,7 +385,7 @@ export function dryRunRequested(ctx: CommandContext): boolean {
 
 /**
  * What resolving a `source` needs from a command: the project directory, the environment the
- * catalog cache is looked for in, and whether fetching is allowed at all (spec §5).
+ * catalog cache is looked for in, and whether fetching is allowed at all.
  *
  * `process.env` is read here, at the CLI boundary, so one command run sees one environment and
  * nothing further down reaches for ambient state of its own. `--offline` travels the same way,

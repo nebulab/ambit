@@ -1,12 +1,12 @@
 /**
- * `.ambit/state.json` — the record of what ambit actually put on disk (spec §3.6).
+ * `.ambit/state.json` — the record of what ambit actually put on disk.
  *
  * This file is the whole safety story: ambit deletes or overwrites only paths listed here, so a
  * hand-written skill sitting at a target path can never be eaten. That is why it is JSON rather
  * than YAML — nothing reads it by hand, and a crash-safety record wants one unambiguous
  * serialization.
  *
- * Emission is sorted and byte-stable for the same reason the lock is (spec §3.0): a state file
+ * Emission is sorted and byte-stable for the same reason the lock is: a state file
  * that reshuffles between identical runs shows up as noise in every diff and hides the one
  * change that matters.
  */
@@ -204,7 +204,7 @@ export async function readState(projectDir: string): Promise<State> {
  * Writes a project's state.
  *
  * Called only after the filesystem changes it describes have succeeded, so a crash leaves
- * artifacts owned and recoverable rather than orphaned (spec §5).
+ * artifacts owned and recoverable rather than orphaned.
  */
 export async function writeState(projectDir: string, state: State): Promise<void> {
   const file = stateFilePath(projectDir);

@@ -1,9 +1,9 @@
 /**
- * `ambit catalog tree` (spec §6, "Catalog authoring") — the registry drawn as the tree it is.
+ * `ambit catalog tree` — the registry drawn as the tree it is.
  *
  * The text form is one row per registered scope, indented under its parent, carrying two counts and the
  * description. Counts rather than item lists on purpose: this report is read to answer "is this nesting
- * right?" (spec §2), and a scope whose subtree holds forty skills would bury the shape it exists to show.
+ * right?", and a scope whose subtree holds forty skills would bury the shape it exists to show.
  * `--json` carries the names, so anything that wants the itemization has it without the text form
  * becoming unscannable.
  *
@@ -12,7 +12,7 @@
  * rule to get the same tree. Keys are full dotted names at every depth even though the nesting makes the
  * last segment sufficient, so a key can be pasted straight into an `ambit.yml` `scopes` list.
  *
- * Read-only, so there is no `--dry-run` and no diff — but the determinism rules apply unchanged (spec §4):
+ * Read-only, so there is no `--dry-run` and no diff — but the determinism rules apply unchanged:
  * every list is sorted, and no absolute path reaches either output form, which is what lets the JSON be a
  * golden file.
  */

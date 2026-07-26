@@ -1,12 +1,12 @@
 /**
- * `ambit validate` — full-catalog validation, for CI (spec §6).
+ * `ambit validate` — full-catalog validation, for CI.
  *
  * The report is printed and the exit code carries the verdict, the way `status --check` does: a
  * catalog with problems is a finding about the catalog, not a failure of ambit's, and a CI job needs
  * both halves — the list to fix and the code to fail on.
  *
  * `--catalog <dir>` validates that directory alone and reads no `ambit.yml`, since a catalog repo has
- * none (spec §6). Without it, the subject is the project: every catalog it lists, its own
+ * none. Without it, the subject is the project: every catalog it lists, its own
  * declarations, and its own held scopes.
  *
  * A clean run still prints what it checked. "no problems found" on its own is indistinguishable from

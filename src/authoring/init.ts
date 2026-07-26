@@ -1,10 +1,10 @@
 /**
- * `ambit catalog init` — scaffold a catalog (spec §6, "Catalog authoring"), the mirror of what
+ * `ambit catalog init` — scaffold a catalog, the mirror of what
  * `ambit init` does for a project.
  *
  * A catalog's shape is not the interesting part; the selection rule is. Nesting `scopes.yml` wrongly is
  * the one mistake here that cannot be fixed without editing every project that holds the scope, so the
- * scaffolded `README.md` carries spec §2's descendants-only rule and its nest-versus-sibling guidance
+ * scaffolded `README.md` carries the descendants-only rule and its nest-versus-sibling guidance
  * in full. That is why the README is part of the scaffold at all rather than a nicety: a catalog whose
  * author never met the rule is a catalog whose tree has to be restructured later.
  *
@@ -39,13 +39,13 @@ import { renderScaffold } from "../model/scaffold.js";
 /**
  * The scope the scaffolded registry holds.
  *
- * A convention, not a rule ambit knows (spec §2), and the same one `ambit init` scaffolds into a
+ * A convention, not a rule ambit knows, and the same one `ambit init` scaffolds into a
  * project — so a freshly initialized project and a freshly initialized catalog agree out of the box,
  * which is the pair someone tries first.
  */
 export const CATALOG_INIT_SCOPE = "core";
 
-/** The scaffolded README, where the selection rule is documented (spec §2). */
+/** The scaffolded README, where the selection rule is documented. */
 export const CATALOG_README_FILENAME = "README.md";
 
 /** The scaffolded CI workflow, which runs `ambit validate --catalog .`. */
@@ -116,7 +116,7 @@ const WORKFLOW_BLOCKS: readonly ScaffoldBlock[] = [
  * The scaffolded README.
  *
  * Prose, so it is written as prose — the §3.0 emit rules are about documents ambit parses, and this is
- * the one scaffolded file nothing reads back. Its middle two sections are spec §2's selection rule and
+ * the one scaffolded file nothing reads back. Its middle two sections are the selection rule and
  * the nest-versus-sibling guidance the spec asks a catalog's README to carry prominently.
  */
 const README = `# An ambit catalog

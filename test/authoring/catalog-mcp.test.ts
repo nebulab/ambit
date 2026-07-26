@@ -1,5 +1,5 @@
 /**
- * `ambit catalog mcp new|rm` (spec §6, "Catalog authoring") — maintaining an MCP entity.
+ * `ambit catalog mcp new|rm` — maintaining an MCP entity.
  *
  * Three claims carry this suite. The first is the round trip: what `new` writes is exactly `emitYaml` of
  * the values it was given, and the §3.3 parser reads that file back as the entity — for *both* transport
@@ -193,7 +193,7 @@ describe("ambit catalog mcp new", () => {
     await newNotes();
 
     // The bytes are `emitYaml`'s, so keys are sorted at every depth and a value that would otherwise
-    // coerce is quoted (spec §3.0). The values are restated here rather than imported, so the claim is
+    // coerce is quoted. The values are restated here rather than imported, so the claim is
     // independent of what the command computed.
     expect(await read(NOTES_FILE)).toBe(
       emitYaml({
@@ -469,7 +469,7 @@ describe("ambit catalog mcp rm", () => {
     expect(result.stderr).toContain(`MCP server "${REQUIRED}" is still required (${REQUIRED_FILE})`);
     expect(result.stderr).toContain(`skill "${REQUIRER}" requires it (${REQUIRER_FILE})`);
     // The next step names the command that clears a `requires` entry, not the hand-edit that
-    // predated it (spec §6) — and the requirement keeps its `mcp.` prefix while the requirer, always
+    // predated it — and the requirement keeps its `mcp.` prefix while the requirer, always
     // a skill, does not.
     expect(result.stderr).toContain(
       `clear it from each with \`ambit catalog annotate <skill> --remove-requires mcp.${REQUIRED}\``,

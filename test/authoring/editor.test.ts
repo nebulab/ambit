@@ -1,5 +1,5 @@
 /**
- * The catalog editor (spec §6, "Catalog authoring") — the guarantees every later mutation inherits.
+ * The catalog editor — the guarantees every later mutation inherits.
  *
  * Two claims carry this suite, and both are about bytes rather than about behaviour. The first is
  * fidelity: a catalog is hand-maintained, so an edit that reformats a comment, reorders a key, or
@@ -143,7 +143,7 @@ describe("the catalog editor: round-tripping", () => {
 
     document.setStringList(["ambit", "env"], ["CLOSE_API_KEY"]);
 
-    // A key the author never wrote has no layout to preserve, so it takes ambit's own (spec §3.0),
+    // A key the author never wrote has no layout to preserve, so it takes ambit's own,
     // and it lands after the keys that were already there rather than being sorted into them.
     expect(document.text()).toContain("  env:\n    - CLOSE_API_KEY\n---");
   });
@@ -154,7 +154,7 @@ describe("the catalog editor: round-tripping", () => {
 
     document.setStringList(["ambit", "requires"], []);
 
-    // "declares none" and "says nothing" are different claims about a skill (spec §3.2), and only the
+    // "declares none" and "says nothing" are different claims about a skill, and only the
     // first survives a re-parse under §3.0, which rejects an explicit null.
     expect(document.text()).toContain("requires: []\n");
     expect(document.text()).not.toContain("requires:\n");

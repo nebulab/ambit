@@ -1,7 +1,7 @@
 /**
- * `ambit catalog skill new|rm|mv` (spec §6, "Catalog authoring") — maintaining a skill directory.
+ * `ambit catalog skill new|rm|mv` — maintaining a skill directory.
  *
- * A skill's identity is its path (spec §2), so the claims here are about paths as much as bytes. `new`
+ * A skill's identity is its path, so the claims here are about paths as much as bytes. `new`
  * writes one document and nothing beside it, and the document is emitted YAML plus a body. `rm` and `mv`
  * act on a *directory*: the cases therefore assert what happened to files ambit never reads — a
  * `references/` note, and a file that is not even text — because a command that moved only the `SKILL.md`
@@ -208,7 +208,7 @@ describe("ambit catalog skill new", () => {
     );
 
     // The claim is the same one every scaffold makes: the bytes above the body are exactly `emitYaml`
-    // of the values, so the keys are sorted and a value that would coerce is quoted (spec §3.0). The
+    // of the values, so the keys are sorted and a value that would coerce is quoted. The
     // body's prose is deliberately not pinned — only that it opens on the skill's name.
     const { frontmatter, body } = halves(await read(JANE_FILE));
     expect(frontmatter).toBe(
@@ -375,7 +375,7 @@ describe("ambit catalog skill rm", () => {
     expect(result.stderr).toContain(`skill "${CORE}" is still required (${CORE_FILE})`);
     expect(result.stderr).toContain(`skill "${BRIEF}" requires it (${BRIEF_FILE})`);
     // The next step names the command that clears a `requires` entry, not the hand-edit that
-    // predated it (spec §6).
+    // predated it.
     expect(result.stderr).toContain(
       `clear it from each with \`ambit catalog annotate <skill> --remove-requires ${CORE}\``,
     );

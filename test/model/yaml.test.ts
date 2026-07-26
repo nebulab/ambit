@@ -1,5 +1,5 @@
 /**
- * The shared YAML loader (spec §3.0). Every rule here exists because the alternative is silent
+ * The shared YAML loader. Every rule here exists because the alternative is silent
  * corruption, so each one is asserted to fail loudly — with the exit code, the offending
  * identifier, and the line.
  */
@@ -68,7 +68,7 @@ describe("YAML loader", () => {
 
   it("pairs each sequence item with its own line, block style and flow style alike", () => {
     // A rule enforced after parsing has no node left to point at, so the position has to come
-    // out of the document with the value (spec §6).
+    // out of the document with the value.
     expect(
       load("scopes:\n  - core\n  - function.engineering\n").optionalPositionedStringList("scopes"),
     ).toEqual([

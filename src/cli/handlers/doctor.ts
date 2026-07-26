@@ -1,5 +1,5 @@
 /**
- * `ambit doctor` — env vars, drift, ownership (spec §6).
+ * `ambit doctor` — env vars, drift, ownership.
  *
  * Three sections, because the report answers two different questions. The `checks` table says what was
  * examined and how each one came out, so a healthy project says so explicitly rather than printing an

@@ -1,5 +1,5 @@
 /**
- * Full-catalog validation (spec §4 "Validation split", §6) — `ambit validate`.
+ * Full-catalog validation — `ambit validate`.
  *
  * Two claims carry this suite. The first is the split itself: `validate` must find what `resolve`
  * deliberately ignores, so the broken-but-unselected cases assert *both* commands — exit 0 from one
@@ -192,7 +192,7 @@ describe("ambit validate", () => {
   });
 
   it("validates a catalog directory with no project config anywhere", async () => {
-    // A catalog is not a project and has no `ambit.yml` (spec §6), so the CI check for one cannot
+    // A catalog is not a project and has no `ambit.yml`, so the CI check for one cannot
     // depend on finding a config — here there is none within reach of the cwd.
     await rm(path.join(projectDir, "ambit.yml"));
 
@@ -249,7 +249,7 @@ describe("ambit validate: unregistered scopes", () => {
 
   it("cites the file an entity is written as, not the extension ambit would have chosen", async () => {
     // `mcps/<name>.yml` is what ambit writes, but §3.3 accepts `.yaml` too — and a problem reported
-    // against the file that is *not* there sends the reader nowhere (spec §6).
+    // against the file that is *not* there sends the reader nowhere.
     await writeMcp("loose", ["scopes: [marketing]"], ".yaml");
 
     const found = await report("validate");

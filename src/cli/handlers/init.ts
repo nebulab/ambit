@@ -1,5 +1,5 @@
 /**
- * `ambit init` — scaffold an `ambit.yml` (spec §6).
+ * `ambit init` — scaffold an `ambit.yml`.
  *
  * The output is deliberately two lines rather than a table: there is one artifact and one thing left
  * to do, and the thing left to do is not optional. A scaffolded config holds `core` and no catalog,

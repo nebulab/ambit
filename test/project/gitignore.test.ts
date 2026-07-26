@@ -1,5 +1,5 @@
 /**
- * The managed `.gitignore` block (spec §5), as a text transformation.
+ * The managed `.gitignore` block, as a text transformation.
  *
  * The whole claim is about lines ambit does not own: they must come back byte for byte, wherever
  * they sit relative to the block. So every case here pins the *surrounding* file as well as the
@@ -201,7 +201,7 @@ describe("rewriting a block that is already there", () => {
 });
 
 /**
- * Removing the block — what `clean` needs (spec §6).
+ * Removing the block — what `clean` needs.
  *
  * The claim is the inverse of writing it: install then clean must give a file back exactly as it was,
  * so every case here compares against the *input* to `updateGitignoreText` rather than against a

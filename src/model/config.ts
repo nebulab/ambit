@@ -1,5 +1,5 @@
 /**
- * `ambit.yml` — the project config (spec §3.1).
+ * `ambit.yml` — the project config.
  *
  * Parsing is total: whatever comes back is fully typed and needs no further checking, and
  * anything the config could not express has already been rejected with an exit-2 error naming
@@ -63,7 +63,7 @@ export type SkillRequest = CatalogSkillRequest | SourceSkillRequest;
  * Where the config came from, and where inside it the values live that a later stage judges.
  *
  * Resolution runs long after parsing, so an error about a held scope has no YAML node left to
- * point at — yet spec §6 still requires it to name the file and the line. This carries just
+ * point at — yet it still has to name the file and the line. This carries just
  * enough of the document's positions for that, keeping {@link ProjectConfig} itself a plain
  * object with no parser state hanging off it.
  */
@@ -81,10 +81,10 @@ export interface ConfigOrigin {
 /** A parsed, validated `ambit.yml`. */
 export interface ProjectConfig {
   readonly version: number;
-  /** Positions for the errors raised after parsing (spec §6). */
+  /** Positions for the errors raised after parsing. */
   readonly origin: ConfigOrigin;
   readonly harnesses: readonly string[];
-  /** Held scopes, exactly as listed — nothing is added implicitly (spec §2). */
+  /** Held scopes, exactly as listed — nothing is added implicitly. */
   readonly scopes: readonly string[];
   /** Catalogs in priority order: on a name collision the earlier one wins. */
   readonly catalogs: readonly CatalogRef[];
@@ -102,7 +102,7 @@ export interface ProjectConfig {
  * resolution treat the lists as maps.
  *
  * @param subject how the list's entries are named in the message.
- * @param advice the concrete next step (spec §6).
+ * @param advice the concrete next step.
  * @returns a function that throws on the second use of a name.
  */
 function nameTracker(

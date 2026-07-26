@@ -1,5 +1,5 @@
 /**
- * `ambit clean` — remove everything ambit owns (spec §6).
+ * `ambit clean` — remove everything ambit owns.
  *
  * Two sections, because clean removes two different kinds of thing: the artifacts state records, and
  * the two places ambit keeps its own record of having run — `.ambit/` and the managed `.gitignore`

@@ -1,5 +1,5 @@
 /**
- * `ambit catalog init` — scaffold a catalog (spec §6, "Catalog authoring").
+ * `ambit catalog init` — scaffold a catalog.
  *
  * Two sections rather than one, because "created" and "kept" are different news: a catalog is usually
  * initialized inside a repo that already has a README, and a reader has to be able to see that theirs

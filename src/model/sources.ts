@@ -1,5 +1,5 @@
 /**
- * Source resolution (spec §3.1, §5): a `source` string, plus an optional `ref`, to a directory a
+ * Source resolution: a `source` string, plus an optional `ref`, to a directory a
  * parser can read.
  *
  * Catalogs and `skills` entries carrying their own source share one grammar, so they share this
@@ -12,7 +12,7 @@
  * as nothing else. Everything else is taken literally — ambit rewrites no URLs, so what a project
  * writes is what git is asked for.
  *
- * Fetching goes through the shared cache (spec §5) rather than into the project, so two projects on
+ * Fetching goes through the shared cache rather than into the project, so two projects on
  * one catalog fetch it once and neither owns it.
  */
 import { stat } from "node:fs/promises";
@@ -21,7 +21,7 @@ import path from "node:path";
 import { configError } from "../errors.js";
 import { fetchGitSource } from "./git.js";
 
-/** The prefix marking a source as a local directory (spec §3.1). */
+/** The prefix marking a source as a local directory. */
 const PATH_PREFIX = "path:";
 
 /** The prefix marking the remainder as a git URL, whatever its shape. */
@@ -68,7 +68,7 @@ export interface SourceRequest {
  * What resolving a source reads from outside its arguments.
  *
  * Passed rather than reached for, so the cache location is a function of the call and a test can
- * point it somewhere disposable (spec §7).
+ * point it somewhere disposable.
  */
 export interface SourceContext {
   /** What a relative `path:` source, and a relative git URL, are resolved against. */
@@ -76,7 +76,7 @@ export interface SourceContext {
   /** Environment the cache location and git itself are read from. */
   readonly env: NodeJS.ProcessEnv;
   /**
-   * `--offline` (spec §5): resolve from the cache alone, and fail with exit 4 rather than fetch.
+   * `--offline`: resolve from the cache alone, and fail with exit 4 rather than fetch.
    *
    * Absent means fetching is allowed, so a caller that forgets it gets the default behaviour rather
    * than a type error — which is why the two places a context is built (`sourceContextOf`, and
@@ -93,7 +93,7 @@ export interface ResolvedSource {
   readonly commit?: string;
 }
 
-/** The error for two disagreeing refs, which ambit will not pick between (spec §6). */
+/** The error for two disagreeing refs, which ambit will not pick between. */
 function conflictingRefs(request: SourceRequest, inSource: string, declared: string): never {
   throw configError(`${request.subject} names two refs ${request.where}`, [
     `\`source\` ends with "@${inSource}" and \`ref\` says "${declared}"`,
@@ -116,7 +116,7 @@ function gitSource(url: string, ref: string | undefined): GitSource {
 }
 
 /**
- * Reads a `source` string as one of the formats spec §3.1 lists.
+ * Reads a `source` string as one of the accepted formats.
  *
  * Pure, and the only place the grammar lives: `ambit catalog`, `resolve`, and `install` all reach a
  * source through here, so a format works everywhere or nowhere.

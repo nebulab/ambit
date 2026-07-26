@@ -1,5 +1,5 @@
 /**
- * `ambit why <name>` — explain why one item is in the bundle (spec §6).
+ * `ambit why <name>` — explain why one item is in the bundle.
  *
  * The chain is the answer, not the reason on its own: being told a skill arrived through
  * `required-by:acme.projects.use-acme-brief` only moves the question one level up, and it is the
@@ -7,7 +7,7 @@
  * root cause down to the item asked about.
  *
  * A bare name means a skill when one exists and a server otherwise, and an `mcp.`-prefixed name
- * always means a server — the same disambiguation `requires` uses (spec §3.2), so a name copied out
+ * always means a server — the same disambiguation `requires` uses, so a name copied out
  * of a `requires` list works here unchanged.
  *
  * A name that resolves to nothing selected is an error rather than an empty report: "not in the
@@ -74,7 +74,7 @@ function selectionAdvice(item: BundleItem, scopes: readonly string[]): string {
 }
 
 /**
- * The error for an item a catalog provides but nothing selects (spec §6).
+ * The error for an item a catalog provides but nothing selects.
  *
  * Names the catalog it came from, so a reader knows the config is otherwise fine, and says which
  * scopes would reach it rather than leaving them to be looked up. Only a catalog can be named here:
@@ -91,7 +91,7 @@ function notSelected(
   ]);
 }
 
-/** The error for a name nothing provides at all (spec §6). */
+/** The error for a name nothing provides at all. */
 function unknownName(name: string, config: ProjectConfig): AmbitError {
   return resolutionError(`unknown skill or MCP server "${name}"`, [
     `nothing configured in ${config.origin.file} provides a skill or a server by that name`,

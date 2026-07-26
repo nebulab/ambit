@@ -1,10 +1,10 @@
 /**
- * JSON config files ambit shares with a harness (spec §5).
+ * JSON config files ambit shares with a harness.
  *
  * `.mcp.json` is not ambit's file. Someone may have added servers to it by hand long before ambit
  * ever ran, and those have to survive every install — so ambit reads the document, replaces only
  * the keys it owns, and writes everything else back exactly as it found it. That is why ownership
- * for this kind of artifact is recorded as `managedKeys` rather than as a whole path (spec §3.6):
+ * for this kind of artifact is recorded as `managedKeys` rather than as a whole path:
  * the file is co-owned, and only the keys inside it are ambit's.
  *
  * Keys already present keep their position, and only new ones are appended, for the same reason:
@@ -41,7 +41,7 @@ function isRecord(value: unknown): value is JsonObject {
  * @param file how the file is named in errors, conventionally project-relative.
  * @throws {AmbitError} exit 2 for a file that exists but cannot be merged into — malformed JSON or
  *   a non-object root. Overwriting it would destroy content ambit does not own, which is exactly
- *   what the ownership rules forbid (spec §5).
+ *   what the ownership rules forbid.
  */
 export async function readJsonDocument(target: string, file: string): Promise<JsonObject> {
   let text: string;
@@ -111,11 +111,11 @@ export function mergeConfigSection(
  *
  * @returns the new document, or `undefined` when it already held none of them, so a caller can skip
  *   the write rather than rewriting a file it has nothing to change. That is what keeps an install
- *   with nothing to prune byte-identical (spec §7), and what stops pruning from recreating a file
+ *   with nothing to prune byte-identical, and what stops pruning from recreating a file
  *   someone deleted by hand.
  *
- * The section survives emptying out: ambit owns keys inside this file and not the file itself
- * (spec §3.6), so removing the last managed server leaves `{}` behind rather than deleting a
+ * The section survives emptying out: ambit owns keys inside this file and not the file itself,
+ * so removing the last managed server leaves `{}` behind rather than deleting a
  * document a person may also be writing into. A section holding something other than an object
  * holds no keys to remove, which is the same reading `sectionKeys` takes.
  */
@@ -151,14 +151,13 @@ export function sectionOf(document: JsonObject, section: string): JsonObject {
 }
 
 /**
- * The keys currently in `document[section]` — what ownership enforcement compares a plan against
- * (spec §5).
+ * The keys currently in `document[section]` — what ownership enforcement compares a plan against.
  */
 export function sectionKeys(document: JsonObject, section: string): ReadonlySet<string> {
   return new Set(Object.keys(sectionOf(document, section)));
 }
 
-/** The dotted key state records for one managed entry (spec §3.6). */
+/** The dotted key state records for one managed entry. */
 export function managedKey(section: string, key: string): string {
   return `${section}.${key}`;
 }

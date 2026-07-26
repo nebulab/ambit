@@ -1,5 +1,5 @@
 /**
- * `ambit install` against the fixture catalog (spec §5, §7): the walking skeleton's last step —
+ * `ambit install` against the fixture catalog: the walking skeleton's last step —
  * config in, skills on disk, ownership recorded.
  *
  * The tree assertions are exhaustive rather than spot checks. "Exactly the resolved skill
@@ -104,7 +104,7 @@ async function cli(
 /**
  * Whether a path is a directory, *through* a symlink.
  *
- * The walkers below have to follow links, because a linked skill (spec §5) is a directory as far as
+ * The walkers below have to follow links, because a linked skill is a directory as far as
  * the harness reading it is concerned — the claims about what is installed are the same claims
  * whichever mode put it there. Which mode that was is asserted on its own, from state and `lstat`.
  */
@@ -206,7 +206,7 @@ beforeEach(async () => {
   // `function.engineering` also selects its nested frontend child, so this profile is three
   // skills — and the `scoped` MCP server, which declares that same scope.
   await writeProfile(["core", "function.engineering"]);
-  // What lands in `.mcp.json` depends on the environment (spec §5), so every test pins it rather
+  // What lands in `.mcp.json` depends on the environment, so every test pins it rather
   // than inheriting whatever the developer's shell exports.
   vi.stubEnv(SCOPED_KEY_VAR, undefined);
 });
@@ -235,7 +235,7 @@ describe("the Claude adapter's plan", () => {
       MCP_FILE,
     ]);
 
-    // The fixture is a `path:` catalog, so every skill is planned as a link (spec §5).
+    // The fixture is a `path:` catalog, so every skill is planned as a link.
     const skills = plan.filter((artifact): artifact is PlannedSkillDir => artifact.kind === "skill-dir");
     expect(skills.map((artifact) => artifact.mode)).toEqual(["link", "link", "link"]);
     expect(skills[0]?.source).toBe(
@@ -415,7 +415,7 @@ describe("ambit install", () => {
 });
 
 /**
- * Spec §5's materialization modes, and spec §1's reason for them: a local catalog is a working tree
+ * The materialization modes, and the reason for them: a local catalog is a working tree
  * someone edits, so the file the agent reads must be that file and not a duplicate of it.
  */
 describe("how a skill's source reaches its target", () => {
@@ -457,7 +457,7 @@ describe("how a skill's source reaches its target", () => {
 
     await writeFile(path.join(projectDir, CORE_TARGET, "SKILL.md"), EDITED, "utf8");
 
-    // The whole point of linking (spec §1): there is no second copy to go stale.
+    // The whole point of linking: there is no second copy to go stale.
     expect(await readSource()).toBe(EDITED);
   });
 
@@ -670,7 +670,7 @@ describe(".mcp.json", () => {
 });
 
 /**
- * The managed `.gitignore` block (spec §5), end to end.
+ * The managed `.gitignore` block, end to end.
  *
  * The text transformation is pinned in `test/gitignore.test.ts`; what these cases add is the part
  * only a real install can show — which paths land in the block, that the block tracks the bundle
@@ -692,7 +692,7 @@ describe(".gitignore", () => {
   it("lists ambit's state directory and every skill directory it installed", async () => {
     expect((await cli("install")).code).toBe(ExitCode.Success);
 
-    // Not `.mcp.json` and not `ambit.lock`: a team commits both (spec §3.5, §5).
+    // Not `.mcp.json` and not `ambit.lock`: a team commits both.
     expect(await managedBlock()).toEqual([
       `${STATE_DIRNAME}/`,
       `${SKILLS_DIR}/${CORE_SKILL}`,
@@ -704,7 +704,7 @@ describe(".gitignore", () => {
   it("ignores a linked skill too, which git would otherwise track as a symlink", async () => {
     await cli("install");
 
-    // The fixture is a `path:` catalog, so these are links (spec §5) — and the pattern carries no
+    // The fixture is a `path:` catalog, so these are links — and the pattern carries no
     // trailing slash precisely so that it still matches them.
     expect(await linkAt(`${SKILLS_DIR}/${CORE_SKILL}`)).toBeDefined();
     expect(await managedBlock()).toContain(`${SKILLS_DIR}/${CORE_SKILL}`);
@@ -850,7 +850,7 @@ describe("ambit install failures", () => {
 });
 
 /**
- * `install --dry-run` (spec §5, §6): the plan, printed.
+ * `install --dry-run`: the plan, printed.
  *
  * "Touches nothing" is asserted as the whole project rather than as the absence of the skills
  * directory, because a preview that wrote the lock, or state, or a `.gitignore` block would satisfy
@@ -1176,7 +1176,7 @@ describe("pruning", () => {
     await cli("install");
 
     // A bundle with no servers plans no `.mcp.json` artifact at all, so this can only come from
-    // state — and the file stays, because ambit owns keys in it and not the document (spec §3.6).
+    // state — and the file stays, because ambit owns keys in it and not the document.
     expect(await readMcpConfig()).toEqual({ mcpServers: {} });
     expect(
       parseState(await readStateFile(), STATE_FILENAME).artifacts.map((artifact) => artifact.path),
@@ -1293,7 +1293,7 @@ describe("idempotence", () => {
     `${SKILLS_DIR}/${ENGINEERING_SKILL}/SKILL.md`,
     MCP_FILE,
     LOCK_FILENAME,
-    // The managed block (spec §5) is a file install writes, so it belongs in the claim: this list is
+    // The managed block is a file install writes, so it belongs in the claim: this list is
     // meant to fail when a new one appears.
     GITIGNORE_FILENAME,
     "ambit.yml",

@@ -1,5 +1,5 @@
 /**
- * `ambit prune` — remove owned artifacts not in the current bundle (spec §6).
+ * `ambit prune` — remove owned artifacts not in the current bundle.
  *
  * The report is what was removed, not what survived: someone who narrows `ambit.yml` runs this to
  * find out that the skill they dropped is gone, and a list of everything still installed is what

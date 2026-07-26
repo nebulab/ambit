@@ -1,5 +1,5 @@
 /**
- * Resolution by scope (spec §4.6–§4.7), and the `ambit resolve` output built on it.
+ * Resolution by scope, and the `ambit resolve` output built on it.
  *
  * The rule under test is descendants-only: a held scope selects itself and everything beneath it,
  * and never anything above it. Both directions matter, so both are asserted — on the expansion
@@ -45,7 +45,7 @@ const GOLDEN_DIR = path.join(
   "resolve",
 );
 
-/** The profile matrix spec §7 asks for: one set of held scopes each, with a golden file. */
+/** The profile matrix: one set of held scopes each, with a golden file. */
 const PROFILES: readonly { readonly name: string; readonly scopes: readonly string[] }[] = [
   { name: "empty", scopes: [] },
   { name: "core", scopes: ["core"] },
@@ -140,7 +140,7 @@ async function writeSkill(relative: string, annotations: readonly string[]): Pro
 
 /**
  * Writes a skill into a directory that is not a catalog — no registry, no `mcps/` — which is what a
- * `skills` entry carrying its own `source` points at (spec §3.1).
+ * `skills` entry carrying its own `source` points at.
  *
  * @param within the skill's directory inside the source.
  */
@@ -769,7 +769,7 @@ describe("explicit skills and inline servers", () => {
  * resolution offers, and only one, so a reader gets an answer rather than a list of possibilities.
  *
  * The reason is asserted on the bundle rather than only through `--explain`, because the lock
- * records it too (spec §3.5) and both surfaces have to agree by construction.
+ * records it too and both surfaces have to agree by construction.
  */
 describe("selection reasons", () => {
   it("names the scope a skill declares, and the held scope that reached it", async () => {

@@ -1,8 +1,8 @@
 /**
- * `ambit.yml` parsing (spec §3.1), on top of the shared loader.
+ * `ambit.yml` parsing, on top of the shared loader.
  *
  * No command reads config yet, so the malformed cases assert the {@link AmbitError} code the
- * CLI turns into an exit status — exit 2 for every config problem, per spec §6.
+ * CLI turns into an exit status — exit 2 for every config problem.
  */
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -144,8 +144,8 @@ describe("project config", () => {
   });
 
   it("records the line each held scope was written on", () => {
-    // Resolution rejects an unregistered scope long after this parse, and spec §6 still expects
-    // the error to name the line, so the positions have to survive parsing.
+    // Resolution rejects an unregistered scope long after this parse, and the error is still expected
+    // to name the line, so the positions have to survive parsing.
     const config = parseProjectConfig("version: 1\nscopes:\n  - core\n  - function.sales\n", FILE);
 
     expect(config.origin).toEqual({
@@ -160,7 +160,7 @@ describe("project config", () => {
   });
 
   it("records the line each `skills` and `mcps` entry was written on", () => {
-    // The same reason scopes carry theirs: an explicit skill no catalog provides (spec §4.8) is
+    // The same reason scopes carry theirs: an explicit skill no catalog provides is
     // rejected long after this parse, and the error still has to name the line.
     const config = parseProjectConfig(
       [

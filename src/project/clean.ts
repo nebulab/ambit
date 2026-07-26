@@ -1,5 +1,5 @@
 /**
- * `ambit prune` and `ambit clean` — the two commands that only remove (spec §6).
+ * `ambit prune` and `ambit clean` — the two commands that only remove.
  *
  * Both are `prune.ts`'s machinery reached without materializing anything, and the only thing that
  * separates them is what they consider worth keeping. `prune` keeps whatever the current bundle
@@ -21,8 +21,8 @@
  * write; it leaves the file alone for the reason below.
  *
  * **What `clean` does not remove**, deliberately: `ambit.lock` and a `.mcp.json` left holding an empty
- * `mcpServers`. Neither is ambit's (spec §3.5 has teams committing the lock; §3.6 makes the config
- * file co-owned and only its keys ambit's), and the safety core's first rule is that ambit deletes
+ * `mcpServers`. Neither is ambit's (teams commit the lock, and the config
+ * file is co-owned with only its keys ambit's), and the safety core's first rule is that ambit deletes
  * only what it owns — a `clean` that deleted a tracked file would be a worse surprise than one that
  * leaves two lines behind. The empty `.claude/skills` directory a pruned skill leaves goes the same
  * way: it is the harness's directory, and git does not track an empty one, so removing it would buy
@@ -47,9 +47,9 @@ import { STATE_DIRNAME, STATE_VERSION, readState, stateFilePath, writeState } fr
 
 /** How a prune was asked to behave. */
 export interface PruneOptions {
-  /** Resolve from the catalog cache alone, failing rather than fetching (spec §5). */
+  /** Resolve from the catalog cache alone, failing rather than fetching. */
   readonly offline?: boolean;
-  /** `--dry-run`: report what would be removed and touch nothing (spec §6). */
+  /** `--dry-run`: report what would be removed and touch nothing. */
   readonly dryRun?: boolean;
 }
 
@@ -63,7 +63,7 @@ export interface PruneResult {
 
 /** How a clean was asked to behave. */
 export interface CleanOptions {
-  /** `--dry-run`: report what would be removed and touch nothing (spec §6). */
+  /** `--dry-run`: report what would be removed and touch nothing. */
   readonly dryRun?: boolean;
 }
 
@@ -91,7 +91,7 @@ async function exists(target: string): Promise<boolean> {
  * Removes the owned artifacts the current bundle no longer selects.
  *
  * Ownership is not authorized first, unlike an install: nothing here writes an artifact, and pruning
- * removes only what state already claims (spec §5 rule 1), so a project whose next `install` would
+ * removes only what state already claims, so a project whose next `install` would
  * refuse an unowned target can still be pruned.
  *
  * The writes are ordered as install orders them — filesystem, then the lock, then state, then the

@@ -1,7 +1,7 @@
 /**
- * The MCP entity commands (spec §6, "Catalog authoring"): `ambit catalog mcp new|rm`.
+ * The MCP entity commands: `ambit catalog mcp new|rm`.
  *
- * An entity is one file whose stem is its name (spec §3.3), so this module is the simplest of the
+ * An entity is one file whose stem is its name, so this module is the simplest of the
  * authoring set — and the two things that are not simple both come from that identity:
  *
  * - **`new` writes the whole file through `emitYaml`** (authoring rule 3), because ambit owns every
@@ -17,7 +17,7 @@
  *   {@link mcpDocumentFile} answers the same question for a name nothing has parsed, and stays
  *   exported for the commands that still ask it that way.
  *
- * `new` declares no scopes, because the surface spec §6 gives it has no `--scope`: a new server is
+ * `new` declares no scopes, because its own surface has no `--scope`: a new server is
  * reachable only through a skill's `requires` until someone gives it a `scopes` entry, and the
  * command says so on the way out. `rm` refuses while any skill requires `mcp.<name>`, naming every
  * requirer — the editor would refuse the write anyway, since a dangling requirement does not
@@ -39,7 +39,7 @@ import type { McpTransport } from "../model/mcp-entity.js";
 import { MCP_REQUIREMENT_PREFIX } from "../resolution/resolve.js";
 import { emitYaml } from "../model/yaml.js";
 
-/** The keys an entity document holds (spec §3.3). */
+/** The keys an entity document holds. */
 const NAME_KEY = "name";
 const TRANSPORT_KEY = "transport";
 const ENV_KEY = "env";
@@ -64,7 +64,7 @@ export interface McpRemoveResult extends McpEdit {
 }
 
 export interface McpNewOptions extends EditOptions {
-  /** The one transport the entity declares. Exactly one kind, by construction (spec §3.3). */
+  /** The one transport the entity declares. Exactly one kind, by construction. */
   readonly transport: McpTransport;
   /** Env vars the server needs. Absent leaves the key out rather than writing an empty list. */
   readonly env?: readonly string[];
@@ -119,7 +119,7 @@ export async function mcpDocumentFile(root: string, name: string): Promise<strin
 /**
  * Rejects a name that cannot be a filename stem under `mcps/`.
  *
- * The name↔filename convention is the whole of an entity's identity (spec §3.3), so a name that does
+ * The name↔filename convention is the whole of an entity's identity, so a name that does
  * not survive the round trip is refused here rather than written and rejected on the next read. A
  * leading dot is refused with the path separators: parsing would find such a file, but a server
  * nobody can see in a directory listing is not a name anyone meant to give.
@@ -137,7 +137,7 @@ function assertMcpName(name: string): void {
   ]);
 }
 
-/** The error for a name this catalog already provides a server under (spec §6: a name conflict). */
+/** The error for a name this catalog already provides a server under (a name conflict). */
 function alreadyProvided(name: string, file: string): AmbitError {
   return resolutionError(`MCP server "${name}" already exists ${at(file, undefined)}`, [
     "a name means one thing, and this catalog already gave it to a server",
@@ -171,10 +171,10 @@ function requires(skill: CatalogSkill): string {
 }
 
 /**
- * The error for removing a server a skill still requires (spec §6).
+ * The error for removing a server a skill still requires.
  *
  * The next step names `catalog annotate`, which postdates this refusal: `--remove-requires` is what
- * clears a `requires` entry now, and spec §6 asks for a next step that exists rather than for work
+ * clears a `requires` entry now, and an error's next step must be one that exists rather than work
  * the reader is told to do by hand. Only a skill can require a server, so the name the reader passes
  * is a skill's — no `mcp.` prefix on that one, unlike the requirement being cleared.
  */
@@ -210,7 +210,7 @@ function provided(catalog: Catalog, name: string): CatalogMcp {
  * The entity's document as ambit writes one.
  *
  * Every key ambit was given nothing for is left out rather than written empty: absent and empty mean
- * the same thing (spec §3.3), and the shorter file is the one a reader can see the point of. That
+ * the same thing, and the shorter file is the one a reader can see the point of. That
  * includes `scopes`, which this command is given no way to set.
  */
 function renderMcp(name: string, transport: McpTransport, env: readonly string[]): string {

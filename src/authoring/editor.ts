@@ -1,5 +1,5 @@
 /**
- * The catalog editor (spec §6, "Catalog authoring") — the one module every authoring write goes
+ * The catalog editor — the one module every authoring write goes
  * through.
  *
  * A catalog is hand-maintained, so the rules that matter here are about what an edit must *not*
@@ -56,7 +56,7 @@ const MARKDOWN_EXTENSION = ".md";
 
 /**
  * What catalog parsing reads inside a directory: a skill's `SKILL.md`, and the YAML an entity or the
- * registry is written as (spec §3.2–§3.4).
+ * registry is written as.
  *
  * Everything else a skill directory holds is opaque to ambit, so a moved tree only has to describe
  * *these* files to validation — which is also what keeps a binary asset from being read at all.
@@ -103,7 +103,7 @@ export interface EditedFile extends CatalogFileChange {
 }
 
 export interface EditOptions {
-  /** `--dry-run`: validate the result and write none of it (spec §6 authoring rule 6). */
+  /** `--dry-run`: validate the result and write none of it. */
   readonly dryRun?: boolean;
 }
 
@@ -121,8 +121,7 @@ export interface EditResult {
 }
 
 /**
- * The absolute path of a catalog-relative file, refusing anything outside the root (spec §6 authoring
- * rule 5).
+ * The absolute path of a catalog-relative file, refusing anything outside the root.
  *
  * The check is on the path as given, not only on where it resolves: a `..` segment that happens to
  * land back inside the root is still a path the caller does not mean, and an absolute one would put a
@@ -150,17 +149,17 @@ export function catalogFilePath(root: string, file: string): string {
   return target;
 }
 
-/** Where a skill's directory sits in a catalog, from its name (spec §2). */
+/** Where a skill's directory sits in a catalog, from its name. */
 export function skillDirectoryPath(name: string): string {
   return `${SKILLS_DIRNAME}/${name.replaceAll(".", "/")}`;
 }
 
-/** Where a skill's document sits in a catalog, from its name (spec §2). */
+/** Where a skill's document sits in a catalog, from its name. */
 export function skillDocumentPath(name: string): string {
   return `${skillDirectoryPath(name)}/${SKILL_FILENAME}`;
 }
 
-/** Where an MCP entity's document sits in a catalog, from its name (spec §3.3). */
+/** Where an MCP entity's document sits in a catalog, from its name. */
 export function mcpDocumentPath(name: string): string {
   return `${MCPS_DIRNAME}/${name}.yml`;
 }
@@ -263,7 +262,7 @@ export class CatalogDocument {
 }
 
 /**
- * The error for a mutation whose result would not validate (spec §6 authoring rule 4).
+ * The error for a mutation whose result would not validate.
  *
  * Exit 3, the code every other resolution problem uses, since these *are* those problems — the same
  * report `ambit validate` prints, raised instead of listed because there is no result to report on.
@@ -279,7 +278,7 @@ function refusedByValidation(root: string, report: ValidationReport): AmbitError
   ]);
 }
 
-/** The error for a directory an edit means to move that is not in the catalog (spec §6). */
+/** The error for a directory an edit means to move that is not in the catalog. */
 function missingTree(directory: string): AmbitError {
   return configError(`cannot move ${directory}`, [
     "the catalog holds no such directory",
@@ -358,7 +357,7 @@ interface PendingTree {
  *
  * The trees are laid down first and the file changes over them, because that is how a caller states a
  * move: the tree carries the bytes, and one file change restates the document whose contents the move
- * makes wrong — a skill's `name`, which has to agree with its new path (spec §3.2). A caller that
+ * makes wrong — a skill's `name`, which has to agree with its new path. A caller that
  * forgets gets a validation problem rather than a quietly mismatched skill.
  */
 async function overlayOf(
@@ -420,7 +419,7 @@ async function textArrivingAt(
 
 /**
  * Writes `text` to `target` through a neighbouring file, so a target is either its old contents or its
- * new ones and never a half-written mix (spec §6 authoring rule 5).
+ * new ones and never a half-written mix.
  *
  * @throws {AmbitError} exit 2 if the write fails, naming the file.
  */
@@ -456,7 +455,7 @@ async function removeFile(target: string, file: string): Promise<void> {
  *
  * A skill's namespace directory exists only to hold skills, so leaving `skills/jane/` behind after the
  * last skill under it moved away would read as a half-finished command. The catalog's top-level
- * directories are a different thing — `skills/` and `mcps/` are its shape, not its contents (spec §2) —
+ * directories are a different thing — `skills/` and `mcps/` are its shape, not its contents —
  * so pruning stops at depth one and never reaches the root.
  *
  * Best-effort on purpose: a directory that cannot be removed is cosmetic, and failing the mutation over

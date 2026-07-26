@@ -1,5 +1,5 @@
 /**
- * Exit codes, per spec §6. Every failure path maps onto exactly one of these.
+ * Exit codes. Every failure path maps onto exactly one of these.
  */
 export const ExitCode = {
   Success: 0,
@@ -21,7 +21,7 @@ export type ExitCode = (typeof ExitCode)[keyof typeof ExitCode];
 /**
  * An error with a known exit code and a message already formatted for the user.
  *
- * Per spec §6, every message names the offending file, the offending identifier, and one
+ * Every message names the offending file, the offending identifier, and one
  * concrete next step. `detail` lines carry the latter two; they are printed indented under
  * the summary.
  */

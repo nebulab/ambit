@@ -5,7 +5,7 @@
 #
 #   - AMBIT_SKIP_NETWORK_TESTS is deliberately NOT set. Actions sets CI=true itself, and that is
 #     exactly what makes test/dotagents.test.ts mandatory here rather than skippable: the
-#     compatibility promise (spec §7) is the guarantee most likely to rot, so it has to be able to
+#     compatibility promise is the guarantee most likely to rot, so it has to be able to
 #     fail. A registry blip therefore costs ~70s before it reports. That is the intended trade.
 #   - The matrix is Node 20 and 22: 20 is the `engines` floor and 22 is what the scaffolded catalog
 #     workflow pins, so both numbers ambit puts its name to are exercised.

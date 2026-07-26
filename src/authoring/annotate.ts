@@ -1,5 +1,5 @@
 /**
- * The annotation command (spec §6, "Catalog authoring"): `ambit catalog annotate <name>`.
+ * The annotation command: `ambit catalog annotate <name>`.
  *
  * This is the only authoring command that edits a document's *contents* rather than its existence, so
  * it is where authoring rule 2 is under the most pressure: the document it opens is hand-written, its
@@ -14,7 +14,7 @@
  *   is asked for what the document already says, which is what makes it safe to script, and reordering
  *   is confined to the keys the reader actually asked to change.
  * - **Removing the last entry leaves `[]`, not a removed key.** "Declares none" and "says nothing" read
- *   the same to the parser (spec §3.2), but only one of them is a statement the author made, and a
+ *   the same to the parser, but only one of them is a statement the author made, and a
  *   command that deleted the key would quietly undo the annotation rather than empty it.
  *
  * The two subjects it edits are asymmetric, because §3.2 and §3.3 are, in two ways. A skill declares
@@ -55,7 +55,7 @@ import { MCP_REQUIREMENT_PREFIX } from "../resolution/resolve.js";
 export type AnnotatedKind = "skill" | "mcp";
 
 /**
- * The keys an MCP entity may declare (spec §3.3).
+ * The keys an MCP entity may declare.
  *
  * `requires` is absent because a server is required by skills rather than requiring anything itself, and
  * the §3.3 parser rejects the key outright — so writing one would produce a document ambit cannot read.
@@ -119,11 +119,11 @@ function sameList(a: readonly string[], b: readonly string[]): boolean {
  *
  * Exit 2 — a malformed invocation, like every other flag that would be written nowhere — and it names
  * the skill-side flag that does what the reader meant, because wanting a server to follow a skill into
- * the bundle is the sensible thing behind the request (spec §3.3).
+ * the bundle is the sensible thing behind the request.
  */
 function noRequirements(name: string, file: string): AmbitError {
   return configError(`MCP server "${name}" declares no requirements ${at(file, undefined)}`, [
-    "`requires` is a skill's key: an entity declares `name`, `scopes`, `transport`, and `env` (spec §3.3)",
+    "`requires` is a skill's key: an entity declares `name`, `scopes`, `transport`, and `env`",
     `to pull the server in behind a skill, run \`ambit catalog annotate <skill> --add-requires ${MCP_REQUIREMENT_PREFIX}${name}\``,
   ]);
 }
@@ -147,7 +147,7 @@ interface Subject {
   readonly keys: readonly AnnotationKey[];
   /**
    * The mapping the keys are written inside, as a path from the document root: `["ambit"]` for a
-   * skill (spec §3.2), and the root itself for an entity (spec §3.3).
+   * skill, and the root itself for an entity.
    */
   readonly under: readonly string[];
   readonly current: Readonly<Record<AnnotationKey, readonly string[]>>;
@@ -155,7 +155,7 @@ interface Subject {
 
 /**
  * Whether a name refers to an MCP server: the `mcp.` prefix, the same disambiguation `requires` and
- * `ambit why` use (spec §3.2). A bare name is a skill, because that is what a catalog is mostly made of.
+ * `ambit why` use. A bare name is a skill, because that is what a catalog is mostly made of.
  */
 export function isMcpTarget(name: string): boolean {
   return name.startsWith(MCP_REQUIREMENT_PREFIX);
@@ -177,7 +177,7 @@ export function annotationDirname(name: string): string {
  *
  * An entity is reached through {@link mcpDocumentFile} rather than through the editor's
  * `mcpDocumentPath`, because this command edits a file the author wrote: `mcps/<name>.yaml` is as legal
- * as `.yml` (spec §3.3), and writing the other one would leave two files defining one server — which
+ * as `.yml`, and writing the other one would leave two files defining one server — which
  * parsing rejects.
  *
  * @throws {AmbitError} exit 3 when the catalog provides no such skill or server.

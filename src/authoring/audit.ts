@@ -1,10 +1,10 @@
 /**
- * The catalog audit (spec §6, "Catalog authoring"): `ambit catalog audit`.
+ * The catalog audit: `ambit catalog audit`.
  *
  * `validate` asks whether a catalog is *correct* — every declared scope registered, every `requires`
  * resolvable, no cycles, no shadowed names — and a catalog can pass all of it while a third of its
  * contents is unreachable. Nothing in a single file shows that: a skill declaring no scope is
- * perfectly legal (spec §3.3 makes `requires` the other way in), a registered scope nothing declares
+ * perfectly legal (`requires` goes the other way round), a registered scope nothing declares
  * is legal too, and the only way to tell either from a deliberate one is to read the whole directory
  * at once. So this command answers the other question — is any of this dead weight? — and the split
  * is deliberate: **a finding here is a smell, never a problem there**. Audit reports nothing about
@@ -25,7 +25,7 @@
  * **Reachability is transitive**, closed over `requires` from the items a scope can select — the same
  * closure `resolveBundle` walks. A one-step rule would call a skill reachable because an unreachable
  * skill requires it, which is precisely the pair nobody can select. **And a scope counts what its
- * subtree selects, not what declares it** (spec §2: a held scope selects every scope beneath it), so
+ * subtree selects, not what declares it** (a held scope selects every scope beneath it), so
  * a registered parent nothing declares directly is *not* dead — holding it reaches its children.
  * {@link buildScopeTree} already answers that question, and reusing it is what keeps the two reports
  * from disagreeing about what a scope selects.
@@ -47,14 +47,14 @@ import { MCP_REQUIREMENT_PREFIX } from "../resolution/resolve.js";
  *
  * A declared order rather than an alphabetical one, and it is also the report order: the registry
  * first, then the two namespaces it selects, exactly as `catalog dump` and `validate` present a
- * catalog. A fixed order is all determinism needs (spec §4).
+ * catalog. A fixed order is all determinism needs.
  */
 export const AUDIT_FINDING_KINDS = ["dead-scope", "unreachable-skill", "unreachable-mcp"] as const;
 
 export type AuditFindingKind = (typeof AUDIT_FINDING_KINDS)[number];
 
 /**
- * One finding, in the shape spec §6 requires of an error — because that is what it would have been
+ * One finding, in the shape required of an error — because that is what it would have been
  * had this been a refusal: the offending identifier, the file it is written in, and one concrete next
  * step last.
  */
@@ -213,7 +213,7 @@ function unreachableMcpFindings(catalog: Catalog, reachable: Reachable): readonl
       finding(
         "unreachable-mcp",
         // `mcp.file` rather than `mcps/<name>.yml`: parsing already knows which §3.3 extension the
-        // entity actually carries, and a finding has to name a file the reader can open (spec §6).
+        // entity actually carries, and a finding has to name a file the reader can open.
         `unreachable MCP server "${mcp.name}" ${at(mcp.file, undefined)}`,
         [
           `no registered scope selects it, and nothing reachable requires \`${MCP_REQUIREMENT_PREFIX}${mcp.name}\``,
@@ -230,7 +230,7 @@ function unreachableMcpFindings(catalog: Catalog, reachable: Reachable): readonl
  * Pure, and a function of the catalog's contents alone: `parseCatalogDirectory` hands back scopes,
  * skills, and entities in name order, every finding list is built by walking one of those three, and
  * nothing here reads the filesystem or the clock — so two runs against one catalog produce identical
- * reports whatever order the directory was read in (spec §4). That includes the file a finding
+ * reports whatever order the directory was read in. That includes the file a finding
  * cites, which parsing carries as data (`CatalogMcp.file`) rather than leaving the caller to supply.
  */
 export function auditCatalog(catalog: Catalog): AuditReport {
@@ -254,7 +254,7 @@ export function auditCatalog(catalog: Catalog): AuditReport {
  * Audits one catalog directory on its own terms — the mirror of `validate --catalog <dir>`.
  *
  * Nothing about a project is read: no `ambit.yml`, no other catalog, no cache. A catalog is not a
- * project (spec §6), and reachability is a question about one directory anyway — an item a *project*
+ * project, and reachability is a question about one directory anyway — an item a *project*
  * lists explicitly is reachable by nothing this catalog says.
  *
  * @param root the catalog root, absolute. Its basename names the catalog in a parse error; neither it

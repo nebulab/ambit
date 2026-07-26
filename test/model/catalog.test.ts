@@ -1,5 +1,5 @@
 /**
- * Catalog parsing from a `path:` source (spec §3.2–§3.4), and the `ambit catalog` dump built on
+ * Catalog parsing from a `path:` source, and the `ambit catalog` dump built on
  * it.
  *
  * Every case runs against the fixture catalog, mutated in place for the malformed ones, so the
@@ -128,7 +128,7 @@ async function writeShadowingCatalog(
 
 /**
  * Points the project at the fixture catalog first and the extra catalogs after it, so config order
- * — which is priority order (spec §3.1) — is the fixture's.
+ * — which is priority order — is the fixture's.
  */
 async function writeCatalogOrder(
   extra: readonly string[],
@@ -188,7 +188,7 @@ async function invoke(
 
 /**
  * Runs the CLI against the project under test. Authoring commands take `--catalog` instead and so
- * cannot go through here — use `invoke` for those (spec §6).
+ * cannot go through here — use `invoke` for those.
  */
 async function cli(...argv: readonly string[]): Promise<CliResult> {
   return invoke([...argv, "--project", projectDir]);
@@ -274,7 +274,7 @@ describe("catalog parsing", () => {
   });
 
   it("keeps top-level frontmatter keys it does not know", async () => {
-    // The top level is the harness's; ambit adds exactly one key to it (spec §3.2).
+    // The top level is the harness's; ambit adds exactly one key to it.
     await writeCatalogFile(
       CODE_REVIEW,
       `---
@@ -598,7 +598,7 @@ describe("ambit catalog", () => {
  * own behaviour is its own suite's.
  */
 describe("ambit catalog as a command group", () => {
-  /** Every subcommand of `catalog`, as spec §6 lists them. */
+  /** Every subcommand of `catalog`. */
   const SUBCOMMANDS = ["dump", "init", "tree", "audit", "scope", "skill", "mcp", "annotate"];
 
   /**
@@ -637,7 +637,7 @@ describe("ambit catalog as a command group", () => {
 
   it("gives an authoring command `--catalog <dir>`, and `dump` `--project <dir>`", async () => {
     // The two directories are different subjects, not the same one under two names: a catalog has no
-    // `ambit.yml` to read (spec §6).
+    // `ambit.yml` to read.
     const init = await usage("catalog", "init");
     expect(init).toContain("--catalog <dir>");
     expect(init).not.toContain("--project");
@@ -654,7 +654,7 @@ describe("ambit catalog as a command group", () => {
   });
 
   it("reports a subcommand with no handler as unimplemented, naming the whole invocation", async () => {
-    // Every command spec §6 declares is now built, so the guard is asserted against a program built
+    // Every command the surface declares is now built, so the guard is asserted against a program built
     // with one handler removed rather than against a gap in the surface: this is what a later task
     // adding a spec before its behaviour must see, instead of a command that silently succeeds.
     const withoutTree = Object.fromEntries(
@@ -742,8 +742,8 @@ describe("usage errors below the top level", () => {
 
 /**
  * The flag rules Commander runs before it dispatches (`RULES` in `src/cli/program.ts`): the three rules
- * `.makeOptionMandatory()` and `.conflicts()` cannot state without giving up the message spec §6 asks
- * for, declared with the command as a `preAction` hook instead of enforced by the handler that follows.
+ * `.makeOptionMandatory()` and `.conflicts()` cannot state without giving up the message shape
+ * required, declared with the command as a `preAction` hook instead of enforced by the handler that follows.
  *
  * Each case runs against a wiring whose handler would succeed and only record that it was reached, so
  * what is asserted is that the refusal arrived *before* the handler — the whole of what moving the rule

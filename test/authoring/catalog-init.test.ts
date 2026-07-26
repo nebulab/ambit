@@ -1,5 +1,5 @@
 /**
- * `ambit catalog init` (spec §6, "Catalog authoring"): the scaffolded catalog.
+ * `ambit catalog init`: the scaffolded catalog.
  *
  * Three claims carry this suite. The first is that the scaffold is a *catalog* — it parses, and
  * `ambit validate` passes against it, which is what makes `catalog scope add` and `catalog skill new`
@@ -10,7 +10,7 @@
  * case, and that README must come out the other side untouched.
  *
  * The prose is deliberately not pinned, exactly as in `test/init.test.ts`. What is pinned is that the
- * README still teaches spec §2 — the descendants-only rule and the nest-versus-sibling choice — since
+ * README still teaches the descendants-only rule and the nest-versus-sibling choice — since
  * that is the part a catalog cannot be fixed without.
  */
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
@@ -40,7 +40,7 @@ const SCAFFOLD_FILES = [
 
 /**
  * What the registry sets, stated here rather than imported so the test is an independent claim about
- * the emitted shape (spec §3.0) rather than a restatement of the source.
+ * the emitted shape rather than a restatement of the source.
  */
 const REGISTRY_VALUES = {
   scopes: { core: { description: "The universal floor — what everyone here needs" } },
@@ -233,7 +233,7 @@ describe("ambit catalog init", () => {
 
     expect(readme).toMatch(/descendants only/i);
     expect(readme).toMatch(/nothing is implicit/i);
-    // The guidance spec §2 asks a catalog's README to carry: nest only when the parent implies every
+    // The guidance a catalog's README has to carry: nest only when the parent implies every
     // child, sibling anything picked independently.
     expect(readme).toMatch(/nest/i);
     expect(readme).toMatch(/sibling/i);

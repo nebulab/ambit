@@ -1,5 +1,5 @@
 /**
- * MCP entity parsing (spec §3.3).
+ * MCP entity parsing.
  *
  * The same shape appears in two places — `mcps/<name>.yml` in a catalog, and inline `mcps`
  * entries in `ambit.yml` — so one parser serves both.
@@ -44,7 +44,7 @@ function parseTransport(mapping: YamlMapping): McpTransport {
   const transport = mapping.requireMapping("transport");
   const kinds = transport.keys();
 
-  // `transport` is the discriminator, so it must never be ambiguous (spec §3.3).
+  // `transport` is the discriminator, so it must never be ambiguous.
   if (kinds.length !== 1) {
     throw mapping.keyError(
       "transport",

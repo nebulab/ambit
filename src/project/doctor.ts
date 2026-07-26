@@ -1,5 +1,5 @@
 /**
- * `ambit doctor` — env vars, drift, and ownership (spec §6).
+ * `ambit doctor` — env vars, drift, and ownership.
  *
  * The other two read-only commands each answer one question and deliberately stop there. `validate`
  * asks whether the *catalog* is coherent; `status` asks whether install would change an *artifact*.
@@ -9,13 +9,13 @@
  * present but unowned. This is the command for those.
  *
  * Findings, not throws — the shape `validate` uses. Every check runs, the whole list is printed, and
- * the exit code carries the verdict (spec §6: exit 6). A health command that stopped at the first
+ * the exit code carries the verdict (exit 6). A health command that stopped at the first
  * problem would cost one run per problem, and the person running it is usually trying to find out
  * *everything* that is wrong before touching anything.
  *
  * Two severities, and only failures reach exit 6. Spec §5 is explicit that an uninterpolated `${VAR}`
  * must not fail an install, and the same logic makes a materialization mode a warning here: `--copy`
- * and `--link` are per-run choices (spec §5), both put identical bytes in front of the harness, and
+ * and `--link` are per-run choices, both put identical bytes in front of the harness, and
  * failing on one would leave anyone who uses the flag with a `doctor` that can never pass — the
  * objection `status` already answered by ignoring mode entirely. A variable the environment does not
  * have is a failure, though: install cannot refuse it, which is precisely why this command must.
@@ -49,7 +49,7 @@ import { statusOfPlan } from "./status.js";
  * A declared order rather than an alphabetical one, because it is an argument: the environment
  * around the project first, then the record of the last install, then what that record and the
  * project disagree about, and last the one thing that is merely unusual. A fixed order is all
- * determinism needs (spec §4).
+ * determinism needs.
  */
 export const DOCTOR_CHECKS = ["env", "lock", "ownership", "drift", "mode"] as const;
 
@@ -65,7 +65,7 @@ export const DOCTOR_SEVERITIES = ["fail", "warn"] as const;
 
 export type DoctorSeverity = (typeof DOCTOR_SEVERITIES)[number];
 
-/** One finding, in the shape spec §6 requires of an error, since that is what it would have been. */
+/** One finding, in the shape required of an error, since that is what it would have been. */
 export interface DoctorFinding {
   readonly check: DoctorCheck;
   readonly severity: DoctorSeverity;
@@ -92,7 +92,7 @@ export interface DoctorReport {
 
 /** How a diagnosis was asked to behave. */
 export interface DoctorOptions {
-  /** Resolve from the catalog cache alone, failing rather than fetching (spec §5). */
+  /** Resolve from the catalog cache alone, failing rather than fetching. */
   readonly offline?: boolean;
 }
 
@@ -147,7 +147,7 @@ function demandOf(demands: Map<string, EnvDemand>, variable: string): EnvDemand 
 /**
  * Every string inside a planned config value, in key order.
  *
- * A managed value is arbitrary JSON — the harness's shape, not ambit's (spec §5) — so finding the
+ * A managed value is arbitrary JSON — the harness's shape, not ambit's — so finding the
  * placeholders in it means walking it rather than knowing where a transport puts headers. Sorted at
  * every object so the order findings are discovered in is a function of the value, not of how it was
  * built.
@@ -168,7 +168,7 @@ function stringsIn(value: unknown): readonly string[] {
  *
  * Three routes, all of them reported, because they call for different fixes: a skill's `env` is
  * something the agent reads at runtime, a server's `env` is something that server reads, and a
- * placeholder left in a config file is a value install has already written wrong (spec §5).
+ * placeholder left in a config file is a value install has already written wrong.
  */
 function envDemands(
   bundle: Bundle,
@@ -239,7 +239,7 @@ function envFindings(
 
 /**
  * Whether the committed lock is what resolution now produces — `--frozen`'s question, asked without
- * failing an install over it (spec §3.5, §6).
+ * failing an install over it.
  *
  * Compared as bytes, exactly as `--frozen` does: the lock is a record nothing parses, and a file
  * install would rewrite is out of date whatever the two documents mean. Deliberately not
@@ -269,10 +269,10 @@ async function lockFindings(projectDir: string, expected: string): Promise<reado
 }
 
 /**
- * Artifacts that are there and that state does not claim — what install refuses (spec §5 rule 2).
+ * Artifacts that are there and that state does not claim — what install refuses.
  *
  * The explanation matters more than the finding, because the usual cause is not carelessness: state
- * is written after the filesystem changes it describes (spec §5 rule 4), so an install that crashed
+ * is written after the filesystem changes it describes, so an install that crashed
  * leaves its own artifacts present-but-unowned and the next plain install stops on them. Someone who
  * knows that reaches for `--adopt`; someone who does not starts deleting files.
  */
@@ -355,7 +355,7 @@ async function installedMode(target: string): Promise<ArtifactMode | undefined> 
 }
 
 /**
- * Skills installed in a mode a plain `ambit install` would not choose (spec §5).
+ * Skills installed in a mode a plain `ambit install` would not choose.
  *
  * A warning, and only on artifacts that are otherwise `ok`: `--copy` and `--link` are per-run flags
  * with nothing persisting them, so the divergence is permanent by design and both modes put the same

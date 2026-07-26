@@ -1,5 +1,5 @@
 /**
- * The diff renderer every authoring `--dry-run` prints through (spec §6 authoring rule 6).
+ * The diff renderer every authoring `--dry-run` prints through.
  *
  * The claims here are the ones a preview is only useful if it keeps: that a surgical edit renders as a
  * surgical diff rather than as a whole rewritten file — which is what tells a reader the mutation did

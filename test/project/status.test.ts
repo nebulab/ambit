@@ -1,5 +1,5 @@
 /**
- * `ambit status` (spec §6): does the project match what resolution now produces?
+ * `ambit status`: does the project match what resolution now produces?
  *
  * The interesting assertions are the negative ones. A status command is only worth running if it is
  * quiet about everything ambit does not own — a hand-added server in `.mcp.json`, a hand-written
@@ -74,7 +74,7 @@ async function cli(
 /**
  * Every file in the project, keyed by relative path and carrying its contents.
  *
- * Symlinks are followed, because the default install of a `path:` catalog is a link (spec §5) and the
+ * Symlinks are followed, because the default install of a `path:` catalog is a link and the
  * claim being made is about the files a harness would read.
  */
 async function snapshot(): Promise<Record<string, string>> {
@@ -122,7 +122,7 @@ beforeEach(async () => {
   // Three skills — `function.engineering` also selects its nested frontend child — plus the
   // `scoped` http server, which declares that same scope.
   await writeProfile(["core", "function.engineering"]);
-  // The scoped server interpolates this into a header, so what is on disk depends on it (spec §5).
+  // The scoped server interpolates this into a header, so what is on disk depends on it.
   vi.stubEnv(SCOPED_KEY_VAR, undefined);
 });
 
@@ -188,7 +188,7 @@ describe("ambit status on an installed project", () => {
 
 /**
  * Content drift, which is a question about a *copy*: a symlinked skill has no bytes of its own, so
- * these cases install with `--copy` (spec §5). Editing a linked skill edits the catalog, and the
+ * these cases install with `--copy`. Editing a linked skill edits the catalog, and the
  * block below pins that as the non-drift it is.
  */
 describe("ambit status after a manual edit", () => {
@@ -309,7 +309,7 @@ describe("ambit status after a manual edit", () => {
 });
 
 /**
- * The other half of spec §5's materialization modes: what is on disk decides how a skill is compared,
+ * The other half of the materialization modes: what is on disk decides how a skill is compared,
  * so a link is checked for pointing at its source and a copy for holding its bytes.
  */
 describe("ambit status on a symlinked install", () => {

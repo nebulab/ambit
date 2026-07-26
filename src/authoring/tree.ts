@@ -1,5 +1,5 @@
 /**
- * The scope tree (spec §6, "Catalog authoring"): `ambit catalog tree`.
+ * The scope tree: `ambit catalog tree`.
  *
  * Spec §2 makes tree shape load-bearing — a held scope selects itself and every scope beneath it,
  * descendants only — and says that getting it wrong is "only fixable by restructuring the tree". This is

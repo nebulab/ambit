@@ -1,5 +1,5 @@
 /**
- * `ambit.lock` — the resolution result, written so an install can be reproduced (spec §3.5).
+ * `ambit.lock` — the resolution result, written so an install can be reproduced.
  *
  * The lock is a *record*, not an input: nothing here feeds back into resolution, which is why it
  * needs no parser. Its two jobs are both comparisons — a human diffing what changed between two
@@ -7,12 +7,12 @@
  * bytes. So the lock is compared as text rather than as a parsed document: a file that would be
  * rewritten *is* out of date, whatever the two documents mean.
  *
- * That makes byte-stability the whole contract (spec §3.0), and it is bought by emitting through
+ * That makes byte-stability the whole contract, and it is bought by emitting through
  * {@link emitYaml} and by holding nothing a second run could disagree about: no timestamps, no
  * absolute paths, no cache locations, and a commit only where a source actually has one.
  *
  * Every value in it is machine-independent on purpose. A lock is committed by teams who want
- * reproducible installs (spec §3.5), so a path into someone's cache would turn a shared file into a
+ * reproducible installs, so a path into someone's cache would turn a shared file into a
  * per-machine one and produce a diff on every developer's first install.
  */
 import { readFile, writeFile } from "node:fs/promises";
@@ -48,7 +48,7 @@ export interface LockSkill {
   readonly path: string;
   /** The commit those bytes came from, when the source has one. */
   readonly commit?: string;
-  /** Why it is in the bundle, in `--explain`'s short form (spec §6). */
+  /** Why it is in the bundle, in `--explain`'s short form. */
   readonly reason: string;
 }
 
@@ -57,19 +57,19 @@ export interface LockSkill {
  *
  * No `commit`, deliberately: a server is a handful of config values rather than a tree of files, so
  * the catalog entry's commit already says everything a reader could act on — and an inline `mcps`
- * entry (spec §3.1) comes from `ambit.yml` itself, which has no revision to record.
+ * entry comes from `ambit.yml` itself, which has no revision to record.
  */
 export interface LockMcp {
   /** Where it came from: a catalog name, or the config file that declared it inline. */
   readonly catalog: string;
-  /** Why it is in the bundle, in `--explain`'s short form (spec §6). */
+  /** Why it is in the bundle, in `--explain`'s short form. */
   readonly reason: string;
 }
 
 /**
  * A lock document.
  *
- * The three sections are keyed maps rather than lists, matching spec §3.5, because a name is the
+ * The three sections are keyed maps rather than lists because a name is the
  * identity of everything in them — and because a map is what makes a diff show one changed entry
  * instead of a reordered list.
  */
@@ -82,7 +82,7 @@ export interface Lock {
 }
 
 /**
- * A name-keyed record. Insertion order is irrelevant — emission sorts keys (spec §3.0) — so this
+ * A name-keyed record. Insertion order is irrelevant — emission sorts keys — so this
  * exists only to keep the entries typed rather than to fix an order.
  */
 function byName<T, V>(
@@ -193,8 +193,7 @@ export async function writeLockText(projectDir: string, text: string): Promise<v
 }
 
 /**
- * Asserts that the lock on disk is exactly what resolution would write — the check `--frozen` is
- * (spec §6).
+ * Asserts that the lock on disk is exactly what resolution would write — the check `--frozen` is.
  *
  * Called before anything is materialized, so a CI run that fails this leaves the project untouched.
  *

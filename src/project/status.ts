@@ -1,11 +1,11 @@
 /**
- * `ambit status` — what is installed, against what resolution now produces (spec §6).
+ * `ambit status` — what is installed, against what resolution now produces.
  *
  * Install is idempotent: run it twice on an unchanged project and not a byte moves. This is the
  * command that makes that claim inspectable without testing it destructively. It plans exactly as
  * install does and then compares the plan against the project, so every row answers one question —
  * would `ambit install` change this? — and `--check` turns the answer into exit 5, which is the form
- * a CI job can act on (spec §6).
+ * a CI job can act on.
  *
  * Nothing here writes, and nothing here throws for drift. Drift is the report: a project whose
  * skills were edited by hand is in a state a person needs described, not refused. The errors that do
@@ -16,11 +16,11 @@
  * directory is the source's bytes and nothing else, so it is compared as a tree; a symlinked one has
  * no bytes of its own, so the only thing to check is where it points — editing through the link is
  * editing the source, which is what linking is for and never drift. A harness config file is compared
- * key by key: it is co-owned (spec §3.6), so a hand-added server beside ambit's is not drift, and
+ * key by key: it is co-owned, so a hand-added server beside ambit's is not drift, and
  * only the keys ambit wrote are ambit's to have an opinion about.
  *
  * Ownership is part of the comparison rather than a separate audit. A target that exists but that
- * state does not claim is exactly what install would refuse (spec §5 rule 2), and reporting it as
+ * state does not claim is exactly what install would refuse, and reporting it as
  * `unowned` here is what lets someone find that out before the install that stops.
  */
 import { lstat, readFile, readdir, readlink } from "node:fs/promises";
@@ -70,7 +70,7 @@ export interface ProjectStatus {
 
 /** How a status comparison was asked to behave. */
 export interface StatusOptions {
-  /** Resolve from the catalog cache alone, failing rather than fetching (spec §5). */
+  /** Resolve from the catalog cache alone, failing rather than fetching. */
   readonly offline?: boolean;
 }
 
@@ -117,7 +117,7 @@ function unreadable(file: string, target: string, error: unknown): never {
 /**
  * What sits at a target: nothing, a symlink, a directory, or something else.
  *
- * `lstat`, not `stat`: a symlink is a legitimate install mode of its own (spec §5), so following it
+ * `lstat`, not `stat`: a symlink is a legitimate install mode of its own, so following it
  * here would compare a linked skill as though it were a copy — and would report a dangling link as
  * absent, when it is very much there.
  *
@@ -243,7 +243,7 @@ async function linkVerdict(artifact: PlannedSkillDir): Promise<Verdict> {
  * What is on disk decides *how* the comparison is made, not the plan's `mode`. A link is checked for
  * pointing at its source; a directory is compared byte for byte. So a project installed with `--copy`
  * whose copies are intact reads as clean even though a plain `install` would relink it: the mode is a
- * per-run choice (spec §5), both modes put the same bytes in front of the harness, and the
+ * per-run choice, both modes put the same bytes in front of the harness, and the
  * alternative would leave anyone who uses the flag with a `status --check` that can never pass.
  * Reporting mode divergence belongs to `doctor` (A24), which is the command for "this is not how it
  * would be set up today".
@@ -357,7 +357,7 @@ function plannedKeys(artifacts: readonly PlannedHarnessConfig[]): ReadonlySet<st
  * order the adapters planned in is an implementation detail, whereas a path is what they came to
  * look up.
  *
- * Needs no project root of its own: a planned artifact carries its absolute target (spec §5), and a
+ * Needs no project root of its own: a planned artifact carries its absolute target, and a
  * stale one is only reported here rather than removed.
  *
  * @throws {AmbitError} exit 2 for a target that cannot be inspected or a config file that cannot be
@@ -395,7 +395,7 @@ async function compareArtifacts(
     });
   }
 
-  // What state still claims and the plan no longer writes: install would prune it (spec §5 rule 3).
+  // What state still claims and the plan no longer writes: install would prune it.
   // One row per path, since two adapters writing into one config file record one entry each.
   const reported = new Set<string>();
   for (const artifact of prior.artifacts) {
@@ -415,7 +415,7 @@ async function compareArtifacts(
 /**
  * Compares an already-planned install against the project — the comparison without the resolution.
  *
- * Exported for `doctor` (spec §6), which needs both this verdict and the rest of `planInstall`'s
+ * Exported for `doctor`, which needs both this verdict and the rest of `planInstall`'s
  * output and must not resolve the project twice to get them. Taking the plan as an argument is what
  * keeps the two commands from being able to disagree: there is one comparison, and `status` is it.
  *
@@ -435,7 +435,7 @@ export async function statusOfPlan(
  * Compares a project against what resolution now produces.
  *
  * Plans through the adapters rather than reasoning about state alone, because the question is what
- * install *would* do: an adapter's plan is pure (spec §5), so asking it costs nothing and the two
+ * install *would* do: an adapter's plan is pure, so asking it costs nothing and the two
  * commands cannot disagree about where an artifact belongs.
  *
  * @param projectDir the project root, absolute.
@@ -456,7 +456,7 @@ export async function projectStatus(
   const catalogs = mergeCatalogs(loaded);
   const bundle = resolveBundle(config, await mergeConfigEntities(catalogs, config, context));
 
-  // The same environment install interpolates `${VAR}` from (spec §5), or every header would read as
+  // The same environment install interpolates `${VAR}` from, or every header would read as
   // drift on a machine whose variables are set.
   const project: ProjectPaths = { root: projectDir, env: process.env };
   const plan = adapters.flatMap((adapter) => adapter.plan(bundle, project));

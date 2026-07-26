@@ -1,12 +1,12 @@
 /**
- * The git cache (spec §5): bare clones under `$XDG_CACHE_HOME/ambit`, fetched on demand, plus one
+ * The git cache: bare clones under `$XDG_CACHE_HOME/ambit`, fetched on demand, plus one
  * checkout per commit so the catalog parser reads a git source exactly as it reads a directory.
  *
  * Three decisions here are load-bearing.
  *
  * **A cached clone is refetched only when it cannot answer the ref.** Fetching on every resolve
  * would let `ref: main` mean two different commits in two runs a minute apart, which is precisely
- * what spec §4 promises it will not do; and the reproducibility mechanism for a moving ref is the
+ * what determinism promises it will not do; and the reproducibility mechanism for a moving ref is the
  * lock, not the network. So the cache grows when it is asked something it does not know, and the way
  * to move a project forward is to change what it asks for.
  *
@@ -15,7 +15,7 @@
  * there is byte-for-byte the one an earlier run produced.
  *
  * **The checkout is a `git worktree`,** because the alternative — piping `git archive` into `tar` —
- * would put a second tool on the required-PATH list, and spec §1 allows only git.
+ * would put a second tool on the required-PATH list, and only git may be on that list.
  *
  * **`--offline` refuses the clone and the fetch, and nothing else.** It is a promise about the
  * network rather than about the cache as a whole: a checkout ambit can produce from a clone it
@@ -31,7 +31,7 @@ import { promisify } from "node:util";
 
 import { configError, networkError } from "../errors.js";
 
-/** The directory ambit owns inside the XDG cache root (spec §5). */
+/** The directory ambit owns inside the XDG cache root. */
 export const CACHE_DIRNAME = "ambit";
 
 /** Bare clones within the cache, keyed by host/owner/repo. */
@@ -79,7 +79,7 @@ export interface GitFetchRequest {
   readonly env: NodeJS.ProcessEnv;
   /** Directory git runs in, so a URL naming a relative path means something definite. */
   readonly cwd: string;
-  /** `--offline` (spec §5): answer from the cache, and fail rather than reach the remote. */
+  /** `--offline`: answer from the cache, and fail rather than reach the remote. */
   readonly offline?: boolean;
 }
 
@@ -92,7 +92,7 @@ export interface FetchedGitSource {
 }
 
 /**
- * Where the cache lives (spec §5).
+ * Where the cache lives.
  *
  * Read from the environment it is given rather than `process.env`, so the location is a function of
  * the caller's arguments and a test can point it somewhere disposable.
@@ -131,8 +131,7 @@ function splitUrl(url: string): { readonly host: string; readonly target: string
 }
 
 /**
- * Where a repository is cached, relative to the cache root: `<host>/<path…>`, per spec §5's
- * host/owner/repo keying.
+ * Where a repository is cached, relative to the cache root: `<host>/<path…>` — host, then owner, then repo.
  *
  * A trailing `.git` is stripped so `https://github.com/acme/skills` and
  * `https://github.com/acme/skills.git` share one clone — they are the same repository, and fetching
@@ -225,7 +224,7 @@ async function runGit(
   }
 }
 
-/** The error for a git command that failed, carrying git's own last word (spec §6). */
+/** The error for a git command that failed, carrying git's own last word. */
 function gitFailed(summary: string, outcome: GitOutcome, advice: string): never {
   const said = lastLine(outcome.stderr) === "" ? lastLine(outcome.stdout) : lastLine(outcome.stderr);
   throw networkError(summary, [said === "" ? "git reported no reason" : `git said: ${said}`, advice]);
@@ -329,7 +328,7 @@ function unknownRef(request: GitFetchRequest): never {
 }
 
 /**
- * The error for a repository `--offline` would have had to clone (spec §5).
+ * The error for a repository `--offline` would have had to clone.
  *
  * Exit 4 rather than 2: nothing here says the config is wrong. The source may well be correct and
  * reachable — it simply is not in the cache, which is a cache error, and the fix is a run that is
@@ -385,7 +384,7 @@ async function ensureCheckout(
       "-C",
       repo,
       // A catalog installs the bytes that were committed, whatever line-ending conversion the
-      // machine's git config would otherwise apply (spec §4).
+      // machine's git config would otherwise apply.
       "-c",
       "core.autocrlf=false",
       "worktree",

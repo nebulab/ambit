@@ -1,5 +1,5 @@
 /**
- * `ambit catalog audit` (spec §6, "Catalog authoring") — dead scopes and unreachable items.
+ * `ambit catalog audit` — dead scopes and unreachable items.
  *
  * The subject of most of this suite is a catalog built **by the authoring commands themselves**:
  * `catalog init`, then `scope add`, `skill new`, `mcp new` and `annotate`. That is deliberate on two
@@ -18,7 +18,7 @@
  *
  * The third is the scope rule, asserted against the shared fixture: a registered scope is dead only
  * when its whole subtree selects nothing, so registering a parent of a declared scope adds no finding
- * while registering an unrelated one does (spec §2, and `catalog tree`'s own claim).
+ * while registering an unrelated one does (matching `catalog tree`'s own claim).
  */
 import { mkdtemp, rename, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -150,7 +150,7 @@ describe("ambit catalog audit", () => {
 
   it("finds every one of them in a catalog `ambit validate` calls clean", async () => {
     // The whole reason this is a second report: nothing here is a validation problem. A skill with no
-    // scopes and a registered scope nobody declares are both perfectly legal (spec §3.3, §3.4).
+    // scopes and a registered scope nobody declares are both perfectly legal.
     const validated = await invoke("validate", "--catalog", authored);
 
     expect(validated.code, validated.stderr).toBe(ExitCode.Success);
@@ -166,7 +166,7 @@ describe("ambit catalog audit", () => {
       "unreachable-skill",
       "unreachable-mcp",
     ]);
-    // The `requires` closure is the other way in (spec §3.3), so neither the requirer nor the
+    // The `requires` closure is the other way in, so neither the requirer nor the
     // required server is dead weight.
     expect(JSON.stringify(report)).not.toContain(NEEDED);
     expect(JSON.stringify(report)).not.toContain(BRIEF);
@@ -231,7 +231,7 @@ describe("ambit catalog audit --check", () => {
 
   it("exits 0 when the catalog carries no dead weight", async () => {
     // The shared fixture: every skill declares a registered scope, and its second server is reached
-    // through `requires` alone (spec §3.3) — which is exactly the shape a naive audit would report.
+    // through `requires` alone — which is exactly the shape a naive audit would report.
     const fixture = await buildFixtureCatalog(path.join(root, "fixture"));
     const result = await invoke("catalog", "audit", "--catalog", fixture, "--check");
 
@@ -275,7 +275,7 @@ describe("ambit catalog audit --json", () => {
 /**
  * The scope half of the report, against the shared fixture rather than the authored one: a scope is
  * dead only when its whole registered subtree selects nothing, which is the same rule `catalog tree`
- * draws and `expandHeldScopes` walks (spec §2).
+ * draws and `expandHeldScopes` walks.
  */
 describe("what makes a registered scope dead", () => {
   let fixture: string;
@@ -303,8 +303,8 @@ describe("what makes a registered scope dead", () => {
   });
 
   it("names the file an MCP entity is actually written as", async () => {
-    // `.yaml` is as legal as `.yml` (spec §3.3), and spec §6 requires an error — or a finding, which
-    // is the same thing listed rather than raised — to name a file that is there.
+    // `.yaml` is as legal as `.yml`, and an error — or a finding, which
+    // is the same thing listed rather than raised — has to name a file that is there.
     await author(fixture, "annotate", "mcp.scoped", "--remove-scope", "function.engineering");
     await rename(path.join(fixture, "mcps", "scoped.yml"), path.join(fixture, "mcps", "scoped.yaml"));
 

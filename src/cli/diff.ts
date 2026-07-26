@@ -1,5 +1,5 @@
 /**
- * Rendering a catalog edit as a diff (spec §6 authoring rule 6) — what `--dry-run` shows instead of
+ * Rendering a catalog edit as a diff — what `--dry-run` shows instead of
  * writing.
  *
  * It lives beside the editor rather than inside any one command because every authoring mutation owes

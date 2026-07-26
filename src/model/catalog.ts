@@ -1,10 +1,10 @@
 /**
- * Catalog parsing (spec §3.2–§3.4).
+ * Catalog parsing.
  *
  * A catalog is a plain skills repo: skills at `skills/<namespace>/<name>/SKILL.md`, MCP
  * entities at `mcps/<name>.yml`, and a `scopes.yml` registry at the root. Nothing here is
  * ambit-specific except one extra frontmatter key and the two extra files, which other tools
- * ignore — that compatibility is a hard requirement (spec §1).
+ * ignore — that compatibility is a hard requirement.
  *
  * A skill's name is not stored anywhere authoritative: it is derived from the path, and the
  * frontmatter `name` must agree. Disagreement is an error rather than a preference for one over
@@ -15,7 +15,7 @@
  * or a git repository fetched into the cache — is `sources.ts`'s job, so parsing is identical
  * whichever a catalog came from.
  *
- * A project can also declare a skill or a server itself (spec §3.1), and those are folded into the
+ * A project can also declare a skill or a server itself, and those are folded into the
  * same merged namespace here rather than handled beside it — see {@link mergeConfigEntities} — so
  * resolution has exactly one place to look a name up.
  */
@@ -36,7 +36,7 @@ import {
   readYamlMapping,
 } from "./yaml.js";
 
-/** The catalog's scope registry (spec §3.4). */
+/** The catalog's scope registry. */
 export const SCOPES_FILENAME = "scopes.yml";
 
 /** Where skills live within a catalog. */
@@ -60,7 +60,7 @@ const SCOPES_KEYS = ["scopes"] as const;
 const SCOPE_KEYS = ["description"] as const;
 
 /**
- * The one top-level `SKILL.md` frontmatter key ambit owns (spec §3.2).
+ * The one top-level `SKILL.md` frontmatter key ambit owns.
  *
  * Every annotation lives under it, so the block a harness reads and the block ambit reads cannot
  * collide however either grows: a harness that one day defines its own `scopes` or `requires` takes
@@ -70,7 +70,7 @@ const SCOPE_KEYS = ["description"] as const;
 export const AMBIT_FRONTMATTER_KEY = "ambit";
 
 /**
- * The keys ambit reads under {@link AMBIT_FRONTMATTER_KEY}, in the order spec §3.2 tabulates them —
+ * The keys ambit reads under {@link AMBIT_FRONTMATTER_KEY}, in the order the format tabulates them —
  * which is also the order `catalog annotate` reports them in, so the report reads like the format's
  * own documentation.
  *
@@ -82,8 +82,7 @@ export const ANNOTATION_KEYS = ["scopes", "requires", "env"] as const;
 export type AnnotationKey = (typeof ANNOTATION_KEYS)[number];
 
 /**
- * How a catalog is parsed when the caller wants every problem rather than only the first (spec §4's
- * validation split).
+ * How a catalog is parsed when the caller wants every problem rather than only the first — the validation split.
  *
  * Only `ambit validate` passes one. Everything else parses strictly, because a resolution that
  * carried on past a broken skill would install something nobody described.
@@ -107,8 +106,7 @@ export interface CatalogParseOptions {
  * Files an in-flight edit would write, keyed by catalog-relative `/`-separated path: the text to parse
  * instead of what is on disk, or `null` for a file the edit removes.
  *
- * This is how an authoring mutation validates its own *result* before writing it (spec §6 authoring
- * rule 4). The alternative — write, validate, undo — leaves a window in which the catalog on disk is
+ * This is how an authoring mutation validates its own *result* before writing it. The alternative — write, validate, undo — leaves a window in which the catalog on disk is
  * broken, which is the one thing rule 4 exists to prevent.
  */
 export type CatalogOverlay = ReadonlyMap<string, string | null>;
@@ -146,7 +144,7 @@ export interface CatalogMcp extends McpEntity {
    *
    * Carried from parsing rather than derived from the name, because `mcps/<name>.yml` is only the
    * extension ambit *writes*: an entity spelled `.yaml` has no `.yml` for an error to send a reader
-   * to (spec §6). Parsing already knows which one is there, so nothing downstream has to ask the
+   * to. Parsing already knows which one is there, so nothing downstream has to ask the
    * filesystem again — or guess.
    */
   readonly file: string;
@@ -159,8 +157,8 @@ export interface Catalog {
   readonly source: string;
   /**
    * The `ref` its config entry asked for, as written. Absent when the entry named none, which
-   * means the source's default branch. Carried alongside `commit` because the lock records both
-   * (spec §3.5): the commit says what was installed, the ref says what will be resolved next time.
+   * means the source's default branch. Carried alongside `commit` because the lock records both:
+   * the commit says what was installed, the ref says what will be resolved next time.
    */
   readonly ref?: string;
   /** Absolute path to the catalog root on disk. */
@@ -186,7 +184,7 @@ export interface MergedSkill extends CatalogSkill {
    * catalog's, and a `source` skill carries its own. Absent for a `path:` source.
    *
    * Recorded per skill rather than left to the catalog entry alone because a `source` skill has no
-   * catalog entry to inherit from, and pinning it is the whole point of the lock (spec §3.5).
+   * catalog entry to inherit from, and pinning it is the whole point of the lock.
    */
   readonly commit?: string;
   /**
@@ -203,7 +201,7 @@ export interface MergedMcp extends McpEntity {
   /**
    * The file that defines it inside that catalog, catalog-relative — see {@link CatalogMcp.file}.
    *
-   * Absent for an entity a project declares inline in its `ambit.yml` (spec §3.1), which has no
+   * Absent for an entity a project declares inline in its `ambit.yml`, which has no
    * document of its own. There is nothing to invent in that case: `catalog` already names the config
    * file, which is where a reader goes to change it, so an error still has a real file to cite.
    */
@@ -211,7 +209,7 @@ export interface MergedMcp extends McpEntity {
 }
 
 /**
- * One name more than one catalog provides (spec §4.5).
+ * One name more than one catalog provides.
  *
  * Recorded rather than merely resolved, because the loss is otherwise silent in a way nobody can
  * debug: someone who adds a personal catalog and finds their copy of a skill ignored has no way to
@@ -240,12 +238,12 @@ export interface MergedCatalog {
   readonly scopes: readonly ScopeDefinition[];
   readonly skills: readonly MergedSkill[];
   readonly mcps: readonly MergedMcp[];
-  /** Which names came from more than one catalog (spec §4.5), for `--explain` and `validate`. */
+  /** Which names came from more than one catalog, for `--explain` and `validate`. */
   readonly shadowing: Shadowings;
 }
 
 /**
- * How a shadowing reads in `--explain` (spec §6): `catalog:company (shadows personal)`.
+ * How a shadowing reads in `--explain`: `catalog:company (shadows personal)`.
  *
  * The winning catalog is named even though the item's own `catalog` column already says it, so the
  * annotation still answers "which copy is this?" when it is read on its own — which is how it is
@@ -403,7 +401,7 @@ function parseScopeRegistry(root: YamlMapping): readonly ScopeDefinition[] {
   );
 }
 
-/** The name↔path convention: the path under `skills/`, with `/` → `.` (spec §2). */
+/** The name↔path convention: the path under `skills/`, with `/` → `.`. */
 export function skillNameFromPath(relative: string): string {
   return relative.replaceAll("/", ".");
 }
@@ -430,7 +428,7 @@ async function findSkillDirectories(files: CatalogFiles): Promise<readonly strin
 }
 
 /**
- * What ambit reads off a skill's frontmatter once its name is settled (spec §3.2).
+ * What ambit reads off a skill's frontmatter once its name is settled.
  *
  * Two opposite stances on unknown keys, and both are deliberate. At the top level they are allowed,
  * unlike everywhere else, because that block is the harness's and ambit is a guest in it. Under
@@ -539,7 +537,7 @@ async function parseMcpFile(
 
 /**
  * Adds where an error came from, so a message about `skills/a/b/SKILL.md` says which of several
- * sources holds that path. Prepended, keeping the concrete next step last (spec §6).
+ * sources holds that path. Prepended, keeping the concrete next step last.
  *
  * @param subject the source as errors name it: `catalog "company"`.
  */
@@ -654,13 +652,13 @@ export async function loadCatalogs(
   return catalogs;
 }
 
-/** Where a skill sits inside a source that follows the catalog convention (spec §2). */
+/** Where a skill sits inside a source that follows the catalog convention. */
 function skillPathFromName(name: string): string {
   return `${SKILLS_DIRNAME}/${name.replaceAll(".", "/")}`;
 }
 
 /**
- * Loads one skill declared with its own `source` rather than through a catalog (spec §3.1).
+ * Loads one skill declared with its own `source` rather than through a catalog.
  *
  * A source need not be a catalog: only the one skill directory is read, nothing expects a
  * `scopes.yml`, and `path` may point anywhere inside it. What the skill declares still counts —
@@ -728,7 +726,7 @@ export async function loadSourceSkill(
 }
 
 /**
- * The error for a config declaration a catalog already provides (spec §4.5, §6).
+ * The error for a config declaration a catalog already provides.
  *
  * Spec §3.1 describes both surfaces as being for things no catalog defines, so a collision means
  * one of the two declarations is a mistake — and which one ambit cannot know, so it refuses rather
@@ -749,7 +747,7 @@ function declarationConflict(
 
 /**
  * Folds a project's own declarations into the merged catalog: `skills` entries carrying their own
- * `source`, and inline `mcps` (spec §3.1, §4.8).
+ * `source`, and inline `mcps`.
  *
  * They join the same namespace rather than sitting beside it, so resolution has exactly one place
  * to look a name up — which also lets a catalog skill's `requires` reach a server the project
@@ -807,11 +805,11 @@ interface RegisteredScope {
 }
 
 /**
- * The error for one scope two catalogs describe differently (spec §4.4).
+ * The error for one scope two catalogs describe differently.
  *
  * Identical descriptions merge silently — two catalogs agreeing about a shared scope is how a
  * company catalog and a personal one are meant to overlap. Disagreeing ones are rejected because
- * the description is what a consuming tool shows a human in the picker (spec §3.4), and quietly
+ * the description is what a consuming tool shows a human in the picker, and quietly
  * keeping one of two contradictory labels would make a project's own catalog order decide what a
  * scope appears to mean.
  */
@@ -853,11 +851,11 @@ function mapByName<T>(entries: ReadonlyMap<string, T>): ReadonlyMap<string, T> {
  * Merges catalogs into one namespace per kind.
  *
  * On a duplicate skill or MCP name the earlier catalog in config order wins, and the shadowing is
- * recorded rather than discarded (spec §4.5) — see {@link Shadowing}. Scope registries merge on
- * matching descriptions and are rejected on differing ones (spec §4.4).
+ * recorded rather than discarded — see {@link Shadowing}. Scope registries merge on
+ * matching descriptions and are rejected on differing ones.
  *
  * A config-declared skill or server colliding with a catalog is deliberately *not* this: that is an
- * error, not a precedence question, because spec §3.1 describes both config surfaces as being for
+ * error, not a precedence question, because both config surfaces are for
  * things no catalog defines. See {@link mergeConfigEntities}.
  *
  * @throws {AmbitError} exit 3 for one scope two catalogs describe differently.

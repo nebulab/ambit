@@ -1,12 +1,12 @@
 /**
- * `ambit install` — resolve, write the lock, materialize, record ownership (spec §6).
+ * `ambit install` — resolve, write the lock, materialize, record ownership.
  *
  * Output names artifacts by their project-relative path, so it is comparable between machines and
  * says exactly what a reader can go and look at. The lock is not among them: it is a record of the
  * resolution rather than an owned artifact, so nothing prunes it and it is not ambit's to delete.
  *
  * `--dry-run` prints the same two sections the install would print, plus the two things only a
- * preview can usefully say: what install would *remove* (spec §5 rule 3) and whether the two derived
+ * preview can usefully say: what install would *remove* and whether the two derived
  * files — `ambit.lock` and the managed `.gitignore` block — would change. The artifact rows are
  * identical in shape to the real run's, so the two outputs diff against each other.
  */
@@ -22,7 +22,7 @@ import type { ArtifactMode } from "../../model/state.js";
 import { artifactJson, artifactRows, removalRows } from "./artifacts.js";
 
 /**
- * `--copy` / `--link`, as the materialization mode they force (spec §5).
+ * `--copy` / `--link`, as the materialization mode they force.
  *
  * Undefined — neither flag — is the mode that follows each skill's source, which is not the same as
  * either flag's value: it is the absence of an override.

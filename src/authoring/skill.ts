@@ -1,8 +1,8 @@
 /**
- * The skill commands (spec §6, "Catalog authoring"): `ambit catalog skill new|rm|mv`.
+ * The skill commands: `ambit catalog skill new|rm|mv`.
  *
  * A skill is the one entity in a catalog whose identity is a *path*: its name is where it sits under
- * `skills/`, and the frontmatter `name` merely has to agree (spec §2, §3.2). Everything odd about this
+ * `skills/`, and the frontmatter `name` merely has to agree. Everything odd about this
  * module follows from that.
  *
  * - **`new` writes one file**, and the directories exist because that file is written inside them. A
@@ -42,13 +42,13 @@ import { at, configError, resolutionError } from "../errors.js";
 import { emitYaml } from "../model/yaml.js";
 
 /**
- * What joins a skill name's segments, which is what `/` becomes in its path (spec §2). The same
+ * What joins a skill name's segments, which is what `/` becomes in its path. The same
  * character scopes use, and a different namespace — a skill named like a scope is a coincidence.
  */
 const NAME_SEPARATOR = ".";
 
 /**
- * The frontmatter keys this module writes (spec §3.2).
+ * The frontmatter keys this module writes.
  *
  * `name` and `description` are the harness's and sit at the top level; the other three are ambit's
  * and sit under `AMBIT_FRONTMATTER_KEY`. `name` is the one key always written, because it is what
@@ -60,7 +60,7 @@ const SCOPES_KEY = "scopes";
 const REQUIRES_KEY = "requires";
 const ENV_KEY = "env";
 
-/** Where a skill declares its requirements, as a path from the frontmatter root (spec §3.2). */
+/** Where a skill declares its requirements, as a path from the frontmatter root. */
 const REQUIRES_PATH: readonly string[] = [AMBIT_FRONTMATTER_KEY, REQUIRES_KEY];
 
 /** What an edit to a skill amounted to: the editor's own report, unchanged. */
@@ -89,7 +89,7 @@ export interface SkillRenameResult extends SkillEdit {
   readonly renamed: SkillRename;
 }
 
-/** The annotations `new` writes into a skill's frontmatter (spec §3.2). */
+/** The annotations `new` writes into a skill's frontmatter. */
 export interface SkillAnnotations {
   /** The harness's own summary. Absent leaves the key out rather than writing an empty one. */
   readonly description?: string;
@@ -143,7 +143,7 @@ function assertSkillName(name: string): void {
   ]);
 }
 
-/** The error for a name this catalog already provides a skill under (spec §6: a name conflict). */
+/** The error for a name this catalog already provides a skill under (a name conflict). */
 function alreadyProvided(skill: CatalogSkill): AmbitError {
   return resolutionError(
     `skill "${skill.name}" already exists ${at(skillDocumentOf(skill), undefined)}`,
@@ -177,10 +177,10 @@ function requires(skill: CatalogSkill): string {
 }
 
 /**
- * The error for removing a skill something still requires (spec §6).
+ * The error for removing a skill something still requires.
  *
  * The next step names `catalog annotate`, which postdates this refusal: `--remove-requires` is what
- * clears a `requires` entry now, and spec §6 asks for a next step that exists rather than for work
+ * clears a `requires` entry now, and an error's next step must be one that exists rather than work
  * the reader is told to do by hand.
  */
 function stillRequired(name: string, requirers: readonly string[]): AmbitError {
@@ -267,8 +267,8 @@ function skillBody(name: string): string {
  * A new skill's `SKILL.md`.
  *
  * The frontmatter goes through `emitYaml`, so its keys are sorted and a value that would otherwise
- * coerce is quoted (spec §3.0); the delimiters and the body are bytes around it. Empty lists are left
- * out rather than written as `[]`: absent and empty mean the same thing (spec §3.2), and the shorter
+ * coerce is quoted; the delimiters and the body are bytes around it. Empty lists are left
+ * out rather than written as `[]`: absent and empty mean the same thing, and the shorter
  * file is the one a reader can see the point of. An `ambit:` holding none of the three is left out
  * for the same reason — an empty mapping is not a statement anybody made.
  */
@@ -408,7 +408,7 @@ export async function renameSkill(
   const changes: CatalogChange[] = [{ directory: skill.path, to: skillDirectoryPath(to) }];
 
   // The skill's own document, restated at the path the move puts it: its `name` is derived from that
-  // path, so leaving the old one there is the name↔path disagreement parsing rejects (spec §3.2).
+  // path, so leaving the old one there is the name↔path disagreement parsing rejects.
   const moved = await CatalogDocument.open(root, skillDocumentOf(skill));
   moved.setString([NAME_KEY], to);
   const self = rewrittenRequires(skill.requires, from, to);

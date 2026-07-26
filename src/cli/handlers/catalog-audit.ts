@@ -1,5 +1,5 @@
 /**
- * `ambit catalog audit` (spec §6, "Catalog authoring") — dead scopes and unreachable items.
+ * `ambit catalog audit` — dead scopes and unreachable items.
  *
  * Two sections, and the first is the reason the second is trustworthy: `audited` says what the run
  * looked at, so a catalog with nothing to report says so explicitly rather than printing an empty
@@ -17,8 +17,8 @@
  * catalog opts into failing on it, which is why it carries `doctor`'s code — the same "a health check
  * found something" answer, one subject over.
  *
- * Read-only, so there is no `--dry-run` and no diff, and the determinism rules apply unchanged
- * (spec §4): every list is sorted upstream, and no absolute path reaches either output form.
+ * Read-only, so there is no `--dry-run` and no diff, and the determinism rules apply unchanged:
+ * every list is sorted upstream, and no absolute path reaches either output form.
  */
 import type { AuditFinding, AuditReport } from "../../authoring/audit.js";
 import { auditCatalogDirectory, isTidy } from "../../authoring/audit.js";

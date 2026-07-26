@@ -1,5 +1,5 @@
 /**
- * `ambit prune` and `ambit clean` (spec §6): the two commands that only remove.
+ * `ambit prune` and `ambit clean`: the two commands that only remove.
  *
  * Every case asserts both directions, because half of each claim is about restraint. A prune that
  * removed everything and a prune that removed nothing would each satisfy "the withdrawn skill is
@@ -78,7 +78,7 @@ async function cli(
 /**
  * Every file in the project, keyed by relative path and carrying its contents.
  *
- * Symlinks are followed, because the default install of a `path:` catalog is a link (spec §5) and
+ * Symlinks are followed, because the default install of a `path:` catalog is a link and
  * what these tests compare is the files a harness would read.
  */
 async function snapshot(): Promise<Record<string, string>> {
@@ -186,7 +186,7 @@ beforeEach(async () => {
   // Three skills — `function.engineering` also selects its nested frontend child — plus the
   // `scoped` http server, which declares that same scope.
   await writeProfile(["core", "function.engineering"]);
-  // The scoped server interpolates this into a header, so what is on disk depends on it (spec §5).
+  // The scoped server interpolates this into a header, so what is on disk depends on it.
   vi.stubEnv(SCOPED_KEY_VAR, undefined);
 });
 
@@ -225,7 +225,7 @@ describe("ambit prune", () => {
 
     await cli("prune");
 
-    // ambit owns keys in this file and not the document (spec §3.6), so the section empties and the
+    // ambit owns keys in this file and not the document, so the section empties and the
     // file stays — and state stops claiming it at all.
     expect(await readMcpConfig()).toEqual({ mcpServers: {} });
     expect(await ownedPathsNow()).not.toContain(MCP_FILE);
@@ -416,7 +416,7 @@ describe("ambit clean", () => {
   it("leaves the project holding only the files ambit does not own", async () => {
     await cli("clean");
 
-    // `ambit.lock` is a record of a resolution rather than an artifact (spec §3.5), and `.mcp.json` is
+    // `ambit.lock` is a record of a resolution rather than an artifact, and `.mcp.json` is
     // co-owned, so neither is ambit's to delete — see `src/project/clean.ts`. The `.gitignore` ambit created
     // goes, because ambit's block was the whole of it.
     expect(Object.keys(await snapshot()).sort()).toEqual(["ambit.yml", "ambit.lock", MCP_FILE].sort());

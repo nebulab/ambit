@@ -919,8 +919,8 @@ diff. `npm run fixture` builds the fixture catalog the suite resolves against.
 
 `AMBIT_SKIP_NETWORK_TESTS=1` skips the dotagents compatibility test without probing the registry.
 
-Source comments cite the build specification by section (`spec §4.6`). That document was `PLAN.md`,
-retired once this README covered the same ground; `git log -- PLAN.md` still has it.
+The build specification that guided this codebase was `PLAN.md`, retired once this README covered
+the same ground; `git log -- PLAN.md` still has it.
 
 ### Source layout
 

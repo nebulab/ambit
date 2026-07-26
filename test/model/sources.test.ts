@@ -1,5 +1,5 @@
 /**
- * The `source` grammar and the cache layout (spec §3.1, §5).
+ * The `source` grammar and the cache layout.
  *
  * These are the two pure halves of fetching, and both are worth pinning on their own: the grammar
  * because a format that stops being recognized turns a working config into an error message, and the

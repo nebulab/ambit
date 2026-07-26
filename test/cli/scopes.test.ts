@@ -1,5 +1,5 @@
 /**
- * `ambit scopes` (spec §3.4, §6): the picker data a consuming tool renders.
+ * `ambit scopes`: the picker data a consuming tool renders.
  *
  * The registry is the subject, so every case asserts the *whole* table — a scope that quietly went
  * missing from a merged registry is exactly the failure a picker cannot recover from, since a person
@@ -154,7 +154,7 @@ describe("ambit scopes", () => {
   });
 
   it("marks a scope held only where the project lists it, not where it is merely reached", async () => {
-    // Holding the parent selects the child (spec §2) but does not hold it, and a picker that
+    // Holding the parent selects the child but does not hold it, and a picker that
     // pre-checked the child would report a choice nobody made.
     await writeProfile([ENGINEERING]);
 

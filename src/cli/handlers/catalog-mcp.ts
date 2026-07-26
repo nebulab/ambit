@@ -1,5 +1,5 @@
 /**
- * `ambit catalog mcp new|rm` (spec §6, "Catalog authoring") — the two MCP entity commands.
+ * `ambit catalog mcp new|rm` — the two MCP entity commands.
  *
  * One module, printing the two sections every authoring command prints: what the catalog now provides,
  * then which files that took — or, under `--dry-run`, the diff it withheld. The heading follows
@@ -9,7 +9,7 @@
  * argv syntax, so turning them into the one {@link McpTransport} §3.3 allows is the boundary's job. Every
  * way that can fail is refused by {@link catalogMcpNewRule}, declared with the command and run by
  * Commander before dispatch — but by a rule rather than by `.conflicts()`, for the message: an error has
- * to name the offending file and the supported kinds (spec §6), which
+ * to name the offending file and the supported kinds, which
  * `error: option '--http <url>' cannot be used with option '--stdio <command>'` does not, and Commander
  * can say nothing at all about *neither* flag. Below this line the transport is a type that cannot name
  * zero or two kinds.
@@ -55,10 +55,10 @@ const HEADER_SEPARATOR = "=";
 const STDIO_FLAG = "stdio";
 const HTTP_FLAG = "http";
 
-/** How every transport refusal names what ambit understands (spec §3.3). */
+/** How every transport refusal names what ambit understands. */
 const SUPPORTED = `supported kinds: ${MCP_TRANSPORT_KINDS.join(", ")}`;
 
-/** The one line every transport refusal ends on: the concrete next step spec §6 requires. */
+/** The one line every transport refusal ends on: the concrete next step every error requires. */
 const GIVE_ONE = `give exactly one of \`--${STDIO_FLAG} <command>\` or \`--${HTTP_FLAG} <url>\``;
 
 /** How `new` is invoked, for the messages that have to say so. */
@@ -79,7 +79,7 @@ interface Subject {
  * The error for an invocation that names no transport, or two.
  *
  * Exit 2 — a malformed invocation, not a resolution problem — and it names the supported kinds for the
- * same reason parsing does: `transport` is the discriminator, so it must never be ambiguous (spec §3.3).
+ * same reason parsing does: `transport` is the discriminator, so it must never be ambiguous.
  */
 function transportRefusal(name: string, summary: string): AmbitError {
   return configError(`MCP server "${name}" ${summary} ${at(mcpDocumentPath(name), undefined)}`, [
@@ -149,7 +149,7 @@ function headersOf(entries: readonly string[]): Readonly<Record<string, string>>
 }
 
 /**
- * The one transport this invocation declares (spec §3.3).
+ * The one transport this invocation declares.
  *
  * @throws {AmbitError} exit 2 when neither or both kinds are named, when a flag belonging to the other
  *   kind is given, or when a `--header` entry cannot be read.
@@ -227,7 +227,7 @@ function report(ctx: CommandContext, subject: Subject, result: McpEdit): ExitCod
  * What a new server leaves for its author to do.
  *
  * `mcp new` is given no way to declare a scope, so what it writes is selected by nothing yet — and a
- * server nothing reaches is a server that is never installed (spec §3.3).
+ * server nothing reaches is a server that is never installed.
  *
  * Both halves name `catalog annotate`, which postdates this line: it is what gives an entity a scope and
  * what gives a skill the requirement, so neither half sends the reader to a file to hand-edit.

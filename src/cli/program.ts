@@ -39,7 +39,7 @@ import { VERSION } from "../version.js";
 export type Io = Pick<CommandContext, "cwd" | "stdout" | "stderr">;
 
 /**
- * Handlers, keyed by the words a user types. Every command spec §6 declares now has one; a spec
+ * Handlers, keyed by the words a user types. Every command the surface declares now has one; a command
  * added without an entry here reports itself unimplemented (exit 1) rather than silently succeeding.
  *
  * `catalog dump` is the whole of `ambit catalog`: the group's default action dispatches to it, so
@@ -78,7 +78,7 @@ export const HANDLERS: CommandHandlers = {
  *
  * Only three commands need one, and each is here rather than on a Commander primitive for the same
  * reason: `.makeOptionMandatory()` and `.conflicts()` produce a message that names no file and gives no
- * next step, which spec §6 requires of every error a user can reach. `install`'s `--copy`/`--link` is
+ * next step, which every error a user can reach has to give. `install`'s `--copy`/`--link` is
  * the counter-example that stayed on `.conflicts()` — Commander's wording for two flags that cannot
  * appear together is already the whole of what there is to say.
  */
@@ -94,7 +94,7 @@ export const RULES: CommandRules = {
  * `Command.addCommand` — unlike `.command()`, which ambit cannot use because every command is built
  * from a spec — copies nothing from its parent, so a subcommand keeps Commander's own defaults for
  * both of the settings that decide how a usage error leaves the process: it writes to the real
- * `process.stderr` and then calls `process.exit`. That bypasses spec §6's exit-code contract on every
+ * `process.stderr` and then calls `process.exit`. That bypasses the exit-code contract on every
  * subcommand (and takes the test worker with it). Copying `configureOutput` and `exitOverride` down
  * is what makes an unknown flag on `ambit catalog scope add` print through ambit's own output and
  * travel out of {@link run} as a code.
@@ -144,7 +144,7 @@ export function buildProgram(
 
 /**
  * Runs the CLI and returns the process exit code. Never throws: every failure path is
- * translated into a code from spec §6, with the message already printed.
+ * translated into an exit code, with the message already printed.
  */
 export async function run(
   argv: readonly string[],

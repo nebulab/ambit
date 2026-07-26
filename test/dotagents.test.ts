@@ -1,6 +1,5 @@
 /**
- * The dotagents compatibility promise, made executable (spec §1 "Relationship to dotagents",
- * spec §7 "Compatibility").
+ * The dotagents compatibility promise, made executable.
  *
  * ambit replaces dotagents, but a catalog must stay a plain skills repo so that dotagents — or
  * skills.sh, or anything else that reads `skills/<namespace>/<name>/SKILL.md` — can install from the
@@ -17,7 +16,7 @@
  * Two catalogs, because the promise covers what ambit *writes* as well as what it reads: the
  * hand-written fixture, and one authored by `ambit catalog init` plus `ambit catalog skill new`.
  *
- * **This is the one test allowed to reach the network** (spec §7 exempts it; nothing else in the
+ * **This is the one test allowed to reach the network** (nothing else in the
  * suite may follow it). Two consequences are deliberate. `@sentry/dotagents` is left unpinned, since
  * the guarantee is about the release people actually have rather than one frozen when this was
  * written. And an unreachable registry is a *skip*, with a printed reason, for a developer working
@@ -214,7 +213,7 @@ describe("dotagents compatibility", () => {
 
     unavailable =
       `cannot run \`npx ${DOTAGENTS_PACKAGE}\` (exit ${String(probe.code)}), so the ` +
-      `compatibility promise in spec §1 is unverified. This is the one test that needs network ` +
+      `compatibility promise is unverified. This is the one test that needs network ` +
       `access; set ${SKIP_VAR}=1 to skip it deliberately.\n${firstLines(probe.stderr)}`;
     if (REQUIRE_NETWORK) throw new Error(unavailable);
     console.warn(`skipping the dotagents compatibility test: ${unavailable}`);

@@ -1,5 +1,5 @@
 /**
- * Installation (spec §4–§5): resolve a project, then hand the bundle to each harness adapter.
+ * Installation: resolve a project, then hand the bundle to each harness adapter.
  *
  * The order is load → resolve → plan → apply → write lock → write state → rewrite the gitignore
  * block, and the two record-keeping
@@ -9,24 +9,24 @@
  * says what *was* installed, so it must not claim a resolution that failed to materialize.
  *
  * Everything up to the first write is `planInstall`, and `previewInstall` is that plan rendered for
- * `--dry-run` instead of applied (spec §5: "`plan` is pure and testable; `apply` is the only thing
- * that touches disk"). Keeping the split at the function boundary is what makes a dry run a print of
+ * `--dry-run` instead of applied: `plan` is pure and testable, and `apply` is the only thing
+ * that touches disk. Keeping the split at the function boundary is what makes a dry run a print of
  * the same plan rather than a second implementation of installation — and what lets `ambit prune`
  * (`clean.ts`) reach the same bundle without materializing it.
  *
- * `--frozen` is checked before anything is written (spec §6). A CI run whose committed lock is stale
+ * `--frozen` is checked before anything is written. A CI run whose committed lock is stale
  * has to leave the project exactly as it found it, so the comparison happens while nothing has been
  * touched — planning and reading state are both reads.
  *
  * Every adapter is asked to plan before any of them applies, so ownership can be checked against the
- * complete set of targets while the project is still untouched (spec §5, `ownership.ts`).
+ * complete set of targets while the project is still untouched (`ownership.ts`).
  *
- * Pruning comes after the last adapter and before the two record-keeping writes (spec §5 rule 3), so
+ * Pruning comes after the last adapter and before the two record-keeping writes, so
  * a prune that fails is retryable — state still owns what it was about to remove — and a failed
  * `apply` leaves the previous install standing rather than half-dismantled.
  *
  * The environment is captured here rather than inside an adapter, because `${VAR}` interpolation in
- * MCP headers (spec §5) is the one thing materialization reads outside its arguments, and an
+ * MCP headers is the one thing materialization reads outside its arguments, and an
  * adapter's `plan` has to stay a pure function of what it is given.
  */
 import type {
@@ -69,15 +69,15 @@ export const ADAPTERS: Readonly<Record<string, HarnessAdapter>> = {
 
 /** How an install was asked to behave. */
 export interface InstallOptions {
-  /** Fail rather than write when resolution would change the lock (spec §6). */
+  /** Fail rather than write when resolution would change the lock. */
   readonly frozen?: boolean;
-  /** Resolve from the catalog cache alone, failing rather than fetching (spec §5). */
+  /** Resolve from the catalog cache alone, failing rather than fetching. */
   readonly offline?: boolean;
-  /** Take ownership of existing unowned targets instead of refusing them (spec §5). */
+  /** Take ownership of existing unowned targets instead of refusing them. */
   readonly adopt?: boolean;
   /**
-   * `--copy` / `--link`: materialize every skill this way, whatever its source would have chosen
-   * (spec §5). Absent means each skill follows its source, which is the mode to leave alone.
+   * `--copy` / `--link`: materialize every skill this way, whatever its source would have chosen.
+   * Absent means each skill follows its source, which is the mode to leave alone.
    */
   readonly mode?: ArtifactMode;
 }
@@ -117,12 +117,12 @@ export interface InstallPreview {
   readonly harnesses: readonly string[];
   /** What install would write. */
   readonly artifacts: readonly PlannedArtifact[];
-  /** What install would remove (spec §5 rule 3), from state alone. */
+  /** What install would remove, from state alone. */
   readonly pruned: readonly PrunedArtifact[];
   readonly lock: Lock;
   /** Whether `ambit.lock` would change. */
   readonly lockChanged: boolean;
-  /** Whether the managed `.gitignore` block would change (spec §5). */
+  /** Whether the managed `.gitignore` block would change. */
   readonly gitignoreChanged: boolean;
 }
 
@@ -133,9 +133,9 @@ export interface InstallResult {
   readonly harnesses: readonly string[];
   /** Everything now owned, in the order the adapters wrote it. */
   readonly artifacts: readonly AppliedArtifact[];
-  /** What the previous install owned and this one does not, removed by path (spec §5 rule 3). */
+  /** What the previous install owned and this one does not, removed by path. */
   readonly pruned: readonly PrunedArtifact[];
-  /** What was written to `ambit.lock` (spec §3.5). */
+  /** What was written to `ambit.lock`. */
   readonly lock: Lock;
 }
 
@@ -188,7 +188,7 @@ export async function planInstall(
   const adapters = adaptersFor(harnesses);
 
   // `process.env` is read once, here, so every adapter interpolates against the same environment,
-  // the cache is looked for in one place (spec §5), and nothing deeper down reaches for ambient
+  // the cache is looked for in one place, and nothing deeper down reaches for ambient
   // state of its own.
   const context: SourceContext = { projectDir, env: process.env, offline: options.offline === true };
 
@@ -221,7 +221,7 @@ export async function planInstall(
 }
 
 /**
- * What an install would do, without doing any of it — `install --dry-run` (spec §5, §6).
+ * What an install would do, without doing any of it — `install --dry-run`.
  *
  * A print of the plan rather than a second implementation of installation: the artifacts come from
  * the same `plan` call `apply` would receive, the removals from the same `planPrune` install acts on,
@@ -229,7 +229,7 @@ export async function planInstall(
  * would change anything. Nothing here is a prediction ambit makes twice.
  *
  * Ownership is checked, because a refusal is part of what would happen: a dry run of an install that
- * would stop should stop, and say the same thing (spec §5 rule 2).
+ * would stop should stop, and say the same thing.
  *
  * @param projectDir the project root, absolute.
  * @param options every flag `install` takes; `--frozen` still refuses a stale lock, since refusing is

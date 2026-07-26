@@ -1,5 +1,5 @@
 /**
- * `ambit doctor` (spec §6): the checks `status` and `validate` deliberately leave out.
+ * `ambit doctor`: the checks `status` and `validate` deliberately leave out.
  *
  * Every case pins the *exit code and the finding*, because the two can fail apart: a doctor that
  * always exited 6 would satisfy half of the task, and one that reported a finding under the wrong
@@ -92,7 +92,7 @@ async function cli(
 
 /**
  * Every file in the project, keyed by relative path and carrying its contents. Symlinks are
- * followed, because the default install of a `path:` catalog is a link (spec §5).
+ * followed, because the default install of a `path:` catalog is a link.
  */
 async function snapshot(): Promise<Record<string, string>> {
   const found: Record<string, string> = {};
@@ -256,7 +256,7 @@ describe("ambit doctor on an incomplete environment", () => {
   });
 });
 
-/** The lock is a record of a resolution (spec §3.5), and `status` never reads it. */
+/** The lock is a record of a resolution, and `status` never reads it. */
 describe("ambit doctor against the lock", () => {
   beforeEach(async () => {
     vi.stubEnv(FIGMA_VAR, "figma-token");

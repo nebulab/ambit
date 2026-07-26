@@ -1,5 +1,5 @@
 /**
- * Determinism, as a suite (spec §4, §7).
+ * Determinism, as a suite.
  *
  * Spec §4 makes determinism a requirement rather than a preference — sort every collection before
  * iterating, never depend on object key order, never emit a timestamp, never let filesystem read
@@ -12,7 +12,7 @@
  * Read order is permuted by wrapping `readdir`, not by rebuilding the fixture in a different order.
  * The order a filesystem hands entries back in is not something a test can arrange — APFS answers
  * in one stable hash order, ext4 in another, and neither is the creation order a test could
- * shuffle — so a wrapper is the only way to make spec §4's second claim testable at all. That makes
+ * shuffle — so a wrapper is the only way to make the second determinism claim testable at all. That makes
  * the wrapper load-bearing: a suite whose shuffle quietly stopped applying would pass forever, so
  * the first describe below proves the permutation reaches the listings *ambit* reads and not merely
  * the ones this file reads.
@@ -121,7 +121,7 @@ const ENV_STUBS: Readonly<Record<string, string>> = {
 interface Surface {
   /** The words a user types, without the directory flag. */
   readonly argv: readonly string[];
-  /** `project` takes `--project <dir>`; `catalog` takes `--catalog <dir>` (spec §6). */
+  /** `project` takes `--project <dir>`; `catalog` takes `--catalog <dir>`. */
   readonly dir: "project" | "catalog";
 }
 
@@ -171,7 +171,7 @@ interface Output {
   readonly stderr: string;
 }
 
-/** A date or a clock time in any shape ambit could plausibly print (spec §4: no timestamps). */
+/** A date or a clock time in any shape ambit could plausibly print (no timestamps). */
 const TIMESTAMP = /\d{4}-\d{2}-\d{2}|\d{2}:\d{2}:\d{2}/;
 
 let root: string;
@@ -325,7 +325,7 @@ describe("every surface ignores the order the filesystem lists directories in", 
 });
 
 /**
- * The other two halves of spec §4's rule, checked over the whole table rather than command by
+ * The other two halves of the determinism rule, checked over the whole table rather than command by
  * command: output that named a machine path or the wall clock would differ between two machines
  * even though it is stable on one, which is the failure a golden file cannot catch.
  */

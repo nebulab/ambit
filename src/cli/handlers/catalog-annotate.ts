@@ -1,5 +1,5 @@
 /**
- * `ambit catalog annotate <name>` (spec §6, "Catalog authoring") — changing what an item declares.
+ * `ambit catalog annotate <name>` — changing what an item declares.
  *
  * The report is the one other authoring commands print with the first section turned around: instead of
  * naming what the command did to the catalog, it lists what the item declares *now*, key by key, because
@@ -51,7 +51,7 @@ interface AnnotationFlags {
 }
 
 /**
- * The six flags spec §6 gives this command, paired with the annotation each changes.
+ * The six flags this command takes, paired with the annotation each changes.
  *
  * Both halves of each name are written out rather than derived from the key, so a reader can grep either
  * the flag or the key and land here.

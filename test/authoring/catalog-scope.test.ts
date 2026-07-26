@@ -1,11 +1,11 @@
 /**
- * `ambit catalog scope add|rm|mv` (spec §6, "Catalog authoring") — maintaining `scopes.yml`.
+ * `ambit catalog scope add|rm|mv` — maintaining `scopes.yml`.
  *
  * Three claims carry this suite, and all three are about bytes. The first is fidelity: the registry is
  * hand-maintained, so a comment, a quoting style, or an entry's position that moves is a bug even when the
  * result parses the same — which is why the cases assert whole files against the fixture's own text rather
  * than reading fields back. The second is that the subtree is the unit: renaming a scope renames what
- * holding it selects (spec §2), and rewrites every skill and server declaring any of it, in one edit.
+ * holding it selects, and rewrites every skill and server declaring any of it, in one edit.
  * The third is that a refusal costs nothing — every rejection asserts the tree is untouched, since an
  * exit code says nothing about what was already half-written.
  *
@@ -297,7 +297,7 @@ describe("ambit catalog scope rm", () => {
 
   it("cites a declaring entity by the file it is actually written as", async () => {
     // The refusal's list is the list of files to edit, so citing the `.yml` ambit would have written
-    // sends the reader to a path this catalog does not have (spec §6).
+    // sends the reader to a path this catalog does not have.
     await rename(path.join(catalogDir, SCOPED_MCP), path.join(catalogDir, "mcps/scoped.yaml"));
 
     const result = await refused(ExitCode.Resolution, "rm", PARENT);

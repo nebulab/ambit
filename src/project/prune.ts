@@ -1,5 +1,5 @@
 /**
- * Pruning — removing what the last install owned and this one does not (spec §5 rule 3).
+ * Pruning — removing what the last install owned and this one does not.
  *
  * Without it install is purely additive, so dropping a scope from `ambit.yml` changes nothing on
  * disk and the harness keeps loading a skill the project no longer holds. That is not a tidiness
@@ -14,7 +14,7 @@
  *
  * Granularity follows the artifact kind, exactly as ownership does. A skill directory goes whole; a
  * harness config file loses only ambit's stale keys and stays where it is, because `.mcp.json` is
- * co-owned (spec §3.6) and emptying it out is not the same as it being ambit's to delete. The
+ * co-owned and emptying it out is not the same as it being ambit's to delete. The
  * directories that held pruned skills stay too — `.claude/skills` and `.claude` belong to the
  * harness.
  *
@@ -25,7 +25,7 @@
  *
  * Deciding what to remove is split from removing it (`planPrune` and `pruneArtifacts`), because three
  * commands need the same answer for different reasons: `install` acts on it, `--dry-run` prints it,
- * and `ambit prune` acts on it without materializing anything first (spec §6). One decision function
+ * and `ambit prune` acts on it without materializing anything first. One decision function
  * is what keeps the three from disagreeing about what is stale — and `clean` is the same decision
  * against an empty plan, which is why nothing here has a notion of "remove everything" of its own.
  */
@@ -176,8 +176,7 @@ export function remainingArtifacts(
  * merged this run's own keys into it and writing a pre-`apply` snapshot back would undo them.
  *
  * A key already gone — the file deleted by hand, the server removed by hand — is not an error and
- * not a write: an install that prunes nothing must leave the file byte-identical (spec §7's
- * idempotence claim), and recreating a file someone deleted would be worse than leaving it absent.
+ * not a write: an install that prunes nothing must leave the file byte-identical (the idempotence claim), and recreating a file someone deleted would be worse than leaving it absent.
  *
  * @throws {AmbitError} exit 2 if the file exists but cannot be parsed (`readJsonDocument`), or for a
  *   managed key that names no section.

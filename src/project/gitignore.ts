@@ -1,8 +1,8 @@
 /**
- * The managed `.gitignore` block (spec §5).
+ * The managed `.gitignore` block.
  *
  * Everything ambit materializes is derived: a skill directory is a copy of, or a link into, a
- * catalog, and `.ambit/state.json` is machine-local by definition (spec §3.6). Committing any of it
+ * catalog, and `.ambit/state.json` is machine-local by definition. Committing any of it
  * is how a project ends up with two answers to "what is installed" — the one in `ambit.yml` and the
  * one in git — so ambit writes the paths it owns into `.gitignore` itself rather than leaving it to
  * whoever adopts the tool.
@@ -14,7 +14,7 @@
  * that predates ambit by years is a normal input rather than a conflict. That is also why the block
  * needs no entry in `.ambit/state.json` and no prune branch: each install renders the whole block
  * from what it just wrote, so a skill that left the bundle leaves the block in the same run. `clean`
- * is the one caller that removes the block outright (spec §6) — the same in-band record, read the
+ * is the one caller that removes the block outright — the same in-band record, read the
  * other way, since state has nothing here to tell it what to delete.
  *
  * The markers are the only thing that can be misread, so both ways of breaking them — a second
@@ -126,8 +126,7 @@ function findBlock(lines: readonly string[]): Block | undefined {
 /**
  * The paths the block lists: ambit's own state directory, plus every skill directory installed.
  *
- * Not `.mcp.json`, and not `ambit.lock`: both are files a team may well want committed (spec §3.5,
- * §5), and only one of them is even an owned artifact. Ordering is the renderer's business, so this
+ * Not `.mcp.json`, and not `ambit.lock`: both are files a team may well want committed, and only one of them is even an owned artifact. Ordering is the renderer's business, so this
  * returns the paths as the install reported them.
  *
  * @param artifacts what the install owns — the applied artifacts, or a state file's.
@@ -136,7 +135,7 @@ export function gitignoreEntries(artifacts: readonly OwnedArtifact[]): readonly 
   const entries = [`${STATE_DIRNAME}/`];
   for (const artifact of artifacts) {
     if (artifact.kind !== "skill-dir") continue;
-    // No trailing slash, deliberately: a `path:` skill is installed as a symlink (spec §5), git does
+    // No trailing slash, deliberately: a `path:` skill is installed as a symlink, git does
     // not read a symlink as a directory, and a `dir/` pattern would therefore leave every linked
     // skill tracked. Without the slash one pattern covers both modes.
     entries.push(artifact.path);
@@ -151,7 +150,7 @@ export function gitignoreEntries(artifacts: readonly OwnedArtifact[]): readonly 
  * @param entries the paths to list, in any order.
  * @returns the new contents, or `undefined` when they would be what is already there — so a caller
  *   skips the write rather than touching a file it has nothing to change, which is what keeps a
- *   second identical install byte-identical (spec §7).
+ *   second identical install byte-identical.
  * @throws {AmbitError} exit 2 for a file whose markers cannot be read unambiguously.
  */
 export function updateGitignoreText(
@@ -245,8 +244,7 @@ export async function writeGitignoreBlock(
 }
 
 /**
- * Takes ambit's block out of a project's `.gitignore` — the other half of ownership, for `clean`
- * (spec §6).
+ * Takes ambit's block out of a project's `.gitignore` — the other half of ownership, for `clean`.
  *
  * A file that is nothing but the block is deleted rather than truncated: ambit created it, so
  * leaving an empty one behind would be leaving a file the project never had.

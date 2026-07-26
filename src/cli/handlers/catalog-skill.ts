@@ -1,5 +1,5 @@
 /**
- * `ambit catalog skill new|rm|mv` (spec §6, "Catalog authoring") — the three skill commands.
+ * `ambit catalog skill new|rm|mv` — the three skill commands.
  *
  * One module, for the reason `catalog-scope`'s handler is one: the three print the same two sections and
  * differ only in what the first one says. What differs from the registry commands is the second section,

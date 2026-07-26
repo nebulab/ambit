@@ -1,5 +1,5 @@
 /**
- * `ambit catalog scope add|rm|mv` (spec §6, "Catalog authoring") — the three registry commands.
+ * `ambit catalog scope add|rm|mv` — the three registry commands.
  *
  * One module, because the three print the same two sections and differ only in what the first one says:
  * what the registry now holds, then which files that took. Under `--dry-run` the second section is the
@@ -12,7 +12,7 @@
  * `add`'s `--description` is mandatory, and refused by {@link catalogScopeAddRule} — declared with the
  * command and run by Commander before dispatch — rather than by `.makeOptionMandatory()`, whose
  * `error: required option '--description <text>' not specified` names no file and gives no next step,
- * both of which spec §6 requires.
+ * both of which an error requires.
  */
 import { SCOPES_FILENAME } from "../../model/catalog.js";
 import type { ScopeEdit } from "../../authoring/scope.js";
@@ -51,7 +51,7 @@ const ADD_USAGE = "ambit catalog scope add <name> --description <text>";
  * `--description`, which `add` requires.
  *
  * A registry entry without one does not parse at all, and the description is what a consuming tool
- * renders in its picker (spec §3.4) — so a blank one is refused for the same reason a missing one is,
+ * renders in its picker — so a blank one is refused for the same reason a missing one is,
  * rather than being written and rejected on the next read.
  *
  * @throws {AmbitError} exit 2, naming the scope and the flag to add.
@@ -67,7 +67,7 @@ function requiredDescription(ctx: CommandContext, scope: string): string {
 }
 
 /**
- * `add`'s flag rule: a scope has to be given a description (spec §6).
+ * `add`'s flag rule: a scope has to be given a description.
  *
  * The same pure read of argv the handler makes, run once more and for its refusal alone. Reading it
  * twice is what keeps the rule declarable with the command *and* the value read where it is used —

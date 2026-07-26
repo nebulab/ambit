@@ -1,25 +1,25 @@
 /**
- * Resolution (spec §4) — the held scopes and the merged catalog in, the bundle out.
+ * Resolution — the held scopes and the merged catalog in, the bundle out.
  *
  * Pure and synchronous: everything that touches disk or the network has already happened by the
  * time this runs. That is what makes determinism testable — the same inputs produce a
  * byte-identical bundle, so `resolve --json` can be committed as a golden file.
  *
- * A held scope selects itself and every scope beneath it — **descendants only** (spec §2).
+ * A held scope selects itself and every scope beneath it — **descendants only**.
  * Holding `function.engineering` reaches `function.engineering.frontend`; holding the child never
  * reaches back up to the parent. That asymmetry is what makes the catalog's tree shape
  * load-bearing, so it lives here rather than in any adapter.
  *
  * Nothing else is implicit: no scope is reserved, and a project selects exactly the scopes it
- * lists, expanded downward. Alongside that, a project may name skills and servers outright
- * (spec §4.8) — those are selected whatever their scopes, since asking for something by name is
+ * lists, expanded downward. Alongside that, a project may name skills and servers outright —
+ * those are selected whatever their scopes, since asking for something by name is
  * already the decision that scopes exist to make. Everything selected either way is then closed
  * over `requires`, so a skill can carry its dependencies into a bundle that would never have
  * selected them.
  *
- * Every selected item also carries the reason it was selected (spec §6), because with three routes
+ * Every selected item also carries the reason it was selected, because with three routes
  * into a bundle a list of names is not an answer to "why is this here?" — and the lock records the
- * reason too (spec §3.5), so it has to be part of resolution rather than a reporting afterthought.
+ * reason too, so it has to be part of resolution rather than a reporting afterthought.
  */
 import type { MergedCatalog, MergedMcp, MergedSkill, ScopeDefinition } from "../model/catalog.js";
 import { MCPS_DIRNAME, SCOPES_FILENAME, SKILL_FILENAME } from "../model/catalog.js";
@@ -27,7 +27,7 @@ import type { ProjectConfig } from "../model/config.js";
 import { AmbitError, ExitCode, at, resolutionError } from "../errors.js";
 
 /**
- * What separates a scope from its children (spec §2).
+ * What separates a scope from its children.
  *
  * Exported because authoring reads it too: renaming a scope renames its subtree, so `catalog scope mv`
  * has to cut a name apart exactly where expansion joins one.
@@ -35,7 +35,7 @@ import { AmbitError, ExitCode, at, resolutionError } from "../errors.js";
 export const SCOPE_SEPARATOR = ".";
 
 /**
- * What marks a `requires` entry as naming an MCP entity rather than a skill (spec §3.2).
+ * What marks a `requires` entry as naming an MCP entity rather than a skill.
  *
  * Exported because it is the only disambiguator the two namespaces have, so anything that takes a
  * name from a human — `ambit why` — has to read it the same way `requires` does.
@@ -48,7 +48,7 @@ export interface Selection {
   readonly mcps: readonly MergedMcp[];
 }
 
-/** Which of the bundle's two namespaces a name belongs to (spec §3.2). */
+/** Which of the bundle's two namespaces a name belongs to. */
 export type ItemKind = "skill" | "mcp";
 
 /** One item of a bundle, named the way its namespace requires. */
@@ -58,7 +58,7 @@ export interface BundleItem {
 }
 
 /**
- * Why one item is in the bundle (spec §6) — one of the three routes resolution offers, and never
+ * Why one item is in the bundle — one of the three routes resolution offers, and never
  * more than one, so a reader gets an answer rather than a list of possibilities.
  *
  * A `scope` reason carries both ends of the expansion: the scope the item declares, and the held
@@ -94,9 +94,9 @@ export interface Bundle {
   readonly skills: readonly MergedSkill[];
   /** Selected MCP servers, sorted by name. */
   readonly mcps: readonly MergedMcp[];
-  /** Every env var the selection declares, unioned and sorted (spec §4.10). */
+  /** Every env var the selection declares, unioned and sorted. */
   readonly env: readonly string[];
-  /** Why each of the above is here (spec §6), one entry per selected item. */
+  /** Why each of the above is here, one entry per selected item. */
   readonly reasons: SelectionReasons;
 }
 
@@ -123,7 +123,7 @@ export function inSubtree(held: string, candidate: string): boolean {
 }
 
 /**
- * Expands held scopes into the set that does the selecting (spec §4.6): every **registered** scope
+ * Expands held scopes into the set that does the selecting: every **registered** scope
  * equal to a held scope or beneath it.
  *
  * Expansion runs against the registry rather than over the scopes skills happen to declare, so
@@ -200,7 +200,7 @@ function nearestScope(scope: string, registered: readonly ScopeDefinition[]): st
 }
 
 /**
- * The concrete next step for a scope nothing recognizes (spec §6): the nearest registered scope
+ * The concrete next step for a scope nothing recognizes: the nearest registered scope
  * when one is a plausible correction, and how to register it otherwise.
  *
  * Exported because two surfaces reject a scope — resolution, on the first offender, and
@@ -217,7 +217,7 @@ export function scopeSuggestion(
 }
 
 /**
- * The error for a held scope the merged registry does not know (spec §4.6).
+ * The error for a held scope the merged registry does not know.
  *
  * @param where the `(file line N)` suffix, as {@link at} renders it.
  */
@@ -233,7 +233,7 @@ export function unknownScopeError(
 }
 
 /**
- * Rejects a held scope the merged registry does not know (spec §4.6).
+ * Rejects a held scope the merged registry does not know.
  *
  * A typo has to fail loudly, because the alternative is worse than an error: expanding to
  * nothing yields a bundle quietly missing everything that scope was meant to bring, and nobody
@@ -244,7 +244,7 @@ export function unknownScopeError(
  * declared is not a scope.
  *
  * Stops at the first offender, in name order. Listing every problem at once is `ambit validate`'s
- * job (spec §4 validation split), which reuses the same error builder so the two agree.
+ * job, which reuses the same error builder so the two agree.
  *
  * @throws {AmbitError} exit 3, naming the scope, the config line it was written on, and the
  *   nearest registered scope when one is a plausible correction.
@@ -268,7 +268,7 @@ export function assertScopesRegistered(
 }
 
 /**
- * Where a skill's annotations are written, so an error about one can name a file (spec §6).
+ * Where a skill's annotations are written, so an error about one can name a file.
  *
  * Exported for `ambit validate`, which reports problems about skills nothing selected and needs to
  * locate them the same way resolution does.
@@ -278,7 +278,7 @@ export function skillFile(skill: MergedSkill): string {
 }
 
 /**
- * The error for a `requires` entry no catalog can satisfy (spec §4.9).
+ * The error for a `requires` entry no catalog can satisfy.
  *
  * Both halves of the edge are named — the requirer and the target — because either could be the
  * mistake: a skill may have been renamed, or the requirement misspelled.
@@ -298,7 +298,7 @@ export function missingRequirement(requirer: MergedSkill, requirement: string): 
 }
 
 /**
- * The error for a `requires` cycle (spec §4.9), printing the whole path rather than the mere fact
+ * The error for a `requires` cycle, printing the whole path rather than the mere fact
  * of one — the offending edge is only obvious once a reader can see the loop closing.
  *
  * @param cycle the skill names around the loop, opening and closing on the same name.
@@ -313,7 +313,7 @@ export function cycleError(cycle: readonly string[], head: MergedSkill): AmbitEr
 }
 
 /**
- * Closes a selection over `requires` until fixpoint (spec §4.9): every skill a selected skill
+ * Closes a selection over `requires` until fixpoint: every skill a selected skill
  * requires, and every MCP entity one names with an `mcp.` prefix, joins the selection — whether or
  * not its own scopes would ever have selected it.
  *
@@ -321,7 +321,7 @@ export function cycleError(cycle: readonly string[], head: MergedSkill): AmbitEr
  * a server declares so once, and every profile that reaches it gets a working bundle instead of a
  * plausible-looking broken one.
  *
- * Only skills carry `requires` (spec §3.3 gives MCP entities no such key), so the graph walked
+ * Only skills carry `requires` (MCP entities have no such key), so the graph walked
  * here is skill → skill, with MCP entities as leaves.
  *
  * @param skills the roots — what scope selection found, sorted by name.
@@ -389,7 +389,7 @@ export function closeOverRequires(
  * Whether a declared scope list is selected by the expanded held scopes.
  *
  * An empty list is never selected — such a thing is reachable only through `requires` or an
- * explicit listing (spec §3.2).
+ * explicit listing.
  */
 function selectedByScope(selecting: ReadonlySet<string>, declared: readonly string[]): boolean {
   return declared.some((scope) => selecting.has(scope));
@@ -402,7 +402,7 @@ interface ExplicitNames {
 }
 
 /**
- * The error for a `skills` entry naming a skill nothing provides (spec §4.8).
+ * The error for a `skills` entry naming a skill nothing provides.
  *
  * Checked rather than trusted, because the failure mode is silent in the worst way: a misspelled
  * name that selects nothing leaves a bundle missing the one thing the config went out of its way
@@ -419,7 +419,7 @@ export function unknownExplicitSkill(name: string, config: ProjectConfig): Ambit
 }
 
 /**
- * The skills and servers config names outright (spec §4.8), whatever scopes they declare.
+ * The skills and servers config names outright, whatever scopes they declare.
  *
  * A `skills` entry carrying its own `source`, and every inline `mcps` entry, were folded into
  * `merged` before resolution (see `mergeConfigEntities`), so both `skills` forms resolve by name
@@ -445,7 +445,7 @@ function explicitNames(config: ProjectConfig, merged: MergedCatalog): ExplicitNa
 /** Constant, since an explicit reason has nothing to say beyond its own kind. */
 const EXPLICIT: SelectionReason = { kind: "explicit" };
 
-/** How a reason reads in `--explain`, in the lock (spec §3.5), and in `ambit why`. */
+/** How a reason reads in `--explain`, in the lock, and in `ambit why`. */
 export function formatReason(reason: SelectionReason): string {
   switch (reason.kind) {
     case "explicit":
@@ -615,7 +615,7 @@ export function explainSelection(bundle: Bundle, item: BundleItem): readonly Rea
  * Selection order comes from the merged catalog, which is already sorted by name, so filtering
  * preserves it and no collection is iterated in filesystem order.
  *
- * `env` is unioned over the closed selection, not the scope-selected one (spec §4.10): a server
+ * `env` is unioned over the closed selection, not the scope-selected one: a server
  * pulled in by `requires` needs its credentials as much as one selected by scope.
  *
  * Reasons are computed here rather than on request, so `--explain`, `ambit why`, and the lock all

@@ -1,5 +1,5 @@
 /**
- * `ambit.lock` (spec §3.5), and `install --frozen` (spec §6).
+ * `ambit.lock`, and `install --frozen`.
  *
  * The lock's whole value is that identical inputs produce identical bytes, so the assertions here are
  * on the exact file rather than on a parsed view of it: a reordered key, a stray timestamp, or an

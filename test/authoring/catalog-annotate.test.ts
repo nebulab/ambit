@@ -1,5 +1,5 @@
 /**
- * `ambit catalog annotate` (spec §6, "Catalog authoring") — changing what an item declares.
+ * `ambit catalog annotate` — changing what an item declares.
  *
  * This is the one authoring command that edits the *inside* of a hand-written document, so the suite is
  * built around authoring rule 2: several cases assert the whole file against the fixture's own bytes with
@@ -266,7 +266,7 @@ describe("ambit catalog annotate, on a skill", () => {
   it("writes a key the document never had at the end, as a block sequence", async () => {
     await succeeds(CORE_SKILL, "--add-requires", REVIEW_SKILL);
 
-    // A key ambit adds has no layout to preserve, so it takes ambit's own (spec §3.0) and lands after
+    // A key ambit adds has no layout to preserve, so it takes ambit's own and lands after
     // the keys that were already there rather than being sorted into them.
     expect(await read(CORE_SKILL_FILE)).toBe(
       fixture(CORE_SKILL_FILE).replace(

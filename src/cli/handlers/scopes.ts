@@ -1,5 +1,5 @@
 /**
- * `ambit scopes` — the merged scope registry, with descriptions (spec §3.4, §6).
+ * `ambit scopes` — the merged scope registry, with descriptions.
  *
  * This is picker data: a consuming tool renders the list, a person picks from it, and the answers are
  * written back as `ambit.yml`'s `scopes`. So the description is the payload, not decoration — a scope
@@ -9,7 +9,7 @@
  * a slice of `ambit catalog`: the picker needs its checkboxes pre-set, and the answer is a fact about
  * `ambit.yml` rather than about the catalog. `held` is literal membership in the config's list, not
  * selection — a project holding `function.engineering` reaches
- * `function.engineering.frontend` (spec §2), but it does not hold it, and pre-checking the child
+ * `function.engineering.frontend`, but it does not hold it, and pre-checking the child
  * would tell the person they had chosen something they had not.
  *
  * Nothing here validates the held scopes. A scope listed in `ambit.yml` and registered nowhere is

@@ -1,19 +1,19 @@
 /**
- * Git sources end to end (spec §5), against a bare repository on the local filesystem: `file://` is
- * a git URL like any other, so ambit needs no test mode and no test needs a network (spec §7).
+ * Git sources end to end, against a bare repository on the local filesystem: `file://` is
+ * a git URL like any other, so ambit needs no test mode and no test needs a network.
  *
  * The claim under test is that a git source is not a second kind of catalog. The same fixture,
  * installed once from a repository and once from a directory, must leave byte-identical projects
  * behind — anything else means fetching quietly changed what a project gets. The two files that
  * record *where* it came from are the deliberate exception, and are named in
  * {@link PER_SOURCE_FILES}; the materialization mode is the other one, since a commit is copied and a
- * working directory is linked (spec §5), so the comparison passes `--copy` on the directory side.
+ * working directory is linked, so the comparison passes `--copy` on the directory side.
  *
  * The second claim is about the cache: a resolve that the cache can already answer must not touch
  * the remote. That is asserted the only way it can be believed — by deleting the remote between the
  * two runs.
  *
- * The third is `--offline` (spec §5), which is the same claim from the other side: with the remote
+ * The third is `--offline`, which is the same claim from the other side: with the remote
  * present and perfectly reachable, an offline run against a cold cache has to fail rather than
  * quietly fetch. Deleting the remote proves the cache can answer; leaving it in place proves ambit
  * did not ask it to.
@@ -96,7 +96,7 @@ async function cli(
 /**
  * Files whose contents must differ between the two projects, and so cannot take part in the
  * comparison: `ambit.yml` names a different source, which is the whole experiment, and `ambit.lock`
- * records that source and the commit behind it (spec §3.5) — a git source has one and a directory
+ * records that source and the commit behind it — a git source has one and a directory
  * has none, so a lock that matched would mean the lock was not doing its job.
  */
 const PER_SOURCE_FILES: ReadonlySet<string> = new Set(["ambit.yml", "ambit.lock"]);
@@ -104,7 +104,7 @@ const PER_SOURCE_FILES: ReadonlySet<string> = new Set(["ambit.yml", "ambit.lock"
 /**
  * Every file ambit left in a project, keyed by relative path and carrying its contents.
  *
- * Symlinks are followed: a `path:` catalog's skills are linked by default (spec §5), and what this
+ * Symlinks are followed: a `path:` catalog's skills are linked by default, and what this
  * compares is the files a harness would read, not how they got there.
  */
 async function installed(dir: string): Promise<Record<string, string>> {
@@ -155,7 +155,7 @@ async function gitCatalog(): Promise<{ readonly root: string; readonly commit?: 
 beforeEach(async () => {
   root = await mkdtemp(path.join(tmpdir(), "ambit-git-"));
   cacheDir = path.join(root, "cache");
-  // The cache is machine-wide (spec §5), so every test points it somewhere disposable rather than
+  // The cache is machine-wide, so every test points it somewhere disposable rather than
   // writing into the developer's real one.
   vi.stubEnv("XDG_CACHE_HOME", cacheDir);
   vi.stubEnv(SCOPED_KEY_VAR, undefined);
@@ -178,8 +178,8 @@ afterEach(async () => {
 describe("a catalog fetched from git", () => {
   it("installs exactly what the same catalog installs from a directory", async () => {
     // `--copy` on the directory side, because that is the one thing the two sources legitimately
-    // disagree about: a commit is immutable and gets copied, a working directory gets linked
-    // (spec §5), and state records which. Everything else — every skill, every server key — must
+    // disagree about: a commit is immutable and gets copied, a working directory gets linked,
+    // and state records which. Everything else — every skill, every server key — must
     // match byte for byte, so the flag is what keeps this comparison about fetching.
     const fromPath = await cli(pathProject, "install", "--copy");
     expect(fromPath.code, fromPath.stderr).toBe(ExitCode.Success);
@@ -300,7 +300,7 @@ skills:
 });
 
 /**
- * The commit half of spec §3.5, which only a git source can exercise: a `path:` catalog has no
+ * The commit half of the lock, which only a git source can exercise: a `path:` catalog has no
  * revision to pin, so this is the only place the lock's `commit` fields can be shown to be real.
  */
 describe("the lock a git source writes", () => {

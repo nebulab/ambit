@@ -1,15 +1,15 @@
 /**
- * `ambit init` — scaffold a project's `ambit.yml` (spec §6).
+ * `ambit init` — scaffold a project's `ambit.yml`.
  *
  * The scaffold is documentation as much as configuration. It is the one place a person meets the
  * selection rule at the moment it matters — while writing the `scopes` list — so the comments say
- * outright that nothing is implicit and that a held scope reaches downward only (spec §2). Getting
+ * outright that nothing is implicit and that a held scope reaches downward only. Getting
  * that wrong yields a bundle quietly missing the company floor, and by design nothing warns about
  * it; the warning therefore has to live in the file itself.
  *
  * The bytes are *emitted*, not templated: the file is a list of {@link ScaffoldBlock}s rendered by
  * {@link renderScaffold}, so stripping the comments from the scaffold leaves exactly what ambit would
- * emit from the same values (spec §3.0). `test/init.test.ts` pins that equivalence rather than a
+ * emit from the same values. `test/init.test.ts` pins that equivalence rather than a
  * golden copy of the prose, which is free to be reworded.
  *
  * The commented-out `catalogs` example is emitted the same way and then prefixed, so the one part of
@@ -23,13 +23,13 @@ import { configError } from "../errors.js";
 import type { ScaffoldBlock } from "../model/scaffold.js";
 import { renderScaffold } from "../model/scaffold.js";
 
-/** The name `init` writes: the first of the two accepted config filenames (spec §3.1). */
+/** The name `init` writes: the first of the two accepted config filenames. */
 export const INIT_FILENAME = CONFIG_FILENAMES[0];
 
 /**
  * The scope the scaffold holds.
  *
- * A convention, not a rule ambit knows (spec §2): the resolver reserves no names, and a catalog that
+ * A convention, not a rule ambit knows: the resolver reserves no names, and a catalog that
  * calls its universal floor something else will reject this one as unregistered. Scaffolding it
  * anyway is deliberate — the alternative is an empty `scopes` list, which selects nothing and
  * teaches nothing about why.
@@ -93,7 +93,7 @@ const BLOCKS: readonly ScaffoldBlock[] = [
  * The scaffolded `ambit.yml`, as bytes.
  *
  * Pure and byte-stable: the output is a function of {@link BLOCKS} alone, so two runs on two
- * machines scaffold the same file (spec §3.0).
+ * machines scaffold the same file.
  */
 export function scaffoldConfig(): string {
   return renderScaffold(BLOCKS);
@@ -101,7 +101,7 @@ export function scaffoldConfig(): string {
 
 /** How an init was asked to behave. */
 export interface InitOptions {
-  /** `--dry-run`: report the file that would be written and touch nothing (spec §6). */
+  /** `--dry-run`: report the file that would be written and touch nothing. */
   readonly dryRun?: boolean;
 }
 

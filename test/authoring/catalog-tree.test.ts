@@ -1,7 +1,7 @@
 /**
- * `ambit catalog tree` (spec §6, "Catalog authoring") — the registry drawn as a tree.
+ * `ambit catalog tree` — the registry drawn as a tree.
  *
- * The command exists to make the spec §2 decision legible: a held scope selects itself and every scope
+ * The command exists to make the selection rule legible: a held scope selects itself and every scope
  * beneath it, descendants only, so nesting is a promise about what one choice brings in. Three claims
  * carry this suite.
  *
@@ -197,7 +197,7 @@ describe("ambit catalog tree", () => {
 
   it("nests a scope under its longest registered ancestor, not under its dotted prefix", async () => {
     // The fixture registers `function.engineering` and not `function`, so it is a root of the tree: a
-    // parent nobody registered is not a scope anyone can hold (spec §2).
+    // parent nobody registered is not a scope anyone can hold.
     expect(Object.keys(await treeJson())).toEqual(["core", ENGINEERING, "project.acme"]);
 
     await registerScope("function", "Every function");

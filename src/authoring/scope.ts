@@ -1,13 +1,13 @@
 /**
- * The scope registry commands (spec §6, "Catalog authoring"): `ambit catalog scope add|rm|mv`.
+ * The scope registry commands: `ambit catalog scope add|rm|mv`.
  *
  * `scopes.yml` is the one file in a catalog whose shape reaches outside it. Every project's `ambit.yml`
- * names these scopes by hand, and a held scope selects its whole subtree (spec §2), so the three edits
+ * names these scopes by hand, and a held scope selects its whole subtree, so the three edits
  * here are deliberately not symmetric:
  *
  * - **`add` refuses a name the registry already holds.** Registering a scope is not rewording one:
  *   quietly overwriting the entry that is there would let a re-run redefine what every project holding
- *   that scope gets, and the description is the label a picker shows for it (spec §3.4). Nothing else in
+ *   that scope gets, and the description is the label a picker shows for it. Nothing else in
  *   the CLI edits a description, so the refusal sends the reader to `scopes.yml` itself rather than to a
  *   command that does not exist.
  * - **`rm` refuses while anything still declares the scope**, naming every declarer. The editor would
@@ -46,27 +46,27 @@ import {
   scopeSuggestion,
 } from "../resolution/resolve.js";
 
-/** The registry's one top-level key (spec §3.4). */
+/** The registry's one top-level key. */
 const REGISTRY_KEY = "scopes";
 
-/** A registry entry's one key. Required: it is the picker's label, not decoration (spec §3.4). */
+/** A registry entry's one key. Required: it is the picker's label, not decoration. */
 const DESCRIPTION_KEY = "description";
 
 /**
- * The key a skill or an MCP entity declares its scopes under (spec §3.2, §3.3). The same word as
+ * The key a skill or an MCP entity declares its scopes under. The same word as
  * {@link REGISTRY_KEY} and a different document — a rename rewrites both, and confusing the two would be
  * a hard bug to see.
  *
  * Where it sits differs by document: a skill's is under `ambit:`, since a `SKILL.md`'s frontmatter is
- * the harness's and ambit is namespaced inside it (spec §3.2), while an entity's is at the root of a
- * file ambit owns end to end (spec §3.3). See {@link SKILL_SCOPES_PATH} and {@link MCP_SCOPES_PATH}.
+ * the harness's and ambit is namespaced inside it, while an entity's is at the root of a
+ * file ambit owns end to end. See {@link SKILL_SCOPES_PATH} and {@link MCP_SCOPES_PATH}.
  */
 const DECLARED_KEY = "scopes";
 
-/** Where a skill declares its scopes, as a path from the frontmatter root (spec §3.2). */
+/** Where a skill declares its scopes, as a path from the frontmatter root. */
 const SKILL_SCOPES_PATH: readonly string[] = [AMBIT_FRONTMATTER_KEY, DECLARED_KEY];
 
-/** Where an MCP entity declares its scopes, as a path from the document root (spec §3.3). */
+/** Where an MCP entity declares its scopes, as a path from the document root. */
 const MCP_SCOPES_PATH: readonly string[] = [DECLARED_KEY];
 
 /** What an edit to the registry amounted to. */
@@ -103,7 +103,7 @@ export interface ScopeRenameResult extends ScopeEdit {
 /**
  * The error for a scope this catalog's registry does not hold.
  *
- * Exit 3, the code spec §6 gives an unknown scope, and the summary shape resolution's own
+ * Exit 3, the code for an unknown scope, and the summary shape resolution's own
  * `unknownScopeError` uses; `scopeSuggestion` supplies the "did you mean", so the advice cannot drift
  * from what `resolve` and `validate` give. The detail line differs on purpose — there is no merged
  * registry here, only the one file this command edits.
@@ -116,13 +116,13 @@ function unknownScope(scope: string, registered: readonly ScopeDefinition[]): Am
 }
 
 /**
- * The error for unregistering a scope something still declares (spec §6).
+ * The error for unregistering a scope something still declares.
  *
  * Every declarer is named, with the file to edit, because clearing them one refusal at a time is the
  * cost of reporting only the first — and the whole list is already in hand.
  *
  * The next step names `catalog annotate`, which postdates this refusal: telling a reader to edit each
- * declarer by hand is advice about work a command now does, and spec §6 asks for a next step that
+ * declarer by hand is advice about work a command now does, and a next step has to be one that
  * exists.
  */
 function stillDeclared(scope: string, declarers: Declarers): AmbitError {
@@ -139,7 +139,7 @@ function stillDeclared(scope: string, declarers: Declarers): AmbitError {
 }
 
 /**
- * The error for registering a name the registry already holds (spec §6).
+ * The error for registering a name the registry already holds.
  *
  * The next step is hand-editing, uniquely among this module's refusals, because it is the only thing
  * that is true: no command rewords a registered scope, and `rm` then `add` would move the entry to the
@@ -156,7 +156,7 @@ function alreadyHeld(scope: string): AmbitError {
   );
 }
 
-/** The error for a rename onto a name the registry already holds (spec §6). */
+/** The error for a rename onto a name the registry already holds. */
 function alreadyRegistered(from: string, to: string): AmbitError {
   return resolutionError(`scope "${to}" is already registered ${at(SCOPES_FILENAME, undefined)}`, [
     `renaming "${from}" to it would merge two scopes into one`,
@@ -167,7 +167,7 @@ function alreadyRegistered(from: string, to: string): AmbitError {
 /**
  * Rejects a scope name that cannot mean anything.
  *
- * Only the shape the subtree rule depends on is enforced (spec §2): a name is dot-separated segments,
+ * Only the shape the subtree rule depends on is enforced: a name is dot-separated segments,
  * and an empty one makes both halves of this module nonsense — `a..b` would be a child of `a.`, and a
  * rename to `""` would produce `.frontend` out of prefix arithmetic. Everything else a YAML key may hold
  * is the catalog author's business.
@@ -206,7 +206,7 @@ interface Declarers {
  *
  * An entity is named by the file it is actually written as (`CatalogMcp.file`), not by the `.yml` ambit
  * would have chosen: this list *is* the refusal's list of files to edit, and a catalog spelling an entity
- * `.yaml` has no `.yml` for the reader to open (spec §6). Parsing already resolved that, so the answer is
+ * `.yaml` has no `.yml` for the reader to open. Parsing already resolved that, so the answer is
  * read off the entity rather than looked for on disk — which is what keeps this synchronous, and what
  * keeps the refusal citing exactly the file the catalog was parsed from.
  */
@@ -436,7 +436,7 @@ export async function renameScope(
     const declared = rewritten(mcp.scopes, renames);
     if (declared === undefined) continue;
     // The file the author wrote, not the extension ambit would have chosen: `mcps/<name>.yaml` is as
-    // legal as `.yml` (spec §3.3), and rewriting the other one would leave two files defining one
+    // legal as `.yml`, and rewriting the other one would leave two files defining one
     // server — which parsing rejects, so the rename would fail with nothing written.
     const document = await CatalogDocument.open(root, await mcpDocumentFile(root, mcp.name));
     document.setStringList(MCP_SCOPES_PATH, declared);

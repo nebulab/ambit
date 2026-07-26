@@ -1,8 +1,8 @@
 /**
- * `ambit resolve` — compute the bundle and print it (spec §6).
+ * `ambit resolve` — compute the bundle and print it.
  *
- * `--json` is the golden-file surface (spec §7), so it carries no absolute paths and every key is
- * emitted in sorted order. The shape mirrors `ambit.lock` (spec §3.5) minus the parts only a
+ * `--json` is the golden-file surface, so it carries no absolute paths and every key is
+ * emitted in sorted order. The shape mirrors `ambit.lock` minus the parts only a
  * fetched catalog can supply, so the lock later becomes a serialization of this rather than a
  * second, differently-shaped view.
  *
@@ -10,7 +10,7 @@
  * the same bundle, and a reader comparing the two should not have to re-find their bearings. The
  * reason is deliberately the short form — `ambit why` is where a whole chain belongs.
  *
- * Shadowing (spec §4.5) is annotated beside the reason rather than in place of it. Spec §6 lists
+ * Shadowing is annotated beside the reason rather than in place of it. Spec §6 lists
  * `catalog:company (shadows personal)` alongside the three selection reasons, but the two answer
  * different questions — *why is this here* and *whose copy is this* — and only one item in a bundle
  * can be shadowed while every item has a reason. Folding the first into the second would cost a

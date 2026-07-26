@@ -1,5 +1,5 @@
 /**
- * The shared YAML loader (spec §3.0).
+ * The shared YAML loader.
  *
  * Every ambit format goes through here — `ambit.yml`, `scopes.yml`, `mcps/*.yml`, `SKILL.md`
  * frontmatter — so the rules are enforced once and cannot drift between parsers. The rules
@@ -8,7 +8,7 @@
  *
  * Reading returns a {@link YamlMapping}, a positioned view over the document rather than a
  * plain object. Keeping the nodes around is what lets every downstream error name the line it
- * came from, which spec §6 requires of every message.
+ * came from, which every message requires.
  *
  * Writing goes through {@link emitYaml}, in this module rather than beside whatever generates a
  * document, so the emit half of §3.0 is enforced once too — and so what ambit writes is
@@ -17,7 +17,7 @@
  * *Editing* a document ambit did not write is a third thing, and {@link EditableYaml} is it: the
  * parsed node tree is kept and re-emitted, rather than a plain object being emitted afresh, because
  * an authoring command must leave comments, unknown keys, key order, and formatting byte-for-byte
- * intact (spec §6 authoring rule 2). Nothing outside this module touches the `yaml` package, so the
+ * intact. Nothing outside this module touches the `yaml` package, so the
  * three halves cannot drift apart.
  */
 import { readFile } from "node:fs/promises";
@@ -132,7 +132,7 @@ export interface PositionedString {
  * of the requested type or throws an {@link AmbitError} naming the key, the file, and the line.
  *
  * A key that is present must carry a value: an explicit `null` is an error, because the way to
- * take a default is to omit the key (spec §3.0).
+ * take a default is to omit the key.
  */
 export class YamlMapping {
   private readonly node: YAMLMap<unknown, unknown>;
@@ -219,10 +219,9 @@ export class YamlMapping {
   /**
    * The same sequence, each item paired with the line it was written on.
    *
-   * A rule enforced after parsing — a held scope the catalog's registry does not know, say
-   * (spec §4.6) — has no YAML node left to point at, and spec §6 still expects its error to
-   * name a line. Carrying the positions forward is cheaper and less fragile than reparsing the
-   * document to find them again.
+   * A rule enforced after parsing — a held scope the catalog's registry does not know, say — has
+   * no YAML node left to point at, and its error is still expected to name a line. Carrying the
+   * positions forward is cheaper and less fragile than reparsing the document to find them again.
    */
   optionalPositionedStringList(key: string): readonly PositionedString[] | undefined {
     const items = this.sequence(key, "a sequence of strings");
@@ -256,11 +255,11 @@ export class YamlMapping {
 
   /**
    * A sequence whose items are each a string or a mapping — the shape `ambit.yml`'s `skills`
-   * uses, where a bare name is shorthand for the full mapping (spec §3.1).
+   * uses, where a bare name is shorthand for the full mapping.
    *
    * The string form carries its line for the same reason
    * {@link YamlMapping.optionalPositionedStringList} does: an explicit skill no catalog provides
-   * (spec §4.8) is rejected long after this parse, and spec §6 still expects its error to name the
+   * is rejected long after this parse, and its error is still expected to name the
    * line the name was written on.
    */
   optionalEntryList(key: string): readonly (PositionedString | YamlMapping)[] | undefined {
@@ -276,7 +275,7 @@ export class YamlMapping {
 
   /**
    * Every entry of this mapping as string→string, for free-form maps whose keys are not known
-   * ahead of time (spec §3.3 `transport.http.headers`).
+   * ahead of time (`transport.http.headers`).
    */
   stringEntries(): Readonly<Record<string, string>> {
     const entries: Record<string, string> = {};
@@ -303,7 +302,7 @@ export class YamlMapping {
 
   /**
    * The value node behind `key`, rejecting an explicit null: the way to take a default is to
-   * omit the key, so a written-out `null` is always a mistake (spec §3.0).
+   * omit the key, so a written-out `null` is always a mistake.
    */
   private value(
     pair: Pair<unknown, unknown>,
@@ -491,7 +490,7 @@ function structuralProblem(source: YamlSource, root: unknown): AmbitError | unde
   return problems[0];
 }
 
-/** How every ambit document is parsed (spec §3.0). Shared, so no caller can loosen a rule. */
+/** How every ambit document is parsed. Shared, so no caller can loosen a rule. */
 const PARSE_OPTIONS: DocumentOptions & ParseOptions & SchemaOptions = {
   schema: "core",
   version: "1.2",
@@ -572,7 +571,7 @@ type ParsedFrontmatter = matter.GrayMatterFile<string> & { readonly isEmpty?: bo
  * A Markdown document cut into its frontmatter block and the bytes around it.
  *
  * The three pieces concatenate back to the document exactly, which is what lets an edit rewrite the
- * block and leave the body byte-for-byte alone (spec §6 authoring rule 2). `block` carries no
+ * block and leave the body byte-for-byte alone. `block` carries no
  * surrounding blank lines, because the parser does not preserve those on re-emit and they therefore
  * have to survive as bytes rather than as parsed structure.
  */
@@ -703,7 +702,7 @@ export async function readFrontmatterMapping(path: string, file = path): Promise
 }
 
 /**
- * How ambit writes YAML (spec §3.0). Every option here answers a rule, so none of them is a
+ * How ambit writes YAML. Every option here answers a rule, so none of them is a
  * preference:
  *
  * - `sortMapEntries` makes the byte order a function of the keys rather than of whichever order a
@@ -743,7 +742,7 @@ export function emitYaml(document: unknown): string {
 }
 
 /**
- * How ambit re-emits a document it did not write (spec §6 authoring rule 2). It shares
+ * How ambit re-emits a document it did not write. It shares
  * {@link EMIT_OPTIONS}' quoting and no-rewrapping rules — the bytes ambit adds are still §3.0 bytes —
  * and differs in exactly two ways, both load-bearing:
  *
@@ -765,7 +764,7 @@ const EDIT_OPTIONS: ToStringOptions = {
  *
  * The node tree is what is kept and re-emitted, so everything ambit was not asked to change survives
  * byte-for-byte: comments, unknown keys, key order, quoting style, and whether a sequence was written
- * flow or block (spec §6 authoring rule 2). Re-emitting from a plain object would silently reformat a
+ * flow or block. Re-emitting from a plain object would silently reformat a
  * hand-maintained catalog, which is the one thing an authoring tool must never do.
  *
  * The bytes outside the parsed region — a `SKILL.md`'s delimiters and Markdown body, and the blank
@@ -830,7 +829,7 @@ export class EditableYaml {
    * An existing sequence's layout is kept — flow stays flow, block stays block — along with any
    * comment written on it, because the author chose both. A key that was not there yet is written the
    * way {@link emitYaml} would write it, as a block sequence. An empty list is emitted as `[]` rather
-   * than left null, since "declares none" and "declares nothing" are different claims (spec §3.2).
+   * than left null, since "declares none" and "declares nothing" are different claims.
    */
   setStringList(path: readonly string[], values: readonly string[]): void {
     const node: Node = this.document.createNode([...values]);
@@ -863,8 +862,7 @@ export class EditableYaml {
    * A whole set at once, deliberately: renaming a scope together with its descendants passes through
    * states where two entries share a name (`a` → `a.b` while `a.b` → `a.b.b`), so every pair is located
    * before any of them is touched. Keys the mapping does not hold are ignored, and a key's quoting style
-   * is the author's and is kept — a new name that could not be written plain is quoted regardless
-   * (spec §3.0).
+   * is the author's and is kept — a new name that could not be written plain is quoted regardless.
    */
   renameKeys(path: readonly string[], renames: ReadonlyMap<string, string>): void {
     const mapping = this.document.getIn(path, true);

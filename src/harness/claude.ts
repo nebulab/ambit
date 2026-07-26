@@ -1,5 +1,5 @@
 /**
- * The Claude Code adapter (spec §5).
+ * The Claude Code adapter.
  *
  * Skills land at `.claude/skills/<name>/`, one directory per bundle skill, named by the resolved
  * name rather than the catalog's nesting — that flat name is what the harness shows a user and
@@ -10,11 +10,11 @@
  * exactly the harness-specific knowledge this seam exists to contain. That file is co-owned —
  * ambit merges its own servers in and leaves anything else alone (see `harness/config.ts`).
  *
- * How a skill's source reaches its target follows the source (spec §5). A remote source is copied:
+ * How a skill's source reaches its target follows the source. A remote source is copied:
  * it is pinned to a commit, so a copy cannot go stale, and nothing in the project should be editable
  * bytes that no revision accounts for. A `path:` source is symlinked, because the directory it names
  * is a working tree someone edits — copying it is how dotagents leaves an agent reading a stale
- * duplicate of the file its author is changing (spec §1). `--copy`/`--link` force one mode for the
+ * duplicate of the file its author is changing. `--copy`/`--link` force one mode for the
  * whole run, including onto sources that would have chosen the other: `--link` against a cached
  * remote checkout is a link into the shared cache, which is what asking for it means.
  */
@@ -56,7 +56,7 @@ export const CLAUDE_MCP_FILE = ".mcp.json";
 export const CLAUDE_MCP_SECTION = "mcpServers";
 
 /**
- * An `${VAR}` reference in a header value (spec §5). Anchored to the shell-variable character set,
+ * An `${VAR}` reference in a header value. Anchored to the shell-variable character set,
  * so a `${...}` the harness itself expands in some other syntax is left for it to deal with.
  */
 const ENV_PLACEHOLDER = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
@@ -80,7 +80,7 @@ function interpolate(value: string, env: Readonly<Record<string, string | undefi
 /**
  * Every `${VAR}` name a value still references.
  *
- * Exported for `doctor`, which is the surface spec §5 names for a missing variable. Run over a value
+ * Exported for `doctor`, which is the surface for reporting a missing variable. Run over a value
  * {@link interpolate} has already been through, what is left is exactly the set of variables the
  * environment did not supply — so `doctor` reads the fact off the plan instead of re-deciding it, and
  * a change to what counts as a placeholder cannot leave the two disagreeing.
@@ -92,7 +92,7 @@ export function envPlaceholders(value: string): readonly string[] {
 }
 
 /**
- * Maps one entity's transport onto the harness's server shape (spec §5).
+ * Maps one entity's transport onto the harness's server shape.
  *
  * `type` is emitted for `http` because the harness treats a server without one as stdio, and
  * omitted for stdio itself, where `command` already says so. Empty `args` and `headers` are left
@@ -121,7 +121,7 @@ function serverConfig(
 }
 
 /**
- * Which mode one skill is materialized in (spec §5).
+ * Which mode one skill is materialized in.
  *
  * A commit is the signal, because it is exactly the question the mode turns on: a source pinned to
  * one is immutable and gets copied, and a source without one is a working directory whose current
@@ -238,7 +238,7 @@ async function applySkillDir(
  * ambit owns keys here, not the document, so a hand-maintained `.mcp.json` is a normal input
  * rather than a conflict.
  *
- * @throws {AmbitError} exit 2 if the existing file cannot be merged into (spec §5).
+ * @throws {AmbitError} exit 2 if the existing file cannot be merged into.
  */
 async function applyHarnessConfig(artifact: PlannedHarnessConfig): Promise<AppliedArtifact> {
   const document = await readJsonDocument(artifact.target, artifact.path);

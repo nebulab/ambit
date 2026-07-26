@@ -1,11 +1,11 @@
 /**
- * `ambit init` (spec §6): the scaffolded `ambit.yml`.
+ * `ambit init`: the scaffolded `ambit.yml`.
  *
  * Two claims carry this suite, and neither is about the prose. The first is that the scaffold is
  * *emitted*: strip its comments and what is left must be byte-identical to what {@link emitYaml}
  * produces from the same values, so the file cannot drift into an unsorted key or an unquoted value
- * (spec §3.0) and cannot stop being byte-stable between runs. The second is that it still teaches the
- * selection rule (spec §2) — a scaffold holding `core` without saying why is a scaffold someone
+ * and cannot stop being byte-stable between runs. The second is that it still teaches the
+ * selection rule — a scaffold holding `core` without saying why is a scaffold someone
  * deletes the line from.
  *
  * The prose itself is deliberately not pinned. It is documentation, free to be reworded; what is
@@ -195,7 +195,7 @@ describe("ambit init on a directory that already holds a config", () => {
   });
 
   it("refuses ambit.yaml too, and writes no ambit.yml beside it", async () => {
-    // Both names are accepted config (spec §3.1), so scaffolding the other one would leave a project
+    // Both names are accepted config, so scaffolding the other one would leave a project
     // whose two configs are an error in every other command.
     await writeFile(path.join(projectDir, OTHER_CONFIG), "version: 1\n", "utf8");
 

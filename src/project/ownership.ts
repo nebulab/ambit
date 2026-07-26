@@ -1,5 +1,5 @@
 /**
- * Ownership enforcement — the safety core (spec §5).
+ * Ownership enforcement — the safety core.
  *
  * ambit overwrites only what `.ambit/state.json` says it created. Anything else at a target path
  * belongs to someone: a hand-written skill, a server added to `.mcp.json` long before ambit ran, a
@@ -13,7 +13,7 @@
  * catalog no longer ships.
  *
  * Granularity follows the artifact. A skill directory is owned as a path; a harness config file is
- * co-owned and only ambit's keys inside it are ambit's (spec §3.6), so a `.mcp.json` full of
+ * co-owned and only ambit's keys inside it are ambit's, so a `.mcp.json` full of
  * hand-added servers is a normal input and only a *colliding* server name is a conflict.
  */
 import { lstat } from "node:fs/promises";
@@ -26,7 +26,7 @@ import { ownedPaths } from "../model/state.js";
 
 /** How an install was told to treat a target ambit does not own. */
 export interface OwnershipOptions {
-  /** `--adopt`: take ownership of what is already there instead of refusing it (spec §6). */
+  /** `--adopt`: take ownership of what is already there instead of refusing it. */
   readonly adopt?: boolean;
 }
 
@@ -39,7 +39,7 @@ function isMissing(error: unknown): boolean {
  * Whether anything at all sits at `target`.
  *
  * `lstat`, not `stat`: a symlink — even a dangling one — is something ambit did not create and must
- * not silently replace, and a symlink is a shape ambit installs in its own right (spec §5).
+ * not silently replace, and a symlink is a shape ambit installs in its own right.
  *
  * @throws {AmbitError} exit 2 when the path cannot be inspected. "I could not look" is not the same
  *   answer as "nothing is there", and guessing the second would be guessing in the one direction
@@ -58,7 +58,7 @@ async function exists(target: string, file: string): Promise<boolean> {
   }
 }
 
-/** @throws {AmbitError} exit 2, in spec §6's wording for this case. */
+/** @throws {AmbitError} exit 2, in the standard wording for this case. */
 function refusePath(artifact: PlannedSkillDir): never {
   throw configError("refusing to overwrite unowned path", [
     `${artifact.path} exists but ambit did not create it`,
@@ -119,7 +119,7 @@ async function checkConfigKeys(
 /**
  * Checks a whole plan against prior ownership, and returns the ownership `apply` may act with.
  *
- * Call this once, with every adapter's plan, before any adapter runs (spec §5 rule 2): the point is
+ * Call this once, with every adapter's plan, before any adapter runs: the point is
  * that a project with one conflict is left untouched rather than partly written.
  *
  * @param plan every artifact the run intends to write.

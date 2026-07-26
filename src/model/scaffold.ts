@@ -1,9 +1,9 @@
 /**
- * How ambit writes a scaffolded file that is documentation as much as configuration (spec §6).
+ * How ambit writes a scaffolded file that is documentation as much as configuration.
  *
  * A scaffold is not a template. Every value goes through {@link emitYaml}, and the prose around it is
  * added as comments afterwards, so stripping the comment lines from a scaffolded file leaves exactly
- * what ambit would emit from the same values (spec §3.0) — sorted keys, quoting where a string could
+ * what ambit would emit from the same values — sorted keys, quoting where a string could
  * coerce, byte-stable across runs and machines. Templating the same file as text would let it drift
  * into an unsorted key or an unquoted `1e5` that the very parser it is written for rejects, and
  * nothing would notice until someone ran the tool.

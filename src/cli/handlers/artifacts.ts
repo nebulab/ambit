@@ -1,5 +1,5 @@
 /**
- * How the mutating commands render an artifact (spec §6).
+ * How the mutating commands render an artifact.
  *
  * `install`, `prune` and `clean` all report the same two things — artifacts written and artifacts
  * removed — and a reader moving between them should not have to work out whether two tools are
@@ -38,7 +38,7 @@ export function artifactRows(artifacts: readonly OwnedArtifact[]): readonly (rea
  *
  * The third column carries keys rather than a mode, which is the difference between the two
  * directions: what a removal has to say is *how much* of a co-owned file went, since a config file
- * loses keys and stays where it is (spec §3.6), whereas a skill directory goes whole.
+ * loses keys and stays where it is, whereas a skill directory goes whole.
  */
 export function removalRows(artifacts: readonly OwnedArtifact[]): readonly (readonly string[])[] {
   return artifacts.map((artifact) => [

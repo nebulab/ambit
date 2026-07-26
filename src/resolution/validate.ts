@@ -1,5 +1,5 @@
 /**
- * Full-catalog validation (spec §4 "Validation split", §6) — the CI command for a catalog repo.
+ * Full-catalog validation — the CI command for a catalog repo.
  *
  * `resolve` and `install` hard-validate the selected closure only, so one broken skill nobody holds
  * cannot block everyone. That leaves a gap this closes: a dangling `requires`, a cycle, an
@@ -17,7 +17,7 @@
  *
  * Two boundaries are deliberate. A catalog that does not **parse** is still exit 2 at the first
  * error: there is no useful semantic report about a document ambit cannot read. The one exception is
- * the one spec §4 names — a skill whose `name` disagrees with its path — which is collected instead,
+ * a skill whose `name` disagrees with its path — which is collected instead,
  * because the path already answers what the skill is called (see {@link CatalogParseOptions}).
  * Likewise a project whose config collides with a catalog, or whose catalogs describe one scope
  * differently, still fails one problem at a time: both are refusals to build a merged view, and
@@ -58,7 +58,7 @@ import type { SourceContext } from "../model/sources.js";
 /**
  * What kind of problem a report entry is, so `--json` can be filtered without parsing prose.
  *
- * The five spec §4 names, plus the two a project's own config contributes: a held scope no registry
+ * The five a catalog can hold, plus the two a project's own config contributes: a held scope no registry
  * knows, and a `skills` entry nothing provides. Those two are already resolution errors — `validate`
  * is where they are all listed at once instead of one per run.
  */
@@ -74,7 +74,7 @@ export const VALIDATION_PROBLEM_KINDS = [
 
 export type ValidationProblemKind = (typeof VALIDATION_PROBLEM_KINDS)[number];
 
-/** One problem, in the shape spec §6 requires of an error, since that is what it would have been. */
+/** One problem, in the shape required of an error, since that is what it would have been. */
 export interface ValidationProblem {
   readonly kind: ValidationProblemKind;
   /** The summary: the offending identifier, and the file it is written in. */
@@ -120,7 +120,7 @@ function problem(kind: ValidationProblemKind, error: AmbitError): ValidationProb
 }
 
 /**
- * Where an MCP entity is written, as a problem cites it (spec §6).
+ * Where an MCP entity is written, as a problem cites it.
  *
  * Read off the merged view rather than derived from the name: `mcps/<name>.yml` is only the
  * extension ambit *writes*, so a catalog spelling an entity `.yaml` would be reported against a file
@@ -270,7 +270,7 @@ function cycleProblems(merged: MergedCatalog): readonly ValidationProblem[] {
 }
 
 /**
- * The problem for a name more than one catalog provides (spec §4.5).
+ * The problem for a name more than one catalog provides.
  *
  * A problem rather than a note, even though resolution has a well-defined answer for it: in a
  * catalog repo two copies of one name means one of them is unreachable, and unreachable
@@ -336,7 +336,7 @@ export interface ValidateOptions {
   /**
    * The project's config, when validation is running for a project rather than a bare catalog
    * directory. Absent means the catalog is validated on its own terms — a catalog is not a project
-   * and has no `ambit.yml` (spec §6).
+   * and has no `ambit.yml`.
    */
   readonly config?: ProjectConfig;
   /**
@@ -347,7 +347,7 @@ export interface ValidateOptions {
 
 /**
  * Validates a merged catalog. Pure, so every authoring command can check its own result before
- * writing it (spec §6 authoring rule 4) without touching the disk twice.
+ * writing it without touching the disk twice.
  */
 export function validateCatalog(
   merged: MergedCatalog,
@@ -406,13 +406,13 @@ export async function validateProject(context: SourceContext): Promise<Validatio
  * catalog repo runs in CI.
  *
  * Nothing about a project is read: no `ambit.yml`, no other catalog, no cache. A catalog is not a
- * project (spec §6), and a CI job for one has neither.
+ * project, and a CI job for one has neither.
  *
  * @param root the catalog root, absolute. Its basename names the catalog in problems; the name and
  *   the synthesized `source` appear nowhere in the report, which is what keeps the output free of
  *   machine paths.
  * @param overlay files an in-flight edit would write, read instead of what is on disk. This is how an
- *   authoring mutation checks its own result before writing it (spec §6 authoring rule 4).
+ *   authoring mutation checks its own result before writing it.
  * @throws {AmbitError} exit 2 if the directory is not a catalog, or does not parse.
  */
 export async function validateCatalogDirectory(
