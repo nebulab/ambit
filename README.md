@@ -1,6 +1,6 @@
 # ambit
 
-ambit is dependency manager for your AI agent's capabilities: skills, MCP servers, and (soon) hooks.
+ambit is dependency manager for your AI agent's capabilities: skills, MCP servers, and hooks.
 
 All agent harnesses (Claude Code, Codex, Cursor, opencode, etc.) load skills, hooks, and MCP servers.
 ambit makes picking them declarative. A project declares the **scopes** it holds; skills, MCP servers,
@@ -27,13 +27,14 @@ npx @nebulab/ambit --help
 
 ### Authoring a catalog
 
-A catalog is a plain git repo. Scaffold one, register your scopes, then add skills and servers:
+A catalog is a plain git repo. Scaffold one, register your scopes, then add skills, servers and hooks:
 
 ```
 $ ambit catalog init --catalog acme-skills
-created (5)
+created (6)
   .github/workflows/validate.yml
   README.md
+  hooks/.gitkeep
   mcps/.gitkeep
   scopes.yml
   skills/.gitkeep
@@ -123,12 +124,13 @@ artifacts (5)
 
 | Term                | Meaning                                                                                                                                                         |
 | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Catalog**         | A source of skills and MCP definitions: a git repo or a local directory.                                                                                        |
+| **Catalog**         | A source of skills, MCP definitions and hooks: a git repo or a local directory.                                                                                 |
 | **Skill**           | A directory containing `SKILL.md`. Its name is its path under `skills/`, so `skills/close-crm/` is `close-crm`. A nested directory joins its segments with `.`. |
 | **MCP entity**      | A server definition in the catalog's `mcps/` directory.                                                                                                         |
+| **Hook**            | A directory containing `HOOK.yml`, named from its path under `hooks/` the way a skill is. It runs a command on one harness event.                               |
 | **Scope**           | A dotted, nestable label for _who needs a thing_: `function.engineering`, `project.vision-group`, `person.jane-doe`.                                            |
 | **Project**         | A directory containing `ambit.yml`.                                                                                                                             |
-| **Bundle**          | The resolved set of skills and MCP servers for a project.                                                                                                       |
+| **Bundle**          | The resolved set of skills, MCP servers and hooks for a project.                                                                                                |
 | **Harness adapter** | Code that writes a bundle into one agent tool's layout: `claude`, `codex`, `cursor`, `opencode`, `vscode`.                                                      |
 | **Owned artifact**  | A file or directory ambit created, recorded in `.ambit/state.json`. ambit never touches anything else.                                                          |
 
@@ -172,6 +174,13 @@ mcps:
         command: npx
         args: ["-y", "some-server"]
     env: [SOME_TOKEN]
+
+# Ad-hoc hooks not defined in any catalog. Same shape as a catalog hook, minus the
+# shipped script: an inline hook has no directory, so `command` is a command line.
+hooks:
+  - name: session-notes
+    event: SessionStart
+    command: cat NOTES.md
 ```
 
 | Field       | Type                    | Required | Notes                                                                                                                                            |
@@ -182,6 +191,7 @@ mcps:
 | `catalogs`  | list of maps            | no       | `name`, `source`, `ref?`. `name` unique.                                                                                                         |
 | `skills`    | list of strings or maps | no       | String: a name from a catalog. Map: `name`, `source`, `ref?`, `path?`.                                                                           |
 | `mcps`      | list of maps            | no       | Inline server definitions, in the shape below.                                                                                                   |
+| `hooks`     | list of maps            | no       | Inline hook definitions, in the shape below.                                                                                                     |
 
 **Source formats:** `owner/repo`, `owner/repo@ref` (GitHub shorthand), `https://github.com/owner/repo`,
 `git@host:owner/repo.git`, `git:<any-git-url>`, `path:./relative/dir`. A `@ref` shorthand that
@@ -206,7 +216,7 @@ ambit:
 | ---------------- | -------- | -------- | ----------------------------------------------------------------------------------------------- |
 | `ambit`          | map      | no       | Every annotation below. Absent means the skill declares nothing.                                |
 | `ambit.scopes`   | string[] | no       | Absent or empty: never selected by scope, reachable only via `requires` or an explicit listing. |
-| `ambit.requires` | string[] | no       | Skill names, or MCP names prefixed `mcp.`.                                                      |
+| `ambit.requires` | string[] | no       | Skill names, MCP names prefixed `mcp.`, or hook names prefixed `hook.`.                         |
 | `ambit.env`      | string[] | no       | Env vars the skill itself reads (not via an MCP).                                               |
 
 ### `mcps/<name>.yml`: MCP entities
@@ -241,6 +251,55 @@ env: [SENTRY_TOKEN]
 | `transport.http.headers`  | map      | no            | `${VAR}` becomes a reference in each harness's own syntax.          |
 | `env`                     | string[] | no            | Env vars this server needs.                                         |
 
+### `hooks/<name>/HOOK.yml`: hooks
+
+A hook is always a directory, named from its path under `hooks/` the way a skill is. A hook that runs
+a command line holds nothing but its `HOOK.yml`; a hook that ships a script holds that too.
+
+```yaml
+name: block-rm
+description: Refuses a destructive rm before it runs
+scopes: [function.engineering]
+
+event: PreToolUse
+matcher: Bash
+command: guard.sh # a file this directory ships, or a command line
+timeout: 30
+
+env: [SOME_TOKEN]
+```
+
+| Key           | Type     | Required | Notes                                                                                                                                     |
+| ------------- | -------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`        | string   | yes      | Must match the directory path under `hooks/`, same rule as a skill.                                                                       |
+| `description` | string   | no       | Carried into reports.                                                                                                                     |
+| `scopes`      | string[] | no       | Same semantics as skills.                                                                                                                 |
+| `event`       | string   | yes      | One of `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`, `SubagentStop`, `PreCompact`, `SessionEnd`.               |
+| `matcher`     | string   | no       | Tool-name filter. Meaningful only for `PreToolUse` and `PostToolUse`; on any other event it is an error rather than a value quietly lost. |
+| `command`     | string   | yes      | A command line, or a file this directory ships.                                                                                           |
+| `timeout`     | int      | no       | Seconds. Written where the harness has a field for it.                                                                                    |
+| `env`         | string[] | no       | Env vars the hook needs, for `doctor` to check.                                                                                           |
+
+**Whether a hook ships a script is derived, not declared.** A `command` whose first word reads as a
+path — `guard.sh`, `./guard.sh`, `bin/guard.sh` — must name a file the directory holds, or it is an
+error listing what the directory does hold. A bare word (`npx prettier --write`) is a command line.
+A shipped script is materialized to `.agents/hooks/<name>/`, and the command each harness gets points
+at it there.
+
+`${VAR}` in a `command` is left exactly as written, unlike an MCP transport's: the harness spawns a
+shell, so it already means the right thing.
+
+| Harness            | Hooks written to        | Notes                                                                                                                                       |
+| ------------------ | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `claude`, `vscode` | `.claude/settings.json` | VS Code reads Claude's file natively, so it is written once.                                                                                |
+| `cursor`           | `.cursor/hooks.json`    | Its own event spellings, and no field for a `matcher`, so a matcher is dropped.                                                             |
+| `codex`            | `.codex/hooks.json`     | Experimental: Codex runs them only with `[features] codex_hooks = true` in a user's own config, which ambit must not write. `doctor` warns. |
+| `opencode`         | —                       | No declarative hooks. A selected hook is skipped with a warning, and the install succeeds.                                                  |
+
+Every harness's hook root is an array, which has no name to key on, so ambit identifies its own
+entries by a content digest recorded in `.ambit/state.json`. Hooks you wrote by hand in the same file
+are not ambit's and survive `install`, `prune` and `clean` byte-identically.
+
 ### `scopes.yml`: the catalog's scope registry
 
 At the catalog root.
@@ -259,21 +318,23 @@ scopes:
 
 1. **Load and validate config.** Malformed → exit 2 naming the field.
 2. **Fetch catalogs**, each into the local cache, at its `ref`, resolved to a commit SHA.
-3. **Parse each catalog:** `scopes.yml`, every `skills/**/SKILL.md`, every `mcps/*.yml`. A skill whose
-   frontmatter `name` disagrees with its directory path is an error.
+3. **Parse each catalog:** `scopes.yml`, every `skills/**/SKILL.md`, every `mcps/*.yml`, every
+   `hooks/**/HOOK.yml`. A skill or hook whose declared `name` disagrees with its directory path is an
+   error.
 4. **Merge registries** across catalogs. The same scope declared twice with identical descriptions
    merges silently; differing descriptions → exit 3 naming both catalogs.
-5. **Merge catalogs.** On a duplicate skill or MCP name the earlier catalog in config order wins, and
-   the shadowing is recorded so `resolve --explain` and `validate` can report it.
+5. **Merge catalogs.** On a duplicate skill, MCP or hook name the earlier catalog in config order wins,
+   and the shadowing is recorded so `resolve --explain` and `validate` can report it.
 6. **Expand held scopes.** For each held scope `s`, every registered scope equal to `s` or beginning
    with `s + "."`. A held scope absent from the merged registry → exit 3, suggesting the nearest
    registered scope by edit distance.
-7. **Select by scope.** Any skill or MCP with at least one declared scope in the expanded set.
-8. **Add explicit entries** from the config's `skills` and `mcps`.
+7. **Select by scope.** Any skill, MCP or hook with at least one declared scope in the expanded set.
+8. **Add explicit entries** from the config's `skills`, `mcps` and `hooks`.
 9. **Close over `requires`** to a fixpoint. `mcp.`-prefixed targets resolve against MCP entities,
-   everything else against skills. Unresolvable → exit 3 naming the requirer and the missing target. A
-   cycle → exit 3 printing the full cycle path.
-10. **Union `env`** across every selected skill and server.
+   `hook.`-prefixed against hooks, everything else against skills. Servers and hooks are leaves: neither
+   carries `requires`. Unresolvable → exit 3 naming the requirer and the missing target. A cycle → exit 3
+   printing the full cycle path.
+10. **Union `env`** across every selected skill, server and hook.
 11. **Emit the bundle**, sorted by name.
 
 ### Scope inheritance
@@ -339,19 +400,19 @@ refused, with the same message and exit code.
 
 ### Consumer commands
 
-| Command                                               | What it does                                                                                                                                                       |
-| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `ambit init`                                          | Scaffold an `ambit.yml`. Refuses a directory that already has one, `--dry-run` included, and does not create a missing directory.                                  |
-| `ambit scopes`                                        | List the merged registry with descriptions, marking which scopes this project holds.                                                                               |
-| `ambit dump-catalog`                                  | Dump the merged catalog: every catalog the project lists, merged with its own declarations.                                                                        |
-| `ambit resolve [--explain]`                           | Compute the bundle and print it.                                                                                                                                   |
-| `ambit why <name>`                                    | Explain why one item is in the bundle, as a chain. A skill wins a bare name; `mcp.<name>` insists on a server, and a bare name no skill answers falls back to one. |
-| `ambit install [--frozen] [--adopt] [--copy\|--link]` | Resolve, write `ambit.lock`, materialize the bundle, prune what left it.                                                                                           |
-| `ambit status [--check]`                              | Compare what is installed against what resolve produces. `--check` exits 5 on drift.                                                                               |
-| `ambit prune`                                         | Remove owned artifacts not in the current bundle.                                                                                                                  |
-| `ambit clean`                                         | Remove everything ambit owns.                                                                                                                                      |
-| `ambit validate`                                      | Validate everything this project configures, for CI. One catalog on its own is `ambit catalog validate`.                                                           |
-| `ambit doctor`                                        | Check env vars, the lock, ownership, drift, materialization mode, and harness limits.                                                                              |
+| Command                                               | What it does                                                                                                                                                                                                 |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ambit init`                                          | Scaffold an `ambit.yml`. Refuses a directory that already has one, `--dry-run` included, and does not create a missing directory.                                                                            |
+| `ambit scopes`                                        | List the merged registry with descriptions, marking which scopes this project holds.                                                                                                                         |
+| `ambit dump-catalog`                                  | Dump the merged catalog: every catalog the project lists, merged with its own declarations.                                                                                                                  |
+| `ambit resolve [--explain]`                           | Compute the bundle and print it.                                                                                                                                                                             |
+| `ambit why <name>`                                    | Explain why one item is in the bundle, as a chain. A skill wins a bare name; `mcp.<name>` insists on a server and `hook.<name>` on a hook, and a bare name no skill answers falls back to those two in turn. |
+| `ambit install [--frozen] [--adopt] [--copy\|--link]` | Resolve, write `ambit.lock`, materialize the bundle, prune what left it.                                                                                                                                     |
+| `ambit status [--check]`                              | Compare what is installed against what resolve produces. `--check` exits 5 on drift.                                                                                                                         |
+| `ambit prune`                                         | Remove owned artifacts not in the current bundle.                                                                                                                                                            |
+| `ambit clean`                                         | Remove everything ambit owns.                                                                                                                                                                                |
+| `ambit validate`                                      | Validate everything this project configures, for CI. One catalog on its own is `ambit catalog validate`.                                                                                                     |
+| `ambit doctor`                                        | Check env vars, the lock, ownership, drift, materialization mode, and harness limits.                                                                                                                        |
 
 ### Authoring commands
 
@@ -373,6 +434,10 @@ ambit catalog skill mv <old> <new>
 ambit catalog mcp new <name> (--stdio <command> [--arg <a>…] | --http <url> [--header <k=v>…])
                              [--env <v>…]
 ambit catalog mcp rm <name>
+
+ambit catalog hook new <name> --event <event> --command <cmd> [--matcher <tool>]
+                              [--description <text>] [--timeout <seconds>] [--env <v>…]
+ambit catalog hook rm <name>
 
 ambit catalog annotate <name> [--add-scope <s>…]     [--remove-scope <s>…]
                               [--add-requires <r>…]  [--remove-requires <r>…]

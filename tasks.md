@@ -375,7 +375,7 @@ additive and that no hook leaks into `catalog.skills`.
 
 ## 16. README
 
-- [ ] Document hooks.
+- [x] Document hooks.
 
 **Do** — the concepts table, the `HOOK.yml` file format, the resolution steps, the CLI reference. Drop
 `(soon)` from `README.md:3`. House style: the README was tightened deliberately in recent commits —
