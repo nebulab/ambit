@@ -120,6 +120,29 @@ const CORE_SKILL = "company-context";
  */
 const HELD_SCOPES = ["core", "function.engineering", "project.acme"];
 
+/**
+ * The hooks the project declares inline, and the one `why` is asked about below.
+ *
+ * Inline in `ambit.yml` rather than in the fixture catalog, because a hook needs no catalog to reach a
+ * bundle and every surface in the table reads the project. Three of them, arranged so both orderings a
+ * hook config file has are non-trivial: two share an event, so an array's own order has to come from
+ * the bundle, and the event keys are written in an order that is not the order the names sort in.
+ */
+const INLINE_HOOKS: readonly string[] = [
+  "  - name: guard",
+  "    event: PreToolUse",
+  "    matcher: Bash",
+  "    command: ./bin/guard",
+  "  - name: trace",
+  "    event: PreToolUse",
+  "    command: ./bin/trace",
+  "  - name: notify",
+  "    event: Stop",
+  "    command: ./bin/notify",
+];
+
+const INLINE_HOOK = "guard";
+
 /** The fixture's two credentials, stubbed so no surface depends on the developer's environment. */
 const ENV_STUBS: Readonly<Record<string, string>> = {
   SCOPED_API_KEY: "determinism-scoped-key",
@@ -154,6 +177,7 @@ const SURFACES: readonly Surface[] = [
   { argv: ["why", CORE_SKILL], dir: "project" },
   { argv: ["why", CORE_SKILL, "--json"], dir: "project" },
   { argv: ["why", "mcp.fixture"], dir: "project" },
+  { argv: ["why", `hook.${INLINE_HOOK}`], dir: "project" },
   { argv: ["status"], dir: "project" },
   { argv: ["status", "--json"], dir: "project" },
   { argv: ["validate"], dir: "project" },
@@ -198,6 +222,8 @@ catalogs:
     source: path:../catalog
 scopes:
 ${HELD_SCOPES.map((scope) => `  - ${scope}`).join("\n")}
+hooks:
+${INLINE_HOOKS.join("\n")}
 `,
     "utf8",
   );

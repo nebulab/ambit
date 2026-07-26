@@ -247,7 +247,7 @@ between `catalogs:` and `mcps: {}` in the empty-lock literal.
 
 ## 12. `status`
 
-- [ ] Hook rows, and the command surface pin.
+- [x] Hook rows, and the command surface pin.
 
 **Do** — hook rows in `status`; `configVerdict` (`status.ts:312`) reporting `missing`/`modified` for a
 hand-edited ambit entry whose digest no longer matches, and the next install pruning the stale digest
@@ -255,6 +255,17 @@ and writing the current one (§5).
 
 **Done when** — a test for the hand-edit → `modified` → install-heals cycle, and the `SURFACES` rows in
 `test/determinism.test.ts:145`.
+
+> found (task 12): both §5 behaviours already hold, so this task added tests and no logic. The verdict
+> is `missing`, never `modified`: in an array section the digest _is_ the key, so an edited entry is an
+> absent key rather than a changed value, and `entryMatches` cannot disagree with `sectionKeys`. Which
+> side was edited decides what install leaves behind. A hand-edited **declaration** is the clean case —
+> the recorded digest is one the plan no longer writes, so install prunes it and writes the current one:
+> one entry, no duplicate. A hand-edited **file** entry cannot be reclaimed: its new digest is one ambit
+> never planned, which is indistinguishable from a hook the person wrote, so install restores its own
+> entry beside it and the event array holds two. That is §5's second bullet, not a gap — and `status`
+> reporting exit 5 first is what the third bullet buys. Hook rows in `status` needed nothing: task 4's
+> `harness-config` rows and task 9's `hook-dir` branch already cover them.
 
 ## 13. `doctor`, `audit`, `tree`
 

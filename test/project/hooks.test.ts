@@ -405,6 +405,128 @@ describe("a hand-written entry identical to one ambit would install", () => {
 });
 
 /**
+ * A digest that stops matching what state recorded — from each of the two sides it can stop from.
+ *
+ * The digest is the identity, so "this entry changed" is not a thing the driver can say: a changed
+ * entry is a key that is absent and a different key that is present. That is what makes `status` the
+ * load-bearing half of the story. Without a row saying so, an install would put ambit's entry back
+ * beside the one that no longer matches and the file would quietly grow a second hook on the event.
+ *
+ * Both sides are here because the residue differs. Edit the *file* and ambit cannot tell its own
+ * former entry from a hook the person wrote — so it restores its own and leaves theirs, which is the
+ * ownership rule rather than an exception to it. Edit the *declaration* and the stale digest is one
+ * state claims, so the next install takes it out and writes the current one: one entry, not two.
+ */
+describe("an entry whose digest no longer matches what state recorded", () => {
+  /** The same hook with its timeout raised — what a person editing `ambit.yml` would leave. */
+  const RETIMED_HOOK = [
+    "- name: format",
+    "  event: PostToolUse",
+    "  matcher: Write",
+    "  command: npx prettier --write",
+    "  timeout: 45",
+  ];
+  const RETIMED_ENTRY = {
+    matcher: "Write",
+    hooks: [{ type: "command", command: "npx prettier --write", timeout: 45 }],
+  };
+  const RETIMED_KEY = managedKey("hooks", arrayEntryKey("PostToolUse", RETIMED_ENTRY));
+
+  /** ambit's own entry, edited in place in the file rather than in the declaration. */
+  const EDITED_ENTRY = {
+    matcher: "Write",
+    hooks: [{ type: "command", command: "npx prettier --write", timeout: 60 }],
+  };
+
+  /** Rewrites the installed entry's timeout, the way someone tweaking the file by hand would. */
+  async function editInstalledEntry(): Promise<void> {
+    const text = await settingsText();
+    expect(text).toContain('"timeout": 30');
+    await writeFile(
+      path.join(projectDir, SETTINGS),
+      text.replace('"timeout": 30', '"timeout": 60'),
+      "utf8",
+    );
+  }
+
+  /** Every artifact row `status --json` reported. */
+  async function statusRows(): Promise<readonly Readonly<Record<string, unknown>>[]> {
+    const result = await cli("status", "--json");
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+    return (
+      JSON.parse(result.stdout) as { artifacts: readonly Readonly<Record<string, unknown>>[] }
+    ).artifacts;
+  }
+
+  beforeEach(async () => {
+    await writeProfile(FORMAT_HOOK);
+    expect((await cli("install")).code).toBe(ExitCode.Success);
+  });
+
+  it("reports the hand-edited entry as drift, naming the digest state claims", async () => {
+    await editInstalledEntry();
+
+    expect(await statusRows()).toEqual([
+      {
+        detail: `"${FORMAT_KEY}" is absent`,
+        kind: "harness-config",
+        path: SETTINGS,
+        state: "missing",
+      },
+    ]);
+    // Exit 5, so a CI job finds out before the install that heals it.
+    expect((await cli("status", "--check")).code).toBe(ExitCode.Drift);
+  });
+
+  it("puts its own entry back on the next install, and leaves the edit as the person's", async () => {
+    await editInstalledEntry();
+
+    expect((await cli("install")).code).toBe(ExitCode.Success);
+
+    // Two entries, and neither is a duplicate of the other: the edited one has a digest ambit never
+    // plans, which is indistinguishable from a hook the person wrote themselves — so it stays, exactly
+    // as the foreign entries above do. Ambit's own is written once, at the end of the array.
+    expect(await settings()).toEqual({ hooks: { PostToolUse: [EDITED_ENTRY, FORMAT_ENTRY] } });
+    expect((await stateArtifacts())[0]?.managedKeys).toEqual([FORMAT_KEY]);
+
+    // And that is a settled state rather than a file that grows: the row is `ok` again, and a further
+    // install appends nothing.
+    const healed = await settingsText();
+    expect((await cli("status", "--check")).code).toBe(ExitCode.Success);
+    expect((await cli("install")).code).toBe(ExitCode.Success);
+    expect(await settingsText()).toBe(healed);
+  });
+
+  it("reports the digest a changed declaration now wants as missing", async () => {
+    await writeProfile(RETIMED_HOOK);
+
+    // The new digest, not the old one: the row is a function of the bundle, so it names the entry
+    // install would write rather than the one that happens to be in the file.
+    expect(await statusRows()).toEqual([
+      {
+        detail: `"${RETIMED_KEY}" is absent`,
+        kind: "harness-config",
+        path: SETTINGS,
+        state: "missing",
+      },
+    ]);
+    expect((await cli("status", "--check")).code).toBe(ExitCode.Drift);
+  });
+
+  it("prunes the stale digest and writes the current one, leaving no duplicate", async () => {
+    await writeProfile(RETIMED_HOOK);
+
+    expect((await cli("install")).code).toBe(ExitCode.Success);
+
+    // One entry. The old digest is one state claimed and the plan no longer writes, so pruning takes
+    // it out of the array — the same rule that retires a withdrawn hook, applied to a redeclared one.
+    expect(await settings()).toEqual({ hooks: { PostToolUse: [RETIMED_ENTRY] } });
+    expect((await stateArtifacts())[0]?.managedKeys).toEqual([RETIMED_KEY]);
+    expect((await cli("status", "--check")).code).toBe(ExitCode.Success);
+  });
+});
+
+/**
  * Cursor, which is where the neutral vocabulary earns itself.
  *
  * A second harness that differs in every respect one can: its own file, its own spelling of every

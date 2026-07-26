@@ -310,6 +310,14 @@ async function catalogDirVerdict(
  * putting it to the code that would do the writing is both cheaper and harder to get wrong than a
  * second, parallel notion of equality.
  *
+ * In an array section the digest *is* the key, so the two verdicts divide differently there than they
+ * do for a server: a hook entry someone edited is not a changed value but an absent key, and the row
+ * reads `missing`. Which is the whole reason this comparison matters for hooks — an install would
+ * append ambit's entry beside the edited one, so a person needs the row before the run rather than a
+ * second hook on the event afterwards. A *declaration* someone edited reads the same way, and there
+ * the digest state claims is one the plan no longer writes, so the next install prunes it and writes
+ * the current one.
+ *
  * @param stale the keys prior state claims here that the plan no longer writes, sorted.
  * @throws {AmbitError} exit 2 if the file exists but cannot be parsed.
  */
