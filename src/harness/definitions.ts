@@ -8,8 +8,13 @@
  * Two families, on the skills side. Claude Code and Cursor read `.claude/skills`, so they get a link
  * to the shared directory. Codex, VS Code and opencode read `.agents/skills` natively and need nothing.
  * Both Claude and Cursor name the same link, so a project using both plans it once.
+ *
+ * Two families on the hooks side as well, and along a different seam: VS Code reads Claude's own
+ * `.claude/settings.json`, so the two share a file and a renderer where they share nothing on the MCP
+ * side. A project configuring both writes that file once, exactly as one configuring Claude and Cursor
+ * plans one skills link.
  */
-import type { HarnessProfile } from "./profile.js";
+import type { HarnessProfile, HookLayout } from "./profile.js";
 import type { EnvRefStyle } from "./env.js";
 import {
   bracedRef,
@@ -20,9 +25,51 @@ import {
   translateRefs,
 } from "./env.js";
 import type { MergedMcp } from "../model/catalog.js";
+import type { HookEntity } from "../model/hook-entity.js";
 
 /** Where Claude Code and Cursor look for skills. */
 const CLAUDE_SKILLS_LINK = ".claude/skills";
+
+/**
+ * Where Claude Code keeps its hooks — and VS Code with it, which reads this file natively.
+ *
+ * The file is a person's before it is ambit's: their `model`, their `permissions`, and hooks they wrote
+ * themselves live in it. Which is why the section is `array`-shaped rather than `map`-shaped — ambit
+ * owns entries inside `hooks.<Event>` by digest, not the `hooks` root.
+ */
+const CLAUDE_HOOKS: HookLayout = {
+  file: ".claude/settings.json",
+  section: "hooks",
+  format: "json",
+  shape: "array",
+};
+
+/**
+ * One hook, Claude-shaped: an entry in `hooks.<Event>` pairing an optional tool `matcher` with the
+ * commands to run.
+ *
+ * The nesting is the harness's rather than ambit's, and one entry carries one command because one
+ * declaration is one hook — grouping several under one entry would make a digest name a set whose
+ * membership changes as other hooks come and go.
+ *
+ * VS Code reads exactly this and ignores `matcher`, so it needs no rendering of its own. A second
+ * spelling would put two entries in one array for one declared hook, which is the opposite of sharing
+ * the file.
+ *
+ * Key order here is the digest's input, so it is fixed in this one place and read off nowhere else.
+ */
+function claudeHook(hook: HookEntity): unknown {
+  return {
+    ...(hook.matcher !== undefined && { matcher: hook.matcher }),
+    hooks: [
+      {
+        type: "command",
+        command: hook.command,
+        ...(hook.timeout !== undefined && { timeout: hook.timeout }),
+      },
+    ],
+  };
+}
 
 /**
  * The remote half of a server: its url, with references translated.
@@ -94,6 +141,8 @@ export const claude: HarnessProfile = {
       ...(headers !== undefined && { headers }),
     };
   },
+  hooks: CLAUDE_HOOKS,
+  hookConfig: claudeHook,
 };
 
 /** Cursor. Infers the transport from the presence of `url`, so it wants no `type`. */
@@ -116,6 +165,9 @@ export const cursor: HarnessProfile = {
  * `${env:VAR}` throughout, including in a stdio server's `env`. VS Code also has `${input:VAR}`, which
  * prompts the user — but only when the file declares a matching entry in its own `inputs` array, which
  * ambit does not write. Emitting one without the other would reference a prompt that does not exist.
+ *
+ * Its hooks are Claude's outright: it reads `.claude/settings.json` natively, so the profile names
+ * Claude's layout and Claude's renderer rather than any of its own.
  */
 export const vscode: HarnessProfile = {
   name: "vscode",
@@ -132,6 +184,8 @@ export const vscode: HarnessProfile = {
       ...(headers !== undefined && { headers }),
     };
   },
+  hooks: CLAUDE_HOOKS,
+  hookConfig: claudeHook,
 };
 
 /**

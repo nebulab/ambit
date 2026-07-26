@@ -189,7 +189,7 @@ export type {
 } from "./harness/adapter.js";
 export { claude, codex, cursor, opencode, PROFILES, vscode } from "./harness/definitions.js";
 export { adapterFor, SHARED_AGENTS_DIR, SHARED_SKILLS_DIR } from "./harness/profile.js";
-export type { HarnessProfile, McpLayout } from "./harness/profile.js";
+export type { HarnessProfile, HookLayout, McpLayout } from "./harness/profile.js";
 export {
   bracedRef,
   envPassthrough,

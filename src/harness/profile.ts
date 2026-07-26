@@ -2,10 +2,11 @@
  * A harness, described declaratively — and the one adapter that serves all of them.
  *
  * Everything about installing a bundle is the same for every agent tool: skills are directories that
- * are copied or symlinked, servers are keys merged into a config file ambit co-owns, and both are
- * planned before either is written. Only four things actually differ, and they are exactly the four
- * fields of a profile: whether the harness needs a link to the skills directory, which file its
- * servers live in, which section of it, and what one server looks like there.
+ * are copied or symlinked, servers and hooks are entries merged into a config file ambit co-owns, and
+ * all of them are planned before any is written. Only a handful of things actually differ, and they
+ * are exactly the fields of a profile: whether the harness needs a link to the skills directory,
+ * which files its servers and its hooks live in, which section of each, and what one server and one
+ * hook look like there.
  *
  * So there is one implementation and five descriptions, rather than five implementations. A new
  * harness is a profile; if adding one required editing this file, the seam would be in the wrong place.
@@ -22,10 +23,21 @@ import type {
   PlannedSkillsLink,
   ProjectPaths,
 } from "./adapter.js";
-import type { ConfigEntry, DocumentFormat } from "../model/documents/index.js";
-import { driverFor, managedKey, readDocumentText } from "../model/documents/index.js";
+import type {
+  ConfigEntry,
+  DocumentFormat,
+  DocumentShape,
+  JsonObject,
+} from "../model/documents/index.js";
+import {
+  arrayEntryKey,
+  driverFor,
+  managedKey,
+  readDocumentText,
+} from "../model/documents/index.js";
 import { configError } from "../errors.js";
 import type { MergedMcp, MergedSkill } from "../model/catalog.js";
+import type { HookEntity } from "../model/hook-entity.js";
 import type { Bundle } from "../resolution/resolve.js";
 import type { ArtifactMode, State } from "../model/state.js";
 import { ownedPaths } from "../model/state.js";
@@ -58,6 +70,33 @@ export interface McpLayout {
   readonly format: DocumentFormat;
 }
 
+/**
+ * Where a harness reads its hooks from.
+ *
+ * Two fields wider than {@link McpLayout}, because a hooks section is not a table keyed by name.
+ * `shape` picks the driver, which the format cannot do on its own — `.mcp.json` and
+ * `.claude/settings.json` are both JSON — and `rootDefaults` names the keys a harness expects beside
+ * its hooks in a file ambit may be the one to create.
+ */
+export interface HookLayout {
+  /** Project-relative path to the config file. */
+  readonly file: string;
+  /** The top-level key holding one array per event. */
+  readonly section: string;
+  /** How that file is parsed and written. */
+  readonly format: DocumentFormat;
+  /** How that section is laid out: `array` for every harness that expresses hooks at all. */
+  readonly shape: DocumentShape;
+  /**
+   * Root keys the file should carry beside its hooks — Cursor's `version: 1`.
+   *
+   * `arraySectionDriver` seeds them only where the document lacks the key, so ambit adds one creating
+   * the file and never overwrites a value someone else wrote. No harness ambit currently writes hooks
+   * for declares any, which is why nothing between here and the driver carries them yet.
+   */
+  readonly rootDefaults?: JsonObject;
+}
+
 /** One agent tool's layout. */
 export interface HarnessProfile {
   /** The name `ambit.yml`'s `harnesses` uses. */
@@ -77,6 +116,23 @@ export interface HarnessProfile {
    * environment variable.
    */
   serverConfig(mcp: MergedMcp): unknown;
+  /**
+   * Where this harness's hooks live, or absent for one with no declarative hook mechanism.
+   *
+   * Declared together with {@link HarnessProfile.hookConfig}: the layout says which file and section,
+   * the renderer says what one hook looks like inside it, and neither is usable without the other, so
+   * a profile carries both or neither.
+   */
+  readonly hooks?: HookLayout;
+  /**
+   * One hook, in this harness's own shape — the exact counterpart of
+   * {@link HarnessProfile.serverConfig}.
+   *
+   * The one place a neutral `PreToolUse` becomes whatever this harness spells it, and the one place
+   * that decides what a `matcher` or a `timeout` turns into. `project` is what a hook shipping its own
+   * script needs to write a path the harness can resolve.
+   */
+  hookConfig?(hook: HookEntity, project: ProjectPaths): unknown;
 }
 
 function compare(a: string, b: string): number {
@@ -157,6 +213,44 @@ function planMcpConfig(
     format: profile.mcp.format,
     entries,
     managedKeys: entries.map((entry) => managedKey(profile.mcp.section, entry.key)),
+  };
+}
+
+/**
+ * The hooks config artifact, or nothing.
+ *
+ * Nothing for a harness with no hook mechanism, and nothing for a bundle that selected no hooks — the
+ * argument {@link planMcpConfig} makes: a project that declares no hooks should not acquire a settings
+ * file it never asked for.
+ *
+ * The key is the entry's own content digest, because an event's array carries no name to key on. So
+ * the value is rendered once and both the key and the entry are read off that one rendering: a digest
+ * of anything other than the bytes being written would name an entry nothing can find again.
+ */
+function planHookConfig(
+  profile: HarnessProfile,
+  hooks: readonly HookEntity[],
+  project: ProjectPaths,
+): PlannedHarnessConfig | undefined {
+  const layout = profile.hooks;
+  const render = profile.hookConfig;
+  if (layout === undefined || render === undefined || hooks.length === 0) return undefined;
+
+  // `hooks` arrives sorted by name, so the entries — and the managed keys state records — are too.
+  const entries: readonly ConfigEntry[] = hooks.map((hook) => {
+    const value = render(hook, project);
+    return { key: arrayEntryKey(hook.event, value), value };
+  });
+
+  return {
+    kind: "harness-config",
+    path: layout.file,
+    target: path.join(project.root, layout.file),
+    section: layout.section,
+    format: layout.format,
+    shape: layout.shape,
+    entries,
+    managedKeys: entries.map((entry) => managedKey(layout.section, entry.key)),
   };
 }
 
@@ -272,14 +366,16 @@ export function adapterFor(profile: HarnessProfile): HarnessAdapter {
   return {
     name: profile.name,
 
-    /** `bundle.skills` and `bundle.mcps` are already sorted by name, so the plan is too. */
+    /** Every list on the bundle is already sorted by name, so the plan is too. */
     plan: (bundle: Bundle, project: ProjectPaths): readonly PlannedArtifact[] => {
       const skillsLink = planSkillsLink(profile, bundle.skills, project);
       const mcpConfig = planMcpConfig(profile, bundle.mcps, project);
+      const hookConfig = planHookConfig(profile, bundle.hooks, project);
       return [
         ...bundle.skills.map((skill) => planSkill(skill, project)),
         ...(skillsLink === undefined ? [] : [skillsLink]),
         ...(mcpConfig === undefined ? [] : [mcpConfig]),
+        ...(hookConfig === undefined ? [] : [hookConfig]),
       ];
     },
 

@@ -20,9 +20,11 @@ import {
   PROFILES,
   vscode,
 } from "../../src/harness/definitions.js";
+import type { ProjectPaths } from "../../src/harness/adapter.js";
 import type { HarnessProfile } from "../../src/harness/profile.js";
 import { SHARED_SKILLS_DIR } from "../../src/harness/profile.js";
 import type { MergedMcp } from "../../src/model/catalog.js";
+import type { HookEntity } from "../../src/model/hook-entity.js";
 
 /** Where Claude Code and Cursor read skills, and so the one link ambit plans. */
 const CLAUDE_SKILLS_LINK = ".claude/skills";
@@ -298,5 +300,99 @@ describe("a credential in a stdio server's arguments", () => {
     expect(argsFor(cursor).at(-1)).toBe("Authorization: Bearer ${TOKEN}");
     expect(argsFor(opencode).at(-1)).toBe("Authorization: Bearer ${TOKEN}");
     expect(argsFor(vscode).at(-1)).toBe("Authorization: Bearer ${env:TOKEN}");
+  });
+});
+
+/**
+ * The hook each profile emits.
+ *
+ * Two harnesses express hooks in this build, and they express them in the *same file* — so the claims
+ * are the entry's exact shape, its key order, and that the two render one entry rather than two. Key
+ * order is load-bearing here in a way it is not for a server: the managed key is a digest of these
+ * bytes, so reordering them renames every hook every project owns.
+ */
+describe("the hook each profile emits", () => {
+  const PROJECT: ProjectPaths = { root: "/tmp/ambit-project" };
+
+  /** A hook carrying both optional fields, which is where the shape has anything to say. */
+  const HOOK: HookEntity = {
+    name: "block-rm",
+    scopes: [],
+    env: [],
+    event: "PreToolUse",
+    matcher: "Bash",
+    command: "./bin/block-rm",
+    timeout: 30,
+  };
+
+  /** A hook carrying neither, on the event a `matcher` is not even allowed on. */
+  const BARE: HookEntity = {
+    name: "greet",
+    scopes: [],
+    env: [],
+    event: "SessionStart",
+    command: "./bin/greet",
+  };
+
+  it("gives Claude and VS Code one shared file, and the other three no hooks at all", () => {
+    const layout = {
+      file: ".claude/settings.json",
+      section: "hooks",
+      format: "json",
+      shape: "array",
+    };
+
+    expect(claude.hooks).toEqual(layout);
+    // The same file, so a project configuring both writes it once.
+    expect(vscode.hooks).toEqual(layout);
+    expect(codex.hooks).toBeUndefined();
+    expect(cursor.hooks).toBeUndefined();
+    expect(opencode.hooks).toBeUndefined();
+  });
+
+  it("pairs a layout with a renderer, so a profile carries both or neither", () => {
+    for (const profile of PROFILES) {
+      expect(profile.hookConfig === undefined, profile.name).toBe(profile.hooks === undefined);
+    }
+  });
+
+  it("writes the entry Claude Code's own documentation describes, in that key order", () => {
+    const emitted = claude.hookConfig?.(HOOK, PROJECT);
+
+    expect(emitted).toEqual({
+      matcher: "Bash",
+      hooks: [{ type: "command", command: "./bin/block-rm", timeout: 30 }],
+    });
+    expect(Object.keys(emitted as object)).toEqual(["matcher", "hooks"]);
+    const [command] = (emitted as { hooks: readonly object[] }).hooks;
+    expect(Object.keys(command as object)).toEqual(["type", "command", "timeout"]);
+  });
+
+  it("omits a `matcher` and a `timeout` the hook does not declare", () => {
+    expect(claude.hookConfig?.(BARE, PROJECT)).toEqual({
+      hooks: [{ type: "command", command: "./bin/greet" }],
+    });
+  });
+
+  it("renders one entry for both harnesses, which is what lets them share the file", () => {
+    // Byte equality, not structural: the digest that identifies the entry is taken over exactly these
+    // bytes, so two renderings that differ only in key order would be two entries in one array.
+    expect(JSON.stringify(vscode.hookConfig?.(HOOK, PROJECT))).toBe(
+      JSON.stringify(claude.hookConfig?.(HOOK, PROJECT)),
+    );
+  });
+
+  it("resolves no variable in a command, and rewrites no reference either", () => {
+    process.env.TOKEN = "s3cret";
+    try {
+      const emitted = claude.hookConfig?.({ ...BARE, command: "./bin/greet ${TOKEN}" }, PROJECT);
+
+      // Unlike an MCP transport: a hook's command is run by a shell the harness spawns, so `${TOKEN}`
+      // already means the right thing and translating it would be rewriting a shell fragment.
+      expect(JSON.stringify(emitted)).toContain("${TOKEN}");
+      expect(JSON.stringify(emitted)).not.toContain("s3cret");
+    } finally {
+      delete process.env.TOKEN;
+    }
   });
 });

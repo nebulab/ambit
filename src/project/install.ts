@@ -164,7 +164,26 @@ export function adaptersFor(harnesses: readonly string[]): readonly HarnessAdapt
 }
 
 /**
- * Every adapter's plan, with each path-owned artifact planned exactly once.
+ * What makes two planned artifacts the same artifact.
+ *
+ * A path, for anything owned as a path. For a config file the path is not enough, because ambit owns
+ * *keys* there rather than the file: two harnesses writing different entries into one document both
+ * have to write, so identity is the whole write — the section, the driver it goes through, and the
+ * entries themselves.
+ */
+function identityOf(artifact: PlannedArtifact): string {
+  if (artifact.kind !== "harness-config") return artifact.path;
+  return JSON.stringify([
+    artifact.path,
+    artifact.section,
+    artifact.format,
+    artifact.shape,
+    artifact.entries,
+  ]);
+}
+
+/**
+ * Every adapter's plan, with each artifact planned exactly once.
  *
  * The skills directory is shared, so *every* harness plans the same `.agents/skills/<name>` targets,
  * and two harnesses of one family plan the same skills link. Those are not two artifacts that happen
@@ -172,9 +191,11 @@ export function adaptersFor(harnesses: readonly string[]): readonly HarnessAdapt
  * rest defer. Without this the second adapter's `apply` finds a symlink the first just created and
  * refuses, state records the same path twice, and `install` prints it twice.
  *
- * Config entries are never deduplicated: ambit owns *keys* in those files rather than the files, so two
- * harnesses writing into one file both write, and dropping the second's entries would quietly install
- * less than the project asked for.
+ * A config file two harnesses write the *same* entries into goes the same way, and for the same
+ * reason: Claude and VS Code read one `.claude/settings.json`, so a project configuring both writes it
+ * once. Anything else about a config artifact differing — a different section, a different rendering
+ * of the same hook — makes it a second write rather than a duplicate, because dropping it would
+ * quietly install less than the project asked for.
  *
  * @param adapters the harnesses to plan for, in the order they were configured — which is the order
  *   that decides who plans a shared target, and is sorted, so it does not depend on `ambit.yml`'s
@@ -189,9 +210,9 @@ export function planFor(
   return adapters.map((adapter) => ({
     adapter,
     plan: adapter.plan(bundle, project).filter((artifact) => {
-      if (artifact.kind === "harness-config") return true;
-      if (claimed.has(artifact.path)) return false;
-      claimed.add(artifact.path);
+      const identity = identityOf(artifact);
+      if (claimed.has(identity)) return false;
+      claimed.add(identity);
       return true;
     }),
   }));

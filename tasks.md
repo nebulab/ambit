@@ -92,7 +92,7 @@ second merge of the same entries is a no-op; `removeKeys` with nothing to remove
 
 ## 4. `claude` + `vscode` end to end
 
-- [ ] Install, status, prune and clean an inline hook.
+- [x] Install, status, prune and clean an inline hook.
 
 **Slice** — the walking skeleton closes. An inline hook declared in `ambit.yml` lands in
 `.claude/settings.json`, and the issue's headline promise is demonstrable. One file serves both

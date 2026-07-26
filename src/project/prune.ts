@@ -35,7 +35,7 @@ import path from "node:path";
 import type { PlannedArtifact } from "../harness/adapter.js";
 import { configError } from "../errors.js";
 import { driverFor, readDocumentText } from "../model/documents/index.js";
-import type { DocumentFormat } from "../model/documents/index.js";
+import type { DocumentFormat, DocumentShape } from "../model/documents/index.js";
 import type { ArtifactKind, OwnedArtifact, State } from "../model/state.js";
 import { STATE_DIRNAME, STATE_FILENAME } from "../model/state.js";
 
@@ -56,6 +56,14 @@ export interface PrunedArtifact {
    * re-derived from a project that may no longer resolve.
    */
   readonly format?: DocumentFormat;
+  /**
+   * For `harness-config`: how the managed section is laid out, carried over from the state entry.
+   *
+   * Travels for the same reason `format` does, and it is not implied by it: a `.claude/settings.json`
+   * and a `.mcp.json` are both JSON, and reading the first with the map driver would look for a
+   * `<Event>@<digest>` key among the event names, find none, and prune nothing at all.
+   */
+  readonly shape?: DocumentShape;
 }
 
 function compare(a: string, b: string): number {
@@ -146,6 +154,7 @@ export function planPrune(
         kind: artifact.kind,
         managedKeys: keys,
         ...(artifact.format !== undefined && { format: artifact.format }),
+        ...(artifact.shape !== undefined && { shape: artifact.shape }),
       });
       continue;
     }
@@ -200,6 +209,8 @@ export function remainingArtifacts(
  * @param format how the file is written, as prior state recorded it. Pruning runs from state alone, so
  *   the format has to come from there too — re-resolving the project to find out which harness wanted
  *   the file is exactly what `prune` and `clean` are built not to need.
+ * @param shape how the managed section is laid out, from state for the same reason. Absent reads as
+ *   `map`, which is what every artifact written before the field existed was.
  * @throws {AmbitError} exit 2 if the file exists but cannot be parsed, or for a managed key that names
  *   no section.
  */
@@ -208,9 +219,10 @@ async function pruneConfigKeys(
   file: string,
   stale: readonly string[],
   format: DocumentFormat,
+  shape: DocumentShape | undefined,
 ): Promise<PrunedArtifact | undefined> {
   const target = path.join(projectDir, file);
-  const driver = driverFor(format);
+  const driver = driverFor(format, shape);
   let text = await readDocumentText(target, file);
   const removed: string[] = [];
 
@@ -287,6 +299,7 @@ export async function pruneArtifacts(
         artifact.path,
         artifact.managedKeys ?? [],
         artifact.format ?? "json",
+        artifact.shape,
       );
       if (removed !== undefined) pruned.push(removed);
       continue;
