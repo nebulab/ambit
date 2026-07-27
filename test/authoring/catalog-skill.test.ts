@@ -210,7 +210,7 @@ describe("ambit catalog skill new", () => {
       "--scope",
       "core",
       "--requires",
-      CORE,
+      `skill:${CORE}`,
       "--env",
       "NOTES_TOKEN",
     );
@@ -221,7 +221,7 @@ describe("ambit catalog skill new", () => {
     const { frontmatter, body } = halves(await read(JANE_FILE));
     expect(frontmatter).toBe(
       emitYaml({
-        ambit: { env: ["NOTES_TOKEN"], requires: [CORE], scopes: ["core"] },
+        ambit: { env: ["NOTES_TOKEN"], requires: [{ skill: CORE }], scopes: ["core"] },
         description: JANE_DESCRIPTION,
         name: JANE,
       }),
@@ -403,7 +403,7 @@ describe("ambit catalog skill rm", () => {
     // The next step names the command that clears a `requires` entry, not the hand-edit that
     // predated it.
     expect(result.stderr).toContain(
-      `clear it from each with \`ambit catalog annotate <skill> --remove-requires ${CORE}\``,
+      `clear it from each with \`ambit catalog annotate skill:<skill> --remove-requires skill:${CORE}\``,
     );
   });
 
@@ -511,12 +511,15 @@ describe("ambit catalog skill mv", () => {
     const provided = new Set(skills.map((candidate) => candidate.name));
     for (const candidate of skills) {
       for (const requirement of candidate.requires) {
-        // A prefixed requirement names another namespace, which a skill rename cannot break.
-        if (requirement.startsWith("mcp.") || requirement.startsWith("hook.")) continue;
-        expect(provided.has(requirement), `${candidate.name} requires ${requirement}`).toBe(true);
+        // An entry in another namespace is untouched by a skill rename, and says so itself.
+        if (requirement.kind !== "skill") continue;
+        expect(
+          provided.has(requirement.name),
+          `${candidate.name} requires ${requirement.name}`,
+        ).toBe(true);
       }
     }
-    expect(await read(BRIEF_FILE)).toContain(`  - ${RENAMED_CORE}\n`);
+    expect(await read(BRIEF_FILE)).toContain(`  - skill: ${RENAMED_CORE}\n`);
   });
 
   it("prunes the namespace it emptied, and creates the one it needs", async () => {

@@ -44,7 +44,7 @@ import { ExitCode, at, configError } from "../../errors.js";
 import type { HookEvent } from "../../model/hook-entity.js";
 import { HOOK_EVENTS } from "../../model/hook-entity.js";
 import { printSections, section } from "../output.js";
-import { requirementFor } from "../../resolution/resolve.js";
+import { formatRequirement } from "../../model/requirement.js";
 
 /** The first section's title: past tense for a run that happened, conditional for a preview. */
 interface Heading {
@@ -280,8 +280,8 @@ function report(ctx: CommandContext, subject: Subject, result: HookEdit): ExitCo
  * requirement, so neither half sends the reader to a file to hand-edit.
  */
 function newNextStep(created: HookSummary): string {
-  const target = requirementFor({ kind: "hook", name: created.name });
-  return `next: nothing selects it yet — run \`ambit catalog annotate ${target} --add-scope <scope>\`, or \`ambit catalog annotate <skill> --add-requires ${target}\``;
+  const target = formatRequirement({ kind: "hook", name: created.name });
+  return `next: nothing selects it yet — run \`ambit catalog annotate ${target} --add-scope <scope>\`, or \`ambit catalog annotate skill:<skill> --add-requires ${target}\``;
 }
 
 export const catalogHookNewHandler: CommandHandler = async (ctx) => {

@@ -37,7 +37,7 @@ import { ExitCode, at, configError } from "../../errors.js";
 import type { McpTransport } from "../../model/mcp-entity.js";
 import { MCP_TRANSPORT_KINDS } from "../../model/mcp-entity.js";
 import { printSections, section } from "../output.js";
-import { MCP_REQUIREMENT_PREFIX } from "../../resolution/resolve.js";
+import { formatRequirement } from "../../model/requirement.js";
 
 /** The first section's title: past tense for a run that happened, conditional for a preview. */
 interface Heading {
@@ -236,8 +236,8 @@ function report(ctx: CommandContext, subject: Subject, result: McpEdit): ExitCod
  * what gives a skill the requirement, so neither half sends the reader to a file to hand-edit.
  */
 function newNextStep(created: McpSummary): string {
-  const target = `${MCP_REQUIREMENT_PREFIX}${created.name}`;
-  return `next: nothing selects it yet — run \`ambit catalog annotate ${target} --add-scope <scope>\`, or \`ambit catalog annotate <skill> --add-requires ${target}\``;
+  const target = formatRequirement({ kind: "mcp", name: created.name });
+  return `next: nothing selects it yet — run \`ambit catalog annotate ${target} --add-scope <scope>\`, or \`ambit catalog annotate skill:<skill> --add-requires ${target}\``;
 }
 
 export const catalogMcpNewHandler: CommandHandler = async (ctx) => {

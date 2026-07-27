@@ -1,5 +1,11 @@
 /**
- * The annotation command: `ambit catalog annotate <name>`.
+ * The annotation command: `ambit catalog annotate <kind>:<name>`.
+ *
+ * The subject declares its namespace, and so does every `requires` entry the command writes. That is
+ * not ceremony: a catalog's three namespaces are flat and independent, so a skill may legitimately be
+ * called `mcp.sentry`, and a command that read the namespace off the name would be unable to reach it —
+ * see `src/model/requirement.ts`. The subject is a reference rather than a lookup because this command
+ * *writes*, and a lookup cannot name a requirement whose target has already gone.
  *
  * This is the only authoring command that edits a document's *contents* rather than its existence, so
  * it is where authoring rule 2 is under the most pressure: the document it opens is hand-written, its
@@ -52,10 +58,16 @@ import type { EditOptions, EditResult } from "./editor.js";
 import { CatalogDocument, applyCatalogEdit } from "./editor.js";
 import type { AmbitError } from "../errors.js";
 import { at, configError } from "../errors.js";
-import { requirementFor, requirementTarget } from "../resolution/resolve.js";
+import type { ItemKind, Requirement } from "../model/requirement.js";
+import {
+  ITEM_KINDS,
+  formatRequirement,
+  isRequirementReference,
+  parseRequirement,
+} from "../model/requirement.js";
 
 /** What an annotatable subject is: the three file shapes a catalog holds. */
-export type AnnotatedKind = "skill" | "mcp" | "hook";
+export type AnnotatedKind = ItemKind;
 
 /**
  * The keys a leaf may declare — an MCP entity, or a hook.
@@ -93,7 +105,7 @@ export interface AnnotatedList {
 /** What was annotated, and what it declares now. */
 export interface AnnotatedItem {
   readonly kind: AnnotatedKind;
-  /** The bare name, `mcp.` prefix stripped — how `ambit why` and `ambit dump-catalog` name the same thing. */
+  /** The bare name, without its kind — how `ambit dump-catalog` names the same thing. */
   readonly name: string;
   /** The document the annotations live in, catalog-relative. */
   readonly file: string;
@@ -145,16 +157,16 @@ const HOOK_WORDING: LeafWording = {
  * Exit 2 — a malformed invocation, like every other flag that would be written nowhere — and it names
  * the skill-side flag that does what the reader meant, because wanting a server or a hook to follow a
  * skill into the bundle is the sensible thing behind the request. The requirement is spelled by
- * {@link requirementFor}, so the advice cannot disagree with what `requires` actually accepts.
+ * {@link formatRequirement}, so the advice cannot disagree with what `--add-requires` accepts.
  */
 function noRequirements(subject: Subject, leaf: LeafWording): AmbitError {
-  const requirement = requirementFor({ kind: subject.kind, name: subject.name });
+  const requirement = formatRequirement({ kind: subject.kind, name: subject.name });
 
   return configError(
     `${leaf.noun} "${subject.name}" declares no requirements ${at(subject.file, undefined)}`,
     [
       `\`requires\` is a skill's key: ${leaf.declares}`,
-      `to pull it in behind a skill, run \`ambit catalog annotate <skill> --add-requires ${requirement}\``,
+      `to pull it in behind a skill, run \`ambit catalog annotate skill:<skill> --add-requires ${requirement}\``,
     ],
   );
 }
@@ -186,22 +198,6 @@ interface Subject {
   readonly leaf?: LeafWording;
 }
 
-/**
- * Whether a name refers to an MCP server: the `mcp.` prefix, the same disambiguation `requires` and
- * `ambit why` use. A bare name is a skill, because that is what a catalog is mostly made of.
- *
- * Read through {@link requirementTarget}, which is the one function that reads the prefixes — so
- * `hook.block-rm` cannot mean one thing to a `requires` closure and another to this command.
- */
-export function isMcpTarget(name: string): boolean {
-  return requirementTarget(name).kind === "mcp";
-}
-
-/** Whether a name refers to a hook: the `hook.` prefix, read the same way. */
-export function isHookTarget(name: string): boolean {
-  return requirementTarget(name).kind === "hook";
-}
-
 /** Where each namespace's documents live, so one place answers it for all three. */
 const NAMESPACE_DIRNAME: Readonly<Record<AnnotatedKind, string>> = {
   skill: SKILLS_DIRNAME,
@@ -210,14 +206,46 @@ const NAMESPACE_DIRNAME: Readonly<Record<AnnotatedKind, string>> = {
 };
 
 /**
- * Where an annotation *would* be written, from the name alone — for a refusal raised before the catalog
- * is read, which therefore cannot know which §3.3 extension an entity actually carries.
+ * Where an annotation *would* be written, from the reference alone — for a refusal raised before the
+ * catalog is read, which therefore cannot know which §3.3 extension an entity actually carries.
  *
- * Exported because the handler's argv refusals name the directory rather than a file for exactly that
- * reason; this names the three directories in one place.
+ * Total, because the reference declares its namespace: there is no reading of `mcp:sentry` under which
+ * this has to guess between two directories, which is exactly what a bare `mcp.sentry` used to force.
+ *
+ * Exported because the handler's argv refusals name the directory rather than a file for that reason;
+ * this names the three directories in one place.
+ *
+ * @throws {AmbitError} exit 2 for a reference that names no namespace.
  */
 export function annotationDirname(name: string): string {
-  return NAMESPACE_DIRNAME[requirementTarget(name).kind];
+  return NAMESPACE_DIRNAME[annotationSubject(name).kind];
+}
+
+/**
+ * The error for a bare name where a `<kind>:<name>` reference belongs.
+ *
+ * Separate from {@link parseRequirement}'s own refusal so it can name what this command would do about
+ * it: a catalog holds three namespaces and a bare name says nothing about which one it is in, so the
+ * three spellings are listed rather than one of them assumed.
+ */
+function unnamespacedSubject(name: string): AmbitError {
+  return configError(`\`annotate ${name}\` does not say what to annotate`, [
+    "a catalog holds three namespaces, and a bare name is in none of them in particular",
+    `write the subject as one of: ${ITEM_KINDS.map((kind) => `\`${kind}:${name}\``).join(", ")}`,
+  ]);
+}
+
+/**
+ * The subject reference a name asks for.
+ *
+ * Exported so the command's argv rule refuses a bare name before Commander dispatches, in the same
+ * words the mutation would.
+ *
+ * @throws {AmbitError} exit 2 for a name that does not declare its namespace.
+ */
+export function annotationSubject(name: string): Requirement {
+  if (!isRequirementReference(name)) throw unnamespacedSubject(name);
+  return parseRequirement(name);
 }
 
 /**
@@ -232,7 +260,7 @@ export function annotationDirname(name: string): string {
  * @throws {AmbitError} exit 3 when the catalog provides no such skill, server or hook.
  */
 async function subjectOf(root: string, catalog: Catalog, name: string): Promise<Subject> {
-  const target = requirementTarget(name);
+  const target = annotationSubject(name);
 
   if (target.kind === "mcp") {
     const entity = catalog.mcps.find((candidate) => candidate.name === target.name);
@@ -273,7 +301,14 @@ async function subjectOf(root: string, catalog: Catalog, name: string): Promise<
     file: `${skill.path}/${SKILL_FILENAME}`,
     keys: ANNOTATION_KEYS,
     under: [AMBIT_FRONTMATTER_KEY],
-    current: { scopes: skill.scopes, requires: skill.requires, env: skill.env },
+    current: {
+      scopes: skill.scopes,
+      // As references, so every annotation is a set of strings here and the arithmetic below is one
+      // loop rather than one per key. They are parsed back on the way out, which is also what makes a
+      // `requires` list sort by namespace and then by name.
+      requires: skill.requires.map(formatRequirement),
+      env: skill.env,
+    },
   };
 }
 
@@ -295,21 +330,38 @@ function addedScopes(options: AnnotateOptions): readonly string[] {
 }
 
 /**
+ * Rejects a `requires` entry the edit names without a namespace.
+ *
+ * Both halves, unlike {@link addedScopes}: a removal has to be expressible for a target no catalog
+ * provides — clearing a dangling requirement is what `--remove-requires` is *for* — but it still has
+ * to say which namespace the dangling entry is in, since two of them could hold the name.
+ *
+ * Exported so the command's argv rule can refuse before Commander dispatches, in the same words.
+ *
+ * @throws {AmbitError} exit 2 for an entry that names no namespace.
+ */
+export function assertRequirementRefs(edit: AnnotationEdit | undefined): void {
+  for (const value of [...(edit?.add ?? []), ...(edit?.remove ?? [])]) parseRequirement(value);
+}
+
+/**
  * Adds and removes entries in a skill's, an MCP entity's or a hook's `scopes`, `requires`, and `env`.
  *
  * @param root the catalog root, absolute.
- * @param name the skill's name, `mcp.<name>` for a server, or `hook.<name>` for a hook.
+ * @param name the subject, as `skill:<name>`, `mcp:<name>` or `hook:<name>`.
  * @param options what each annotation gains and loses, and `--dry-run`.
- * @throws {AmbitError} exit 2 for a catalog that does not parse, a `requires` edit aimed at an MCP
- *   entity or a hook, or a write that fails; exit 3 for a skill, server or hook the catalog does not
- *   provide, an added scope its registry does not hold, or a result that would not validate — with
- *   nothing written.
+ * @throws {AmbitError} exit 2 for a subject or a `requires` entry that names no namespace, a catalog
+ *   that does not parse, a `requires` edit aimed at an MCP entity or a hook, or a write that fails;
+ *   exit 3 for a skill, server or hook the catalog does not provide, an added scope its registry does
+ *   not hold, or a result that would not validate — with nothing written.
  */
 export async function annotate(
   root: string,
   name: string,
   options: AnnotateOptions = {},
 ): Promise<AnnotateResult> {
+  assertRequirementRefs(options.edits?.requires);
+
   const catalog = await readCatalog(root);
   const subject = await subjectOf(root, catalog, name);
 
@@ -328,8 +380,18 @@ export async function annotate(
     declares.push({ key, values });
     // Only a change of membership is written. Rewriting a list whose entries are the same would cost
     // the author their layout and any duplicate they wrote, for no change anybody asked for.
-    if (!sameList(values, sortedUnique(current))) {
-      document.setStringList([...subject.under, key], values);
+    if (sameList(values, sortedUnique(current))) continue;
+
+    const path = [...subject.under, key];
+    // `requires` is the one annotation whose entries are not bare strings: each declares the namespace
+    // its name is in, so it is written back as the one-key mappings it was read as.
+    if (key === "requires") {
+      document.setRequirementList(
+        path,
+        values.map((value) => parseRequirement(value)),
+      );
+    } else {
+      document.setStringList(path, values);
     }
   }
 

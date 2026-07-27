@@ -18,9 +18,9 @@
  * - **A skill nothing can reach.** No registered scope of its own, and nothing reachable requires it,
  *   so no profile can select it — instructions somebody still maintains believing they are in use.
  * - **An MCP server nothing can reach**, which is the same finding one namespace over: a server is
- *   reached by a scope of its own or by a skill's `mcp.<name>` requirement, and by nothing else.
- * - **A hook nothing can reach**, the same finding again: a scope of its own, or a skill's
- *   `hook.<name>` requirement. A hook carries no `requires` of its own, so it is always a leaf of the
+ *   reached by a scope of its own or by a skill requiring `mcp: <name>`, and by nothing else.
+ * - **A hook nothing can reach**, the same finding again: a scope of its own, or a skill requiring
+ *   `hook: <name>`. A hook carries no `requires` of its own, so it is always a leaf of the
  *   closure — which makes it the one namespace where "unreachable" is decided in a single step.
  *
  * Two decisions inside that a later change must not quietly reverse.
@@ -48,11 +48,7 @@ import {
 } from "../model/catalog.js";
 import { buildScopeTree, flattenScopeTree, selectionSize } from "./tree.js";
 import { at } from "../errors.js";
-import {
-  HOOK_REQUIREMENT_PREFIX,
-  MCP_REQUIREMENT_PREFIX,
-  requirementTarget,
-} from "../resolution/resolve.js";
+import { formatRequirement } from "../model/requirement.js";
 
 /**
  * What kind of finding a report entry is, so `--json` can be filtered without parsing prose.
@@ -160,10 +156,9 @@ function reachableItems(catalog: Catalog): Reachable {
     if (skills.has(skill.name)) return;
     skills.add(skill.name);
 
-    // `requirementTarget` rather than a prefix test of its own, so what `hook.deploy` names here is
-    // what it names in the closure `resolveBundle` walks — and a fourth namespace is a type error.
-    for (const requirement of skill.requires) {
-      const target = requirementTarget(requirement);
+    // The entry's own `kind`, which is what the closure `resolveBundle` walks reads too — so what a
+    // requirement names cannot differ between the two, and a fourth namespace is a type error.
+    for (const target of skill.requires) {
       switch (target.kind) {
         case "mcp":
           mcps.add(target.name);
@@ -216,7 +211,7 @@ function deadScopeFindings(catalog: Catalog): readonly AuditFinding[] {
       finding("dead-scope", `unused scope "${definition.name}" ${at(SCOPES_FILENAME, undefined)}`, [
         "no skill, MCP server or hook declares it, and nothing registered beneath it does either",
         "holding it selects nothing, so every picker rendering this registry offers a choice with no effect",
-        `declare it with \`ambit catalog annotate <name> --add-scope ${definition.name}\`, or unregister it with \`ambit catalog scope rm ${definition.name}\``,
+        `declare it with \`ambit catalog annotate <kind>:<name> --add-scope ${definition.name}\`, or unregister it with \`ambit catalog scope rm ${definition.name}\``,
       ]),
     );
 }
@@ -232,7 +227,7 @@ function unreachableSkillFindings(catalog: Catalog, reachable: Reachable): reado
         [
           "it declares no registered scope, and nothing reachable requires it",
           "no profile can select it, so nothing it says ever reaches an agent",
-          `give it a scope with \`ambit catalog annotate ${skill.name} --add-scope <scope>\`, or remove it with \`ambit catalog skill rm ${skill.name}\``,
+          `give it a scope with \`ambit catalog annotate ${formatRequirement({ kind: "skill", name: skill.name })} --add-scope <scope>\`, or remove it with \`ambit catalog skill rm ${skill.name}\``,
         ],
       ),
     );
@@ -249,9 +244,9 @@ function unreachableMcpFindings(catalog: Catalog, reachable: Reachable): readonl
         // entity actually carries, and a finding has to name a file the reader can open.
         `unreachable MCP server "${mcp.name}" ${at(mcp.file, undefined)}`,
         [
-          `no registered scope selects it, and nothing reachable requires \`${MCP_REQUIREMENT_PREFIX}${mcp.name}\``,
+          `no registered scope selects it, and nothing reachable requires \`${formatRequirement({ kind: "mcp", name: mcp.name })}\``,
           "no profile can select it, so nothing ever starts the server",
-          `give it a scope with \`ambit catalog annotate ${MCP_REQUIREMENT_PREFIX}${mcp.name} --add-scope <scope>\`, or remove it with \`ambit catalog mcp rm ${mcp.name}\``,
+          `give it a scope with \`ambit catalog annotate ${formatRequirement({ kind: "mcp", name: mcp.name })} --add-scope <scope>\`, or remove it with \`ambit catalog mcp rm ${mcp.name}\``,
         ],
       ),
     );
@@ -268,9 +263,9 @@ function unreachableHookFindings(catalog: Catalog, reachable: Reachable): readon
         // file `catalog validate` cites, since a finding has to name a file the reader can open.
         `unreachable hook "${hook.name}" ${at(hookDocumentOf(hook), undefined)}`,
         [
-          `no registered scope selects it, and nothing reachable requires \`${HOOK_REQUIREMENT_PREFIX}${hook.name}\``,
+          `no registered scope selects it, and nothing reachable requires \`${formatRequirement({ kind: "hook", name: hook.name })}\``,
           "no profile can select it, so no harness is ever configured to run it",
-          `give it a scope with \`ambit catalog annotate ${HOOK_REQUIREMENT_PREFIX}${hook.name} --add-scope <scope>\`, or remove it with \`ambit catalog hook rm ${hook.name}\``,
+          `give it a scope with \`ambit catalog annotate ${formatRequirement({ kind: "hook", name: hook.name })} --add-scope <scope>\`, or remove it with \`ambit catalog hook rm ${hook.name}\``,
         ],
       ),
     );

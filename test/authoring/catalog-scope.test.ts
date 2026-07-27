@@ -289,20 +289,19 @@ describe("ambit catalog scope rm", () => {
     expect(result.stderr).toContain(`hook "guard-secrets" declares it (${SCOPED_HOOK})`);
     // The next step names the command that clears a declaration, not the hand-editing it replaced.
     expect(result.stderr).toContain(
-      `clear it from each with \`ambit catalog annotate <name> --remove-scope ${PARENT}\``,
+      `clear it from each with \`ambit catalog annotate <kind>:<name> --remove-scope ${PARENT}\``,
     );
-    expect(result.stderr).toContain("naming a server `mcp.<server>` and a hook `hook.<hook>`");
   });
 
-  it("names each prefixed spelling only when something needing it is among the declarers", async () => {
-    // `core` is declared by a skill and a hook and by no server, so the next step explains the one
-    // prefix a reader is about to need and stays quiet about the other.
+  it("gives one spelling for all three namespaces, since `annotate` takes one shape", async () => {
+    // `core` is declared by a skill and a hook and by no server. The next step used to explain a
+    // per-namespace prefix for whichever kinds were among the declarers; `<kind>:<name>` covers
+    // every one of them, so there is nothing left to make conditional.
     const result = await refused(ExitCode.Resolution, "rm", "core");
 
     expect(result.stderr).toContain('skill "company-context" declares it');
     expect(result.stderr).toContain('hook "session-notes" declares it');
-    expect(result.stderr).toContain("naming a hook `hook.<hook>`");
-    expect(result.stderr).not.toContain("mcp.<server>");
+    expect(result.stderr).toContain("ambit catalog annotate <kind>:<name> --remove-scope core");
   });
 
   it("cites a declaring entity by the file it is actually written as", async () => {

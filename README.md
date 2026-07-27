@@ -58,7 +58,7 @@ files (1)
 $ ambit catalog skill new code-review \
     --description "How we review code" \
     --scope function.engineering \
-    --requires house-style
+    --requires skill:house-style
 created (1)
   code-review  How we review code
 
@@ -207,18 +207,27 @@ description: "Calls the Close CRM REST API…"
 ambit:
   scopes: [function.sales]
   requires:
-    - company-context
-    - mcp.close
+    - skill: company-context
+    - mcp: close
   env: [CLOSE_API_KEY]
 ---
 ```
 
-| Key              | Type     | Required | Notes                                                                                           |
-| ---------------- | -------- | -------- | ----------------------------------------------------------------------------------------------- |
-| `ambit`          | map      | no       | Every annotation below. Absent means the skill declares nothing.                                |
-| `ambit.scopes`   | string[] | no       | Absent or empty: never selected by scope, reachable only via `requires` or an explicit listing. |
-| `ambit.requires` | string[] | no       | Skill names, MCP names prefixed `mcp.`, or hook names prefixed `hook.`.                         |
-| `ambit.env`      | string[] | no       | Env vars the skill itself reads (not via an MCP).                                               |
+| Key              | Type     | Required | Notes                                                                                            |
+| ---------------- | -------- | -------- | ------------------------------------------------------------------------------------------------ |
+| `ambit`          | map      | no       | Every annotation below. Absent means the skill declares nothing.                                 |
+| `ambit.scopes`   | string[] | no       | Absent or empty: never selected by scope, reachable only via `requires` or an explicit listing.  |
+| `ambit.requires` | map[]    | no       | One entry per requirement, each a single key naming its namespace: `skill:`, `mcp:`, or `hook:`. |
+| `ambit.env`      | string[] | no       | Env vars the skill itself reads (not via an MCP).                                                |
+
+A `requires` entry **declares** its namespace instead of encoding it in the name. The three namespaces
+are flat and independent, so a skill at `skills/mcp/sentry/SKILL.md` is legitimately named `mcp.sentry`
+— under a prefix convention that skill can never be required, and `mcp.sentry` silently resolves to a
+server of the same name instead. Each entry is therefore one key, exactly as an MCP entity's
+`transport` is: `skill:`, `mcp:`, or `hook:`, and never two of them.
+
+Where only a string will do — a flag's value, `ambit why`'s argument — the same pair is written
+`<kind>:<name>`: `--add-requires mcp:close`, `ambit why skill:mcp.sentry`.
 
 ### `mcps/<name>.yml`: MCP entities
 
@@ -336,10 +345,10 @@ scopes:
    registered scope by edit distance.
 7. **Select by scope.** Any skill, MCP or hook with at least one declared scope in the expanded set.
 8. **Add explicit entries** from the config's `skills`, `mcps` and `hooks`.
-9. **Close over `requires`** to a fixpoint. `mcp.`-prefixed targets resolve against MCP entities,
-   `hook.`-prefixed against hooks, everything else against skills. Servers and hooks are leaves: neither
-   carries `requires`. Unresolvable → exit 3 naming the requirer and the missing target. A cycle → exit 3
-   printing the full cycle path.
+9. **Close over `requires`** to a fixpoint. Each entry declares its own namespace, so a `mcp:` entry
+   resolves against MCP entities, a `hook:` entry against hooks, and a `skill:` entry against skills —
+   nothing is read off the name. Servers and hooks are leaves: neither carries `requires`. Unresolvable
+   → exit 3 naming the requirer and the missing target. A cycle → exit 3 printing the full cycle path.
 10. **Union `env`** across every selected skill, server and hook.
 11. **Emit the bundle**, sorted by name.
 
@@ -406,19 +415,19 @@ refused, with the same message and exit code.
 
 ### Consumer commands
 
-| Command                                               | What it does                                                                                                                                                                                                 |
-| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `ambit init`                                          | Scaffold an `ambit.yml`. Refuses a directory that already has one, `--dry-run` included, and does not create a missing directory.                                                                            |
-| `ambit scopes`                                        | List the merged registry with descriptions, marking which scopes this project holds.                                                                                                                         |
-| `ambit dump-catalog`                                  | Dump the merged catalog: every catalog the project lists, merged with its own declarations.                                                                                                                  |
-| `ambit resolve [--explain]`                           | Compute the bundle and print it.                                                                                                                                                                             |
-| `ambit why <name>`                                    | Explain why one item is in the bundle, as a chain. A skill wins a bare name; `mcp.<name>` insists on a server and `hook.<name>` on a hook, and a bare name no skill answers falls back to those two in turn. |
-| `ambit install [--frozen] [--adopt] [--copy\|--link]` | Resolve, write `ambit.lock`, materialize the bundle, prune what left it.                                                                                                                                     |
-| `ambit status [--check]`                              | Compare what is installed against what resolve produces. `--check` exits 5 on drift.                                                                                                                         |
-| `ambit prune`                                         | Remove owned artifacts not in the current bundle.                                                                                                                                                            |
-| `ambit clean`                                         | Remove everything ambit owns.                                                                                                                                                                                |
-| `ambit validate`                                      | Validate everything this project configures, for CI. One catalog on its own is `ambit catalog validate`.                                                                                                     |
-| `ambit doctor`                                        | Check env vars, the lock, ownership, drift, materialization mode, and harness limits.                                                                                                                        |
+| Command                                               | What it does                                                                                                                                                                         |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ambit init`                                          | Scaffold an `ambit.yml`. Refuses a directory that already has one, `--dry-run` included, and does not create a missing directory.                                                    |
+| `ambit scopes`                                        | List the merged registry with descriptions, marking which scopes this project holds.                                                                                                 |
+| `ambit dump-catalog`                                  | Dump the merged catalog: every catalog the project lists, merged with its own declarations.                                                                                          |
+| `ambit resolve [--explain]`                           | Compute the bundle and print it.                                                                                                                                                     |
+| `ambit why <name>`                                    | Explain why one item is in the bundle, as a chain. A bare name is looked up across the three namespaces and refused when more than one holds it; `<kind>:<name>` names one outright. |
+| `ambit install [--frozen] [--adopt] [--copy\|--link]` | Resolve, write `ambit.lock`, materialize the bundle, prune what left it.                                                                                                             |
+| `ambit status [--check]`                              | Compare what is installed against what resolve produces. `--check` exits 5 on drift.                                                                                                 |
+| `ambit prune`                                         | Remove owned artifacts not in the current bundle.                                                                                                                                    |
+| `ambit clean`                                         | Remove everything ambit owns.                                                                                                                                                        |
+| `ambit validate`                                      | Validate everything this project configures, for CI. One catalog on its own is `ambit catalog validate`.                                                                             |
+| `ambit doctor`                                        | Check env vars, the lock, ownership, drift, materialization mode, and harness limits.                                                                                                |
 
 ### Authoring commands
 
@@ -433,7 +442,7 @@ ambit catalog scope rm <name>
 ambit catalog scope mv <old> <new>
 
 ambit catalog skill new <name> [--description <text>] [--scope <s>…]
-                               [--requires <r>…] [--env <v>…]
+                               [--requires <kind>:<name>…] [--env <v>…]
 ambit catalog skill rm <name>
 ambit catalog skill mv <old> <new>
 
@@ -445,9 +454,10 @@ ambit catalog hook new <name> --event <event> (--command <cmd> | --script <path>
                               [--description <text>] [--timeout <seconds>] [--env <v>…]
 ambit catalog hook rm <name>
 
-ambit catalog annotate <name> [--add-scope <s>…]     [--remove-scope <s>…]
-                              [--add-requires <r>…]  [--remove-requires <r>…]
-                              [--add-env <v>…]       [--remove-env <v>…]
+ambit catalog annotate <kind>:<name>
+                              [--add-scope <s>…]              [--remove-scope <s>…]
+                              [--add-requires <kind>:<name>…] [--remove-requires <kind>:<name>…]
+                              [--add-env <v>…]                [--remove-env <v>…]
 ```
 
 ### Exit codes

@@ -169,7 +169,13 @@ describe("fixture catalog", () => {
   it("has a project skill that reaches a skill, an MCP and a hook by requires alone", async () => {
     const meta = annotations(await readFile(path.join(dir, "skills/acme-brief/SKILL.md"), "utf8"));
 
-    expect(meta.requires).toEqual(["company-context", "mcp.fixture", "hook.acme-standup"]);
+    // One key per entry, each naming its own namespace — read through the raw parser, so this is the
+    // document's shape rather than ambit's reading of it.
+    expect(meta.requires).toEqual([
+      { skill: "company-context" },
+      { mcp: "fixture" },
+      { hook: "acme-standup" },
+    ]);
   });
 
   it("declares env vars a bundle can be missing", async () => {

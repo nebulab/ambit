@@ -16,7 +16,7 @@
  *   in the one place each rule is stated.
  * - **`rm` deletes a directory, not a file**, because the hook may have shipped a script and a command
  *   that removed only the `HOOK.yml` would leave bytes nothing can explain. It refuses while any skill
- *   requires `hook.<name>`, naming every requirer: the editor would refuse the write anyway, since a
+ *   requires `hook: <name>`, naming every requirer: the editor would refuse the write anyway, since a
  *   dangling requirement does not validate, but the list of files to fix is the useful answer. It also
  *   refuses a directory that holds *another* hook, which removing would silently delete.
  *
@@ -41,7 +41,8 @@ import { applyCatalogEdit, hookDocumentPath } from "./editor.js";
 import type { AmbitError } from "../errors.js";
 import { at, configError, resolutionError } from "../errors.js";
 import type { HookEvent, HookType } from "../model/hook-entity.js";
-import { requirementFor } from "../resolution/resolve.js";
+import type { Requirement } from "../model/requirement.js";
+import { formatRequirement, sameRequirement } from "../model/requirement.js";
 import { emitYaml } from "../model/yaml.js";
 
 /**
@@ -181,18 +182,18 @@ function requires(skill: CatalogSkill): string {
 /**
  * The error for removing a hook a skill still requires.
  *
- * The requirement is spelled by {@link requirementFor}, which is the one place a `requires` entry is
- * written from an item — so this refusal cannot disagree with the closure about what `hook.<name>`
- * means. Only a skill can require a hook, so the name the reader passes is a skill's: no prefix on
- * that one, unlike the requirement being cleared.
+ * The requirement is spelled by {@link formatRequirement}, which is the one place a reference is
+ * written from an item — so this refusal cannot disagree with the closure about what it names. Only a
+ * skill can require a hook, so both halves of the advice are namespaced references: the subject is a
+ * skill, the requirement being cleared is the hook.
  */
 function stillRequired(hook: CatalogHook, requirers: readonly string[]): AmbitError {
-  const requirement = requirementFor({ kind: "hook", name: hook.name });
+  const requirement = formatRequirement({ kind: "hook", name: hook.name });
   return resolutionError(
     `hook "${hook.name}" is still required ${at(hookDocumentOf(hook), undefined)}`,
     [
       ...requirers,
-      `clear it from each with \`ambit catalog annotate <skill> --remove-requires ${requirement}\``,
+      `clear it from each with \`ambit catalog annotate skill:<skill> --remove-requires ${requirement}\``,
     ],
   );
 }
@@ -238,8 +239,10 @@ function provided(catalog: Catalog, name: string): CatalogHook {
 
 /** @throws {AmbitError} exit 3 if any skill requires `hook`, naming every one of them. */
 function assertNothingRequires(catalog: Catalog, hook: CatalogHook): void {
-  const requirement = requirementFor({ kind: "hook", name: hook.name });
-  const requirers = catalog.skills.filter((skill) => skill.requires.includes(requirement));
+  const requirement: Requirement = { kind: "hook", name: hook.name };
+  const requirers = catalog.skills.filter((skill) =>
+    skill.requires.some((declared) => sameRequirement(declared, requirement)),
+  );
   if (requirers.length === 0) return;
   throw stillRequired(hook, requirers.map(requires));
 }

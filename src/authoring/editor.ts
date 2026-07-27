@@ -45,6 +45,7 @@ import {
 } from "../model/catalog.js";
 import type { AmbitError } from "../errors.js";
 import { configError, resolutionError } from "../errors.js";
+import type { Requirement } from "../model/requirement.js";
 import type { ValidationReport } from "../resolution/validate.js";
 import { isValid, validateCatalogDirectory } from "../resolution/validate.js";
 import { EditableYaml } from "../model/yaml.js";
@@ -251,6 +252,17 @@ export class CatalogDocument {
    */
   setStringList(path: readonly string[], values: readonly string[]): void {
     this.edit.setStringList(path, values);
+  }
+
+  /**
+   * Sets `path` to a list of requirements, each written as the one-key mapping that declares its
+   * namespace. The same layout and ordering stance {@link CatalogDocument.setStringList} takes.
+   */
+  setRequirementList(path: readonly string[], values: readonly Requirement[]): void {
+    this.edit.setMappingList(
+      path,
+      values.map((item) => ({ [item.kind]: item.name })),
+    );
   }
 
   /** Removes `path`, if it is there. */

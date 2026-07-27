@@ -830,6 +830,25 @@ export class EditableYaml {
    * than left null, since "declares none" and "declares nothing" are different claims.
    */
   setStringList(path: readonly string[], values: readonly string[]): void {
+    this.setSequence(path, values);
+  }
+
+  /**
+   * Sets `path` to a sequence of one-key mappings — the shape a skill's `requires` has, where each
+   * entry declares the namespace its name is in.
+   *
+   * Keeps the author's layout on the same terms {@link EditableYaml.setStringList} does, since the
+   * decision is about the sequence and not about what its items are.
+   */
+  setMappingList(
+    path: readonly string[],
+    values: readonly Readonly<Record<string, string>>[],
+  ): void {
+    this.setSequence(path, values);
+  }
+
+  /** The layout-preserving write both list setters share; see {@link EditableYaml.setStringList}. */
+  private setSequence(path: readonly string[], values: readonly unknown[]): void {
     const node: Node = this.document.createNode([...values]);
     const existing = this.document.getIn(path, true);
 

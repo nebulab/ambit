@@ -47,11 +47,11 @@ import type { ProjectConfig } from "../model/config.js";
 import { loadProjectConfig } from "../model/config.js";
 import type { AmbitError } from "../errors.js";
 import { at, resolutionError } from "../errors.js";
-import type { ItemKind } from "./resolve.js";
+import type { ItemKind } from "../model/requirement.js";
+import { sortedUniqueRequirements } from "../model/requirement.js";
 import {
   cycleError,
   missingRequirement,
-  requirementTarget,
   scopeSuggestion,
   skillFile,
   unknownExplicitSkill,
@@ -239,10 +239,9 @@ function requirementProblems(merged: MergedCatalog): readonly ValidationProblem[
   const problems: ValidationProblem[] = [];
 
   for (const skill of merged.skills) {
-    for (const requirement of sortedUnique(skill.requires)) {
-      const target = requirementTarget(requirement);
+    for (const target of sortedUniqueRequirements(skill.requires)) {
       if (!provided[target.kind].has(target.name)) {
-        problems.push(problem("unresolvable-requirement", missingRequirement(skill, requirement)));
+        problems.push(problem("unresolvable-requirement", missingRequirement(skill, target)));
       }
     }
   }
@@ -294,8 +293,7 @@ function cycleProblems(merged: MergedCatalog): readonly ValidationProblem[] {
     if (closed.has(skill.name)) return;
 
     walked.push(skill.name);
-    for (const requirement of sortedUnique(skill.requires)) {
-      const target = requirementTarget(requirement);
+    for (const target of sortedUniqueRequirements(skill.requires)) {
       // Both leaf namespaces end the walk: only a skill can require anything, so only a skill edge
       // can close a loop.
       if (target.kind !== "skill") continue;

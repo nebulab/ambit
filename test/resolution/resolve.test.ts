@@ -464,8 +464,8 @@ describe("the requires closure", () => {
   });
 
   it("follows a requirement of a requirement, to fixpoint", async () => {
-    await writeSkill("chain-a", ["scopes: [core]", "requires: [chain-b]"]);
-    await writeSkill("chain-b", ["requires: [chain-c]"]);
+    await writeSkill("chain-a", ["scopes: [core]", "requires: [{skill: chain-b}]"]);
+    await writeSkill("chain-b", ["requires: [{skill: chain-c}]"]);
     await writeSkill("chain-c", []);
 
     expect((await bundle(["core"])).skills.map((skill) => skill.name)).toEqual([
@@ -477,8 +477,8 @@ describe("the requires closure", () => {
   });
 
   it("treats a requirement two skills share as a diamond, not a cycle", async () => {
-    await writeSkill("diamond-left", ["scopes: [core]", "requires: [diamond-shared]"]);
-    await writeSkill("diamond-right", ["scopes: [core]", "requires: [diamond-shared]"]);
+    await writeSkill("diamond-left", ["scopes: [core]", "requires: [{skill: diamond-shared}]"]);
+    await writeSkill("diamond-right", ["scopes: [core]", "requires: [{skill: diamond-shared}]"]);
     await writeSkill("diamond-shared", []);
 
     const resolved = await bundle(["core"]);
@@ -489,8 +489,8 @@ describe("the requires closure", () => {
   });
 
   it("selects a required skill exactly once, however many skills require it", async () => {
-    await writeSkill("twice-left", ["scopes: [core]", "requires: [mcp.fixture]"]);
-    await writeSkill("twice-right", ["scopes: [core]", "requires: [mcp.fixture]"]);
+    await writeSkill("twice-left", ["scopes: [core]", "requires: [{mcp: fixture}]"]);
+    await writeSkill("twice-right", ["scopes: [core]", "requires: [{mcp: fixture}]"]);
 
     expect((await bundle(["core"])).mcps.map((mcp) => mcp.name)).toEqual(["fixture"]);
   });
@@ -499,7 +499,7 @@ describe("the requires closure", () => {
     // Spec §4's validation split: `resolve` hard-validates the selected closure only. This skill
     // declares no scope, so nothing reaches it and its dangling requirement is `validate`'s
     // business (A23), not this bundle's.
-    await writeSkill("broken-unselected", ["requires: [absent-skill]"]);
+    await writeSkill("broken-unselected", ["requires: [{skill: absent-skill}]"]);
 
     const result = await cli("resolve");
 
@@ -509,59 +509,90 @@ describe("the requires closure", () => {
 
 describe("unresolvable requirements", () => {
   it("exits 3 naming the requirer, the missing skill, and the file the edge is in", async () => {
-    await writeSkill("broken-dangling", ["scopes: [core]", "requires: [absent-skill]"]);
+    await writeSkill("broken-dangling", ["scopes: [core]", "requires: [{skill: absent-skill}]"]);
 
     const result = await cli("resolve");
 
     expect(result.code).toBe(ExitCode.Resolution);
     expect(result.stderr).toContain(
-      'unresolvable requirement "absent-skill" (skills/broken-dangling/SKILL.md)',
+      'unresolvable requirement "skill:absent-skill" (skills/broken-dangling/SKILL.md)',
     );
     expect(result.stderr).toContain('broken-dangling requires a skill named "absent-skill"');
   });
 
-  it("names the MCP entity, not the prefixed requirement, for an `mcp.` target", async () => {
-    await writeSkill("broken-dangling-mcp", ["scopes: [core]", "requires: [mcp.absent]"]);
+  it("names the MCP entity, and the namespace the entry declared, for an `mcp:` target", async () => {
+    await writeSkill("broken-dangling-mcp", ["scopes: [core]", "requires: [{mcp: absent}]"]);
 
     const result = await cli("resolve");
 
     expect(result.code).toBe(ExitCode.Resolution);
-    expect(result.stderr).toContain('unresolvable requirement "mcp.absent"');
+    expect(result.stderr).toContain('unresolvable requirement "mcp:absent"');
     expect(result.stderr).toContain('requires an MCP entity named "absent"');
     expect(result.stderr).toContain("mcps/");
   });
 
-  it("names the hook, not the prefixed requirement, for a `hook.` target", async () => {
-    await writeSkill("broken-dangling-hook", ["scopes: [core]", "requires: [hook.absent]"]);
+  it("names the hook, and the namespace the entry declared, for a `hook:` target", async () => {
+    await writeSkill("broken-dangling-hook", ["scopes: [core]", "requires: [{hook: absent}]"]);
 
     const result = await cli("resolve");
 
     expect(result.code).toBe(ExitCode.Resolution);
     expect(result.stderr).toContain(
-      'unresolvable requirement "hook.absent" (skills/broken-dangling-hook/SKILL.md)',
+      'unresolvable requirement "hook:absent" (skills/broken-dangling-hook/SKILL.md)',
     );
     expect(result.stderr).toContain('requires a hook named "absent"');
     expect(result.stderr).toContain("add it under hooks/ in a catalog");
   });
 
-  it("does not accept a skill of that name for a prefixed requirement", async () => {
-    // `hook.` names a namespace, not a spelling: a skill called `absent` cannot satisfy
-    // `hook.absent`, or the prefix would be decoration.
+  it("does not accept a skill of that name for a requirement in another namespace", async () => {
+    // A `hook:` entry names the hook namespace, and a skill called `absent` is not in it — or the
+    // key would be decoration.
     await writeSkill("absent", ["scopes: [core]"]);
-    await writeSkill("broken-wrong-namespace", ["scopes: [core]", "requires: [hook.absent]"]);
+    await writeSkill("broken-wrong-namespace", ["scopes: [core]", "requires: [{hook: absent}]"]);
 
     const result = await cli("resolve");
 
     expect(result.code).toBe(ExitCode.Resolution);
-    expect(result.stderr).toContain('unresolvable requirement "hook.absent"');
+    expect(result.stderr).toContain('unresolvable requirement "hook:absent"');
+  });
+
+  it("refuses a `requires` entry written as a bare string, naming all three spellings", async () => {
+    // The pre-namespace shape. Refused at parse time rather than read as a skill, because
+    // `mcp.absent` was always two claims at once and picking one is what this format removed.
+    await writeSkill("legacy", ["scopes: [core]", "requires: [mcp.absent]"]);
+
+    const result = await cli("resolve");
+
+    expect(result.code).toBe(ExitCode.Config);
+    expect(result.stderr).toContain('`requires` entry "mcp.absent" names no namespace');
+    expect(result.stderr).toContain("`- mcp: absent`");
+    expect(result.stderr).toContain("`- skill: mcp.absent`");
+  });
+
+  it("refuses an entry naming two namespaces at once", async () => {
+    await writeSkill("greedy", ["scopes: [core]", "requires: [{mcp: a, hook: b}]"]);
+
+    const result = await cli("resolve");
+
+    expect(result.code).toBe(ExitCode.Config);
+    expect(result.stderr).toContain("a `requires` entry names 2 namespaces: hook, mcp");
+  });
+
+  it("refuses an entry whose one key is not a namespace", async () => {
+    await writeSkill("typo", ["scopes: [core]", "requires: [{skil: a}]"]);
+
+    const result = await cli("resolve");
+
+    expect(result.code).toBe(ExitCode.Config);
+    expect(result.stderr).toContain('unknown namespace "skil" in a `requires` entry');
   });
 });
 
 describe("requirement cycles", () => {
   it("exits 3 printing the whole path, not just the fact of a cycle", async () => {
-    await writeSkill("cycle-a", ["scopes: [core]", "requires: [cycle-b]"]);
-    await writeSkill("cycle-b", ["requires: [cycle-c]"]);
-    await writeSkill("cycle-c", ["requires: [cycle-a]"]);
+    await writeSkill("cycle-a", ["scopes: [core]", "requires: [{skill: cycle-b}]"]);
+    await writeSkill("cycle-b", ["requires: [{skill: cycle-c}]"]);
+    await writeSkill("cycle-c", ["requires: [{skill: cycle-a}]"]);
 
     const result = await cli("resolve");
 
@@ -573,7 +604,7 @@ describe("requirement cycles", () => {
   });
 
   it("reports a skill that requires itself as the one-step cycle it is", async () => {
-    await writeSkill("cycle-self", ["scopes: [core]", "requires: [cycle-self]"]);
+    await writeSkill("cycle-self", ["scopes: [core]", "requires: [{skill: cycle-self}]"]);
 
     const result = await cli("resolve");
 
@@ -582,9 +613,9 @@ describe("requirement cycles", () => {
   });
 
   it("reports a cycle reached only through a requirement, not just one held directly", async () => {
-    await writeSkill("cycle-entry", ["scopes: [core]", "requires: [cycle-b]"]);
-    await writeSkill("cycle-b", ["requires: [cycle-c]"]);
-    await writeSkill("cycle-c", ["requires: [cycle-b]"]);
+    await writeSkill("cycle-entry", ["scopes: [core]", "requires: [{skill: cycle-b}]"]);
+    await writeSkill("cycle-b", ["requires: [{skill: cycle-c}]"]);
+    await writeSkill("cycle-c", ["requires: [{skill: cycle-b}]"]);
 
     const result = await cli("resolve");
 
@@ -593,12 +624,18 @@ describe("requirement cycles", () => {
   });
 
   it("names the same cycle whatever order a `requires` list is written in", async () => {
-    await writeSkill("cycle-a", ["scopes: [core]", "requires: [cycle-b, cycle-c]"]);
-    await writeSkill("cycle-b", ["requires: [cycle-a]"]);
-    await writeSkill("cycle-c", ["requires: [cycle-a]"]);
+    await writeSkill("cycle-a", [
+      "scopes: [core]",
+      "requires: [{skill: cycle-b}, {skill: cycle-c}]",
+    ]);
+    await writeSkill("cycle-b", ["requires: [{skill: cycle-a}]"]);
+    await writeSkill("cycle-c", ["requires: [{skill: cycle-a}]"]);
     const first = await cli("resolve");
 
-    await writeSkill("cycle-a", ["scopes: [core]", "requires: [cycle-c, cycle-b]"]);
+    await writeSkill("cycle-a", [
+      "scopes: [core]",
+      "requires: [{skill: cycle-c}, {skill: cycle-b}]",
+    ]);
     const second = await cli("resolve");
 
     expect(first.stderr).toContain("cycle-a → cycle-b → cycle-a");
@@ -672,7 +709,7 @@ describe("explicit skills and inline servers", () => {
   });
 
   it("closes a source skill over `requires` against the catalogs too", async () => {
-    await writeSourceSkill(`skills/${READWISE}`, READWISE, [`requires: [${CORE_SKILL}]`]);
+    await writeSourceSkill(`skills/${READWISE}`, READWISE, [`requires: [{skill: ${CORE_SKILL}}]`]);
 
     const explicit = await bundle(
       [],
@@ -703,7 +740,7 @@ describe("explicit skills and inline servers", () => {
   it("lets a catalog skill's `requires` reach an inline server", async () => {
     // The point of folding config's declarations into the merged catalog: one namespace, so a
     // requirement does not care which surface defined its target.
-    await writeSkill("inline", ["scopes: [core]", "requires: [mcp.custom]"]);
+    await writeSkill("inline", ["scopes: [core]", "requires: [{mcp: custom}]"]);
 
     const explicit = await bundle(
       ["core"],
@@ -982,7 +1019,7 @@ describe("hooks reached through `requires`", () => {
   });
 
   it("pulls a hook in behind the skill that requires it, and names the requirer", async () => {
-    await writeSkill("risky", ["scopes: [core]", `requires: [hook.${HOOK_NAME}]`]);
+    await writeSkill("risky", ["scopes: [core]", `requires: [{hook: ${HOOK_NAME}}]`]);
 
     const required = await bundle(["core"]);
 
@@ -994,14 +1031,14 @@ describe("hooks reached through `requires`", () => {
   });
 
   it("unions a required hook's env, so the closure feeds the credential list too", async () => {
-    await writeSkill("risky", ["scopes: [core]", `requires: [hook.${HOOK_NAME}]`]);
+    await writeSkill("risky", ["scopes: [core]", `requires: [{hook: ${HOOK_NAME}}]`]);
 
     expect((await bundle(["core"])).env).toContain("GUARD_TOKEN");
   });
 
   it("reaches a hook down a chain, not only from a skill a scope selected", async () => {
-    await writeSkill("chain-leaf", [`requires: [hook.${HOOK_NAME}]`]);
-    await writeSkill("chain-root", ["scopes: [core]", "requires: [chain-leaf]"]);
+    await writeSkill("chain-leaf", [`requires: [{hook: ${HOOK_NAME}}]`]);
+    await writeSkill("chain-root", ["scopes: [core]", "requires: [{skill: chain-leaf}]"]);
 
     const required = await bundle(["core"]);
 
@@ -1015,7 +1052,7 @@ describe("hooks reached through `requires`", () => {
   it("leaves the hook out when nothing selected requires it", async () => {
     // The same catalog, the same hook: what differs is that the requiring skill is not selected, so
     // the edge exists and reaches nothing.
-    await writeSkill("risky", ["scopes: [project.acme]", `requires: [hook.${HOOK_NAME}]`]);
+    await writeSkill("risky", ["scopes: [project.acme]", `requires: [{hook: ${HOOK_NAME}}]`]);
 
     expect(writtenHooks(await bundle(["core"]))).toEqual([]);
   });
@@ -1024,7 +1061,7 @@ describe("hooks reached through `requires`", () => {
     // An inline `hooks` entry is folded into the merged catalog, so a `requires` edge resolves against
     // it exactly as against a catalog's — and being named outright is the shorter true answer, which
     // is the precedence every namespace's reason follows.
-    await writeSkill("risky", ["scopes: [core]", "requires: [hook.declared]"]);
+    await writeSkill("risky", ["scopes: [core]", "requires: [{hook: declared}]"]);
     const inline = await bundle(
       ["core"],
       [
@@ -1084,8 +1121,8 @@ describe("selection reasons", () => {
   });
 
   it("names the first requirer by name, not the first the closure happened to walk", async () => {
-    await writeSkill("twice-left", ["scopes: [core]", "requires: [mcp.fixture]"]);
-    await writeSkill("twice-right", ["scopes: [core]", "requires: [mcp.fixture]"]);
+    await writeSkill("twice-left", ["scopes: [core]", "requires: [{mcp: fixture}]"]);
+    await writeSkill("twice-right", ["scopes: [core]", "requires: [{mcp: fixture}]"]);
 
     expect((await bundle(["core"])).reasons.mcps.get("fixture")).toEqual({
       kind: "required-by",
@@ -1219,26 +1256,61 @@ describe("ambit why", () => {
     );
   });
 
-  it("finds a server by its bare name and by the `mcp.` prefix `requires` uses", async () => {
+  it("finds a server by its bare name and by the `mcp:` reference `requires` uses", async () => {
     await writeProfile(["project.acme"]);
 
     const bare = await cli("why", "fixture");
-    const prefixed = await cli("why", "mcp.fixture");
+    const referenced = await cli("why", "mcp:fixture");
 
     expect(bare.code, bare.stderr).toBe(ExitCode.Success);
     expect(bare.stdout).toContain("mcp fixture");
     expect(bare.stdout).toContain(
       `${"fixture".padEnd(PROJECT_SKILL.length)}  mcp    required-by:${PROJECT_SKILL}`,
     );
-    expect(prefixed.stdout).toBe(bare.stdout);
+    expect(referenced.stdout).toBe(bare.stdout);
   });
 
-  it("prefers the skill for a bare name both namespaces hold, and the prefix names the server", async () => {
+  it("refuses a bare name two namespaces hold, offering both readings", async () => {
     await writeMcp(CORE_SKILL, ["scopes: [core]"]);
     await writeProfile(["core"]);
 
-    expect((await cli("why", CORE_SKILL)).stdout).toContain(`skill ${CORE_SKILL}`);
-    expect((await cli("why", `mcp.${CORE_SKILL}`)).stdout).toContain(`mcp ${CORE_SKILL}`);
+    const result = await cli("why", CORE_SKILL);
+
+    // No precedence rule. Ranking them is what made `ambit why` and a `requires` entry read one
+    // string two different ways, which is the whole bug this format removed.
+    expect(result.code).toBe(ExitCode.Resolution);
+    expect(result.stderr).toContain(`"${CORE_SKILL}" names 2 things`);
+    expect(result.stderr).toContain(`ambit why skill:${CORE_SKILL}`);
+    expect(result.stderr).toContain(`ambit why mcp:${CORE_SKILL}`);
+  });
+
+  it("names either namespace for a name both hold, when asked for one", async () => {
+    await writeMcp(CORE_SKILL, ["scopes: [core]"]);
+    await writeProfile(["core"]);
+
+    expect((await cli("why", `skill:${CORE_SKILL}`)).stdout).toContain(`skill ${CORE_SKILL}`);
+    expect((await cli("why", `mcp:${CORE_SKILL}`)).stdout).toContain(`mcp ${CORE_SKILL}`);
+  });
+
+  it("reaches a skill whose own name reads like another namespace's prefix", async () => {
+    // The bug this format was changed for: `skills/mcp/sentry/SKILL.md` is the skill `mcp.sentry`,
+    // and under a prefix convention no string could name it.
+    await writeSkill("mcp.sentry", ["scopes: [core]"]);
+    await writeProfile(["core"]);
+
+    expect((await cli("why", "skill:mcp.sentry")).stdout).toContain("skill mcp.sentry");
+    expect((await cli("why", "mcp.sentry")).stdout).toContain("skill mcp.sentry");
+  });
+
+  it("lets a skill named for one namespace and an entity of that name coexist", async () => {
+    await writeSkill("mcp.sentry", ["scopes: [core]"]);
+    await writeMcp("sentry", ["scopes: [core]"]);
+    await writeProfile(["core"]);
+
+    // Two different things, and both reachable: the skill by its own name, the server by a
+    // reference. Neither shadows the other.
+    expect((await cli("why", "mcp.sentry")).stdout).toContain("skill mcp.sentry");
+    expect((await cli("why", "mcp:sentry")).stdout).toContain("mcp sentry");
   });
 
   it("prints the chain to a hook a skill required, ending on the hook", async () => {
@@ -1248,10 +1320,10 @@ describe("ambit why", () => {
       "type: command",
       "command: npx guard",
     ]);
-    await writeSkill("risky", ["scopes: [core]", "requires: [hook.guard]"]);
+    await writeSkill("risky", ["scopes: [core]", "requires: [{hook: guard}]"]);
     await writeProfile(["core"]);
 
-    const result = await cli("why", "hook.guard");
+    const result = await cli("why", "hook:guard");
 
     expect(result.code, result.stderr).toBe(ExitCode.Success);
     expect(result.stdout).toBe(
@@ -1267,7 +1339,7 @@ describe("ambit why", () => {
     expect((await cli("why", "guard")).stdout).toBe(result.stdout);
   });
 
-  it("insists on the hook for a `hook.`-prefixed name a skill also answers to", async () => {
+  it("insists on the hook for a `hook:` reference a skill also answers to", async () => {
     await writeHook(CORE_SKILL, [
       "scopes: [core]",
       "event: Stop",
@@ -1276,8 +1348,8 @@ describe("ambit why", () => {
     ]);
     await writeProfile(["core"]);
 
-    expect((await cli("why", CORE_SKILL)).stdout).toContain(`skill ${CORE_SKILL}`);
-    expect((await cli("why", `hook.${CORE_SKILL}`)).stdout).toContain(`hook ${CORE_SKILL}`);
+    expect((await cli("why", `skill:${CORE_SKILL}`)).stdout).toContain(`skill ${CORE_SKILL}`);
+    expect((await cli("why", `hook:${CORE_SKILL}`)).stdout).toContain(`hook ${CORE_SKILL}`);
   });
 
   it("points at `requires` for an unselected hook, which no `skills` entry can reach", async () => {
@@ -1290,12 +1362,12 @@ describe("ambit why", () => {
     ]);
     await writeProfile(["core"]);
 
-    const result = await cli("why", "hook.guard");
+    const result = await cli("why", "hook:guard");
 
     expect(result.code).toBe(ExitCode.Resolution);
     expect(result.stderr).toContain('hook "guard" is not in the bundle');
     expect(result.stderr).toContain("hold one of its scopes (project.acme)");
-    expect(result.stderr).toContain("have a selected skill `require` hook.guard");
+    expect(result.stderr).toContain("have a selected skill require it, with `- hook: guard`");
   });
 
   it("reports an explicit entry as the whole chain, since nothing precedes it", async () => {
@@ -1310,7 +1382,7 @@ describe("ambit why", () => {
   it("emits the chain, the item, and its reason as JSON", async () => {
     await writeProfile(["project.acme"]);
 
-    const result = await cli("why", "mcp.fixture", "--json");
+    const result = await cli("why", "mcp:fixture", "--json");
 
     expect(JSON.parse(result.stdout)).toEqual({
       chain: [
@@ -1342,11 +1414,11 @@ describe("ambit why", () => {
   it("points at `requires` for an unselected server, which no `skills` entry can reach", async () => {
     await writeProfile(["core"]);
 
-    const result = await cli("why", "mcp.fixture");
+    const result = await cli("why", "mcp:fixture");
 
     expect(result.code).toBe(ExitCode.Resolution);
     expect(result.stderr).toContain('MCP server "fixture" is not in the bundle');
-    expect(result.stderr).toContain("have a selected skill `require` mcp.fixture");
+    expect(result.stderr).toContain("have a selected skill require it, with `- mcp: fixture`");
   });
 
   it("exits 3 for a name nothing provides, and says where to look", async () => {
@@ -1354,7 +1426,28 @@ describe("ambit why", () => {
 
     expect(result.code).toBe(ExitCode.Resolution);
     expect(result.stderr).toContain('unknown skill, MCP server or hook "absent-skill"');
-    expect(result.stderr).toContain("run `ambit catalog` to see what is available");
+    expect(result.stderr).toContain("run `ambit dump-catalog` to see what is available");
+  });
+
+  it("exits 3 for a reference nothing provides, without falling back to another namespace", async () => {
+    await writeProfile(["core"]);
+
+    // `core-skill` is a skill this catalog does have. A reference is taken at its word, so naming
+    // the wrong namespace is a miss rather than a lookup that wanders into the right one.
+    const result = await cli("why", `mcp:${CORE_SKILL}`);
+
+    expect(result.code).toBe(ExitCode.Resolution);
+    expect(result.stderr).toContain(`unknown skill, MCP server or hook "mcp:${CORE_SKILL}"`);
+  });
+
+  it("refuses a reference whose kind is not a namespace", async () => {
+    await writeProfile(["core"]);
+
+    const result = await cli("why", "server:fixture");
+
+    // Not a reference at all — `server:` is no kind — so it is a bare name, and nothing holds it.
+    expect(result.code).toBe(ExitCode.Resolution);
+    expect(result.stderr).toContain('unknown skill, MCP server or hook "server:fixture"');
   });
 });
 

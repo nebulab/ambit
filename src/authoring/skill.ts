@@ -44,6 +44,13 @@ import {
 } from "./editor.js";
 import type { AmbitError } from "../errors.js";
 import { at, configError, resolutionError } from "../errors.js";
+import type { Requirement } from "../model/requirement.js";
+import {
+  formatRequirement,
+  parseRequirement,
+  sameRequirement,
+  sortedUniqueRequirements,
+} from "../model/requirement.js";
 import { emitYaml } from "../model/yaml.js";
 
 /**
@@ -99,6 +106,7 @@ export interface SkillAnnotations {
   /** The harness's own summary. Absent leaves the key out rather than writing an empty one. */
   readonly description?: string;
   readonly scopes?: readonly string[];
+  /** Each as a `<kind>:<name>` reference, the spelling a flag can carry — see {@link Requirement}. */
   readonly requires?: readonly string[];
   readonly env?: readonly string[];
 }
@@ -193,7 +201,7 @@ function stillRequired(name: string, requirers: readonly string[]): AmbitError {
     `skill "${name}" is still required ${at(skillDocumentPath(name), undefined)}`,
     [
       ...requirers,
-      `clear it from each with \`ambit catalog annotate <skill> --remove-requires ${name}\`, or rename it with \`ambit catalog skill mv ${name} <new>\``,
+      `clear it from each with \`ambit catalog annotate skill:<skill> --remove-requires ${formatRequirement({ kind: "skill", name })}\`, or rename it with \`ambit catalog skill mv ${name} <new>\``,
     ],
   );
 }
@@ -238,8 +246,11 @@ function provided(catalog: Catalog, name: string): CatalogSkill {
 
 /** @throws {AmbitError} exit 3 if any other skill requires `skill`, naming every one of them. */
 function assertNothingRequires(catalog: Catalog, skill: CatalogSkill): void {
+  const target: Requirement = { kind: "skill", name: skill.name };
   const requirers = catalog.skills.filter(
-    (candidate) => candidate.name !== skill.name && candidate.requires.includes(skill.name),
+    (candidate) =>
+      candidate.name !== skill.name &&
+      candidate.requires.some((requirement) => sameRequirement(requirement, target)),
   );
   if (requirers.length === 0) return;
   throw stillRequired(skill.name, requirers.map(requires));
@@ -282,12 +293,16 @@ function skillBody(name: string): string {
  */
 function renderSkill(name: string, annotations: SkillAnnotations): string {
   const scopes = sortedUnique(annotations.scopes ?? []);
-  const required = sortedUnique(annotations.requires ?? []);
+  const required = sortedUniqueRequirements(
+    (annotations.requires ?? []).map((reference) => parseRequirement(reference)),
+  );
   const env = sortedUnique(annotations.env ?? []);
 
   const ambit = {
     ...(scopes.length > 0 && { [SCOPES_KEY]: scopes }),
-    ...(required.length > 0 && { [REQUIRES_KEY]: required }),
+    ...(required.length > 0 && {
+      [REQUIRES_KEY]: required.map((item) => ({ [item.kind]: item.name })),
+    }),
     ...(env.length > 0 && { [ENV_KEY]: env }),
   };
 
@@ -301,25 +316,33 @@ function renderSkill(name: string, annotations: SkillAnnotations): string {
 }
 
 /**
- * A `requires` list with one name rewritten, or `undefined` when the rename leaves it alone.
+ * A `requires` list with one skill renamed, or `undefined` when the rename leaves it alone.
+ *
+ * Only the skill namespace is touched, and that is now a property of the data rather than of a string
+ * comparison: an entry naming the MCP entity `close-crm` is untouched by a skill of that name being
+ * renamed, because the entry says which namespace it is in.
  *
  * The order is the author's: this rewrites names, it does not sort or reformat a list (authoring
  * rule 2). A duplicate the rewrite creates is dropped at its later position, since one requirement
  * written twice is not something anybody wrote.
  */
 function rewrittenRequires(
-  declared: readonly string[],
+  declared: readonly Requirement[],
   from: string,
   to: string,
-): readonly string[] | undefined {
-  const mapped: string[] = [];
+): readonly Requirement[] | undefined {
+  const mapped: Requirement[] = [];
   for (const requirement of declared) {
-    const next = requirement === from ? to : requirement;
-    if (!mapped.includes(next)) mapped.push(next);
+    const next: Requirement =
+      requirement.kind === "skill" && requirement.name === from
+        ? { kind: "skill", name: to }
+        : requirement;
+    if (!mapped.some((seen) => sameRequirement(seen, next))) mapped.push(next);
   }
 
   const same =
-    mapped.length === declared.length && mapped.every((value, index) => value === declared[index]);
+    mapped.length === declared.length &&
+    mapped.every((value, index) => sameRequirement(value, declared[index]!));
   return same ? undefined : mapped;
 }
 
@@ -329,9 +352,10 @@ function rewrittenRequires(
  * @param root the catalog root, absolute.
  * @param name the skill's name, which decides where it is written.
  * @param options the annotations to write, and `--dry-run`.
- * @throws {AmbitError} exit 2 for a name that cannot be a path, a catalog that does not parse, or a
- *   write that fails; exit 3 for a name the catalog already provides, a `--scope` its registry does not
- *   hold, or a result that would not validate — with nothing written.
+ * @throws {AmbitError} exit 2 for a name that cannot be a path, a `--requires` entry that names no
+ *   namespace, a catalog that does not parse, or a write that fails; exit 3 for a name the catalog
+ *   already provides, a `--scope` its registry does not hold, or a result that would not validate —
+ *   with nothing written.
  */
 export async function newSkill(
   root: string,
@@ -339,6 +363,9 @@ export async function newSkill(
   options: SkillNewOptions = {},
 ): Promise<SkillNewResult> {
   assertSkillName(name);
+  // Ahead of the read, so a `--requires` entry that names no namespace costs no disk work — the same
+  // stance `assertSkillName` takes on a name that cannot be a path.
+  for (const reference of options.requires ?? []) parseRequirement(reference);
 
   const catalog = await readCatalog(root);
   const existing = catalog.skills.find((candidate) => candidate.name === name);
@@ -420,7 +447,7 @@ export async function renameSkill(
   const moved = await CatalogDocument.open(root, skillDocumentOf(skill));
   moved.setString([NAME_KEY], to);
   const self = rewrittenRequires(skill.requires, from, to);
-  if (self !== undefined) moved.setStringList(REQUIRES_PATH, self);
+  if (self !== undefined) moved.setRequirementList(REQUIRES_PATH, self);
   changes.push({ file: skillDocumentPath(to), text: moved.text() });
 
   for (const other of catalog.skills) {
@@ -428,7 +455,7 @@ export async function renameSkill(
     const declared = rewrittenRequires(other.requires, from, to);
     if (declared === undefined) continue;
     const document = await CatalogDocument.open(root, skillDocumentOf(other));
-    document.setStringList(REQUIRES_PATH, declared);
+    document.setRequirementList(REQUIRES_PATH, declared);
     changes.push(document.change());
   }
 

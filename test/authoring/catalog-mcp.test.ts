@@ -408,7 +408,7 @@ describe("ambit catalog mcp new", () => {
         "files (1)",
         `  ${NOTES_FILE}  created`,
         "",
-        `next: nothing selects it yet — run \`ambit catalog annotate mcp.${NOTES} --add-scope <scope>\`, or \`ambit catalog annotate <skill> --add-requires mcp.${NOTES}\``,
+        `next: nothing selects it yet — run \`ambit catalog annotate mcp:${NOTES} --add-scope <scope>\`, or \`ambit catalog annotate skill:<skill> --add-requires mcp:${NOTES}\``,
       ].join("\n"),
     );
   });
@@ -474,7 +474,7 @@ describe("ambit catalog mcp rm", () => {
     // predated it — and the requirement keeps its `mcp.` prefix while the requirer, always
     // a skill, does not.
     expect(result.stderr).toContain(
-      `clear it from each with \`ambit catalog annotate <skill> --remove-requires mcp.${REQUIRED}\``,
+      `clear it from each with \`ambit catalog annotate skill:<skill> --remove-requires mcp:${REQUIRED}\``,
     );
   });
 

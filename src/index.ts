@@ -138,11 +138,22 @@ export {
   splitFrontmatter,
 } from "./model/yaml.js";
 export type { FrontmatterSplit, PositionedString } from "./model/yaml.js";
+export {
+  ITEM_KINDS,
+  KIND_NOUNS,
+  KIND_SEPARATOR,
+  formatRequirement,
+  isRequirementReference,
+  parseRequirement,
+  parseRequirements,
+  requirementYaml,
+  sameRequirement,
+  sortedUniqueRequirements,
+} from "./model/requirement.js";
+export type { ItemKind, Requirement } from "./model/requirement.js";
 
 // ── resolution — derive and verify the selected closure ───────────────────────────────────────
 export {
-  HOOK_REQUIREMENT_PREFIX,
-  MCP_REQUIREMENT_PREFIX,
   SCOPE_SEPARATOR,
   assertScopesRegistered,
   closeOverRequires,
@@ -153,8 +164,6 @@ export {
   isSelected,
   missingRequirement,
   reasonOf,
-  requirementFor,
-  requirementTarget,
   resolveBundle,
   scopeSuggestion,
   skillFile,
@@ -164,7 +173,6 @@ export {
 export type {
   Bundle,
   BundleItem,
-  ItemKind,
   ReasonedItem,
   Selection,
   SelectionReason,
@@ -219,7 +227,12 @@ export {
 export type { EnvRefStyle } from "./harness/env.js";
 
 // ── authoring — the `ambit catalog …` command family ──────────────────────────────────────────
-export { annotate, annotationDirname, isHookTarget, isMcpTarget } from "./authoring/annotate.js";
+export {
+  annotate,
+  annotationDirname,
+  annotationSubject,
+  assertRequirementRefs,
+} from "./authoring/annotate.js";
 export type {
   AnnotateOptions,
   AnnotateResult,

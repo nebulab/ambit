@@ -272,7 +272,7 @@ describe("dotagents compatibility", () => {
         "--scope",
         CATALOG_INIT_SCOPE,
         "--requires",
-        "company-context",
+        "skill:company-context",
         "--env",
         "ACME_FIGMA_TOKEN",
       );
