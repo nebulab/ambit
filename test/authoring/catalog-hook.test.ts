@@ -479,7 +479,7 @@ describe("ambit catalog hook new", () => {
         "files (1)",
         `  ${NOTIFY_FILE}  created`,
         "",
-        `next: nothing selects it yet — run \`ambit catalog annotate hook.${NOTIFY} --add-scope <scope>\`, or \`ambit catalog annotate <skill> --add-requires hook.${NOTIFY}\``,
+        `next: nothing selects it yet — run \`ambit catalog annotate hook:${NOTIFY} --add-scope <scope>\`, or \`ambit catalog annotate skill:<skill> --add-requires hook:${NOTIFY}\``,
       ].join("\n"),
     );
   });
@@ -546,16 +546,16 @@ describe("ambit catalog hook rm", () => {
 
   it("refuses while a skill requires it, naming the requirer", async () => {
     await newNotify();
-    await author("annotate", REQUIRER, "--add-requires", `hook.${NOTIFY}`);
+    await author("annotate", `skill:${REQUIRER}`, "--add-requires", `hook:${NOTIFY}`);
 
     const result = await refused(ExitCode.Resolution, "rm", NOTIFY);
 
     expect(result.stderr).toContain(`hook "${NOTIFY}" is still required (${NOTIFY_FILE})`);
     expect(result.stderr).toContain(`skill "${REQUIRER}" requires it (${REQUIRER_FILE})`);
-    // The requirement keeps its `hook.` prefix, spelled the one way `requires` accepts, while the
+    // The requirement is a `hook:` reference, the one way a flag accepts it, while the
     // requirer — always a skill — carries none.
     expect(result.stderr).toContain(
-      `clear it from each with \`ambit catalog annotate <skill> --remove-requires hook.${NOTIFY}\``,
+      `clear it from each with \`ambit catalog annotate skill:<skill> --remove-requires hook:${NOTIFY}\``,
     );
   });
 

@@ -40,13 +40,7 @@ import type { CatalogChange, EditOptions, EditedFile } from "./editor.js";
 import { CatalogDocument, applyCatalogEdit } from "./editor.js";
 import type { AmbitError } from "../errors.js";
 import { at, configError, resolutionError } from "../errors.js";
-import {
-  HOOK_REQUIREMENT_PREFIX,
-  MCP_REQUIREMENT_PREFIX,
-  SCOPE_SEPARATOR,
-  inSubtree,
-  scopeSuggestion,
-} from "../resolution/resolve.js";
+import { SCOPE_SEPARATOR, inSubtree, scopeSuggestion } from "../resolution/resolve.js";
 
 /** The registry's one top-level key. */
 const REGISTRY_KEY = "scopes";
@@ -133,16 +127,9 @@ function unknownScope(scope: string, registered: readonly ScopeDefinition[]): Am
  * exists.
  */
 function stillDeclared(scope: string, declarers: Declarers): AmbitError {
-  // `annotate` takes a skill by name and the other two by prefix, so each spelling is worth explaining
-  // only when something that needs it is actually among the declarers.
-  const prefixed: string[] = [];
-  if (declarers.servers) prefixed.push(`a server \`${MCP_REQUIREMENT_PREFIX}<server>\``);
-  if (declarers.hooks) prefixed.push(`a hook \`${HOOK_REQUIREMENT_PREFIX}<hook>\``);
-  const naming = prefixed.length > 0 ? ` (naming ${prefixed.join(" and ")})` : "";
-
   return resolutionError(`scope "${scope}" is still declared ${at(SCOPES_FILENAME, undefined)}`, [
-    ...declarers.lines,
-    `clear it from each with \`ambit catalog annotate <name> --remove-scope ${scope}\`${naming}, or rename it with \`ambit catalog scope mv ${scope} <new>\``,
+    ...declarers,
+    `clear it from each with \`ambit catalog annotate <kind>:<name> --remove-scope ${scope}\`, or rename it with \`ambit catalog scope mv ${scope} <new>\``,
   ]);
 }
 
@@ -206,18 +193,15 @@ function declares(kind: string, name: string, file: string): string {
   return `${kind} "${name}" declares it ${at(file, undefined)}`;
 }
 
-/** Everything declaring one scope, as a refusal names them. */
-interface Declarers {
-  /**
-   * One line per declarer: skills, then servers, then hooks, each group in name order, as the catalog
-   * parsed them — the order every report lists the three namespaces in.
-   */
-  readonly lines: readonly string[];
-  /** Whether a server is among them, which `catalog annotate` names differently from a skill. */
-  readonly servers: boolean;
-  /** Whether a hook is among them, which `catalog annotate` names by its own prefix. */
-  readonly hooks: boolean;
-}
+/**
+ * Everything declaring one scope, as a refusal names them: one line per declarer — skills, then
+ * servers, then hooks, each group in name order, as the catalog parsed them, which is the order every
+ * report lists the three namespaces in.
+ *
+ * A plain list, and no longer a note about which namespaces are among them: `catalog annotate` takes
+ * every subject as a `<kind>:<name>` reference, so one placeholder covers all three.
+ */
+type Declarers = readonly string[];
 
 /**
  * Everything declaring `scope`.
@@ -236,13 +220,12 @@ function declarersOf(catalog: Catalog, scope: string): Declarers {
     declares("skill", skill.name, skillDocumentOf(skill)),
   );
 
-  const servers = declaring(catalog.mcps);
-  lines.push(...servers.map((mcp) => declares("MCP server", mcp.name, mcp.file)));
+  lines.push(...declaring(catalog.mcps).map((mcp) => declares("MCP server", mcp.name, mcp.file)));
+  lines.push(
+    ...declaring(catalog.hooks).map((hook) => declares("hook", hook.name, hookDocumentOf(hook))),
+  );
 
-  const hooks = declaring(catalog.hooks);
-  lines.push(...hooks.map((hook) => declares("hook", hook.name, hookDocumentOf(hook))));
-
-  return { lines, servers: servers.length > 0, hooks: hooks.length > 0 };
+  return lines;
 }
 
 /**
@@ -343,7 +326,7 @@ export async function removeScope(
   assertRegistered(catalog, scope);
 
   const declarers = declarersOf(catalog, scope);
-  if (declarers.lines.length > 0) throw stillDeclared(scope, declarers);
+  if (declarers.length > 0) throw stillDeclared(scope, declarers);
 
   const registry = await CatalogDocument.open(root, SCOPES_FILENAME);
   registry.remove([REGISTRY_KEY, scope]);

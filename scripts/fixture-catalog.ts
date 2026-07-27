@@ -86,9 +86,9 @@ description: The Acme engagement brief — scope, contacts, and conventions.
 ambit:
   scopes: [project.acme]
   requires:
-    - company-context
-    - mcp.fixture
-    - hook.acme-standup
+    - skill: company-context
+    - mcp: fixture
+    - hook: acme-standup
 ---
 
 # Acme engagement brief

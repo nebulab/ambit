@@ -31,6 +31,14 @@ import type {
 } from "../model/catalog.js";
 import { HOOKS_DIRNAME, MCPS_DIRNAME, SCOPES_FILENAME, SKILL_FILENAME } from "../model/catalog.js";
 import type { ProjectConfig } from "../model/config.js";
+import type { ItemKind, Requirement } from "../model/requirement.js";
+import {
+  KIND_NOUNS,
+  formatRequirement,
+  requirementYaml,
+  sameRequirement,
+  sortedUniqueRequirements,
+} from "../model/requirement.js";
 import { AmbitError, ExitCode, at, resolutionError } from "../errors.js";
 
 /**
@@ -41,23 +49,6 @@ import { AmbitError, ExitCode, at, resolutionError } from "../errors.js";
  */
 export const SCOPE_SEPARATOR = ".";
 
-/**
- * What marks a `requires` entry as naming an MCP entity rather than a skill.
- *
- * Exported because a prefix is the only disambiguator the namespaces have, so anything that takes a
- * name from a human — `ambit why` — has to read it the same way `requires` does.
- */
-export const MCP_REQUIREMENT_PREFIX = "mcp.";
-
-/**
- * What marks a `requires` entry as naming a hook rather than a skill.
- *
- * The same argument {@link MCP_REQUIREMENT_PREFIX} makes, one namespace over: a bare name is a skill,
- * so a hook has to say so. This is how a hook reaches a project without being named — a skill that is
- * unsafe without its guard pulls the guard in.
- */
-export const HOOK_REQUIREMENT_PREFIX = "hook.";
-
 /** A set of catalog items under consideration, each list sorted by name. */
 export interface Selection {
   readonly skills: readonly MergedSkill[];
@@ -65,14 +56,16 @@ export interface Selection {
   readonly hooks: readonly MergedHook[];
 }
 
-/** Which of the bundle's namespaces a name belongs to. */
-export type ItemKind = "skill" | "mcp" | "hook";
+export type { ItemKind };
 
-/** One item of a bundle, named the way its namespace requires. */
-export interface BundleItem {
-  readonly kind: ItemKind;
-  readonly name: string;
-}
+/**
+ * One item of a bundle: which namespace, and the name inside it.
+ *
+ * The same type a `requires` entry parses to, and deliberately so — a requirement names exactly what a
+ * bundle item is, and the whole point of {@link Requirement} is that the pair travels together instead
+ * of being packed into a string somebody has to unpack again.
+ */
+export type BundleItem = Requirement;
 
 /**
  * Why one item is in the bundle — one of the three routes resolution offers, and never
@@ -294,50 +287,6 @@ export function skillFile(skill: MergedSkill): string {
   return `${skill.path}/${SKILL_FILENAME}`;
 }
 
-/**
- * Which namespace a `requires` entry names, and the name inside it.
- *
- * The prefixes are the only disambiguator the three namespaces have, so one function reads them:
- * closure, validation, and the error a failure raises cannot then disagree about what
- * `hook.block-rm` means.
- *
- * Exported for validation, which resolves the same entries across a whole catalog rather than a
- * closure.
- */
-export function requirementTarget(requirement: string): BundleItem {
-  if (requirement.startsWith(MCP_REQUIREMENT_PREFIX)) {
-    return { kind: "mcp", name: requirement.slice(MCP_REQUIREMENT_PREFIX.length) };
-  }
-  if (requirement.startsWith(HOOK_REQUIREMENT_PREFIX)) {
-    return { kind: "hook", name: requirement.slice(HOOK_REQUIREMENT_PREFIX.length) };
-  }
-  return { kind: "skill", name: requirement };
-}
-
-/**
- * How a `requires` entry names an item — the inverse of {@link requirementTarget}.
- *
- * A switch rather than a ternary, so a fourth namespace is a type error here instead of a name
- * silently written without its prefix.
- */
-export function requirementFor(item: BundleItem): string {
-  switch (item.kind) {
-    case "skill":
-      return item.name;
-    case "mcp":
-      return `${MCP_REQUIREMENT_PREFIX}${item.name}`;
-    case "hook":
-      return `${HOOK_REQUIREMENT_PREFIX}${item.name}`;
-  }
-}
-
-/** What a namespace is called in a message about one of its members. */
-const NOUNS: Readonly<Record<ItemKind, string>> = {
-  skill: "a skill",
-  mcp: "an MCP entity",
-  hook: "a hook",
-};
-
 /** Where a missing member of each namespace is added, as the last line of an error says. */
 const WHERE_TO_ADD: Readonly<Record<ItemKind, string>> = {
   skill: "add it to a catalog",
@@ -349,15 +298,17 @@ const WHERE_TO_ADD: Readonly<Record<ItemKind, string>> = {
  * The error for a `requires` entry no catalog can satisfy.
  *
  * Both halves of the edge are named — the requirer and the target — because either could be the
- * mistake: a skill may have been renamed, or the requirement misspelled.
+ * mistake: a skill may have been renamed, or the requirement misspelled. The namespace is named
+ * outright rather than left to be read off a prefix, since that is what the entry itself now says.
  */
-export function missingRequirement(requirer: MergedSkill, requirement: string): AmbitError {
-  const target = requirementTarget(requirement);
-
-  return resolutionError(`unresolvable requirement "${requirement}" (${skillFile(requirer)})`, [
-    `${requirer.name} requires ${NOUNS[target.kind]} named "${target.name}", which no catalog provides`,
-    `${WHERE_TO_ADD[target.kind]}, or remove the \`requires\` entry`,
-  ]);
+export function missingRequirement(requirer: MergedSkill, target: Requirement): AmbitError {
+  return resolutionError(
+    `unresolvable requirement "${formatRequirement(target)}" (${skillFile(requirer)})`,
+    [
+      `${requirer.name} requires ${KIND_NOUNS[target.kind]} named "${target.name}", which no catalog provides`,
+      `${WHERE_TO_ADD[target.kind]}, or remove the \`${requirementYaml(target)}\` entry`,
+    ],
+  );
 }
 
 /**
@@ -376,9 +327,8 @@ export function cycleError(cycle: readonly string[], head: MergedSkill): AmbitEr
 }
 
 /**
- * Closes a selection over `requires` until fixpoint: every skill a selected skill
- * requires, every MCP entity one names with an `mcp.` prefix, and every hook one names with a
- * `hook.` prefix, joins the selection — whether or not its own scopes would ever have selected it.
+ * Closes a selection over `requires` until fixpoint: every skill, MCP entity and hook a selected
+ * skill requires joins the selection — whether or not its own scopes would ever have selected it.
  *
  * That is the point of the mechanism. A skill that is useless without a company-context skill and
  * a server declares so once, and every profile that reaches it gets a working bundle instead of a
@@ -426,27 +376,25 @@ export function closeOverRequires(
 
     // Sorted and deduplicated, so which of several problems in one `requires` list is reported
     // does not depend on the order its author happened to write them in.
-    for (const requirement of sortedUnique(skill.requires)) {
-      const target = requirementTarget(requirement);
-
+    for (const target of sortedUniqueRequirements(skill.requires)) {
       // Both leaf namespaces end the walk: nothing an entity or a hook declares reaches anything
       // else, so joining the selection is all there is to do.
       if (target.kind === "mcp") {
         const required = mcpsByName.get(target.name);
-        if (required === undefined) throw missingRequirement(skill, requirement);
+        if (required === undefined) throw missingRequirement(skill, target);
         chosenMcps.add(required.name);
         continue;
       }
 
       if (target.kind === "hook") {
         const required = hooksByName.get(target.name);
-        if (required === undefined) throw missingRequirement(skill, requirement);
+        if (required === undefined) throw missingRequirement(skill, target);
         chosenHooks.add(required.name);
         continue;
       }
 
       const required = skillsByName.get(target.name);
-      if (required === undefined) throw missingRequirement(skill, requirement);
+      if (required === undefined) throw missingRequirement(skill, target);
       follow(required);
     }
 
@@ -596,8 +544,9 @@ function requiredByReason(
   item: BundleItem,
   selected: readonly MergedSkill[],
 ): SelectionReason | undefined {
-  const target = requirementFor(item);
-  const requirer = selected.find((skill) => skill.requires.includes(target));
+  const requirer = selected.find((skill) =>
+    skill.requires.some((requirement) => sameRequirement(requirement, item)),
+  );
   return requirer === undefined ? undefined : { kind: "required-by", requirer: requirer.name };
 }
 

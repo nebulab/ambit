@@ -49,7 +49,7 @@ allowed-tools: [Read, Grep]
 ambit:
   scopes: [core]
   requires:
-    - company-context
+    - skill: company-context
   env: [CLOSE_API_KEY]
 ---
 
@@ -424,7 +424,7 @@ describe("the catalog editor: refusals", () => {
   });
 
   it("refuses a removal that would leave a requirement dangling", async () => {
-    // `acme-brief` requires `mcp.fixture`, so deleting the entity breaks the catalog
+    // `acme-brief` requires `mcp: fixture`, so deleting the entity breaks the catalog
     // even though the file itself is unreferenced from anywhere else.
     const file = mcpDocumentPath("fixture");
     const before = await read(file);
@@ -435,7 +435,7 @@ describe("the catalog editor: refusals", () => {
     );
 
     expect(error.detail).toContain(
-      `unresolvable requirement "mcp.fixture" (skills/acme-brief/SKILL.md)`,
+      `unresolvable requirement "mcp:fixture" (skills/acme-brief/SKILL.md)`,
     );
     expect(await read(file)).toBe(before);
   });

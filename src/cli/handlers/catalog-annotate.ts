@@ -14,10 +14,16 @@
  *
  * Both of them name a *directory* rather than a file, deliberately: neither has read the catalog yet, so
  * neither can know which §3.3 extension an entity carries, and a message that guessed `.yml` would send
- * the reader to a file that is not there.
+ * the reader to a file that is not there. They can name a directory at all only because the subject is a
+ * `<kind>:<name>` reference — a bare name would leave all three in play.
  */
 import type { AnnotateResult, AnnotatedItem, AnnotationEdit } from "../../authoring/annotate.js";
-import { annotate, annotationDirname } from "../../authoring/annotate.js";
+import {
+  annotate,
+  annotationDirname,
+  annotationSubject,
+  assertRequirementRefs,
+} from "../../authoring/annotate.js";
 import type { AnnotationKey } from "../../model/catalog.js";
 import type { CommandContext, CommandHandler, CommandRule } from "../commands.js";
 import {
@@ -40,7 +46,7 @@ const WOULD_DECLARE = "would declare";
 const NONE = "-";
 
 /** How the command is invoked, for the messages that have to say so. */
-const USAGE = "ambit catalog annotate <name> --add-scope <scope>";
+const USAGE = "ambit catalog annotate <kind:name> --add-scope <scope>";
 
 /** One annotation, and the two flags that change it. */
 interface AnnotationFlags {
@@ -134,6 +140,10 @@ function editsOf(
     };
   }
 
+  // Before the catalog is opened, since a `requires` entry that names no namespace is a malformed
+  // invocation rather than something the catalog could settle.
+  assertRequirementRefs(edits.requires);
+
   if (Object.keys(edits).length === 0) throw nothingAsked(name);
   return edits;
 }
@@ -148,7 +158,11 @@ function editsOf(
  * @throws {AmbitError} exit 2 when no flag was given, or one entry is both added and removed.
  */
 export const catalogAnnotateRule: CommandRule = (ctx) => {
-  editsOf(ctx, positional(ctx, 0, USAGE));
+  const name = positional(ctx, 0, USAGE);
+  // The subject first: every other refusal here names the directory the annotation would land in,
+  // which is a question only the subject's namespace can answer.
+  annotationSubject(name);
+  editsOf(ctx, name);
 };
 
 /** One row per annotation the subject may declare, in the order §3.2 tabulates them. */

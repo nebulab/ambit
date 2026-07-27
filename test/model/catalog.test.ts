@@ -260,14 +260,14 @@ describe("catalog parsing", () => {
     });
   });
 
-  it("carries `requires` through, every prefix included", async () => {
+  it("carries `requires` through, each entry naming its own namespace", async () => {
     const catalog = await parseCatalogDirectory(CATALOG_NAME, "path:../catalog", catalogDir);
 
     // In the order the fixture wrote them: a `requires` list is the author's, not a sorted one.
     expect(catalog.skills.find((skill) => skill.name === "acme-brief")?.requires).toEqual([
-      "company-context",
-      "mcp.fixture",
-      "hook.acme-standup",
+      { kind: "skill", name: "company-context" },
+      { kind: "mcp", name: "fixture" },
+      { kind: "hook", name: "acme-standup" },
     ]);
   });
 
@@ -556,7 +556,11 @@ describe("ambit dump-catalog", () => {
           description: "The Acme engagement brief — scope, contacts, and conventions.",
           env: [],
           path: "skills/acme-brief",
-          requires: ["company-context", "mcp.fixture", "hook.acme-standup"],
+          requires: [
+            { kind: "skill", name: "company-context" },
+            { kind: "mcp", name: "fixture" },
+            { kind: "hook", name: "acme-standup" },
+          ],
           scopes: ["project.acme"],
         },
       },
@@ -1152,7 +1156,7 @@ describe("the flag rules Commander enforces before a handler runs", () => {
       [
         "catalog",
         "annotate",
-        CORE_SKILL,
+        `skill:${CORE_SKILL}`,
         "--add-scope",
         "core",
         "--remove-scope",

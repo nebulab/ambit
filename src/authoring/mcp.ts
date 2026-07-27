@@ -19,7 +19,7 @@
  *
  * `new` declares no scopes, because its own surface has no `--scope`: a new server is
  * reachable only through a skill's `requires` until someone gives it a `scopes` entry, and the
- * command says so on the way out. `rm` refuses while any skill requires `mcp.<name>`, naming every
+ * command says so on the way out. `rm` refuses while any skill requires `mcp: <name>`, naming every
  * requirer — the editor would refuse the write anyway, since a dangling requirement does not
  * validate, but the list of files to fix is the useful answer.
  *
@@ -41,7 +41,8 @@ import { applyCatalogEdit, mcpDocumentPath } from "./editor.js";
 import type { AmbitError } from "../errors.js";
 import { at, configError, resolutionError } from "../errors.js";
 import type { McpTransport } from "../model/mcp-entity.js";
-import { MCP_REQUIREMENT_PREFIX } from "../resolution/resolve.js";
+import type { Requirement } from "../model/requirement.js";
+import { formatRequirement, sameRequirement } from "../model/requirement.js";
 import { emitYaml } from "../model/yaml.js";
 
 /** The keys an entity document holds. */
@@ -177,13 +178,13 @@ function requires(skill: CatalogSkill): string {
  *
  * The next step names `catalog annotate`, which postdates this refusal: `--remove-requires` is what
  * clears a `requires` entry now, and an error's next step must be one that exists rather than work
- * the reader is told to do by hand. Only a skill can require a server, so the name the reader passes
- * is a skill's — no `mcp.` prefix on that one, unlike the requirement being cleared.
+ * the reader is told to do by hand. Only a skill can require a server, so both halves of the advice are
+ * namespaced references: the subject is a skill, the requirement being cleared is the server.
  */
 function stillRequired(name: string, file: string, requirers: readonly string[]): AmbitError {
   return resolutionError(`MCP server "${name}" is still required ${at(file, undefined)}`, [
     ...requirers,
-    `clear it from each with \`ambit catalog annotate <skill> --remove-requires ${MCP_REQUIREMENT_PREFIX}${name}\``,
+    `clear it from each with \`ambit catalog annotate skill:<skill> --remove-requires ${formatRequirement({ kind: "mcp", name })}\``,
   ]);
 }
 
@@ -294,8 +295,10 @@ export async function removeMcp(
   const entity = provided(catalog, name);
   const file = entity.file;
 
-  const requirement = `${MCP_REQUIREMENT_PREFIX}${entity.name}`;
-  const requirers = catalog.skills.filter((skill) => skill.requires.includes(requirement));
+  const requirement: Requirement = { kind: "mcp", name: entity.name };
+  const requirers = catalog.skills.filter((skill) =>
+    skill.requires.some((declared) => sameRequirement(declared, requirement)),
+  );
   if (requirers.length > 0) throw stillRequired(entity.name, file, requirers.map(requires));
 
   const result = await applyCatalogEdit(root, [{ file, text: null }], options);

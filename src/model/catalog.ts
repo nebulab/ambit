@@ -28,6 +28,8 @@ import type { HookEntity } from "./hook-entity.js";
 import { commandProgram, parseHookEntity, scriptReference } from "./hook-entity.js";
 import type { McpEntity } from "./mcp-entity.js";
 import { parseMcpEntity } from "./mcp-entity.js";
+import type { Requirement } from "./requirement.js";
+import { parseRequirements } from "./requirement.js";
 import type { ResolvedSource, SourceContext, SourceRequest } from "./sources.js";
 import { resolveSource } from "./sources.js";
 import type { YamlMapping } from "./yaml.js";
@@ -145,8 +147,11 @@ export interface CatalogSkill {
   readonly description?: string;
   /** Declared scopes. Empty means reachable only via `requires` or an explicit listing. */
   readonly scopes: readonly string[];
-  /** Skill names, or MCP names prefixed `mcp.`. */
-  readonly requires: readonly string[];
+  /**
+   * What this skill pulls into a bundle with it, each entry naming its own namespace — see
+   * {@link Requirement}. In the order the author wrote them.
+   */
+  readonly requires: readonly Requirement[];
   /** Env vars the skill itself reads, not via an MCP. */
   readonly env: readonly string[];
 }
@@ -523,7 +528,7 @@ function skillAnnotations(mapping: YamlMapping): Omit<CatalogSkill, "name" | "pa
   return {
     ...(description !== undefined && { description }),
     scopes: ambit?.optionalStringList("scopes") ?? [],
-    requires: ambit?.optionalStringList("requires") ?? [],
+    requires: ambit === undefined ? [] : parseRequirements(ambit, "requires"),
     env: ambit?.optionalStringList("env") ?? [],
   };
 }

@@ -45,7 +45,9 @@ function skillJson(skill: MergedSkill): Readonly<Record<string, unknown>> {
     ...(skill.description !== undefined && { description: skill.description }),
     env: skill.env,
     path: skill.path,
-    requires: skill.requires,
+    // Each entry keeps its two halves apart, as the document writes them: a consumer filtering for
+    // what a skill pulls in should not have to re-derive a namespace from a name.
+    requires: skill.requires.map((item) => ({ kind: item.kind, name: item.name })),
     scopes: skill.scopes,
   };
 }

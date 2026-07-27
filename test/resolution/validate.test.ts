@@ -392,7 +392,7 @@ describe("ambit validate: unregistered scopes", () => {
  */
 describe("ambit validate: requirements and cycles", () => {
   it("reports a dangling requirement `resolve` deliberately ignores", async () => {
-    await writeSkill("broken-unselected", ["requires: [absent-skill]"]);
+    await writeSkill("broken-unselected", ["requires: [{skill: absent-skill}]"]);
 
     const resolved = await cli("resolve");
     const validated = await cli("validate");
@@ -400,13 +400,13 @@ describe("ambit validate: requirements and cycles", () => {
     expect(resolved.code, resolved.stderr).toBe(ExitCode.Success);
     expect(validated.code).toBe(ExitCode.Resolution);
     expect(validated.stdout).toContain(
-      'unresolvable requirement "absent-skill" (skills/broken-unselected/SKILL.md)',
+      'unresolvable requirement "skill:absent-skill" (skills/broken-unselected/SKILL.md)',
     );
     expect(validated.stdout).toContain('broken-unselected requires a skill named "absent-skill"');
   });
 
   it("reports a missing MCP entity by its bare name", async () => {
-    await writeSkill("broken-unselected", ["requires: [mcp.absent]"]);
+    await writeSkill("broken-unselected", ["requires: [{mcp: absent}]"]);
 
     const found = await report("validate");
 
@@ -416,7 +416,7 @@ describe("ambit validate: requirements and cycles", () => {
   });
 
   it("reports a missing hook by its bare name", async () => {
-    await writeSkill("broken-unselected", ["requires: [hook.absent]"]);
+    await writeSkill("broken-unselected", ["requires: [{hook: absent}]"]);
 
     const resolved = await cli("resolve");
     const found = await report("validate");
@@ -430,26 +430,26 @@ describe("ambit validate: requirements and cycles", () => {
     expect(found.problems[0]?.detail[1]).toContain("hooks/");
   });
 
-  it("resolves a `hook.` requirement against the hooks a catalog provides", async () => {
+  it("resolves a `hook:` requirement against the hooks a catalog provides", async () => {
     await writeHook("guard", ["event: Stop", "type: command", "command: npx notify"]);
-    await writeSkill("well-formed", ["requires: [hook.guard]"]);
+    await writeSkill("well-formed", ["requires: [{hook: guard}]"]);
 
     expect((await report("validate")).problems).toEqual([]);
   });
 
   it("follows no edge out of a hook when hunting cycles, since a hook has no `requires`", async () => {
-    // A hook named like a skill in the cycle would send a one-step walk round it twice; the prefix
-    // decides the namespace, so the edge simply ends.
+    // A hook named like a skill in the cycle would send a one-step walk round it twice; the entry
+    // declares its namespace, so the edge simply ends.
     await writeHook("cycle-a", ["event: Stop", "type: command", "command: npx notify"]);
-    await writeSkill("cycle-a", ["requires: [hook.cycle-a]"]);
+    await writeSkill("cycle-a", ["requires: [{hook: cycle-a}]"]);
 
     expect((await report("validate")).problems).toEqual([]);
   });
 
   it("reports a cycle among skills no scope selects, printing the whole path", async () => {
-    await writeSkill("cycle-a", ["requires: [cycle-b]"]);
-    await writeSkill("cycle-b", ["requires: [cycle-c]"]);
-    await writeSkill("cycle-c", ["requires: [cycle-a]"]);
+    await writeSkill("cycle-a", ["requires: [{skill: cycle-b}]"]);
+    await writeSkill("cycle-b", ["requires: [{skill: cycle-c}]"]);
+    await writeSkill("cycle-c", ["requires: [{skill: cycle-a}]"]);
 
     const resolved = await cli("resolve");
     const validated = await cli("validate");
@@ -462,10 +462,10 @@ describe("ambit validate: requirements and cycles", () => {
   });
 
   it("reports two independent cycles as two problems", async () => {
-    await writeSkill("one-a", ["requires: [one-b]"]);
-    await writeSkill("one-b", ["requires: [one-a]"]);
-    await writeSkill("two-a", ["requires: [two-b]"]);
-    await writeSkill("two-b", ["requires: [two-a]"]);
+    await writeSkill("one-a", ["requires: [{skill: one-b}]"]);
+    await writeSkill("one-b", ["requires: [{skill: one-a}]"]);
+    await writeSkill("two-a", ["requires: [{skill: two-b}]"]);
+    await writeSkill("two-b", ["requires: [{skill: two-a}]"]);
 
     const found = await report("validate");
 
@@ -476,10 +476,10 @@ describe("ambit validate: requirements and cycles", () => {
   });
 
   it("reports one loop once, however many skills lead into it", async () => {
-    await writeSkill("entry-left", ["requires: [cycle-a]"]);
-    await writeSkill("entry-right", ["requires: [cycle-b]"]);
-    await writeSkill("cycle-a", ["requires: [cycle-b]"]);
-    await writeSkill("cycle-b", ["requires: [cycle-a]"]);
+    await writeSkill("entry-left", ["requires: [{skill: cycle-a}]"]);
+    await writeSkill("entry-right", ["requires: [{skill: cycle-b}]"]);
+    await writeSkill("cycle-a", ["requires: [{skill: cycle-b}]"]);
+    await writeSkill("cycle-b", ["requires: [{skill: cycle-a}]"]);
 
     const found = await report("validate");
 
@@ -488,9 +488,9 @@ describe("ambit validate: requirements and cycles", () => {
   });
 
   it("reports a dangling requirement and a cycle from one run", async () => {
-    await writeSkill("broken-dangling", ["requires: [absent-skill]"]);
-    await writeSkill("cycle-a", ["requires: [cycle-b]"]);
-    await writeSkill("cycle-b", ["requires: [cycle-a]"]);
+    await writeSkill("broken-dangling", ["requires: [{skill: absent-skill}]"]);
+    await writeSkill("cycle-a", ["requires: [{skill: cycle-b}]"]);
+    await writeSkill("cycle-b", ["requires: [{skill: cycle-a}]"]);
 
     const found = await report("validate");
 
@@ -504,7 +504,7 @@ describe("ambit validate: requirements and cycles", () => {
 describe("ambit validate: name↔path agreement", () => {
   it("lists a mismatch as a problem instead of stopping the run at it", async () => {
     await writeMisnamedSkill("misnamed-thing", "wrong-name");
-    await writeSkill("broken-dangling", ["requires: [absent-skill]"]);
+    await writeSkill("broken-dangling", ["requires: [{skill: absent-skill}]"]);
 
     const validated = await cli("validate");
     const found = await report("validate");
@@ -527,7 +527,7 @@ describe("ambit validate: name↔path agreement", () => {
     // Continuing past the mismatch is only worth anything if the rest of the skill is still checked,
     // and the path is the name every other tool would have installed it under.
     await writeMisnamedSkill("misnamed-thing", "wrong-name");
-    await writeSkill("needs-it", ["requires: [misnamed-thing]"]);
+    await writeSkill("needs-it", ["requires: [{skill: misnamed-thing}]"]);
 
     const found = await report("validate");
 

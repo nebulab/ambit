@@ -38,7 +38,7 @@ const PROJECT_SKILL = "acme-brief";
 const PROJECT_SKILL_FILE = "skills/acme-brief/SKILL.md";
 
 /** The requirement the fixture's project skill carries besides the two below: its hook. */
-const REQUIRED_HOOK = "hook.acme-standup";
+const REQUIRED_HOOK = "acme-standup";
 
 /** The fixture's two servers: one scoped, one carrying no `scopes` key at all. */
 const SCOPED_MCP = "scoped";
@@ -79,7 +79,7 @@ allowed-tools: [Read, Grep]
 ambit:
   scopes: [core]
   requires:
-    - company-context
+    - skill: company-context
   env: [CLOSE_API_KEY]
 ---
 
@@ -87,6 +87,21 @@ ambit:
 
 The body, which no edit may touch.
 `;
+
+/**
+ * How this command names a subject and a requirement: a `<kind>:<name>` reference.
+ *
+ * Never a bare name, because a catalog's three namespaces are flat and independent — a skill may be
+ * called `mcp.sentry` — so a bare name is in none of them in particular and the command refuses one.
+ */
+const CORE_REF = `skill:${CORE_SKILL}`;
+const REVIEW_REF = `skill:${REVIEW_SKILL}`;
+const PROJECT_REF = `skill:${PROJECT_SKILL}`;
+const CLOSE_REF = `skill:${CLOSE_SKILL}`;
+const SCOPED_MCP_REF = `mcp:${SCOPED_MCP}`;
+const UNSCOPED_MCP_REF = `mcp:${UNSCOPED_MCP}`;
+const HOOK_REF = `hook:${HOOK}`;
+const REQUIRED_HOOK_REF = `hook:${REQUIRED_HOOK}`;
 
 let root: string;
 let catalogDir: string;
@@ -204,7 +219,7 @@ afterEach(async () => {
 
 describe("ambit catalog annotate, on a skill", () => {
   it("adds a scope, leaving every other byte of the document alone", async () => {
-    await succeeds(CORE_SKILL, "--add-scope", ENGINEERING);
+    await succeeds(CORE_REF, "--add-scope", ENGINEERING);
 
     expect(await read(CORE_SKILL_FILE)).toBe(
       fixture(CORE_SKILL_FILE).replace(
@@ -217,7 +232,7 @@ describe("ambit catalog annotate, on a skill", () => {
 
   it("sorts and deduplicates the list it rewrites, so argv order is not information", async () => {
     await succeeds(
-      CORE_SKILL,
+      CORE_REF,
       "--add-scope",
       PROJECT_SCOPE,
       "--add-scope",
@@ -231,7 +246,7 @@ describe("ambit catalog annotate, on a skill", () => {
   });
 
   it("removes an entry, and leaves an empty list rather than a removed key", async () => {
-    await succeeds(CORE_SKILL, "--remove-scope", CORE_SCOPE);
+    await succeeds(CORE_REF, "--remove-scope", CORE_SCOPE);
 
     // "Declares none" and "says nothing" read the same to the parser, but only one of them is a
     // statement the author made — a command that deleted the key would undo the annotation.
@@ -244,18 +259,21 @@ describe("ambit catalog annotate, on a skill", () => {
 
   it("adds and removes across every annotation in one run", async () => {
     await succeeds(
-      PROJECT_SKILL,
+      PROJECT_REF,
       "--add-scope",
       CORE_SCOPE,
       "--remove-requires",
-      CORE_SKILL,
+      CORE_REF,
       "--add-env",
       "ACME_BRIEF_TOKEN",
     );
 
     expect(await skill(PROJECT_SKILL)).toMatchObject({
       scopes: [CORE_SCOPE, PROJECT_SCOPE],
-      requires: [REQUIRED_HOOK, "mcp.fixture"],
+      requires: [
+        { kind: "hook", name: REQUIRED_HOOK },
+        { kind: "mcp", name: "fixture" },
+      ],
       env: ["ACME_BRIEF_TOKEN"],
     });
     await validates();
@@ -264,7 +282,7 @@ describe("ambit catalog annotate, on a skill", () => {
   it("keeps an unknown harness key, the comment above it, the layouts, and the body", async () => {
     await write(CLOSE_SKILL_FILE, CLOSE_SKILL_TEXT);
 
-    await succeeds(CLOSE_SKILL, "--add-env", "CLOSE_BASE_URL");
+    await succeeds(CLOSE_REF, "--add-env", "CLOSE_BASE_URL");
 
     // One substitution, in a file carrying `allowed-tools`, a comment, a flow list, a block list, and
     // prose: everything rule 2 protects is asserted by the equality rather than by five assertions.
@@ -280,7 +298,7 @@ describe("ambit catalog annotate, on a skill", () => {
     const bare = `---\nname: ${CLOSE_SKILL}\ndescription: Calls the Close CRM REST API.\n---\n\n# Close CRM\n`;
     await write(CLOSE_SKILL_FILE, bare);
 
-    await succeeds(CLOSE_SKILL, "--add-scope", CORE_SCOPE);
+    await succeeds(CLOSE_REF, "--add-scope", CORE_SCOPE);
 
     expect(await read(CLOSE_SKILL_FILE)).toBe(
       bare.replace("---\n\n# Close", `ambit:\n  scopes:\n    - ${CORE_SCOPE}\n---\n\n# Close`),
@@ -289,14 +307,14 @@ describe("ambit catalog annotate, on a skill", () => {
   });
 
   it("writes a key the document never had at the end, as a block sequence", async () => {
-    await succeeds(CORE_SKILL, "--add-requires", REVIEW_SKILL);
+    await succeeds(CORE_REF, "--add-requires", REVIEW_REF);
 
     // A key ambit adds has no layout to preserve, so it takes ambit's own and lands after
     // the keys that were already there rather than being sorted into them.
     expect(await read(CORE_SKILL_FILE)).toBe(
       fixture(CORE_SKILL_FILE).replace(
         `  scopes: [${CORE_SCOPE}]\n---`,
-        `  scopes: [${CORE_SCOPE}]\n  requires:\n    - ${REVIEW_SKILL}\n---`,
+        `  scopes: [${CORE_SCOPE}]\n  requires:\n    - skill: ${REVIEW_SKILL}\n---`,
       ),
     );
     await validates();
@@ -313,7 +331,7 @@ describe("ambit catalog annotate, on a skill", () => {
       ),
     );
 
-    await succeeds(CORE_SKILL, "--remove-scope", "ghost.scope");
+    await succeeds(CORE_REF, "--remove-scope", "ghost.scope");
 
     expect(await read(CORE_SKILL_FILE)).toBe(fixture(CORE_SKILL_FILE));
     await validates();
@@ -322,7 +340,7 @@ describe("ambit catalog annotate, on a skill", () => {
 
 describe("ambit catalog annotate, on an MCP entity", () => {
   it("adds and removes a server's scopes", async () => {
-    await succeeds("mcp.scoped", "--add-scope", CORE_SCOPE, "--remove-scope", ENGINEERING);
+    await succeeds(SCOPED_MCP_REF, "--add-scope", CORE_SCOPE, "--remove-scope", ENGINEERING);
 
     expect(await read(SCOPED_MCP_FILE)).toBe(
       fixture(SCOPED_MCP_FILE).replace(`scopes: [${ENGINEERING}]`, `scopes: [${CORE_SCOPE}]`),
@@ -337,7 +355,7 @@ describe("ambit catalog annotate, on an MCP entity", () => {
     await rename(path.join(catalogDir, SCOPED_MCP_FILE), path.join(catalogDir, "mcps/scoped.yaml"));
     const before = await snapshot();
 
-    const result = await succeeds("mcp.scoped", "--add-scope", CORE_SCOPE);
+    const result = await succeeds(SCOPED_MCP_REF, "--add-scope", CORE_SCOPE);
 
     expect(result.stdout).toContain("  mcps/scoped.yaml  updated");
     expect(Object.keys(await snapshot())).toEqual(Object.keys(before));
@@ -346,7 +364,7 @@ describe("ambit catalog annotate, on an MCP entity", () => {
   });
 
   it("adds a `scopes` key to an entity that had none, leaving its comment in place", async () => {
-    await succeeds(`mcp.${UNSCOPED_MCP}`, "--add-scope", CORE_SCOPE);
+    await succeeds(UNSCOPED_MCP_REF, "--add-scope", CORE_SCOPE);
 
     expect(await read(UNSCOPED_MCP_FILE)).toBe(
       `${fixture(UNSCOPED_MCP_FILE)}scopes:\n  - ${CORE_SCOPE}\n`,
@@ -356,13 +374,13 @@ describe("ambit catalog annotate, on an MCP entity", () => {
   });
 
   it("refuses a `requires` edit, naming the flag that does what was meant", async () => {
-    const result = await refused(ExitCode.Config, "mcp.scoped", "--add-requires", CORE_SKILL);
+    const result = await refused(ExitCode.Config, SCOPED_MCP_REF, "--add-requires", CORE_REF);
 
     expect(result.stderr).toContain(
       `MCP server "${SCOPED_MCP}" declares no requirements (${SCOPED_MCP_FILE})`,
     );
     expect(result.stderr).toContain(
-      `ambit catalog annotate <skill> --add-requires mcp.${SCOPED_MCP}`,
+      `ambit catalog annotate skill:<skill> --add-requires mcp:${SCOPED_MCP}`,
     );
   });
 });
@@ -371,7 +389,7 @@ describe("ambit catalog annotate, on a hook", () => {
   it("adds and removes a hook's scopes, leaving every other byte of the document alone", async () => {
     await writeHook(HOOK_TEXT);
 
-    await succeeds(`hook.${HOOK}`, "--add-scope", CORE_SCOPE);
+    await succeeds(HOOK_REF, "--add-scope", CORE_SCOPE);
 
     // A `HOOK.yml` is ambit's own document end to end, so its annotations sit at the top level rather
     // than under `ambit:` — and the comment the author wrote above them still has to survive.
@@ -383,7 +401,7 @@ describe("ambit catalog annotate, on a hook", () => {
   it("adds an `env` var to a hook that declares none", async () => {
     await writeHook(HOOK_TEXT);
 
-    await succeeds(`hook.${HOOK}`, "--add-env", "NOTIFY_TOKEN");
+    await succeeds(HOOK_REF, "--add-env", "NOTIFY_TOKEN");
 
     expect((await catalogHook(HOOK))?.env).toEqual(["NOTIFY_TOKEN"]);
     await validates();
@@ -392,14 +410,16 @@ describe("ambit catalog annotate, on a hook", () => {
   it("refuses a `requires` edit, naming the flag that does what was meant", async () => {
     await writeHook(HOOK_TEXT);
 
-    const result = await refused(ExitCode.Config, `hook.${HOOK}`, "--add-requires", CORE_SKILL);
+    const result = await refused(ExitCode.Config, HOOK_REF, "--add-requires", CORE_REF);
 
     expect(result.stderr).toContain(`hook "${HOOK}" declares no requirements (${HOOK_FILE})`);
-    expect(result.stderr).toContain(`ambit catalog annotate <skill> --add-requires hook.${HOOK}`);
+    expect(result.stderr).toContain(
+      `ambit catalog annotate skill:<skill> --add-requires hook:${HOOK}`,
+    );
   });
 
   it("refuses a hook the catalog does not provide", async () => {
-    const result = await refused(ExitCode.Resolution, "hook.absent", "--add-scope", CORE_SCOPE);
+    const result = await refused(ExitCode.Resolution, "hook:absent", "--add-scope", CORE_SCOPE);
 
     expect(result.stderr).toContain('unknown hook "absent" (hooks/absent/HOOK.yml)');
   });
@@ -407,7 +427,7 @@ describe("ambit catalog annotate, on a hook", () => {
   it("names the subject a hook, and leaves `requires` out of what it declares", async () => {
     await writeHook(HOOK_TEXT);
 
-    const result = await succeeds(`hook.${HOOK}`, "--add-scope", CORE_SCOPE);
+    const result = await succeeds(HOOK_REF, "--add-scope", CORE_SCOPE);
 
     expect(result.stdout).toBe(
       [
@@ -428,7 +448,7 @@ describe("ambit catalog annotate, refusals", () => {
   it("refuses an added scope the registry does not hold, suggesting the nearest one", async () => {
     const result = await refused(
       ExitCode.Resolution,
-      CORE_SKILL,
+      CORE_REF,
       "--add-scope",
       "function.enginering",
     );
@@ -438,37 +458,47 @@ describe("ambit catalog annotate, refusals", () => {
   });
 
   it("refuses a requirement nothing in the catalog provides, and writes nothing", async () => {
-    const result = await refused(ExitCode.Resolution, CORE_SKILL, "--add-requires", "absent-skill");
+    const result = await refused(
+      ExitCode.Resolution,
+      CORE_REF,
+      "--add-requires",
+      "skill:absent-skill",
+    );
 
     // No pre-check here: validation's own message already names the unresolvable requirement, and
     // there is no better advice to add.
     expect(result.stderr).toContain("refusing to write: the result would not validate");
-    expect(result.stderr).toContain('"absent-skill"');
+    expect(result.stderr).toContain('"skill:absent-skill"');
   });
 
   it("refuses a skill the catalog does not provide", async () => {
-    const result = await refused(ExitCode.Resolution, "absent-skill", "--add-scope", CORE_SCOPE);
+    const result = await refused(
+      ExitCode.Resolution,
+      "skill:absent-skill",
+      "--add-scope",
+      CORE_SCOPE,
+    );
 
     expect(result.stderr).toContain('unknown skill "absent-skill" (skills/absent-skill/SKILL.md)');
   });
 
   it("refuses a server the catalog does not provide", async () => {
-    const result = await refused(ExitCode.Resolution, "mcp.absent", "--add-scope", CORE_SCOPE);
+    const result = await refused(ExitCode.Resolution, "mcp:absent", "--add-scope", CORE_SCOPE);
 
     expect(result.stderr).toContain('unknown MCP server "absent" (mcps/absent.yml)');
   });
 
   it("refuses an invocation that names no change at all", async () => {
-    const result = await refused(ExitCode.Config, CORE_SKILL);
+    const result = await refused(ExitCode.Config, CORE_REF);
 
-    expect(result.stderr).toContain(`\`annotate ${CORE_SKILL}\` names no change (skills)`);
+    expect(result.stderr).toContain(`\`annotate ${CORE_REF}\` names no change (skills)`);
     expect(result.stderr).toContain("--add-scope, --remove-scope");
   });
 
   it("refuses adding and removing the same entry in one run", async () => {
     const result = await refused(
       ExitCode.Config,
-      CORE_SKILL,
+      CORE_REF,
       "--add-scope",
       CORE_SCOPE,
       "--remove-scope",
@@ -483,10 +513,10 @@ describe("ambit catalog annotate, refusals", () => {
 
 describe("ambit catalog annotate, idempotence", () => {
   it("writes nothing the second time, down to the modification time", async () => {
-    await succeeds(CORE_SKILL, "--add-scope", ENGINEERING);
+    await succeeds(CORE_REF, "--add-scope", ENGINEERING);
     const before = await snapshot();
 
-    const again = await succeeds(CORE_SKILL, "--add-scope", ENGINEERING);
+    const again = await succeeds(CORE_REF, "--add-scope", ENGINEERING);
 
     expect(again.stdout).toContain("files (0)");
     expect(await snapshot()).toEqual(before);
@@ -501,7 +531,7 @@ describe("ambit catalog annotate, idempotence", () => {
     );
     await write(CLOSE_SKILL_FILE, unsorted);
 
-    const result = await succeeds(CLOSE_SKILL, "--add-env", "CLOSE_TOKEN");
+    const result = await succeeds(CLOSE_REF, "--add-env", "CLOSE_TOKEN");
 
     expect(result.stdout).toContain("files (0)");
     expect(await read(CLOSE_SKILL_FILE)).toBe(unsorted);
@@ -510,7 +540,7 @@ describe("ambit catalog annotate, idempotence", () => {
   it("reports success and no files when what it was asked to remove is not there", async () => {
     const before = await snapshot();
 
-    const result = await succeeds(CORE_SKILL, "--remove-env", "ABSENT_VAR");
+    const result = await succeeds(CORE_REF, "--remove-env", "ABSENT_VAR");
 
     expect(result.stdout).toContain("files (0)");
     expect(await snapshot()).toEqual(before);
@@ -519,7 +549,7 @@ describe("ambit catalog annotate, idempotence", () => {
 
 describe("ambit catalog annotate, output", () => {
   it("names the subject, then what it declares, then the file that took", async () => {
-    const result = await succeeds(CORE_SKILL, "--add-scope", ENGINEERING);
+    const result = await succeeds(CORE_REF, "--add-scope", ENGINEERING);
 
     expect(result.stdout).toBe(
       [
@@ -537,7 +567,7 @@ describe("ambit catalog annotate, output", () => {
   });
 
   it("leaves `requires` out for a server, which cannot declare one", async () => {
-    const result = await succeeds(`mcp.${SCOPED_MCP}`, "--add-scope", CORE_SCOPE);
+    const result = await succeeds(SCOPED_MCP_REF, "--add-scope", CORE_SCOPE);
 
     expect(result.stdout).toBe(
       [
@@ -554,7 +584,7 @@ describe("ambit catalog annotate, output", () => {
   });
 
   it("carries the resulting annotations and the file's bytes in --json", async () => {
-    const result = await succeeds(PROJECT_SKILL, "--add-env", "ACME_BRIEF_TOKEN", "--json");
+    const result = await succeeds(PROJECT_REF, "--add-env", "ACME_BRIEF_TOKEN", "--json");
     const report = JSON.parse(result.stdout) as {
       annotated: {
         declares: Record<string, readonly string[]>;
@@ -569,7 +599,7 @@ describe("ambit catalog annotate, output", () => {
     expect(report.annotated).toEqual({
       declares: {
         scopes: [PROJECT_SCOPE],
-        requires: [CORE_SKILL, REQUIRED_HOOK, "mcp.fixture"],
+        requires: [REQUIRED_HOOK_REF, "mcp:fixture", CORE_REF],
         env: ["ACME_BRIEF_TOKEN"],
       },
       file: PROJECT_SKILL_FILE,
@@ -585,7 +615,7 @@ describe("ambit catalog annotate, output", () => {
   it("under --dry-run, prints the diff and writes nothing", async () => {
     const before = await snapshot();
 
-    const result = await succeeds(CORE_SKILL, "--add-scope", ENGINEERING, "--dry-run");
+    const result = await succeeds(CORE_REF, "--add-scope", ENGINEERING, "--dry-run");
 
     expect(result.stdout).toContain("would declare (3)");
     expect(result.stdout).toContain(`  ${CORE_SKILL_FILE} (updated)`);

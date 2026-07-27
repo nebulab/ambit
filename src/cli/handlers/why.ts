@@ -1,14 +1,16 @@
 /**
- * `ambit why <name>` — explain why one item is in the bundle.
+ * `ambit why <kind>:<name>` — explain why one item is in the bundle.
  *
  * The chain is the answer, not the reason on its own: being told a skill arrived through
  * `required-by:acme-brief` only moves the question one level up, and it is the held scope at the
  * far end that a reader can actually change. So this prints every link from the root cause down to
  * the item asked about.
  *
- * A bare name means a skill when one exists and falls back to the other two namespaces otherwise; an
- * `mcp.`-prefixed name always means a server and a `hook.`-prefixed one always means a hook — the same
- * disambiguation `requires` uses, so a name copied out of a `requires` list works here unchanged.
+ * The subject declares its namespace — `mcp:sentry` — the way a `requires` entry does, and a bare name
+ * is refused rather than looked up. Nothing here reads a meaning out of the string, so this command and
+ * a `requires` entry cannot end up disagreeing about what `mcp.sentry` names, which is exactly what a
+ * prefix convention made them do. The extra keystrokes buy the question always having one answer:
+ * `skill:mcp.sentry` and `mcp:sentry` are different things, and both are askable.
  *
  * A name that resolves to nothing selected is an error rather than an empty report: "not in the
  * bundle" is a resolution answer a script has to be able to detect, and the two ways of getting
@@ -30,15 +32,13 @@ import type {
   SelectionReason,
 } from "../../resolution/resolve.js";
 import {
-  HOOK_REQUIREMENT_PREFIX,
-  MCP_REQUIREMENT_PREFIX,
   explainSelection,
   formatReason,
   isSelected,
   reasonOf,
-  requirementFor,
   resolveBundle,
 } from "../../resolution/resolve.js";
+import { parseSubject, requirementYaml } from "../../model/requirement.js";
 
 /** How an item is named in messages, one entry per namespace so a fourth is a type error. */
 const SUBJECTS: Readonly<Record<ItemKind, string>> = {
@@ -47,32 +47,16 @@ const SUBJECTS: Readonly<Record<ItemKind, string>> = {
   hook: "hook",
 };
 
+/** The same three with an article, for a sentence that needs one. */
+const NOUNS: Readonly<Record<ItemKind, string>> = {
+  skill: "a skill",
+  mcp: "an MCP server",
+  hook: "a hook",
+};
+
 /** How an item is named in messages. */
 function subject(item: BundleItem): string {
   return `${SUBJECTS[item.kind]} "${item.name}"`;
-}
-
-/**
- * What a name could mean, in the order a tie is broken.
- *
- * A skill wins a bare name: skills are what a project mostly holds, and `mcp.` and `hook.` are
- * already the way to insist on the other two. The prefixed reading is tried before the literal one,
- * so `mcp.close` finds the server `close` — a skill whose own name starts with `mcp.` is still found
- * first, by the exact match ahead of both.
- *
- * A bare name falls back to a server and then to a hook, in that order, which is only reachable when
- * nothing else holds the name at all.
- */
-function candidates(name: string): readonly BundleItem[] {
-  const options: BundleItem[] = [{ kind: "skill", name }];
-  if (name.startsWith(MCP_REQUIREMENT_PREFIX)) {
-    options.push({ kind: "mcp", name: name.slice(MCP_REQUIREMENT_PREFIX.length) });
-  }
-  if (name.startsWith(HOOK_REQUIREMENT_PREFIX)) {
-    options.push({ kind: "hook", name: name.slice(HOOK_REQUIREMENT_PREFIX.length) });
-  }
-  options.push({ kind: "mcp", name }, { kind: "hook", name });
-  return options;
 }
 
 /** The merged-catalog entry a candidate names, if anything provides it. */
@@ -98,7 +82,7 @@ function selectionAdvice(item: BundleItem, scopes: readonly string[]): string {
   const otherwise =
     item.kind === "skill"
       ? "list it under `skills`"
-      : `have a selected skill \`require\` ${requirementFor(item)}`;
+      : `have a selected skill require it, with \`${requirementYaml(item)}\``;
 
   return hold === undefined ? otherwise : `${hold}, or ${otherwise}`;
 }
@@ -121,18 +105,29 @@ function notSelected(
   ]);
 }
 
-/** The error for a name nothing provides at all. */
-function unknownName(name: string, config: ProjectConfig): AmbitError {
-  return resolutionError(`unknown skill, MCP server or hook "${name}"`, [
-    `nothing configured in ${config.origin.file} provides a skill, a server or a hook by that name`,
-    "run `ambit catalog` to see what is available",
+/**
+ * The error for a reference nothing provides at all.
+ *
+ * The namespace is named rather than hedged over all three — this message used to open "unknown skill,
+ * MCP server or hook" precisely because it did not know which the reader meant, and now it does.
+ */
+function unknownName(item: BundleItem, config: ProjectConfig): AmbitError {
+  return resolutionError(`unknown ${subject(item)}`, [
+    `nothing configured in ${config.origin.file} provides ${NOUNS[item.kind]} by that name`,
+    "run `ambit dump-catalog` to see what is available",
   ]);
 }
 
 /**
- * The bundle item a name asks about.
+ * The bundle item the subject names.
  *
- * @throws {AmbitError} exit 3 for a name nothing provides, or one nothing selects.
+ * Taken at its word and never looked up: `mcp:sentry` is the server whether or not a skill of that
+ * name exists, so naming the wrong namespace is a miss rather than a search that wanders into the
+ * right one. That is what makes the ambiguous catalog — a skill `mcp.sentry` beside an entity
+ * `sentry` — a pair of ordinary questions rather than a coin toss.
+ *
+ * @throws {AmbitError} exit 2 for a subject naming no namespace; exit 3 for one nothing provides, or
+ *   one nothing selects.
  */
 function locate(
   name: string,
@@ -140,17 +135,12 @@ function locate(
   merged: MergedCatalog,
   config: ProjectConfig,
 ): BundleItem {
-  const options = candidates(name);
+  const item = parseSubject(name, `\`why ${name}\` does not say what to explain`);
+  if (isSelected(bundle, item)) return item;
 
-  const selected = options.find((item) => isSelected(bundle, item));
-  if (selected !== undefined) return selected;
-
-  for (const item of options) {
-    const entry = provided(merged, item);
-    if (entry !== undefined) throw notSelected(item, entry, config);
-  }
-
-  throw unknownName(name, config);
+  const entry = provided(merged, item);
+  if (entry === undefined) throw unknownName(item, config);
+  throw notSelected(item, entry, config);
 }
 
 /**
@@ -199,7 +189,7 @@ export const whyHandler: CommandHandler = async (ctx) => {
     // Commander enforces the argument, so this is unreachable rather than a user-facing path.
     throw new AmbitError(ExitCode.Internal, "`ambit why` was given no name", [
       "the command takes the name of a skill, an MCP server, or a hook",
-      "run `ambit why <name>`",
+      "run `ambit why <kind>:<name>`",
     ]);
   }
 

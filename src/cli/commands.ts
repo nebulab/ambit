@@ -172,10 +172,7 @@ const CATALOG_SUBCOMMANDS: readonly CommandSpec[] = [
         options: [
           new Option("--description <text>", "what the skill is for"),
           repeatable("--scope <scope>", "a scope the skill is selected by"),
-          repeatable(
-            "--requires <name>",
-            "a skill, or `mcp.<name>` or `hook.<name>`, the skill needs",
-          ),
+          repeatable("--requires <kind:name>", "something the skill needs, in one namespace"),
           repeatable("--env <var>", "an environment variable the skill needs"),
         ],
       },
@@ -267,7 +264,7 @@ const CATALOG_SUBCOMMANDS: readonly CommandSpec[] = [
   {
     name: "annotate",
     summary: "change a skill, MCP or hook's scopes, requires, or env",
-    args: [["<name>", "skill name, `mcp.<name>` for a server, or `hook.<name>` for a hook"]],
+    args: [["<kind:name>", "`skill:<name>`, `mcp:<name>`, or `hook:<name>`"]],
     subject: "catalog",
     mutating: true,
     // At least one flag, and never one entry both added and removed — `catalogAnnotateRule`, since
@@ -276,8 +273,8 @@ const CATALOG_SUBCOMMANDS: readonly CommandSpec[] = [
     options: [
       repeatable("--add-scope <scope>", "add a scope"),
       repeatable("--remove-scope <scope>", "remove a scope"),
-      repeatable("--add-requires <name>", "add a requirement"),
-      repeatable("--remove-requires <name>", "remove a requirement"),
+      repeatable("--add-requires <kind:name>", "add a requirement"),
+      repeatable("--remove-requires <kind:name>", "remove a requirement"),
       repeatable("--add-env <var>", "add an environment variable"),
       repeatable("--remove-env <var>", "remove an environment variable"),
     ],
@@ -301,7 +298,7 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
   {
     name: "why",
     summary: "explain why one item is in the bundle",
-    args: [["<name>", "skill, MCP or hook name"]],
+    args: [["<kind:name>", "`skill:<name>`, `mcp:<name>`, or `hook:<name>`"]],
   },
   {
     name: "install",
