@@ -17,11 +17,11 @@ import type {
   MergedHook,
   MergedMcp,
   MergedSkill,
-  ScopeDefinition,
 } from "../../model/catalog.js";
 import { loadCatalogs, mergeCatalogs } from "../../model/catalog.js";
 import type { CommandHandler } from "../commands.js";
 import { jsonRequested, sourceContextOf } from "../commands.js";
+import type { ScopeDefinition } from "../../model/config.js";
 import { loadProjectConfig } from "../../model/config.js";
 import { ExitCode } from "../../errors.js";
 import type { McpTransport } from "../../model/mcp-entity.js";

@@ -40,12 +40,8 @@
 import path from "node:path";
 
 import type { Catalog, CatalogHook, CatalogSkill } from "../model/catalog.js";
-import {
-  HOOK_FILENAME,
-  SCOPES_FILENAME,
-  SKILL_FILENAME,
-  parseCatalogDirectory,
-} from "../model/catalog.js";
+import { HOOK_FILENAME, SKILL_FILENAME, parseCatalogDirectory } from "../model/catalog.js";
+import { REGISTRY_PATH } from "../model/config.js";
 import { buildScopeTree, flattenScopeTree, selectionSize } from "./tree.js";
 import { at } from "../errors.js";
 import { formatRequirement } from "../model/requirement.js";
@@ -119,7 +115,7 @@ function hookDocumentOf(hook: CatalogHook): string {
   return `${hook.path}/${HOOK_FILENAME}`;
 }
 
-/** What a scope declaration can reach: the scopes some `scopes.yml` actually registers. */
+/** What a scope declaration can reach: the scopes the catalog's `catalog.scopes` actually registers. */
 function registeredScopes(catalog: Catalog): ReadonlySet<string> {
   return new Set(catalog.scopes.map((definition) => definition.name));
 }
@@ -208,11 +204,15 @@ function deadScopeFindings(catalog: Catalog): readonly AuditFinding[] {
   return catalog.scopes
     .filter((definition) => (selected.get(definition.name) ?? 0) === 0)
     .map((definition) =>
-      finding("dead-scope", `unused scope "${definition.name}" ${at(SCOPES_FILENAME, undefined)}`, [
-        "no skill, MCP server or hook declares it, and nothing registered beneath it does either",
-        "holding it selects nothing, so every picker rendering this registry offers a choice with no effect",
-        `declare it with \`ambit catalog annotate <kind>:<name> --add-scope ${definition.name}\`, or unregister it with \`ambit catalog scope rm ${definition.name}\``,
-      ]),
+      finding(
+        "dead-scope",
+        `unused scope "${definition.name}" ${at(catalog.configFile, undefined)}`,
+        [
+          `no skill, MCP server or hook declares it, and nothing registered beneath it in \`${REGISTRY_PATH}\` does either`,
+          "holding it selects nothing, so every picker rendering this registry offers a choice with no effect",
+          `declare it with \`ambit catalog annotate <kind>:<name> --add-scope ${definition.name}\`, or unregister it with \`ambit catalog scope rm ${definition.name}\``,
+        ],
+      ),
     );
 }
 

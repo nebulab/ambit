@@ -14,13 +14,13 @@
  * `error: required option '--description <text>' not specified` names no file and gives no next step,
  * both of which an error requires.
  */
-import { SCOPES_FILENAME } from "../../model/catalog.js";
 import type { ScopeEdit } from "../../authoring/scope.js";
 import { addScope, removeScope, renameScope } from "../../authoring/scope.js";
 import type { CommandContext, CommandHandler, CommandRule } from "../commands.js";
 import { catalogDirOf, dryRunRequested, jsonRequested, positional } from "../commands.js";
+import { REGISTRY_PATH } from "../../model/config.js";
 import { diffSection } from "../diff.js";
-import { ExitCode, at, configError } from "../../errors.js";
+import { ExitCode, configError } from "../../errors.js";
 import { printSections, section } from "../output.js";
 
 /** The first section's title: past tense for a run that happened, conditional for a preview. */
@@ -34,9 +34,9 @@ const UNREGISTERED: Heading = { done: "unregistered", would: "would unregister" 
 const RENAMED: Heading = { done: "renamed", would: "would rename" };
 
 /**
- * What a rename leaves for its author to do. A catalog command edits no `ambit.yml` — there is none to
- * edit — so every project holding a renamed scope now names something this catalog no longer registers,
- * and `ambit resolve` there will say so (exit 3).
+ * What a rename leaves for its author to do. It rewrites this catalog's own `ambit.yml` and nothing
+ * else, so every *project* holding a renamed scope now names something this catalog no longer
+ * registers, and `ambit resolve` there will say so (exit 3).
  */
 const RENAME_NEXT_STEP =
   "next: update `ambit.yml` in every project that holds a renamed scope — a catalog cannot do it for them";
@@ -60,7 +60,9 @@ function requiredDescription(ctx: CommandContext, scope: string): string {
   const given = ctx.options.description;
   if (typeof given === "string" && given.trim() !== "") return given;
 
-  throw configError(`scope "${scope}" needs a description ${at(SCOPES_FILENAME, undefined)}`, [
+  // The registry by its key path rather than by a file: this runs on argv alone, before the catalog
+  // has been read, so which of the two accepted config names holds it is not known yet.
+  throw configError(`scope "${scope}" needs a description (${REGISTRY_PATH})`, [
     "a registered scope's description is what a tool asking someone which scopes they hold renders",
     'add `--description "<what the scope means>"`',
   ]);

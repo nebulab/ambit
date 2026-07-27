@@ -281,7 +281,7 @@ describe("project config", () => {
 
       expect(error.format()).toContain(`unknown key "scope" (${FILE} line 2)`);
       expect(error.format()).toContain(
-        "accepted keys: catalogs, harnesses, hooks, mcps, scopes, skills, version",
+        "accepted keys: catalog, catalogs, harnesses, hooks, mcps, scopes, skills, version",
       );
     });
 
@@ -558,6 +558,79 @@ describe("project config", () => {
       expect((error as AmbitError).format()).toContain(
         '"scopes" must be a sequence of strings (ambit.yaml line 2)',
       );
+    });
+  });
+
+  /**
+   * `catalog:` — the half of the format a repo publishes rather than installs.
+   *
+   * One parser reads both, which is what these cases are about: the registry is rejected by the same
+   * `rejectUnknownKeys` the consumer keys are, and a document may carry either half or both. Whether a
+   * `catalog:` block makes a *directory* a catalog is `model/catalog.test.ts`'s question; here it is
+   * only a section of a document.
+   */
+  describe("the catalog section", () => {
+    const REGISTRY = `version: 1
+catalog:
+  scopes:
+    function.engineering:
+      description: Building and shipping client software
+    core:
+      description: The floor
+`;
+
+    it("parses the registry, sorted by name whatever order it was written in", () => {
+      expect(parseProjectConfig(REGISTRY, FILE).catalog).toEqual({
+        scopes: [
+          { name: "core", description: "The floor" },
+          { name: "function.engineering", description: "Building and shipping client software" },
+        ],
+      });
+    });
+
+    it("leaves `catalog` absent for a config that publishes nothing", () => {
+      expect(parseProjectConfig("version: 1\nscopes: [core]\n", FILE).catalog).toBeUndefined();
+    });
+
+    it("reads both halves of one document, which is what one file is for", () => {
+      const config = parseProjectConfig(
+        `${REGISTRY}\nscopes: [core]\ncatalogs:\n  - name: self\n    source: "path:."\n`,
+        FILE,
+      );
+
+      // Top-level `scopes` is what this repo holds; `catalog.scopes` is what it defines. Same word,
+      // four lines apart, and the nesting is what tells them apart.
+      expect(config.scopes).toEqual(["core"]);
+      expect(config.catalog?.scopes.map((definition) => definition.name)).toEqual([
+        "core",
+        "function.engineering",
+      ]);
+    });
+
+    it("requires a `scopes` mapping, so a `catalog:` that registers nothing is a mistake", () => {
+      expect(rejection("version: 1\ncatalog: {}\n").message).toBe(
+        'missing required key "catalog.scopes" (ambit.yml line 2)',
+      );
+    });
+
+    it("accepts an empty registry, which is a catalog that has registered nothing yet", () => {
+      expect(parseProjectConfig("version: 1\ncatalog:\n  scopes: {}\n", FILE).catalog).toEqual({
+        scopes: [],
+      });
+    });
+
+    it("requires a description, which is the label a picker renders", () => {
+      expect(rejection("version: 1\ncatalog:\n  scopes:\n    core: {}\n").message).toBe(
+        'missing required key "catalog.scopes.core.description" (ambit.yml line 4)',
+      );
+    });
+
+    it("rejects a key the section does not define, so a typo is not a key nobody reads", () => {
+      // The reason there is one parser rather than two: `rejectUnknownKeys` covers the whole document,
+      // so a misspelling inside the catalog half fails as loudly as one outside it.
+      const error = rejection("version: 1\ncatalog:\n  scope:\n    core: {}\n");
+
+      expect(error.message).toContain('unknown key "catalog.scope"');
     });
   });
 });

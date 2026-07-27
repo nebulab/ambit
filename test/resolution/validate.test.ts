@@ -236,13 +236,17 @@ describe("ambit validate", () => {
   it("exits 2 on a catalog that does not parse, rather than reporting about it", async () => {
     // The deliberate boundary: there is no semantic report to build about a document ambit cannot
     // read, so parsing failures stay the exit-2 errors they are everywhere else.
-    await writeFile(path.join(catalogDir, "scopes.yml"), "scopes:\n  core: {}\n", "utf8");
+    await writeFile(
+      path.join(catalogDir, "ambit.yml"),
+      "version: 1\ncatalog:\n  scopes:\n    core: {}\n",
+      "utf8",
+    );
 
     const result = await cli("validate");
 
     expect(result.code).toBe(ExitCode.Config);
     expect(result.stdout).toBe("");
-    expect(result.stderr).toContain('missing required key "scopes.core.description"');
+    expect(result.stderr).toContain('missing required key "catalog.scopes.core.description"');
   });
 });
 
@@ -257,7 +261,7 @@ describe("ambit validate: unregistered scopes", () => {
       'unregistered scope "function.enginering" (skills/typo-thing/SKILL.md)',
     );
     expect(result.stdout).toContain(
-      'skill "typo-thing" declares it, but no catalog\'s scopes.yml registers it',
+      'skill "typo-thing" declares it, but no catalog\'s `catalog.scopes` registers it',
     );
     expect(result.stdout).toContain('did you mean "function.engineering"?');
   });
@@ -274,7 +278,7 @@ describe("ambit validate: unregistered scopes", () => {
       message: 'unregistered scope "marketing" (mcps/loose.yml)',
     });
     expect(found.problems[0]?.detail[0]).toBe(
-      'MCP server "loose" (catalog "company") declares it, but no catalog\'s scopes.yml registers it',
+      'MCP server "loose" (catalog "company") declares it, but no catalog\'s `catalog.scopes` registers it',
     );
   });
 
@@ -295,7 +299,7 @@ describe("ambit validate: unregistered scopes", () => {
       message: 'unregistered scope "marketing" (hooks/guard/HOOK.yml)',
     });
     expect(found.problems[0]?.detail[0]).toBe(
-      'hook "guard" (catalog "company") declares it, but no catalog\'s scopes.yml registers it',
+      'hook "guard" (catalog "company") declares it, but no catalog\'s `catalog.scopes` registers it',
     );
   });
 
@@ -318,7 +322,7 @@ describe("ambit validate: unregistered scopes", () => {
       'unregistered scope "marketing" (ambit.yml)',
     ]);
     expect(found.problems[0]?.detail[0]).toBe(
-      'hook "custom" (catalog "ambit.yml") declares it, but no catalog\'s scopes.yml registers it',
+      'hook "custom" (catalog "ambit.yml") declares it, but no catalog\'s `catalog.scopes` registers it',
     );
   });
 
@@ -356,7 +360,7 @@ describe("ambit validate: unregistered scopes", () => {
       'unregistered scope "marketing" (ambit.yml)',
     ]);
     expect(found.problems[0]?.detail[0]).toBe(
-      'MCP server "custom" (catalog "ambit.yml") declares it, but no catalog\'s scopes.yml registers it',
+      'MCP server "custom" (catalog "ambit.yml") declares it, but no catalog\'s `catalog.scopes` registers it',
     );
   });
 
@@ -366,7 +370,7 @@ describe("ambit validate: unregistered scopes", () => {
     const result = await cli("validate");
 
     expect(result.stdout).toContain(
-      "register it in a catalog's scopes.yml, or correct the spelling",
+      "register it under `catalog.scopes` in a catalog's ambit.yml, or correct the spelling",
     );
     expect(result.stdout).not.toContain("did you mean");
   });
@@ -719,8 +723,8 @@ describe("ambit validate output", () => {
       problems: [
         {
           detail: [
-            'skill "typo-thing" declares it, but no catalog\'s scopes.yml registers it',
-            "register it in a catalog's scopes.yml, or correct the spelling",
+            'skill "typo-thing" declares it, but no catalog\'s `catalog.scopes` registers it',
+            "register it under `catalog.scopes` in a catalog's ambit.yml, or correct the spelling",
           ],
           kind: "unregistered-scope",
           message: 'unregistered scope "marmalade" (skills/typo-thing/SKILL.md)',
@@ -771,8 +775,8 @@ describe("ambit validate output", () => {
         "",
         "problems (1)",
         '  unregistered scope "marmalade" (skills/typo-thing/SKILL.md)',
-        '      skill "typo-thing" declares it, but no catalog\'s scopes.yml registers it',
-        "      register it in a catalog's scopes.yml, or correct the spelling",
+        '      skill "typo-thing" declares it, but no catalog\'s `catalog.scopes` registers it',
+        "      register it under `catalog.scopes` in a catalog's ambit.yml, or correct the spelling",
       ].join("\n"),
     );
   });

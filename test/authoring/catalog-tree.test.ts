@@ -41,7 +41,7 @@ const GOLDEN_FILE = path.join(
 const CODE_REVIEW = "code-review";
 const DESIGN_TOKENS = "design-tokens";
 
-/** The fixture's four registered scopes, as `scopes.yml` names them. */
+/** The fixture's four registered scopes, as `catalog.scopes` names them. */
 const ENGINEERING = "function.engineering";
 const FRONTEND = "function.engineering.frontend";
 
@@ -86,11 +86,18 @@ async function treeJson(): Promise<Record<string, JsonNode>> {
   return (JSON.parse(result.stdout) as { scopes: Record<string, JsonNode> }).scopes;
 }
 
-/** Appends an entry to the fixture's registry, which is sorted by the parser rather than by the file. */
+/**
+ * Appends an entry to the fixture's registry, which is sorted by the parser rather than by the file.
+ *
+ * Inserted under `catalog.scopes` rather than appended to the document: the registry is a nested key
+ * now, and the fixture writes `version:` after it, so appending to the end would land the entry at the
+ * top level.
+ */
 async function registerScope(name: string, description: string): Promise<void> {
-  const file = path.join(catalogDir, "scopes.yml");
+  const file = path.join(catalogDir, "ambit.yml");
   const current = await readFile(file, "utf8");
-  await writeFile(file, `${current}  ${name}:\n    description: ${description}\n`, "utf8");
+  const entry = `    ${name}:\n      description: ${description}\n`;
+  await writeFile(file, current.replace("\nversion:", `${entry}\nversion:`), "utf8");
 }
 
 /**
@@ -274,7 +281,7 @@ describe("ambit catalog tree", () => {
 
     expect(result.code).toBe(ExitCode.Config);
     expect(result.stdout).toBe("");
-    expect(result.stderr).toContain("scopes.yml is missing");
+    expect(result.stderr).toContain("ambit.yml is missing");
   });
 });
 

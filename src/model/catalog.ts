@@ -2,9 +2,15 @@
  * Catalog parsing.
  *
  * A catalog is a plain skills repo: skills at `skills/<name>/SKILL.md`, MCP
- * entities at `mcps/<name>.yml`, hooks at `hooks/<name>/HOOK.yml`, and a `scopes.yml` registry at the
- * root. Nothing here is ambit-specific except one extra frontmatter key and the extra directories,
- * which other tools ignore — that compatibility is a hard requirement.
+ * entities at `mcps/<name>.yml`, hooks at `hooks/<name>/HOOK.yml`, and an `ambit.yml` at the root
+ * whose `catalog:` block registers the scopes they declare. Nothing here is ambit-specific except one
+ * extra frontmatter key and the extra directories, which other tools ignore — that compatibility is a
+ * hard requirement.
+ *
+ * The root config is the same format a project's is, read by the same parser (`config.ts`): a catalog
+ * writes the `catalog:` block, a project writes the top-level keys, and a catalog that installs its
+ * own skills writes both. Nothing here reads the consumer half, and a catalog carrying one is not an
+ * error — the `catalog:` block alone is what this module asks for.
  *
  * A skill's name is not stored anywhere authoritative: it is derived from the path, and the
  * frontmatter `name` must agree. Disagreement is an error rather than a preference for one over
@@ -19,10 +25,24 @@
  * same merged namespace here rather than handled beside it — see {@link mergeConfigEntities} — so
  * resolution has exactly one place to look a name up.
  */
-import { readdir, stat } from "node:fs/promises";
+import { readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 
-import type { CatalogRef, ConfigOrigin, ProjectConfig, SourceSkillRequest } from "./config.js";
+import type {
+  CatalogRef,
+  CatalogSection,
+  ConfigOrigin,
+  ProjectConfig,
+  ScopeDefinition,
+  SourceSkillRequest,
+} from "./config.js";
+import {
+  CATALOG_KEY,
+  CONFIG_FILENAMES,
+  REGISTRY_KEY_PATH,
+  REGISTRY_PATH,
+  parseProjectConfig,
+} from "./config.js";
 import { AmbitError, at, configError, resolutionError } from "../errors.js";
 import type { HookEntity } from "./hook-entity.js";
 import { commandProgram, parseHookEntity, scriptReference } from "./hook-entity.js";
@@ -40,8 +60,15 @@ import {
   readYamlMapping,
 } from "./yaml.js";
 
-/** The catalog's scope registry. */
-export const SCOPES_FILENAME = "scopes.yml";
+/**
+ * The file a catalog's scope registry used to be, kept for one reason: to recognize it and say where
+ * the registry went.
+ *
+ * Nothing reads it. A catalog whose root still holds one and whose config declares no `catalog:` block
+ * is refused naming this file, because the alternative — a catalog that parses as though it registered
+ * nothing — is the silence the whole registry exists to remove.
+ */
+export const LEGACY_REGISTRY_FILENAME = "scopes.yml";
 
 /** Where skills live within a catalog. */
 export const SKILLS_DIRNAME = "skills";
@@ -71,9 +98,6 @@ export const HOOK_FILENAME = "HOOK.yml";
  * author actually wrote, not the one ambit would have written (see `mcpDocumentFile`).
  */
 export const MCP_EXTENSIONS: readonly string[] = [".yml", ".yaml"];
-
-const SCOPES_KEYS = ["scopes"] as const;
-const SCOPE_KEYS = ["description"] as const;
 
 /**
  * The one top-level `SKILL.md` frontmatter key ambit owns.
@@ -131,12 +155,6 @@ export type CatalogOverlay = ReadonlyMap<string, string | null>;
 /** Nothing pending: what every read path outside an edit parses through. */
 const NO_OVERLAY: CatalogOverlay = new Map();
 
-/** One registered scope. The description is the picker label a consuming tool renders. */
-export interface ScopeDefinition {
-  readonly name: string;
-  readonly description: string;
-}
-
 /** A skill as the catalog declares it. */
 export interface CatalogSkill {
   /** Derived from `path`, and equal to the frontmatter `name`. */
@@ -189,6 +207,15 @@ export interface Catalog {
   readonly ref?: string;
   /** Absolute path to the catalog root on disk. */
   readonly root: string;
+  /**
+   * How this catalog's config is named in messages — `ambit.yml` or `ambit.yaml`, catalog-relative.
+   *
+   * Carried because the registry is a key in it rather than a file of its own: several `ambit.yml` are
+   * in play at once, the project's and one per catalog, so an error about a registered scope has to
+   * name which document it means — and a catalog spelling its config `.yaml` has no `.yml` for a
+   * reader to open.
+   */
+  readonly configFile: string;
   /**
    * The commit its contents are, for a git source. Absent for a `path:` source, which has no
    * revision — a working directory is whatever it currently says.
@@ -405,6 +432,28 @@ class CatalogFiles {
     return byEntryName([...found].map(([name, directory]) => ({ name, directory })));
   }
 
+  /**
+   * A file's bytes, from the edit's pending contents where it has any.
+   *
+   * The one read that hands text on rather than a parsed document: the root config goes through the
+   * project config parser, which is text-in, so that one parser covers both roles.
+   *
+   * @throws {AmbitError} exit 2 if the file cannot be read.
+   */
+  async text(relative: string): Promise<string> {
+    const pending = this.overlay.get(relative);
+    if (typeof pending === "string") return pending;
+
+    try {
+      return await readFile(this.absolute(relative), "utf8");
+    } catch (error) {
+      throw configError(`cannot read ${relative}`, [
+        error instanceof Error ? error.message : String(error),
+        `check that ${relative} is in the catalog, and readable`,
+      ]);
+    }
+  }
+
   /** Parses a YAML file under the §3.0 rules. */
   async mapping(relative: string): Promise<YamlMapping> {
     const pending = this.overlay.get(relative);
@@ -446,18 +495,99 @@ export async function resolveCatalogRoot(
   );
 }
 
-/** Parses `scopes.yml`. Descriptions are required: they are the picker's labels, not decoration. */
-function parseScopeRegistry(root: YamlMapping): readonly ScopeDefinition[] {
-  root.rejectUnknownKeys(SCOPES_KEYS);
-  const scopes = root.requireMapping("scopes");
+/** Where a catalog's config lives, and what its `catalog:` block says. */
+export interface CatalogConfig {
+  /** How the config is named in messages — `ambit.yml` or `ambit.yaml`, catalog-relative. */
+  readonly file: string;
+  readonly catalog: CatalogSection;
+}
 
-  return byName(
-    scopes.keys().map((name) => {
-      const entry = scopes.requireMapping(name);
-      entry.rejectUnknownKeys(SCOPE_KEYS);
-      return { name, description: entry.requireString("description") };
-    }),
-  );
+/** The error for a catalog root with no config at all. */
+function missingConfig(): AmbitError {
+  return configError(`${CONFIG_FILENAMES[0]} is missing`, [
+    `a catalog registers every scope its skills, servers and hooks declare, under \`${REGISTRY_PATH}\``,
+    `add ${CONFIG_FILENAMES[0]} at the catalog root, or run \`ambit catalog init\``,
+  ]);
+}
+
+/**
+ * The error for a config that declares no `catalog:` block — which is the check that a directory is a
+ * catalog at all, since nothing else distinguishes one from a project that happens to hold a
+ * `skills/` directory.
+ */
+function notACatalog(file: string): AmbitError {
+  return configError(`${file} declares no \`${CATALOG_KEY}:\` block`, [
+    `\`${CATALOG_KEY}:\` is what makes a directory a catalog: it registers the scopes its skills declare`,
+    `add one with a \`${REGISTRY_KEY_PATH[1]!}:\` mapping under it, or run \`ambit catalog init\``,
+  ]);
+}
+
+/**
+ * The error a catalog still keeping its registry in `scopes.yml` gets — the whole of the migration.
+ *
+ * No transitional reader, deliberately: one that accepted both files would keep alive exactly the
+ * duplication folding them removed. So the failure teaches instead, and what it asks for is a
+ * copy-paste and a delete.
+ */
+function movedRegistry(): AmbitError {
+  return configError(`${LEGACY_REGISTRY_FILENAME} is no longer read`, [
+    `a catalog's scopes are registered under \`${REGISTRY_PATH}\` in ${CONFIG_FILENAMES[0]}`,
+    `move its \`${REGISTRY_KEY_PATH[1]!}:\` mapping under a \`${CATALOG_KEY}:\` block there, then delete ${LEGACY_REGISTRY_FILENAME}`,
+  ]);
+}
+
+/** The error for a root holding both accepted config names: `findConfigFile`'s rule, one level in. */
+function ambiguousConfig(present: readonly string[]): AmbitError {
+  return configError(`${present.join(" and ")} both exist at the catalog root`, [
+    "ambit cannot tell which one is authoritative",
+    `delete one, keeping ${CONFIG_FILENAMES[0]}`,
+  ]);
+}
+
+/**
+ * Reads a catalog's root config and returns the `catalog:` block that makes it one.
+ *
+ * The whole document is parsed, not half of it: a catalog may carry the consumer keys too — that is
+ * the point of one format — and reading it through the project parser is what keeps a typo anywhere in
+ * it an error rather than a key nobody reads.
+ *
+ * @throws {AmbitError} exit 2 if there is no config, if both accepted names are there, if the config
+ *   is malformed, or if it declares no `catalog:` block.
+ */
+async function readCatalogConfigFrom(files: CatalogFiles): Promise<CatalogConfig> {
+  const present: string[] = [];
+  for (const name of CONFIG_FILENAMES) {
+    if (await files.isFile(name)) present.push(name);
+  }
+  // Asked once, and used by two of the three refusals below: a `scopes.yml` beside a config with no
+  // `catalog:` block is a catalog mid-migration, whichever of the two the root is missing.
+  const legacy = await files.isFile(LEGACY_REGISTRY_FILENAME);
+
+  if (present.length === 0) throw legacy ? movedRegistry() : missingConfig();
+  if (present.length > 1) throw ambiguousConfig(present);
+
+  const file = present[0]!;
+  const section = parseProjectConfig(await files.text(file), file).catalog;
+  if (section === undefined) throw legacy ? movedRegistry() : notACatalog(file);
+
+  return { file, catalog: section };
+}
+
+/**
+ * Reads the root config of the catalog in `root`, which is also the check that it is a catalog.
+ *
+ * Exported for the authoring commands that write the registry: they need the config's name before they
+ * can open it, and a directory that is not a catalog has to be refused before anything is edited.
+ *
+ * @param root the catalog root, absolute.
+ * @param overlay files an in-flight edit would write, read instead of what is on disk.
+ * @throws {AmbitError} exit 2 for a directory that is not a catalog, or a config that cannot be read.
+ */
+export async function readCatalogConfig(
+  root: string,
+  overlay?: CatalogOverlay,
+): Promise<CatalogConfig> {
+  return readCatalogConfigFrom(new CatalogFiles(root, overlay ?? NO_OVERLAY));
 }
 
 /**
@@ -761,7 +891,7 @@ function fromCatalog(name: string, problem: AmbitError): AmbitError {
  * @param commit the commit the directory holds, for a git source.
  * @param options a collector for the one problem parsing can continue past, and an edit's pending
  *   files to read through — see {@link CatalogParseOptions}.
- * @throws {AmbitError} exit 2 for a missing registry, a malformed file, or a name that
+ * @throws {AmbitError} exit 2 for a directory that is not a catalog, a malformed file, or a name that
  *   disagrees with its path.
  */
 export async function parseCatalogDirectory(
@@ -779,14 +909,7 @@ export async function parseCatalogDirectory(
   const files = new CatalogFiles(root, options.overlay ?? NO_OVERLAY);
 
   try {
-    if (!(await files.isFile(SCOPES_FILENAME))) {
-      throw configError(`${SCOPES_FILENAME} is missing`, [
-        "a catalog must register every scope its skills and MCPs declare",
-        `add ${SCOPES_FILENAME} at the catalog root`,
-      ]);
-    }
-
-    const scopes = parseScopeRegistry(await files.mapping(SCOPES_FILENAME));
+    const config = await readCatalogConfigFrom(files);
 
     const skills: CatalogSkill[] = [];
     for (const relative of await findSkillDirectories(files)) {
@@ -807,8 +930,9 @@ export async function parseCatalogDirectory(
       name,
       source,
       root,
+      configFile: config.file,
       ...(commit !== undefined && { commit }),
-      scopes,
+      scopes: config.catalog.scopes,
       skills: byName(skills),
       mcps: byName(mcps),
       hooks: byName(hooks),
@@ -860,8 +984,8 @@ function skillPathFromName(name: string): string {
 /**
  * Loads one skill declared with its own `source` rather than through a catalog.
  *
- * A source need not be a catalog: only the one skill directory is read, nothing expects a
- * `scopes.yml`, and `path` may point anywhere inside it. What the skill declares still counts —
+ * A source need not be a catalog: only the one skill directory is read, nothing expects a `catalog:`
+ * block or a config at all, and `path` may point anywhere inside it. What the skill declares still counts —
  * `requires` is closed over as usual — so an explicit entry can carry dependencies with it.
  *
  * The config's `name` is authoritative, since it is what resolution, `requires`, and the installed
@@ -1018,6 +1142,8 @@ export async function mergeConfigEntities(
 /** One scope registration, remembering which catalog made it so a conflict can name both. */
 interface RegisteredScope {
   readonly catalog: string;
+  /** That catalog's config, as a conflict cites it — see {@link Catalog.configFile}. */
+  readonly file: string;
   readonly definition: ScopeDefinition;
 }
 
@@ -1032,9 +1158,12 @@ interface RegisteredScope {
  */
 function scopeDescriptionConflict(first: RegisteredScope, second: RegisteredScope): AmbitError {
   const name = first.definition.name;
-  return resolutionError(`conflicting descriptions for scope "${name}" (${SCOPES_FILENAME})`, [
-    `catalog "${first.catalog}" describes it as "${first.definition.description}"`,
-    `catalog "${second.catalog}" describes it as "${second.definition.description}"`,
+  // The key path names the registry and each detail line names the document, because neither is
+  // enough on its own: every catalog's registry is `catalog.scopes`, and every catalog's file is
+  // called `ambit.yml`.
+  return resolutionError(`conflicting descriptions for scope "${name}" (${REGISTRY_PATH})`, [
+    `catalog "${first.catalog}" describes it as "${first.definition.description}" ${at(first.file, undefined)}`,
+    `catalog "${second.catalog}" describes it as "${second.definition.description}" ${at(second.file, undefined)}`,
     "make the two descriptions identical, or rename the scope in one of the two catalogs",
   ]);
 }
@@ -1089,7 +1218,11 @@ export function mergeCatalogs(catalogs: readonly Catalog[]): MergedCatalog {
   for (const catalog of catalogs) {
     for (const definition of catalog.scopes) {
       const registered = scopes.get(definition.name);
-      const here: RegisteredScope = { catalog: catalog.name, definition };
+      const here: RegisteredScope = {
+        catalog: catalog.name,
+        file: catalog.configFile,
+        definition,
+      };
       if (registered === undefined) {
         scopes.set(definition.name, here);
       } else if (registered.definition.description !== definition.description) {

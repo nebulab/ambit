@@ -22,15 +22,10 @@
  * into a bundle a list of names is not an answer to "why is this here?" — and the lock records the
  * reason too, so it has to be part of resolution rather than a reporting afterthought.
  */
-import type {
-  MergedCatalog,
-  MergedHook,
-  MergedMcp,
-  MergedSkill,
-  ScopeDefinition,
-} from "../model/catalog.js";
-import { HOOKS_DIRNAME, MCPS_DIRNAME, SCOPES_FILENAME, SKILL_FILENAME } from "../model/catalog.js";
-import type { ProjectConfig } from "../model/config.js";
+import type { MergedCatalog, MergedHook, MergedMcp, MergedSkill } from "../model/catalog.js";
+import { HOOKS_DIRNAME, MCPS_DIRNAME, SKILL_FILENAME } from "../model/catalog.js";
+import type { ProjectConfig, ScopeDefinition } from "../model/config.js";
+import { CONFIG_FILENAMES, REGISTRY_PATH } from "../model/config.js";
 import type { ItemKind, Requirement } from "../model/requirement.js";
 import {
   KIND_NOUNS,
@@ -140,7 +135,7 @@ export function inSubtree(held: string, candidate: string): boolean {
  * equal to a held scope or beneath it.
  *
  * Expansion runs against the registry rather than over the scopes skills happen to declare, so
- * `scopes.yml` stays the single authority on the tree's shape — an unregistered scope cannot
+ * `catalog.scopes` stays the single authority on the tree's shape — an unregistered scope cannot
  * smuggle itself into a subtree by naming itself a child of one.
  *
  * Deliberately total: a held scope the registry does not know simply contributes nothing here,
@@ -222,7 +217,7 @@ function nearestScope(scope: string, registered: readonly ScopeDefinition[]): st
 export function scopeSuggestion(scope: string, registered: readonly ScopeDefinition[]): string {
   const suggestion = nearestScope(scope, registered);
   return suggestion === undefined
-    ? `register it in a catalog's ${SCOPES_FILENAME}, or correct the spelling`
+    ? `register it under \`${REGISTRY_PATH}\` in a catalog's ${CONFIG_FILENAMES[0]}, or correct the spelling`
     : `did you mean "${suggestion}"?`;
 }
 

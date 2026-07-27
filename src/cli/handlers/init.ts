@@ -8,17 +8,25 @@
  *
  * `--dry-run` prints the bytes instead. For every other command a preview is a rendering of a plan;
  * here the plan *is* the bytes, so printing anything less would be withholding the only thing worth
- * previewing. `--json` carries them either way, so a consuming tool that wants to write the scaffold
- * itself can.
+ * previewing. A run that *adds* the project half to a catalog's existing config previews as a diff
+ * instead: there the bytes are mostly the author's own, and a diff is what says which of them are new.
+ * `--json` carries the whole document either way, so a consuming tool that wants to write it itself can.
  */
 import type { CommandHandler } from "../commands.js";
 import { dryRunRequested, jsonRequested, projectDirOf } from "../commands.js";
+import { diffSection } from "../diff.js";
 import { ExitCode } from "../../errors.js";
+import { printSections } from "../output.js";
 import type { InitResult } from "../../project/init.js";
 import { initProject } from "../../project/init.js";
 
 function toJson(result: InitResult): Readonly<Record<string, unknown>> {
-  return { created: result.created, file: result.file, text: result.text };
+  return {
+    file: result.file,
+    text: result.text,
+    updated: result.before !== undefined,
+    written: result.written,
+  };
 }
 
 export const initHandler: CommandHandler = async (ctx) => {
@@ -29,14 +37,25 @@ export const initHandler: CommandHandler = async (ctx) => {
     return ExitCode.Success;
   }
 
-  if (result.created) {
-    ctx.stdout(`created ${result.file}`);
+  // "created" or "updated": a catalog repo that runs this already has the file, and gets the consumer
+  // keys added to it.
+  const before = result.before;
+  const verb = before === undefined ? "create" : "update";
+
+  if (result.written) {
+    ctx.stdout(`${verb}d ${result.file}`);
     ctx.stdout("next: add a catalog under `catalogs`, edit `scopes`, then run `ambit install`");
-  } else {
-    ctx.stdout(`would create ${result.file}`);
-    ctx.stdout("");
-    ctx.stdout(result.text.trimEnd());
+    return ExitCode.Success;
   }
+
+  ctx.stdout(`would ${verb} ${result.file}`);
+  ctx.stdout("");
+  if (before === undefined) ctx.stdout(result.text.trimEnd());
+  else
+    printSections(
+      diffSection("diff", [{ file: result.file, text: result.text, before }]),
+      ctx.stdout,
+    );
 
   return ExitCode.Success;
 };

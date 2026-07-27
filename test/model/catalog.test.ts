@@ -76,14 +76,16 @@ async function writeShadowingCatalog(
   coreDescription: string = CORE_DESCRIPTION,
 ): Promise<void> {
   const files: Readonly<Record<string, string>> = {
-    "scopes.yml": [
-      "scopes:",
-      "  core:",
-      `    description: ${JSON.stringify(coreDescription)}`,
-      "  function.engineering:",
-      `    description: ${JSON.stringify(ENGINEERING_DESCRIPTION)}`,
-      "  person.jane:",
-      "    description: Jane's own things",
+    "ambit.yml": [
+      "version: 1",
+      "catalog:",
+      "  scopes:",
+      "    core:",
+      `      description: ${JSON.stringify(coreDescription)}`,
+      "    function.engineering:",
+      `      description: ${JSON.stringify(ENGINEERING_DESCRIPTION)}`,
+      "    person.jane:",
+      "      description: Jane's own things",
       "",
     ].join("\n"),
     [`skills/${CORE_SKILL.replaceAll(".", "/")}/SKILL.md`]: [
@@ -421,16 +423,53 @@ transport:
     );
   });
 
-  it("rejects a catalog with no scope registry", async () => {
-    await rename(path.join(catalogDir, "scopes.yml"), path.join(catalogDir, "scopes.hidden"));
+  it("rejects a directory with no config at all", async () => {
+    await rename(path.join(catalogDir, "ambit.yml"), path.join(catalogDir, "ambit.hidden"));
 
-    expect((await rejection()).message).toBe("scopes.yml is missing");
+    expect((await rejection()).message).toBe("ambit.yml is missing");
+  });
+
+  it("rejects a config that declares no `catalog:` block, which is what makes a catalog", async () => {
+    await writeCatalogFile("ambit.yml", "version: 1\nscopes: [core]\n");
+
+    expect((await rejection()).message).toBe("ambit.yml declares no `catalog:` block");
+  });
+
+  it("sends a catalog still keeping its registry in scopes.yml to where the registry went", async () => {
+    await writeCatalogFile("scopes.yml", "scopes:\n  core:\n    description: The floor\n");
+    await writeCatalogFile("ambit.yml", "version: 1\n");
+
+    const error = await rejection();
+
+    expect(error.message).toBe("scopes.yml is no longer read");
+    expect(error.detail.join("\n")).toContain("`catalog.scopes`");
   });
 
   it("requires a description for every registered scope", async () => {
-    await writeCatalogFile("scopes.yml", "scopes:\n  core: {}\n");
+    await writeCatalogFile("ambit.yml", "version: 1\ncatalog:\n  scopes:\n    core: {}\n");
 
-    expect((await rejection()).message).toContain('missing required key "scopes.core.description"');
+    expect((await rejection()).message).toContain(
+      'missing required key "catalog.scopes.core.description"',
+    );
+  });
+
+  it("reads a catalog whose config is spelled `.yaml`, and cites that name", async () => {
+    // The other accepted config name is as legal at a catalog root as at a project's, so an error has
+    // to name the file the author actually wrote — there is no `.yml` for a reader to open.
+    await rename(path.join(catalogDir, "ambit.yml"), path.join(catalogDir, "ambit.yaml"));
+
+    const catalog = await parseCatalogDirectory(CATALOG_NAME, "path:../catalog", catalogDir);
+
+    expect(catalog.configFile).toBe("ambit.yaml");
+    expect(catalog.scopes.map((definition) => definition.name)).toContain("core");
+  });
+
+  it("refuses a root holding both accepted config names, rather than guessing", async () => {
+    await writeCatalogFile("ambit.yaml", "version: 1\ncatalog:\n  scopes: {}\n");
+
+    expect((await rejection()).message).toBe(
+      "ambit.yml and ambit.yaml both exist at the catalog root",
+    );
   });
 
   it("names the catalog an error came from", async () => {
@@ -473,6 +512,54 @@ catalogs:
     const result = await cli("dump-catalog");
     expect(result.code).toBe(ExitCode.Config);
     expect(result.stderr).toContain(`catalog "${CATALOG_NAME}" is not a directory`);
+  });
+});
+
+/**
+ * One repo as a catalog and as a project at once — the case two config files could not express.
+ *
+ * `catalog.scopes` defines the scopes, the top-level `scopes` holds them, and `path:.` points the repo
+ * at itself. Both halves are one document, and neither parser rejects the other's keys.
+ */
+describe("a catalog that installs its own skills", () => {
+  /** Adds the consumer half to the fixture catalog's own config, pointed at itself. */
+  async function dogfood(): Promise<void> {
+    const published = await readFile(path.join(catalogDir, "ambit.yml"), "utf8");
+    await writeCatalogFile(
+      "ambit.yml",
+      `${published}\nscopes: [core]\ncatalogs:\n  - name: self\n    source: "path:."\n`,
+    );
+  }
+
+  it("resolves against itself, reading both halves of one config", async () => {
+    await dogfood();
+
+    const result = await invoke(["resolve", "--project", catalogDir]);
+
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+    // `core` selects the fixture's core skill, out of the catalog the config points at itself.
+    expect(result.stdout).toContain("company-context");
+  });
+
+  it("installs its own skills, and reports no drift afterwards", async () => {
+    await dogfood();
+
+    const installed = await invoke(["install", "--project", catalogDir]);
+    const status = await invoke(["status", "--check", "--project", catalogDir]);
+
+    expect(installed.code, installed.stderr).toBe(ExitCode.Success);
+    expect(installed.stdout).toContain(".agents/skills/company-context");
+    // The repo's own `skills/` is the catalog and `.agents/skills/` is the install, in one tree.
+    expect(status.code, status.stderr).toBe(ExitCode.Success);
+  });
+
+  it("stays a catalog to `catalog validate`, which reads no consumer key", async () => {
+    const published = await readFile(path.join(catalogDir, "ambit.yml"), "utf8");
+    await writeCatalogFile("ambit.yml", `${published}\nscopes: [core]\n`);
+
+    const result = await invoke(["catalog", "validate", "--catalog", catalogDir]);
+
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
   });
 });
 
@@ -1037,7 +1124,7 @@ describe("usage errors below the top level", () => {
   const NESTED = ["catalog", "scope", "add"];
 
   it("returns an exit code for an unknown flag on a nested subcommand", async () => {
-    const before = await readFile(path.join(catalogDir, "scopes.yml"), "utf8");
+    const before = await readFile(path.join(catalogDir, "ambit.yml"), "utf8");
     const result = await invoke([
       ...NESTED,
       "person.jane",
@@ -1054,7 +1141,7 @@ describe("usage errors below the top level", () => {
     expect(result.stderr).toContain("--description");
     expect(result.stdout).toBe("");
     // Refused before the handler ran, so the mutation it named did not happen.
-    expect(await readFile(path.join(catalogDir, "scopes.yml"), "utf8")).toBe(before);
+    expect(await readFile(path.join(catalogDir, "ambit.yml"), "utf8")).toBe(before);
   });
 
   it("returns an exit code for a missing argument on a nested subcommand", async () => {
@@ -1130,7 +1217,7 @@ describe("the flag rules Commander enforces before a handler runs", () => {
     );
 
     expect(result.code).toBe(ExitCode.Config);
-    expect(result.stderr).toContain('scope "person.jane" needs a description (scopes.yml)');
+    expect(result.stderr).toContain('scope "person.jane" needs a description (catalog.scopes)');
     expect(result.stderr).toContain("--description");
     expect(stubbed.reached()).toBe(false);
   });
@@ -1337,7 +1424,7 @@ describe("multi-catalog merge and shadowing", () => {
     const result = await cli("resolve");
 
     expect(result.code).toBe(ExitCode.Resolution);
-    expect(result.stderr).toContain('conflicting descriptions for scope "core" (scopes.yml)');
+    expect(result.stderr).toContain('conflicting descriptions for scope "core" (catalog.scopes)');
     expect(result.stderr).toContain(
       `catalog "${CATALOG_NAME}" describes it as "${CORE_DESCRIPTION}"`,
     );

@@ -26,7 +26,14 @@ import {
   skillDocumentPath,
 } from "../../src/authoring/editor.js";
 import { AmbitError, ExitCode } from "../../src/errors.js";
+import { CONFIG_FILENAMES, REGISTRY_KEY_PATH } from "../../src/model/config.js";
 import { isValid, validateCatalogDirectory } from "../../src/resolution/validate.js";
+
+/** The catalog's own config, which is also where its scope registry lives. */
+const CONFIG = CONFIG_FILENAMES[0];
+
+/** The registry's key path within it: the nesting is what an edit has to write through. */
+const REGISTRY = REGISTRY_KEY_PATH;
 
 /**
  * The fixture's YAML-bearing files: every `SKILL.md` and every entity document.
@@ -171,14 +178,19 @@ describe("the catalog editor: round-tripping", () => {
   });
 
   it("adds a registry entry without touching the comment above the file", async () => {
-    const document = await CatalogDocument.open(catalogDir, "scopes.yml");
+    const document = await CatalogDocument.open(catalogDir, CONFIG);
 
-    document.setString(["scopes", "function.sales", "description"], "Selling the work");
+    document.setString([...REGISTRY, "function.sales", "description"], "Selling the work");
     await applyCatalogEdit(catalogDir, [document.change()]);
 
-    const before = FIXTURE_CATALOG_FILES["scopes.yml"] ?? "";
-    expect(await read("scopes.yml")).toBe(
-      `${before}  function.sales:\n    description: Selling the work\n`,
+    // The fixture's config with one entry added at the end of the registry: the header comment, the
+    // entries above it and the `version` key below all survive byte-for-byte.
+    const before = FIXTURE_CATALOG_FILES[CONFIG] ?? "";
+    expect(await read(CONFIG)).toBe(
+      before.replace(
+        "\nversion:",
+        "    function.sales:\n      description: Selling the work\n\nversion:",
+      ),
     );
   });
 
@@ -187,23 +199,25 @@ describe("the catalog editor: round-tripping", () => {
     // to be located before any of them is touched — and each keeps its position and its comment, which
     // `remove` plus `setString` could not do.
     await write(
-      "scopes.yml",
+      CONFIG,
       [
-        "scopes:",
-        "  # Everyone.",
-        "  core:",
-        "    description: The floor",
-        "  a:",
-        "    description: A",
-        "  a.b:",
-        "    description: B",
+        "version: 1",
+        "catalog:",
+        "  scopes:",
+        "    # Everyone.",
+        "    core:",
+        "      description: The floor",
+        "    a:",
+        "      description: A",
+        "    a.b:",
+        "      description: B",
         "",
       ].join("\n"),
     );
-    const document = await CatalogDocument.open(catalogDir, "scopes.yml");
+    const document = await CatalogDocument.open(catalogDir, CONFIG);
 
     document.renameKeys(
-      ["scopes"],
+      REGISTRY,
       new Map([
         ["a", "a.b"],
         ["a.b", "a.b.b"],
@@ -213,26 +227,28 @@ describe("the catalog editor: round-tripping", () => {
 
     expect(document.text()).toBe(
       [
-        "scopes:",
-        "  # Everyone.",
-        "  core:",
-        "    description: The floor",
-        "  a.b:",
-        "    description: A",
-        "  a.b.b:",
-        "    description: B",
+        "version: 1",
+        "catalog:",
+        "  scopes:",
+        "    # Everyone.",
+        "    core:",
+        "      description: The floor",
+        "    a.b:",
+        "      description: A",
+        "    a.b.b:",
+        "      description: B",
         "",
       ].join("\n"),
     );
   });
 
   it("creates the mappings a nested key needs, and reads back what it wrote", async () => {
-    const document = await CatalogDocument.open(catalogDir, "scopes.yml");
+    const document = await CatalogDocument.open(catalogDir, CONFIG);
 
-    expect(document.has(["scopes", "function.sales"])).toBe(false);
-    document.setString(["scopes", "function.sales", "description"], "Selling the work");
+    expect(document.has([...REGISTRY, "function.sales"])).toBe(false);
+    document.setString([...REGISTRY, "function.sales", "description"], "Selling the work");
 
-    expect(document.has(["scopes", "function.sales", "description"])).toBe(true);
+    expect(document.has([...REGISTRY, "function.sales", "description"])).toBe(true);
   });
 });
 
@@ -240,19 +256,19 @@ describe("the catalog editor: writing", () => {
   it("writes nothing at all when the edit changes nothing", async () => {
     // Re-running a mutation must leave the catalog alone down to the modification time: a rewrite of
     // identical bytes still shows up in a build cache, and in a `git status` on a checkout.
-    const document = await CatalogDocument.open(catalogDir, "scopes.yml");
+    const document = await CatalogDocument.open(catalogDir, CONFIG);
     const past = new Date("2001-01-01T00:00:00Z");
-    await utimes(path.join(catalogDir, "scopes.yml"), past, past);
+    await utimes(path.join(catalogDir, CONFIG), past, past);
 
     const result = await applyCatalogEdit(catalogDir, [document.change()]);
 
     expect(result).toEqual({ changes: [], trees: [], written: false });
-    expect((await stat(path.join(catalogDir, "scopes.yml"))).mtimeMs).toBe(past.getTime());
+    expect((await stat(path.join(catalogDir, CONFIG))).mtimeMs).toBe(past.getTime());
   });
 
   it("leaves no partial write behind", async () => {
-    const document = await CatalogDocument.open(catalogDir, "scopes.yml");
-    document.setString(["scopes", "function.sales", "description"], "Selling the work");
+    const document = await CatalogDocument.open(catalogDir, CONFIG);
+    document.setString([...REGISTRY, "function.sales", "description"], "Selling the work");
 
     await applyCatalogEdit(catalogDir, [document.change()]);
 
@@ -262,8 +278,8 @@ describe("the catalog editor: writing", () => {
   });
 
   it("reports every changed file in path order, with the bytes it holds now", async () => {
-    const registry = await CatalogDocument.open(catalogDir, "scopes.yml");
-    registry.setString(["scopes", "function.sales", "description"], "Selling the work");
+    const registry = await CatalogDocument.open(catalogDir, CONFIG);
+    registry.setString([...REGISTRY, "function.sales", "description"], "Selling the work");
     await write(ANNOTATED_SKILL_PATH, ANNOTATED_SKILL);
     const skill = await CatalogDocument.open(catalogDir, ANNOTATED_SKILL_PATH);
     skill.setStringList(["ambit", "scopes"], ["core", "function.sales"]);
@@ -271,19 +287,16 @@ describe("the catalog editor: writing", () => {
     const result = await applyCatalogEdit(catalogDir, [skill.change(), registry.change()]);
 
     expect(result.written).toBe(true);
-    expect(result.changes.map((change) => change.file)).toEqual([
-      "scopes.yml",
-      ANNOTATED_SKILL_PATH,
-    ]);
-    expect(result.changes[0]?.before).toBe(FIXTURE_CATALOG_FILES["scopes.yml"]);
+    expect(result.changes.map((change) => change.file)).toEqual([CONFIG, ANNOTATED_SKILL_PATH]);
+    expect(result.changes[0]?.before).toBe(FIXTURE_CATALOG_FILES[CONFIG]);
   });
 
   it("judges an edit as a whole, so a change one file needs may live in another", async () => {
     // The claim the overlay exists for: neither half of this edit validates on its own — the skill
     // declares a scope nothing registers, and it is the same edit that registers it.
     await write(ANNOTATED_SKILL_PATH, ANNOTATED_SKILL);
-    const registry = await CatalogDocument.open(catalogDir, "scopes.yml");
-    registry.setString(["scopes", "function.sales", "description"], "Selling the work");
+    const registry = await CatalogDocument.open(catalogDir, CONFIG);
+    registry.setString([...REGISTRY, "function.sales", "description"], "Selling the work");
     const skill = await CatalogDocument.open(catalogDir, ANNOTATED_SKILL_PATH);
     skill.setStringList(["ambit", "scopes"], ["core", "function.sales"]);
 
@@ -325,14 +338,14 @@ describe("the catalog editor: writing", () => {
 
   it("under `--dry-run`, validates and reports the change and writes none of it", async () => {
     const before = await snapshot();
-    const document = await CatalogDocument.open(catalogDir, "scopes.yml");
-    document.setString(["scopes", "function.sales", "description"], "Selling the work");
+    const document = await CatalogDocument.open(catalogDir, CONFIG);
+    document.setString([...REGISTRY, "function.sales", "description"], "Selling the work");
 
     const result = await applyCatalogEdit(catalogDir, [document.change()], { dryRun: true });
 
     expect(result.written).toBe(false);
     expect(result.changes).toEqual([
-      { file: "scopes.yml", text: document.text(), before: FIXTURE_CATALOG_FILES["scopes.yml"] },
+      { file: CONFIG, text: document.text(), before: FIXTURE_CATALOG_FILES[CONFIG] },
     ]);
     expect(await snapshot()).toEqual(before);
   });
@@ -377,8 +390,8 @@ describe("the catalog editor: refusals", () => {
 
   it("refuses a path outside the root even when another change is fine", async () => {
     const before = await snapshot();
-    const document = await CatalogDocument.open(catalogDir, "scopes.yml");
-    document.setString(["scopes", "function.sales", "description"], "Selling the work");
+    const document = await CatalogDocument.open(catalogDir, CONFIG);
+    document.setString([...REGISTRY, "function.sales", "description"], "Selling the work");
 
     await rejection(
       () =>

@@ -3,7 +3,7 @@
  *
  * ambit replaces dotagents, but a catalog must stay a plain skills repo so that dotagents — or
  * skills.sh, or anything else that reads `skills/<name>/SKILL.md` — can install from the
- * same directory. ambit's additions (`scopes.yml`, `mcps/`, the extra frontmatter keys) are supposed
+ * same directory. ambit's additions (`ambit.yml`, `mcps/`, the extra frontmatter keys) are supposed
  * to be additive and ignored. Spec §7 calls that "the guarantee most likely to rot", which is why it
  * is checked by running the real tool instead of by reasoning about it.
  *

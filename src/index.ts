@@ -20,8 +20,8 @@ export {
   HOOKS_DIRNAME,
   HOOK_FILENAME,
   MCPS_DIRNAME,
+  LEGACY_REGISTRY_FILENAME,
   MCP_EXTENSIONS,
-  SCOPES_FILENAME,
   SKILLS_DIRNAME,
   SKILL_FILENAME,
   formatShadowing,
@@ -31,12 +31,14 @@ export {
   mergeCatalogs,
   mergeConfigEntities,
   parseCatalogDirectory,
+  readCatalogConfig,
   resolveCatalogRoot,
   skillNameFromPath,
 } from "./model/catalog.js";
 export type {
   AnnotationKey,
   Catalog,
+  CatalogConfig,
   CatalogHook,
   CatalogMcp,
   CatalogOverlay,
@@ -46,14 +48,16 @@ export type {
   MergedHook,
   MergedMcp,
   MergedSkill,
-  ScopeDefinition,
   Shadowing,
   Shadowings,
 } from "./model/catalog.js";
 export {
+  CATALOG_KEY,
   CONFIG_FILENAMES,
   CONFIG_VERSION,
   DEFAULT_HARNESSES,
+  REGISTRY_KEY_PATH,
+  REGISTRY_PATH,
   existingConfigFiles,
   findConfigFile,
   loadProjectConfig,
@@ -61,9 +65,11 @@ export {
 } from "./model/config.js";
 export type {
   CatalogRef,
+  CatalogSection,
   CatalogSkillRequest,
   ConfigOrigin,
   ProjectConfig,
+  ScopeDefinition,
   SkillRequest,
   SourceSkillRequest,
 } from "./model/config.js";
@@ -101,7 +107,7 @@ export { HOOK_EVENTS, HOOK_TYPES, MATCHABLE_EVENTS, parseHookEntity } from "./mo
 export type { HookEntity, HookEvent, HookType } from "./model/hook-entity.js";
 export { MCP_TRANSPORT_KINDS, parseMcpEntity } from "./model/mcp-entity.js";
 export type { HttpTransport, McpEntity, McpTransport, StdioTransport } from "./model/mcp-entity.js";
-export { renderScaffold } from "./model/scaffold.js";
+export { VERSION_BLOCK, appendScaffold, renderScaffold } from "./model/scaffold.js";
 export type { ScaffoldBlock } from "./model/scaffold.js";
 export { parseSource, resolveSource } from "./model/sources.js";
 export type {
@@ -287,6 +293,7 @@ export {
   CATALOG_WORKFLOW_FILENAME,
   initCatalog,
   scaffoldCatalog,
+  scaffoldCatalogConfig,
 } from "./authoring/init.js";
 export type { CatalogInitOptions, CatalogInitResult } from "./authoring/init.js";
 export { mcpDocumentFile, mcpTarget, newMcp, removeMcp, unknownMcp } from "./authoring/mcp.js";

@@ -187,8 +187,8 @@ describe("ambit catalog audit", () => {
         "audited 2 scopes, 2 skills, 2 mcps, 0 hooks",
         "",
         "findings (3)",
-        `  unused scope "${DEAD_SCOPE}" (scopes.yml)`,
-        "      no skill, MCP server or hook declares it, and nothing registered beneath it does either",
+        `  unused scope "${DEAD_SCOPE}" (ambit.yml)`,
+        "      no skill, MCP server or hook declares it, and nothing registered beneath it in `catalog.scopes` does either",
         "      holding it selects nothing, so every picker rendering this registry offers a choice with no effect",
         `      declare it with \`ambit catalog annotate <kind>:<name> --add-scope ${DEAD_SCOPE}\`, or unregister it with \`ambit catalog scope rm ${DEAD_SCOPE}\``,
         `  unreachable skill "${ORPHAN_SKILL}" (skills/orphan/SKILL.md)`,
@@ -270,7 +270,7 @@ describe("ambit catalog audit", () => {
 
     expect(result.code).toBe(ExitCode.Config);
     expect(result.stdout).toBe("");
-    expect(result.stderr).toContain("scopes.yml is missing");
+    expect(result.stderr).toContain("ambit.yml is missing");
   });
 });
 
@@ -305,7 +305,7 @@ describe("ambit catalog audit --json", () => {
     expect(report.audited).toEqual({ hooks: 0, mcps: 2, scopes: 2, skills: 2 });
     expect(report.tidy).toBe(false);
     expect(report.findings.map((found) => ({ kind: found.kind, message: found.message }))).toEqual([
-      { kind: "dead-scope", message: `unused scope "${DEAD_SCOPE}" (scopes.yml)` },
+      { kind: "dead-scope", message: `unused scope "${DEAD_SCOPE}" (ambit.yml)` },
       {
         kind: "unreachable-skill",
         message: `unreachable skill "${ORPHAN_SKILL}" (skills/orphan/SKILL.md)`,
@@ -344,7 +344,7 @@ describe("what makes a registered scope dead", () => {
     await author(fixture, "scope", "add", "person.jane", "--description", "Jane's own things");
 
     expect((await auditJson(fixture)).findings.map((found) => found.message)).toEqual([
-      'unused scope "person.jane" (scopes.yml)',
+      'unused scope "person.jane" (ambit.yml)',
     ]);
   });
 
@@ -373,7 +373,7 @@ describe("what makes a registered scope dead", () => {
 
     // The hook itself is now unreachable too, which is the other half of the same fact.
     expect((await auditJson(fixture)).findings.map((found) => found.message)).toEqual([
-      'unused scope "person.jane" (scopes.yml)',
+      'unused scope "person.jane" (ambit.yml)',
       'unreachable hook "notify" (hooks/notify/HOOK.yml)',
     ]);
   });

@@ -1,14 +1,14 @@
 /**
  * The scope registry commands: `ambit catalog scope add|rm|mv`.
  *
- * `scopes.yml` is the one file in a catalog whose shape reaches outside it. Every project's `ambit.yml`
- * names these scopes by hand, and a held scope selects its whole subtree, so the three edits
- * here are deliberately not symmetric:
+ * `catalog.scopes` is the one part of a catalog's config whose shape reaches outside it. Every
+ * project's `ambit.yml` names these scopes by hand, and a held scope selects its whole subtree, so the
+ * three edits here are deliberately not symmetric:
  *
  * - **`add` refuses a name the registry already holds.** Registering a scope is not rewording one:
  *   quietly overwriting the entry that is there would let a re-run redefine what every project holding
  *   that scope gets, and the description is the label a picker shows for it. Nothing else in
- *   the CLI edits a description, so the refusal sends the reader to `scopes.yml` itself rather than to a
+ *   the CLI edits a description, so the refusal sends the reader to the config itself rather than to a
  *   command that does not exist.
  * - **`rm` refuses while anything still declares the scope**, naming every declarer. The editor would
  *   refuse the write anyway — a declared scope nothing registers is a validation problem — but the useful
@@ -22,19 +22,22 @@
  *   lets the result validate as a whole (see `CatalogOverlay` in `model/catalog.ts`).
  *
  * All three write through the B02 editor, so they inherit atomic writes, the root check, `--dry-run`, and
- * validation of the result. None of them reads an `ambit.yml`: a catalog is not a project, so a rename
- * cannot update the projects that hold the scope, and the command says so on the way out.
+ * validation of the result. All three write the catalog's *own* `ambit.yml` and no other: a catalog is
+ * not the projects that consume it, so a rename cannot update the ones that hold the scope, and the
+ * command says so on the way out.
  */
 import path from "node:path";
 
-import type { Catalog, CatalogHook, CatalogSkill, ScopeDefinition } from "../model/catalog.js";
+import type { Catalog, CatalogHook, CatalogSkill } from "../model/catalog.js";
 import {
   AMBIT_FRONTMATTER_KEY,
   HOOK_FILENAME,
-  SCOPES_FILENAME,
   SKILL_FILENAME,
   parseCatalogDirectory,
+  readCatalogConfig,
 } from "../model/catalog.js";
+import type { ScopeDefinition } from "../model/config.js";
+import { REGISTRY_KEY_PATH, REGISTRY_PATH } from "../model/config.js";
 import { mcpDocumentFile } from "./mcp.js";
 import type { CatalogChange, EditOptions, EditedFile } from "./editor.js";
 import { CatalogDocument, applyCatalogEdit } from "./editor.js";
@@ -42,16 +45,13 @@ import type { AmbitError } from "../errors.js";
 import { at, configError, resolutionError } from "../errors.js";
 import { SCOPE_SEPARATOR, inSubtree, scopeSuggestion } from "../resolution/resolve.js";
 
-/** The registry's one top-level key. */
-const REGISTRY_KEY = "scopes";
-
 /** A registry entry's one key. Required: it is the picker's label, not decoration. */
 const DESCRIPTION_KEY = "description";
 
 /**
- * The key a skill, an MCP entity or a hook declares its scopes under. The same word as
- * {@link REGISTRY_KEY} and a different document — a rename rewrites both, and confusing the two would be
- * a hard bug to see.
+ * The key a skill, an MCP entity or a hook declares its scopes under. The same word the registry's own
+ * key is — `catalog.scopes` defines a scope, a declaration holds one — so a rename rewrites both, and
+ * confusing the two would be a hard bug to see.
  *
  * Where it sits differs by document: a skill's is under `ambit:`, since a `SKILL.md`'s frontmatter is
  * the harness's and ambit is namespaced inside it, while an entity's is at the root of a
@@ -109,9 +109,13 @@ export interface ScopeRenameResult extends ScopeEdit {
  * from what `resolve` and `validate` give. The detail line differs on purpose — there is no merged
  * registry here, only the one file this command edits.
  */
-function unknownScope(scope: string, registered: readonly ScopeDefinition[]): AmbitError {
-  return resolutionError(`unknown scope "${scope}" ${at(SCOPES_FILENAME, undefined)}`, [
-    `this catalog's ${SCOPES_FILENAME} does not register it`,
+function unknownScope(
+  scope: string,
+  registered: readonly ScopeDefinition[],
+  file: string,
+): AmbitError {
+  return resolutionError(`unknown scope "${scope}" ${at(file, undefined)}`, [
+    `this catalog's \`${REGISTRY_PATH}\` does not register it`,
     scopeSuggestion(scope, registered),
   ]);
 }
@@ -126,8 +130,8 @@ function unknownScope(scope: string, registered: readonly ScopeDefinition[]): Am
  * declarer by hand is advice about work a command now does, and a next step has to be one that
  * exists.
  */
-function stillDeclared(scope: string, declarers: Declarers): AmbitError {
-  return resolutionError(`scope "${scope}" is still declared ${at(SCOPES_FILENAME, undefined)}`, [
+function stillDeclared(scope: string, declarers: Declarers, file: string): AmbitError {
+  return resolutionError(`scope "${scope}" is still declared ${at(file, undefined)}`, [
     ...declarers,
     `clear it from each with \`ambit catalog annotate <kind>:<name> --remove-scope ${scope}\`, or rename it with \`ambit catalog scope mv ${scope} <new>\``,
   ]);
@@ -141,21 +145,18 @@ function stillDeclared(scope: string, declarers: Declarers): AmbitError {
  * end of the mapping and take the author's comment with it (authoring rule 2). Naming a command that
  * would quietly reformat the file is worse advice than naming the file.
  */
-function alreadyHeld(scope: string): AmbitError {
-  return resolutionError(
-    `scope "${scope}" is already registered ${at(SCOPES_FILENAME, undefined)}`,
-    [
-      "registering is not rewording: overwriting the entry would redefine a scope projects already hold",
-      `edit its \`${DESCRIPTION_KEY}\` in ${SCOPES_FILENAME} by hand — no command rewords one — or register a name no entry there uses`,
-    ],
-  );
+function alreadyHeld(scope: string, file: string): AmbitError {
+  return resolutionError(`scope "${scope}" is already registered ${at(file, undefined)}`, [
+    "registering is not rewording: overwriting the entry would redefine a scope projects already hold",
+    `edit its \`${DESCRIPTION_KEY}\` under \`${REGISTRY_PATH}\` in ${file} by hand — no command rewords one — or register a name no entry there uses`,
+  ]);
 }
 
 /** The error for a rename onto a name the registry already holds. */
-function alreadyRegistered(from: string, to: string): AmbitError {
-  return resolutionError(`scope "${to}" is already registered ${at(SCOPES_FILENAME, undefined)}`, [
+function alreadyRegistered(from: string, to: string, file: string): AmbitError {
+  return resolutionError(`scope "${to}" is already registered ${at(file, undefined)}`, [
     `renaming "${from}" to it would merge two scopes into one`,
-    `pick a name no entry in ${SCOPES_FILENAME} uses, or unregister the other one first`,
+    `pick a name no entry under \`${REGISTRY_PATH}\` uses, or unregister the other one first`,
   ]);
 }
 
@@ -167,12 +168,16 @@ function alreadyRegistered(from: string, to: string): AmbitError {
  * rename to `""` would produce `.frontend` out of prefix arithmetic. Everything else a YAML key may hold
  * is the catalog author's business.
  *
+ * The registry is named by its key path rather than by a file, uniquely among this module's refusals:
+ * this runs before anything is read, so which of the two accepted config names the catalog uses is not
+ * known yet — and a name with an empty segment is refused whatever document it was headed for.
+ *
  * @throws {AmbitError} exit 2, naming the registry and the name it refused.
  */
 function assertScopeName(scope: string): void {
   if (scope.split(SCOPE_SEPARATOR).every((segment) => segment.trim() !== "")) return;
 
-  throw configError(`invalid scope name "${scope}" ${at(SCOPES_FILENAME, undefined)}`, [
+  throw configError(`invalid scope name "${scope}" (${REGISTRY_PATH})`, [
     `a scope name is segments joined by \`${SCOPE_SEPARATOR}\`, none of them empty`,
     "name it like `function.engineering`",
   ]);
@@ -255,7 +260,7 @@ async function readCatalog(root: string): Promise<Catalog> {
 export function assertRegisteredScopes(catalog: Catalog, scopes: readonly string[]): void {
   const registered = new Set(catalog.scopes.map((definition) => definition.name));
   for (const scope of scopes) {
-    if (!registered.has(scope)) throw unknownScope(scope, catalog.scopes);
+    if (!registered.has(scope)) throw unknownScope(scope, catalog.scopes, catalog.configFile);
   }
 }
 
@@ -282,12 +287,15 @@ function changesOf(documents: readonly CatalogDocument[]): readonly CatalogChang
  *
  * The collision is asked of the one document this command writes rather than of a parsed catalog: the
  * question is whether the key is there to be overwritten, and the file the refusal names is this one.
+ * The config is still read first, and only for its name and the `catalog:` block that makes the
+ * directory a catalog at all — a `catalog scope add` in a project is refused before anything is opened
+ * for writing.
  *
  * @param root the catalog root, absolute.
  * @param options `--dry-run`.
- * @throws {AmbitError} exit 2 for a name with an empty segment, a registry that cannot be read, or a
- *   write that fails; exit 3 for a name the registry already holds — with nothing written, under
- *   `--dry-run` too — or if the result would not validate.
+ * @throws {AmbitError} exit 2 for a name with an empty segment, a directory that is not a catalog, a
+ *   config that cannot be read, or a write that fails; exit 3 for a name the registry already holds —
+ *   with nothing written, under `--dry-run` too — or if the result would not validate.
  */
 export async function addScope(
   root: string,
@@ -297,9 +305,10 @@ export async function addScope(
 ): Promise<ScopeAddResult> {
   assertScopeName(scope);
 
-  const registry = await CatalogDocument.open(root, SCOPES_FILENAME);
-  if (registry.has([REGISTRY_KEY, scope])) throw alreadyHeld(scope);
-  registry.setString([REGISTRY_KEY, scope, DESCRIPTION_KEY], description);
+  const { file } = await readCatalogConfig(root);
+  const registry = await CatalogDocument.open(root, file);
+  if (registry.has([...REGISTRY_KEY_PATH, scope])) throw alreadyHeld(scope, file);
+  registry.setString([...REGISTRY_KEY_PATH, scope, DESCRIPTION_KEY], description);
 
   const result = await applyCatalogEdit(root, changesOf([registry]), options);
   return {
@@ -326,10 +335,10 @@ export async function removeScope(
   assertRegistered(catalog, scope);
 
   const declarers = declarersOf(catalog, scope);
-  if (declarers.length > 0) throw stillDeclared(scope, declarers);
+  if (declarers.length > 0) throw stillDeclared(scope, declarers, catalog.configFile);
 
-  const registry = await CatalogDocument.open(root, SCOPES_FILENAME);
-  registry.remove([REGISTRY_KEY, scope]);
+  const registry = await CatalogDocument.open(root, catalog.configFile);
+  registry.remove([...REGISTRY_KEY_PATH, scope]);
 
   const result = await applyCatalogEdit(root, changesOf([registry]), options);
   return { unregistered: scope, changes: result.changes, written: result.written };
@@ -366,11 +375,12 @@ function renamesFor(
 function assertNoCollision(
   registry: readonly ScopeDefinition[],
   renames: ReadonlyMap<string, string>,
+  file: string,
 ): void {
   const taken = new Set(registry.map((definition) => definition.name));
   for (const [from, to] of renames) {
     if (!taken.has(to) || renames.has(to)) continue;
-    throw alreadyRegistered(from, to);
+    throw alreadyRegistered(from, to, file);
   }
 }
 
@@ -422,10 +432,10 @@ export async function renameScope(
   assertRegistered(catalog, from);
 
   const renames = renamesFor(catalog.scopes, from, to);
-  assertNoCollision(catalog.scopes, renames);
+  assertNoCollision(catalog.scopes, renames, catalog.configFile);
 
-  const registry = await CatalogDocument.open(root, SCOPES_FILENAME);
-  registry.renameKeys([REGISTRY_KEY], renames);
+  const registry = await CatalogDocument.open(root, catalog.configFile);
+  registry.renameKeys(REGISTRY_KEY_PATH, renames);
   const documents: CatalogDocument[] = [registry];
 
   for (const skill of catalog.skills) {

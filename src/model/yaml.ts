@@ -1,7 +1,7 @@
 /**
  * The shared YAML loader.
  *
- * Every ambit format goes through here — `ambit.yml`, `scopes.yml`, `mcps/*.yml`, `SKILL.md`
+ * Every ambit format goes through here — `ambit.yml`, `mcps/*.yml`, `HOOK.yml`, `SKILL.md`
  * frontmatter — so the rules are enforced once and cannot drift between parsers. The rules
  * exist because the alternative is silent corruption: a commit SHA like `1234567` parses as
  * an integer, a duplicate key quietly wins, a tab looks like indentation.
@@ -778,7 +778,7 @@ export class EditableYaml {
   }
 
   /**
-   * Opens a whole YAML file for editing — `scopes.yml`, `mcps/<name>.yml`.
+   * Opens a whole YAML file for editing — `ambit.yml`, `mcps/<name>.yml`.
    *
    * @throws {AmbitError} exit 2 if the document violates a §3.0 rule.
    */

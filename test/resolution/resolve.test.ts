@@ -1479,7 +1479,7 @@ describe("unknown held scopes", () => {
     expect(result.stderr).toContain(
       `unknown scope "marmalade" (ambit.yml line ${FIRST_SCOPE_LINE})`,
     );
-    expect(result.stderr).toContain("scopes.yml");
+    expect(result.stderr).toContain("register it under `catalog.scopes`");
     expect(result.stderr).not.toContain("did you mean");
   });
 
@@ -1602,7 +1602,11 @@ describe("ambit resolve", () => {
   });
 
   it("exits 2 on a malformed catalog", async () => {
-    await writeFile(path.join(catalogDir, "scopes.yml"), "scopes:\n  core: {}\n", "utf8");
+    await writeFile(
+      path.join(catalogDir, "ambit.yml"),
+      "version: 1\ncatalog:\n  scopes:\n    core: {}\n",
+      "utf8",
+    );
 
     const result = await cli("resolve");
     expect(result.code).toBe(ExitCode.Config);

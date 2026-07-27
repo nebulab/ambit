@@ -61,17 +61,19 @@ async function writeProfile(
   );
 }
 
-/** A second catalog: a registry and nothing else, since only its scopes matter here. */
+/** A second catalog: a `catalog:` block and nothing else, since only its scopes matter here. */
 async function writeSecondCatalog(): Promise<void> {
   await mkdir(secondDir, { recursive: true });
   await writeFile(
-    path.join(secondDir, "scopes.yml"),
+    path.join(secondDir, "ambit.yml"),
     [
-      "scopes:",
-      `  ${CORE}:`,
-      `    description: ${JSON.stringify(CORE_DESCRIPTION)}`,
-      `  ${JANE}:`,
-      `    description: ${JSON.stringify(JANE_DESCRIPTION)}`,
+      "version: 1",
+      "catalog:",
+      "  scopes:",
+      `    ${CORE}:`,
+      `      description: ${JSON.stringify(CORE_DESCRIPTION)}`,
+      `    ${JANE}:`,
+      `      description: ${JSON.stringify(JANE_DESCRIPTION)}`,
       "",
     ].join("\n"),
     "utf8",

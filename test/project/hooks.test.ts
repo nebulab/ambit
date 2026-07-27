@@ -908,7 +908,7 @@ describe("a hook that ships its own script", () => {
   async function writeCatalog(harnesses: readonly string[] = ["claude"]): Promise<void> {
     const catalogDir = path.join(root, "catalog");
     const files: Readonly<Record<string, string>> = {
-      "scopes.yml": "scopes:\n  core:\n    description: Everyone\n",
+      "ambit.yml": "version: 1\ncatalog:\n  scopes:\n    core:\n      description: Everyone\n",
       [`hooks/${SCRIPT_HOOK}/HOOK.yml`]: [
         `name: ${SCRIPT_HOOK}`,
         "scopes: [core]",

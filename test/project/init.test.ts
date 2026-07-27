@@ -11,12 +11,16 @@
  * The prose itself is deliberately not pinned. It is documentation, free to be reworded; what is
  * pinned is that a comment adjacent to `scopes` says nothing is implicit and that selection is
  * descendants-only, which is the part that costs a bundle when it goes missing.
+ *
+ * A third claim arrived with one config file for both roles: a catalog's own `ambit.yml` gets the
+ * consumer keys *added* to it rather than refused, and its `catalog:` block comes out byte-identical.
  */
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { scaffoldCatalogConfig } from "../../src/authoring/init.js";
 import { parseProjectConfig } from "../../src/model/config.js";
 import { ExitCode } from "../../src/errors.js";
 import { INIT_FILENAME, INIT_SCOPE, scaffoldConfig } from "../../src/project/init.js";
@@ -176,28 +180,83 @@ describe("ambit init", () => {
 
   it("carries the bytes in --json, so a consuming tool can write them itself", async () => {
     const result = await cli("init", "--json");
-    const report = JSON.parse(result.stdout) as { created: boolean; file: string; text: string };
+    const report = JSON.parse(result.stdout) as {
+      file: string;
+      text: string;
+      updated: boolean;
+      written: boolean;
+    };
 
-    expect(report).toEqual({ created: true, file: INIT_FILENAME, text: await readConfig() });
+    expect(report).toEqual({
+      file: INIT_FILENAME,
+      text: await readConfig(),
+      updated: false,
+      written: true,
+    });
   });
 });
 
-describe("ambit init on a directory that already holds a config", () => {
+describe("ambit init on a catalog's own config", () => {
+  it("adds the consumer keys, keeping the `catalog:` block and its comments byte-identical", async () => {
+    const published = scaffoldCatalogConfig();
+    await writeFile(path.join(projectDir, INIT_FILENAME), published, "utf8");
+
+    const result = await cli("init");
+    const config = await readConfig();
+
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+    expect(result.stdout).toContain(`updated ${INIT_FILENAME}`);
+    expect(config.startsWith(published)).toBe(true);
+
+    // Both halves of one document, and one `version:` between them.
+    const parsed = parseProjectConfig(config, INIT_FILENAME);
+    expect(parsed.scopes).toEqual([INIT_SCOPE]);
+    expect(parsed.harnesses).toEqual(["claude"]);
+    expect(parsed.catalog?.scopes.map((definition) => definition.name)).toEqual([INIT_SCOPE]);
+  });
+
+  it("previews the addition as a diff rather than as the whole file", async () => {
+    await writeFile(path.join(projectDir, INIT_FILENAME), scaffoldCatalogConfig(), "utf8");
+    const before = await readConfig();
+
+    const result = await cli("init", "--dry-run");
+
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+    expect(result.stdout).toContain(`would update ${INIT_FILENAME}`);
+    expect(result.stdout).toContain("+ scopes:");
+    expect(await readConfig()).toBe(before);
+  });
+
+  it("refuses a second run, since the consumer keys are then already there", async () => {
+    await writeFile(path.join(projectDir, INIT_FILENAME), scaffoldCatalogConfig(), "utf8");
+    await cli("init");
+    const after = await readConfig();
+
+    const second = await cli("init");
+
+    expect(second.code).toBe(ExitCode.Config);
+    expect(second.stderr).toContain(`refusing to overwrite ${INIT_FILENAME}`);
+    expect(await readConfig()).toBe(after);
+  });
+});
+
+describe("ambit init on a directory that already holds a project config", () => {
   it("refuses ambit.yml, leaving it byte-identical", async () => {
-    await writeFile(path.join(projectDir, INIT_FILENAME), "version: 1\n", "utf8");
+    const existing = "version: 1\nscopes: [core]\n";
+    await writeFile(path.join(projectDir, INIT_FILENAME), existing, "utf8");
 
     const result = await cli("init");
 
     expect(result.code).toBe(ExitCode.Config);
     expect(result.stderr).toContain(`refusing to overwrite ${INIT_FILENAME}`);
     expect(result.stderr).toContain("ambit init");
-    expect(await readConfig()).toBe("version: 1\n");
+    expect(await readConfig()).toBe(existing);
   });
 
   it("refuses ambit.yaml too, and writes no ambit.yml beside it", async () => {
     // Both names are accepted config, so scaffolding the other one would leave a project
     // whose two configs are an error in every other command.
-    await writeFile(path.join(projectDir, OTHER_CONFIG), "version: 1\n", "utf8");
+    await writeFile(path.join(projectDir, OTHER_CONFIG), "version: 1\nscopes: [core]\n", "utf8");
 
     const result = await cli("init");
 
@@ -207,12 +266,22 @@ describe("ambit init on a directory that already holds a config", () => {
   });
 
   it("refuses under --dry-run as well, since the preview of a refusal is a refusal", async () => {
-    await writeFile(path.join(projectDir, INIT_FILENAME), "version: 1\n", "utf8");
+    await writeFile(path.join(projectDir, INIT_FILENAME), "version: 1\nscopes: [core]\n", "utf8");
 
     const result = await cli("init", "--dry-run");
 
     expect(result.code).toBe(ExitCode.Config);
     expect(result.stderr).toContain(`refusing to overwrite ${INIT_FILENAME}`);
+  });
+
+  it("refuses a directory holding both accepted names, rather than guessing", async () => {
+    await writeFile(path.join(projectDir, INIT_FILENAME), "version: 1\n", "utf8");
+    await writeFile(path.join(projectDir, OTHER_CONFIG), "version: 1\n", "utf8");
+
+    const result = await cli("init");
+
+    expect(result.code).toBe(ExitCode.Config);
+    expect(result.stderr).toContain(`${INIT_FILENAME} and ${OTHER_CONFIG} both exist`);
   });
 });
 
@@ -227,13 +296,13 @@ describe("ambit init --dry-run", () => {
     expect(await readdir(projectDir)).toEqual([]);
   });
 
-  it("reports created: false in --json, with the same bytes a real run would write", async () => {
+  it("reports written: false in --json, with the same bytes a real run would write", async () => {
     const preview = await cli("init", "--dry-run", "--json");
-    const previewed = JSON.parse(preview.stdout) as { created: boolean; text: string };
+    const previewed = JSON.parse(preview.stdout) as { written: boolean; text: string };
 
     await cli("init");
 
-    expect(previewed.created).toBe(false);
+    expect(previewed.written).toBe(false);
     expect(previewed.text).toBe(await readConfig());
   });
 });

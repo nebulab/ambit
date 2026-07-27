@@ -37,14 +37,13 @@ import type {
 } from "../model/catalog.js";
 import {
   HOOK_FILENAME,
-  SCOPES_FILENAME,
   loadCatalogs,
   mergeCatalogs,
   mergeConfigEntities,
   parseCatalogDirectory,
 } from "../model/catalog.js";
 import type { ProjectConfig } from "../model/config.js";
-import { loadProjectConfig } from "../model/config.js";
+import { REGISTRY_PATH, loadProjectConfig } from "../model/config.js";
 import type { AmbitError } from "../errors.js";
 import { at, resolutionError } from "../errors.js";
 import type { ItemKind } from "../model/requirement.js";
@@ -171,7 +170,7 @@ function unregisteredScope(
   return problem(
     "unregistered-scope",
     resolutionError(`unregistered scope "${scope}" ${where}`, [
-      `${declarer} declares it, but no catalog's ${SCOPES_FILENAME} registers it`,
+      `${declarer} declares it, but no catalog's \`${REGISTRY_PATH}\` registers it`,
       scopeSuggestion(scope, registered),
     ]),
   );

@@ -304,7 +304,7 @@ describe("ambit catalog skill new", () => {
       "function.enginering",
     );
 
-    expect(result.stderr).toContain('unknown scope "function.enginering" (scopes.yml)');
+    expect(result.stderr).toContain('unknown scope "function.enginering" (ambit.yml)');
     expect(result.stderr).toContain('did you mean "function.engineering"?');
   });
 

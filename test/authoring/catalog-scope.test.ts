@@ -1,5 +1,5 @@
 /**
- * `ambit catalog scope add|rm|mv` — maintaining `scopes.yml`.
+ * `ambit catalog scope add|rm|mv` — maintaining the registry under `catalog.scopes`.
  *
  * Three claims carry this suite, and all three are about bytes. The first is fidelity: the registry is
  * hand-maintained, so a comment, a quoting style, or an entry's position that moves is a bug even when the
@@ -27,14 +27,30 @@ const PARENT = "function.engineering";
 const CHILD = "function.engineering.frontend";
 const RENAMED_PARENT = "team.engineering";
 
-const REGISTRY = "scopes.yml";
+/** The catalog's config, which is where its registry now lives. */
+const REGISTRY = "ambit.yml";
+
+/** The registry entry a fresh `add` writes, at the depth `catalog.scopes` puts it. */
+function entry(name: string, description: string): string {
+  return `    ${name}:\n      description: ${description}\n`;
+}
+
+/**
+ * The fixture's config with `text` inserted at the end of the registry.
+ *
+ * A new entry lands at the end of `catalog.scopes` rather than at the end of the file, since the
+ * registry is a nested key and `version:` sits below it at the top level.
+ */
+function registryWith(text: string): string {
+  return fixture(REGISTRY).replace("\nversion:", `${text}\nversion:`);
+}
 const CODE_REVIEW = "skills/code-review/SKILL.md";
 const DESIGN_TOKENS = "skills/design-tokens/SKILL.md";
 const SCOPED_MCP = "mcps/scoped.yml";
 const SCOPED_HOOK = "hooks/guard-secrets/HOOK.yml";
 
 /** Every file `mv function.engineering` touches, in the path order the command reports them. */
-const RENAMED_FILES = [SCOPED_HOOK, SCOPED_MCP, REGISTRY, CODE_REVIEW, DESIGN_TOKENS];
+const RENAMED_FILES = [REGISTRY, SCOPED_HOOK, SCOPED_MCP, CODE_REVIEW, DESIGN_TOKENS];
 
 const JANE = "person.jane";
 const JANE_DESCRIPTION = "Jane's own things";
@@ -141,9 +157,7 @@ describe("ambit catalog scope add", () => {
   it("appends an entry, leaving every byte above it alone", async () => {
     await succeeds("add", JANE, "--description", JANE_DESCRIPTION);
 
-    expect(await read(REGISTRY)).toBe(
-      `${fixture(REGISTRY)}  ${JANE}:\n    description: ${JANE_DESCRIPTION}\n`,
-    );
+    expect(await read(REGISTRY)).toBe(registryWith(entry(JANE, JANE_DESCRIPTION)));
     await validates();
   });
 
@@ -170,7 +184,9 @@ describe("ambit catalog scope add", () => {
 
     expect(result.stderr).toContain(`scope "${PARENT}" is already registered (${REGISTRY})`);
     // The next step is hand-editing, because no command rewords a registered scope.
-    expect(result.stderr).toContain(`edit its \`description\` in ${REGISTRY} by hand`);
+    expect(result.stderr).toContain(
+      `edit its \`description\` under \`catalog.scopes\` in ${REGISTRY} by hand`,
+    );
     expect((await registeredScopes())[PARENT]).toBe("Building and shipping software");
   });
 
@@ -237,7 +253,7 @@ describe("ambit catalog scope add", () => {
   it("refuses a scope with no description, writing nothing", async () => {
     const result = await refused(ExitCode.Config, "add", JANE);
 
-    expect(result.stderr).toContain(`scope "${JANE}" needs a description (${REGISTRY})`);
+    expect(result.stderr).toContain(`scope "${JANE}" needs a description (catalog.scopes)`);
     expect(result.stderr).toContain("--description");
   });
 
@@ -262,8 +278,25 @@ describe("ambit catalog scope add", () => {
     expect(result.stdout).toContain(`diff (1)`);
     expect(result.stdout).toContain(`  ${REGISTRY} (updated)`);
     // The entry's own indentation survives the diff's `+ ` prefix, so the addition reads as YAML.
-    expect(result.stdout).toContain(`+   ${JANE}:`);
+    expect(result.stdout).toContain(`+     ${JANE}:`);
     expect(await snapshot()).toEqual(before);
+  });
+});
+
+describe("ambit catalog scope add on a catalog spelled `ambit.yaml`", () => {
+  it("writes the config the catalog actually has, and names it", async () => {
+    // The other accepted name is legal at a catalog root, and the whole edit — the collision check, the
+    // write, and the report — has to follow the file the author wrote rather than the one ambit would.
+    const other = "ambit.yaml";
+    await rename(path.join(catalogDir, REGISTRY), path.join(catalogDir, other));
+
+    const result = await succeeds("add", JANE, "--description", JANE_DESCRIPTION);
+
+    expect(result.stdout).toContain(`  ${other}`);
+    expect(await read(other)).toBe(
+      fixture(REGISTRY).replace("\nversion:", `${entry(JANE, JANE_DESCRIPTION)}\nversion:`),
+    );
+    expect((await registeredScopes())[JANE]).toBe(JANE_DESCRIPTION);
   });
 });
 
@@ -318,7 +351,7 @@ describe("ambit catalog scope rm", () => {
   it("refuses a scope the registry does not hold, naming the nearest one it does", async () => {
     const result = await refused(ExitCode.Resolution, "rm", "function.enginering");
 
-    expect(result.stderr).toContain('unknown scope "function.enginering" (scopes.yml)');
+    expect(result.stderr).toContain('unknown scope "function.enginering" (ambit.yml)');
     expect(result.stderr).toContain(`did you mean "${PARENT}"?`);
   });
 
@@ -340,7 +373,7 @@ describe("ambit catalog scope rm", () => {
     const result = await succeeds("rm", JANE, "--dry-run");
 
     expect(result.stdout).toContain("would unregister (1)");
-    expect(result.stdout).toContain(`-   ${JANE}:`);
+    expect(result.stdout).toContain(`-     ${JANE}:`);
     expect(await snapshot()).toEqual(before);
   });
 });
@@ -402,8 +435,8 @@ describe("ambit catalog scope mv", () => {
     // `remove` plus `setString` would move the entry to the end of the mapping and take this comment
     // with it, which is the reformatting authoring rule 2 forbids.
     const annotated = fixture(REGISTRY).replace(
-      `  ${PARENT}:\n`,
-      `  # Everyone who ships software holds this one.\n  ${PARENT}:\n`,
+      `    ${PARENT}:\n`,
+      `    # Everyone who ships software holds this one.\n    ${PARENT}:\n`,
     );
     await write(REGISTRY, annotated);
 
@@ -438,7 +471,7 @@ describe("ambit catalog scope mv", () => {
   it("refuses a scope the registry does not hold", async () => {
     const result = await refused(ExitCode.Resolution, "mv", "person.jane", "person.joan");
 
-    expect(result.stderr).toContain('unknown scope "person.jane" (scopes.yml)');
+    expect(result.stderr).toContain('unknown scope "person.jane" (ambit.yml)');
   });
 
   it("refuses a new name with an empty segment", async () => {

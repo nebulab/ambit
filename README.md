@@ -34,10 +34,13 @@ $ ambit catalog init --catalog acme-skills
 created (6)
   .github/workflows/validate.yml
   README.md
+  ambit.yml
   hooks/.gitkeep
   mcps/.gitkeep
-  scopes.yml
   skills/.gitkeep
+
+updated (0)
+  (none)
 
 kept (0)
   (none)
@@ -51,7 +54,7 @@ registered (1)
   function.engineering  Building and shipping software
 
 files (1)
-  scopes.yml
+  ambit.yml
 ```
 
 ```
@@ -71,8 +74,10 @@ next: write the skill's instructions in skills/code-review/SKILL.md
 ambit writes the file and maintains its frontmatter; the instructions are yours.
 
 `ambit catalog init` creates the root directory if it is missing, and scaffolds a GitHub Actions
-workflow that runs `ambit catalog validate`. It refuses a directory that already has a `scopes.yml`.
-Every other scaffolded file that already exists is left byte-identical and reported as `kept`.
+workflow that runs `ambit catalog validate`. It refuses a directory whose `ambit.yml` already has a
+`catalog:` block; one written by `ambit init` gets the block added to it, comments and all, and is
+reported as `updated`. Every other scaffolded file that already exists is left byte-identical and
+reported as `kept`.
 
 ### Consuming a catalog
 
@@ -124,12 +129,12 @@ artifacts (5)
 
 | Term                | Meaning                                                                                                                                                         |
 | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Catalog**         | A source of skills, MCP definitions and hooks: a git repo or a local directory.                                                                                 |
+| **Catalog**         | A source of skills, MCP definitions and hooks: a git repo or a local directory whose `ambit.yml` declares a `catalog:` block.                                   |
 | **Skill**           | A directory containing `SKILL.md`. Its name is its path under `skills/`, so `skills/close-crm/` is `close-crm`. A nested directory joins its segments with `.`. |
 | **MCP entity**      | A server definition in the catalog's `mcps/` directory.                                                                                                         |
 | **Hook**            | A directory containing `HOOK.yml`, named from its path under `hooks/` the way a skill is. It runs a command on one harness event.                               |
 | **Scope**           | A dotted, nestable label for _who needs a thing_: `function.engineering`, `project.vision-group`, `person.jane-doe`.                                            |
-| **Project**         | A directory containing `ambit.yml`.                                                                                                                             |
+| **Project**         | A directory containing `ambit.yml`. One repo can be a project and a catalog at once — the roles are two halves of one file.                                     |
 | **Bundle**          | The resolved set of skills, MCP servers and hooks for a project.                                                                                                |
 | **Harness adapter** | Code that writes a bundle into one agent tool's layout: `claude`, `codex`, `cursor`, `opencode`, `vscode`.                                                      |
 | **Owned artifact**  | A file or directory ambit created, recorded in `.ambit/state.json`. ambit never touches anything else.                                                          |
@@ -137,6 +142,10 @@ artifacts (5)
 ## File formats
 
 ### `ambit.yml`: project config
+
+One format covers both roles. The keys below are what a repo installs _for itself_; what it
+_publishes_ as a catalog nests under [`catalog:`](#catalog-what-a-repo-publishes). A key of one role is
+never an error in a config written for the other.
 
 ```yaml
 version: 1
@@ -317,27 +326,53 @@ Every harness's hook root is an array, which has no name to key on, so ambit ide
 entries by a content digest recorded in `.ambit/state.json`. Hooks you wrote by hand in the same file
 are not ambit's and survive `install`, `prune` and `clean` byte-identically.
 
-### `scopes.yml`: the catalog's scope registry
+### `catalog:`: what a repo publishes
 
-At the catalog root.
+A catalog's root config is an `ambit.yml` like a project's. The keys a catalog writes nest under
+`catalog:`; the keys a project writes stay at the top level. A repo that publishes a catalog _and_
+installs skills for itself writes both, in one file:
 
 ```yaml
-scopes:
-  function.engineering:
-    description: Building and shipping client software
-  function.engineering.frontend:
-    description: "Browser-side work: components, styling, accessibility"
-  project.acme:
-    description: The ACME project
+version: 1
+
+# What this repo publishes as a catalog.
+catalog:
+  scopes:
+    function.engineering:
+      description: Building and shipping client software
+    function.engineering.frontend:
+      description: "Browser-side work: components, styling, accessibility"
+    project.acme:
+      description: The ACME project
+
+# What this repo installs for itself, as any project would.
+scopes: [function.engineering]
+catalogs:
+  - name: self
+    source: "path:."
 ```
+
+| Key              | Type    | Required | Meaning                                                                         |
+| ---------------- | ------- | -------- | ------------------------------------------------------------------------------- |
+| `catalog.scopes` | mapping | yes      | Every scope this catalog's skills, servers and hooks may declare. May be empty. |
+
+A `description` is required for each: it is the label a tool asking someone which scopes they hold
+renders, not decoration. **A `catalog:` block is what makes a directory a catalog** — a config without
+one is a project's, and pointing `catalogs:` at that directory is an error.
+
+Note the two meanings of `scopes`. Top-level `scopes:` is the list a project _holds_;
+`catalog.scopes` is the registry of scopes a catalog _defines_. The nesting is what tells them apart.
+
+Earlier versions kept the registry in a separate `scopes.yml`. That file is no longer read: a catalog
+root still holding one is refused with a message saying where its `scopes:` mapping now goes.
 
 ## Resolution
 
 1. **Load and validate config.** Malformed → exit 2 naming the field.
 2. **Fetch catalogs**, each into the local cache, at its `ref`, resolved to a commit SHA.
-3. **Parse each catalog:** `scopes.yml`, every `skills/**/SKILL.md`, every `mcps/*.yml`, every
-   `hooks/**/HOOK.yml`. A skill or hook whose declared `name` disagrees with its directory path is an
-   error.
+3. **Parse each catalog:** its `ambit.yml`, which must declare a `catalog:` block, plus every
+   `skills/**/SKILL.md`, every `mcps/*.yml`, every `hooks/**/HOOK.yml`. A skill or hook whose declared
+   `name` disagrees with its directory path is an error.
 4. **Merge registries** across catalogs. The same scope declared twice with identical descriptions
    merges silently; differing descriptions → exit 3 naming both catalogs.
 5. **Merge catalogs.** On a duplicate skill, MCP or hook name the earlier catalog in config order wins,
@@ -417,19 +452,19 @@ refused, with the same message and exit code.
 
 ### Consumer commands
 
-| Command                                               | What it does                                                                                                                      |
-| ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `ambit init`                                          | Scaffold an `ambit.yml`. Refuses a directory that already has one, `--dry-run` included, and does not create a missing directory. |
-| `ambit scopes`                                        | List the merged registry with descriptions, marking which scopes this project holds.                                              |
-| `ambit dump-catalog`                                  | Dump the merged catalog: every catalog the project lists, merged with its own declarations.                                       |
-| `ambit resolve [--explain]`                           | Compute the bundle and print it.                                                                                                  |
-| `ambit why <kind:name>`                               | Explain why one item is in the bundle, as a chain. The subject declares its namespace, as everything that names an item does.     |
-| `ambit install [--frozen] [--adopt] [--copy\|--link]` | Resolve, write `ambit.lock`, materialize the bundle, prune what left it.                                                          |
-| `ambit status [--check]`                              | Compare what is installed against what resolve produces. `--check` exits 5 on drift.                                              |
-| `ambit prune`                                         | Remove owned artifacts not in the current bundle.                                                                                 |
-| `ambit clean`                                         | Remove everything ambit owns.                                                                                                     |
-| `ambit validate`                                      | Validate everything this project configures, for CI. One catalog on its own is `ambit catalog validate`.                          |
-| `ambit doctor`                                        | Check env vars, the lock, ownership, drift, materialization mode, and harness limits.                                             |
+| Command                                               | What it does                                                                                                                                                       |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ambit init`                                          | Scaffold an `ambit.yml`, or add the project keys to a catalog's. Refuses one that already has them, `--dry-run` included, and does not create a missing directory. |
+| `ambit scopes`                                        | List the merged registry with descriptions, marking which scopes this project holds.                                                                               |
+| `ambit dump-catalog`                                  | Dump the merged catalog: every catalog the project lists, merged with its own declarations.                                                                        |
+| `ambit resolve [--explain]`                           | Compute the bundle and print it.                                                                                                                                   |
+| `ambit why <kind:name>`                               | Explain why one item is in the bundle, as a chain. The subject declares its namespace, as everything that names an item does.                                      |
+| `ambit install [--frozen] [--adopt] [--copy\|--link]` | Resolve, write `ambit.lock`, materialize the bundle, prune what left it.                                                                                           |
+| `ambit status [--check]`                              | Compare what is installed against what resolve produces. `--check` exits 5 on drift.                                                                               |
+| `ambit prune`                                         | Remove owned artifacts not in the current bundle.                                                                                                                  |
+| `ambit clean`                                         | Remove everything ambit owns.                                                                                                                                      |
+| `ambit validate`                                      | Validate everything this project configures, for CI. One catalog on its own is `ambit catalog validate`.                                                           |
+| `ambit doctor`                                        | Check env vars, the lock, ownership, drift, materialization mode, and harness limits.                                                                              |
 
 ### Authoring commands
 

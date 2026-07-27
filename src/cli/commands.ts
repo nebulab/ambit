@@ -126,7 +126,7 @@ const CATALOG_SUBCOMMANDS: readonly CommandSpec[] = [
   },
   {
     name: "scope",
-    summary: "maintain scopes.yml",
+    summary: "maintain the catalog's scope registry",
     subcommands: [
       {
         name: "add",

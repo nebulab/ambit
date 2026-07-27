@@ -1,13 +1,15 @@
 /**
  * `ambit catalog init`: the scaffolded catalog.
  *
- * Three claims carry this suite. The first is that the scaffold is a *catalog* — it parses, and
+ * Four claims carry this suite. The first is that the scaffold is a *catalog* — it parses, and
  * `ambit catalog validate` passes against it, which is what makes `catalog scope add` and
  * `catalog skill new` able to start from it. The second is that it is a function of nothing: two runs into two differently
  * named directories produce byte-identical trees, so the scaffold cannot pick up a machine path or a
- * timestamp. The third is about what it refuses: an existing `scopes.yml` means the directory already
- * holds a catalog and nothing is written, while a directory that merely has a README is the ordinary
- * case, and that README must come out the other side untouched.
+ * timestamp. The third is about what it refuses: an existing `catalog:` block means the directory
+ * already publishes a catalog and nothing is written, while a directory that merely has a README is the
+ * ordinary case, and that README must come out the other side untouched. The fourth is the case one
+ * file makes possible: a config `ambit init` wrote gets the `catalog:` block *added* to it, with its
+ * consumer keys and their comments byte-identical.
  *
  * The prose is deliberately not pinned, exactly as in `test/init.test.ts`. What is pinned is that the
  * README still teaches the descendants-only rule and the nest-versus-sibling choice — since
@@ -24,27 +26,35 @@ import {
   CATALOG_README_FILENAME,
   CATALOG_WORKFLOW_FILENAME,
 } from "../../src/authoring/init.js";
+import { CONFIG_FILENAMES } from "../../src/model/config.js";
 import { ExitCode } from "../../src/errors.js";
 import { run } from "../../src/cli/program.js";
+import { scaffoldConfig } from "../../src/project/init.js";
 import { isValid, validateCatalogDirectory } from "../../src/resolution/validate.js";
 import { emitYaml } from "../../src/model/yaml.js";
+
+/** The config the scaffold writes its `catalog:` block into. */
+const CONFIG = CONFIG_FILENAMES[0];
 
 /** Every file the scaffold writes, in the order the command reports them. */
 const SCAFFOLD_FILES = [
   CATALOG_WORKFLOW_FILENAME,
   CATALOG_README_FILENAME,
+  CONFIG,
   "hooks/.gitkeep",
   "mcps/.gitkeep",
-  "scopes.yml",
   "skills/.gitkeep",
 ];
 
 /**
- * What the registry sets, stated here rather than imported so the test is an independent claim about
+ * What the config sets, stated here rather than imported so the test is an independent claim about
  * the emitted shape rather than a restatement of the source.
  */
-const REGISTRY_VALUES = {
-  scopes: { core: { description: "The universal floor — what everyone here needs" } },
+const CONFIG_VALUES = {
+  catalog: {
+    scopes: { core: { description: "The universal floor — what everyone here needs" } },
+  },
+  version: 1,
 };
 
 let root: string;
@@ -118,7 +128,7 @@ describe("ambit catalog init", () => {
     const catalog = await parseCatalogDirectory("scaffold", `path:${catalogDir}`, catalogDir);
 
     expect(catalog.scopes).toEqual([
-      { name: CATALOG_INIT_SCOPE, description: REGISTRY_VALUES.scopes.core.description },
+      { name: CATALOG_INIT_SCOPE, description: CONFIG_VALUES.catalog.scopes.core.description },
     ]);
     expect(catalog.skills).toEqual([]);
     expect(catalog.mcps).toEqual([]);
@@ -143,10 +153,10 @@ describe("ambit catalog init", () => {
     expect(Object.keys(await snapshot(catalogDir)).sort()).toEqual([...SCAFFOLD_FILES].sort());
   });
 
-  it("holds exactly what ambit would emit from the registry's values, plus comments", async () => {
+  it("holds exactly what ambit would emit from the config's values, plus comments", async () => {
     await init(catalogDir);
 
-    expect(values(await read("scopes.yml"))).toBe(emitYaml(REGISTRY_VALUES));
+    expect(values(await read(CONFIG))).toBe(emitYaml(CONFIG_VALUES));
   });
 
   it("emits the CI workflow the same way, so it cannot drift into malformed YAML", async () => {
@@ -201,13 +211,16 @@ describe("ambit catalog init", () => {
     expect(Object.keys(await snapshot(fresh)).sort()).toEqual([...SCAFFOLD_FILES].sort());
   });
 
-  it("prints what it created, what it kept, and the one thing left to do", async () => {
+  it("prints what it created, what it updated, what it kept, and the one thing left to do", async () => {
     const result = await init(catalogDir);
 
     expect(result.stdout).toBe(
       [
         `created (${SCAFFOLD_FILES.length})`,
         ...SCAFFOLD_FILES.map((file) => `  ${file}`),
+        "",
+        "updated (0)",
+        "  (none)",
         "",
         "kept (0)",
         "  (none)",
@@ -221,12 +234,14 @@ describe("ambit catalog init", () => {
     const result = await init(catalogDir, "--json");
     const report = JSON.parse(result.stdout) as {
       created: readonly { file: string; text: string }[];
+      updated: readonly { file: string; text: string }[];
       kept: readonly string[];
       written: boolean;
     };
 
     expect(report.written).toBe(true);
     expect(report.kept).toEqual([]);
+    expect(report.updated).toEqual([]);
     expect(report.created.map((change) => change.file)).toEqual(SCAFFOLD_FILES);
     for (const change of report.created) expect(change.text).toBe(await read(change.file));
   });
@@ -245,27 +260,27 @@ describe("ambit catalog init", () => {
   });
 });
 
-describe("ambit catalog init on a directory that already holds a catalog", () => {
-  it("refuses an existing scopes.yml, writing nothing", async () => {
-    const registry = "scopes:\n  mine:\n    description: Mine\n";
-    await writeFile(path.join(catalogDir, "scopes.yml"), registry, "utf8");
+describe("ambit catalog init on a directory that already publishes a catalog", () => {
+  it("refuses a config that already has a `catalog:` block, writing nothing", async () => {
+    const config = "version: 1\ncatalog:\n  scopes:\n    mine:\n      description: Mine\n";
+    await writeFile(path.join(catalogDir, CONFIG), config, "utf8");
     const before = await snapshot(catalogDir);
 
     const result = await invoke("catalog", "init", "--catalog", catalogDir);
 
     expect(result.code).toBe(ExitCode.Config);
-    expect(result.stderr).toContain("refusing to overwrite scopes.yml");
+    expect(result.stderr).toContain("refusing to overwrite the `catalog:` block in ambit.yml");
     expect(result.stderr).toContain(catalogDir);
     expect(await snapshot(catalogDir)).toEqual(before);
   });
 
   it("refuses under --dry-run as well, since the preview of a refusal is a refusal", async () => {
-    await writeFile(path.join(catalogDir, "scopes.yml"), "scopes: {}\n", "utf8");
+    await writeFile(path.join(catalogDir, CONFIG), "version: 1\ncatalog:\n  scopes: {}\n", "utf8");
 
     const result = await invoke("catalog", "init", "--catalog", catalogDir, "--dry-run");
 
     expect(result.code).toBe(ExitCode.Config);
-    expect(result.stderr).toContain("refusing to overwrite scopes.yml");
+    expect(result.stderr).toContain("refusing to overwrite the `catalog:` block");
   });
 
   it("refuses a second run, which is what makes the first one the only one", async () => {
@@ -274,6 +289,53 @@ describe("ambit catalog init on a directory that already holds a catalog", () =>
     const second = await invoke("catalog", "init", "--catalog", catalogDir);
 
     expect(second.code).toBe(ExitCode.Config);
+  });
+
+  it("sends a directory still holding scopes.yml to where the registry went", async () => {
+    // A hard break with a message that teaches: scaffolding a second registry beside the old one would
+    // leave two, and the one ambit reads would be the empty one.
+    await writeFile(
+      path.join(catalogDir, "scopes.yml"),
+      "scopes:\n  mine:\n    description: Mine\n",
+      "utf8",
+    );
+    const before = await snapshot(catalogDir);
+
+    const result = await invoke("catalog", "init", "--catalog", catalogDir);
+
+    expect(result.code).toBe(ExitCode.Config);
+    expect(result.stderr).toContain("still holds scopes.yml");
+    expect(result.stderr).toContain("`catalog.scopes`");
+    expect(await snapshot(catalogDir)).toEqual(before);
+  });
+});
+
+describe("ambit catalog init on a config `ambit init` already wrote", () => {
+  it("adds the `catalog:` block, keeping every consumer key and comment byte-identical", async () => {
+    const project = scaffoldConfig();
+    await writeFile(path.join(catalogDir, CONFIG), project, "utf8");
+
+    const result = await init(catalogDir);
+    const config = await read(CONFIG);
+
+    // Reported as updated rather than created: the file was already there, and most of its bytes are
+    // still the other command's.
+    expect(result.stdout).toContain("updated (1)");
+    expect(result.stdout).toContain(`  ${CONFIG}`);
+    expect(config.startsWith(project)).toBe(true);
+    expect(config).toContain("catalog:");
+    // One `version:`, not two — the block the document already answers is dropped.
+    expect(config.split("version: 1").length - 1).toBe(1);
+    expect(isValid(await validateCatalogDirectory(catalogDir))).toBe(true);
+  });
+
+  it("leaves a catalog the parser reads the scopes of, beside what the project holds", async () => {
+    await writeFile(path.join(catalogDir, CONFIG), scaffoldConfig(), "utf8");
+
+    await init(catalogDir);
+    const catalog = await parseCatalogDirectory("both", `path:${catalogDir}`, catalogDir);
+
+    expect(catalog.scopes.map((definition) => definition.name)).toEqual([CATALOG_INIT_SCOPE]);
   });
 });
 
@@ -313,8 +375,8 @@ describe("ambit catalog init --dry-run", () => {
     expect(result.stdout).toContain(`would create (${SCAFFOLD_FILES.length})`);
     expect(result.stdout).toContain(`diff (${SCAFFOLD_FILES.length})`);
     for (const file of SCAFFOLD_FILES) expect(result.stdout).toContain(`  ${file} (created)`);
-    // The diff is the scaffold: every line of the registry appears as an addition.
-    expect(result.stdout).toContain("    + scopes:");
+    // The diff is the scaffold: every line of the config appears as an addition.
+    expect(result.stdout).toContain("    + catalog:");
     expect(await snapshot(catalogDir)).toEqual({});
   });
 

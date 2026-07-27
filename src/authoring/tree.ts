@@ -29,8 +29,9 @@
  */
 import path from "node:path";
 
-import type { Catalog, ScopeDefinition } from "../model/catalog.js";
+import type { Catalog } from "../model/catalog.js";
 import { parseCatalogDirectory } from "../model/catalog.js";
+import type { ScopeDefinition } from "../model/config.js";
 import { SCOPE_SEPARATOR } from "../resolution/resolve.js";
 
 /**

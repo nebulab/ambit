@@ -1,5 +1,17 @@
 /**
- * `ambit.yml` — the project config.
+ * `ambit.yml` — the one config format, in both of its roles.
+ *
+ * A repo can be two things at once, and one file says which. Top-level keys are what a repo
+ * *installs for itself*: the catalogs it draws from, the scopes it holds, the harnesses it writes
+ * into. Everything under `catalog:` is what it *publishes as a catalog*: the scope registry its
+ * skills declare against, and whatever catalog-level metadata comes after it. A project writes only
+ * the first, a catalog only the second, and a catalog that installs its own skills writes both — in
+ * one document, which is the case two files could not express.
+ *
+ * One parser for both, deliberately. A second one for the catalog half would put `rejectUnknownKeys`
+ * on half a document each, and a typo'd `catlog:` would then be a catalog that registers nothing and
+ * warns nobody. So {@link parseProjectConfig} reads the whole thing and {@link parseCatalogDirectory}
+ * is handed the section it cares about.
  *
  * Parsing is total: whatever comes back is fully typed and needs no further checking, and
  * anything the config could not express has already been rejected with an exit-2 error naming
@@ -31,6 +43,7 @@ export const DEFAULT_HARNESSES: readonly string[] = ["claude"];
 export const CONFIG_FILENAMES = ["ambit.yml", "ambit.yaml"] as const;
 
 const CONFIG_KEYS = [
+  "catalog",
   "catalogs",
   "harnesses",
   "hooks",
@@ -41,6 +54,28 @@ const CONFIG_KEYS = [
 ] as const;
 const CATALOG_KEYS = ["name", "ref", "source"] as const;
 const SKILL_KEYS = ["name", "path", "ref", "source"] as const;
+
+/**
+ * The key everything a repo publishes as a catalog nests under — and whose presence is what makes a
+ * directory a catalog at all.
+ */
+export const CATALOG_KEY = "catalog";
+
+const CATALOG_SECTION_KEYS = ["scopes"] as const;
+const SCOPE_KEYS = ["description"] as const;
+
+/**
+ * The scope registry's key path within a catalog's config, and the dotted spelling errors use.
+ *
+ * Both, because both are needed and they must not drift: the path is what an authoring edit writes
+ * through, and the dotted name is what a message says out loud. `scopes.yml` used to identify the
+ * registry by its filename; now that several `ambit.yml` are in play at once — the project's and one
+ * per catalog — the key path is what identifies it, and the filename says only which document.
+ */
+export const REGISTRY_KEY_PATH: readonly string[] = [CATALOG_KEY, "scopes"];
+
+/** How {@link REGISTRY_KEY_PATH} reads in a message: `catalog.scopes`. */
+export const REGISTRY_PATH = REGISTRY_KEY_PATH.join(".");
 
 /** A catalog to fetch and parse. */
 export interface CatalogRef {
@@ -69,6 +104,24 @@ export interface SourceSkillRequest {
 /** An entry of `skills`: a bare name, or a mapping carrying its own source. */
 export type SkillRequest = CatalogSkillRequest | SourceSkillRequest;
 
+/** One registered scope. The description is the picker label a consuming tool renders. */
+export interface ScopeDefinition {
+  readonly name: string;
+  readonly description: string;
+}
+
+/**
+ * What a repo publishes as a catalog: everything under `catalog:`.
+ *
+ * Separate from the consumer keys around it because the two roles are separate — a project holds
+ * scopes, a catalog defines them — and because a reader four lines away from both needs the nesting
+ * to tell which `scopes:` is which.
+ */
+export interface CatalogSection {
+  /** Registered scopes, sorted by name. */
+  readonly scopes: readonly ScopeDefinition[];
+}
+
 /**
  * Where the config came from, and where inside it the values live that a later stage judges.
  *
@@ -95,6 +148,11 @@ export interface ProjectConfig {
   readonly version: number;
   /** Positions for the errors raised after parsing. */
   readonly origin: ConfigOrigin;
+  /**
+   * What this repo publishes as a catalog, when it publishes one. Absent means it is a project
+   * only — and a directory whose config has no `catalog:` block is not a catalog.
+   */
+  readonly catalog?: CatalogSection;
   readonly harnesses: readonly string[];
   /** Held scopes, exactly as listed — nothing is added implicitly. */
   readonly scopes: readonly string[];
@@ -142,6 +200,27 @@ function nameTracker(
 interface Positioned<T> {
   readonly entries: readonly T[];
   readonly lines: ReadonlyMap<string, number>;
+}
+
+/**
+ * Parses `catalog:`, the block that makes this repo a catalog.
+ *
+ * Descriptions are required: they are the labels a tool asking someone which scopes they hold
+ * renders, not decoration. The mapping itself is required too, and may be empty — a catalog that has
+ * registered nothing yet is a catalog, whereas one that never says the word is a project.
+ */
+function parseCatalogSection(root: YamlMapping): CatalogSection {
+  const section = root.requireMapping(CATALOG_KEY);
+  section.rejectUnknownKeys(CATALOG_SECTION_KEYS);
+
+  const registry = section.requireMapping(REGISTRY_KEY_PATH[1]!);
+  const scopes = registry.keys().map((name) => {
+    const entry = registry.requireMapping(name);
+    entry.rejectUnknownKeys(SCOPE_KEYS);
+    return { name, description: entry.requireString("description") };
+  });
+
+  return { scopes: [...scopes].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)) };
 }
 
 function parseCatalogs(root: YamlMapping): readonly CatalogRef[] {
@@ -274,7 +353,9 @@ function fromMapping(root: YamlMapping): ProjectConfig {
 
   // Read in the order §3.1 lists the keys, rather than left to the return statement's evaluation
   // order: a config with two problems should report the earlier key's, not whichever key the
-  // object literal happens to mention first.
+  // object literal happens to mention first. `catalog:` comes first of the lot because it is what
+  // the document *is* rather than what it wants.
+  const catalog = root.has(CATALOG_KEY) ? parseCatalogSection(root) : undefined;
   const harnesses = root.optionalStringList("harnesses") ?? DEFAULT_HARNESSES;
   const scopes = root.optionalPositionedStringList("scopes") ?? [];
   const catalogs = parseCatalogs(root);
@@ -291,6 +372,7 @@ function fromMapping(root: YamlMapping): ProjectConfig {
       mcpLines: mcps.lines,
       hookLines: hooks.lines,
     },
+    ...(catalog !== undefined && { catalog }),
     harnesses,
     scopes: scopes.map((entry) => entry.value),
     catalogs,

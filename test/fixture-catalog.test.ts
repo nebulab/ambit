@@ -63,7 +63,7 @@ const EXPECTED_FILES = [
   "hooks/session-notes/HOOK.yml",
   "mcps/fixture.yml",
   "mcps/scoped.yml",
-  "scopes.yml",
+  "ambit.yml",
   "skills/company-context/SKILL.md",
   "skills/design-tokens/SKILL.md",
   "skills/code-review/SKILL.md",
@@ -101,9 +101,10 @@ describe("fixture catalog", () => {
   });
 
   it("registers every scope a skill, MCP or hook declares, with a description", async () => {
-    const registry = parse(await readFile(path.join(dir, "scopes.yml"), "utf8")) as {
-      scopes: Record<string, { description: string }>;
+    const config = parse(await readFile(path.join(dir, "ambit.yml"), "utf8")) as {
+      catalog: { scopes: Record<string, { description: string }> };
     };
+    const registry = config.catalog;
 
     expect(Object.keys(registry.scopes).sort()).toEqual([
       "core",

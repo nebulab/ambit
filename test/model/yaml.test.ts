@@ -393,12 +393,12 @@ describe("YAML loader", () => {
     });
 
     it("reads a file and names it as asked in errors", async () => {
-      const target = path.join(dir, "scopes.yml");
+      const target = path.join(dir, "registry.yml");
       await writeFile(target, "scopes:\n  core: {}\n", "utf8");
 
-      const root = await readYamlMapping(target, "scopes.yml");
+      const root = await readYamlMapping(target, "registry.yml");
 
-      expect(root.file).toBe("scopes.yml");
+      expect(root.file).toBe("registry.yml");
       expect(root.keys()).toEqual(["scopes"]);
     });
 

@@ -212,7 +212,7 @@ describe("a catalog fetched from git", () => {
 
     const { clone, checkouts } = cachePaths();
     expect(await pathExists(path.join(clone, "HEAD"))).toBe(true);
-    expect(await pathExists(path.join(checkouts, fixture.commit, "scopes.yml"))).toBe(true);
+    expect(await pathExists(path.join(checkouts, fixture.commit, "ambit.yml"))).toBe(true);
     expect(clone.startsWith(path.join(cacheDir, "ambit"))).toBe(true);
   });
 
@@ -438,7 +438,7 @@ describe("--offline", () => {
     const result = await cli(gitProject, "install", "--offline");
 
     expect(result.code, result.stderr).toBe(ExitCode.Success);
-    expect(await pathExists(path.join(checkouts, fixture.commit, "scopes.yml"))).toBe(true);
+    expect(await pathExists(path.join(checkouts, fixture.commit, "ambit.yml"))).toBe(true);
   });
 
   it("exits 4 naming the catalog it would have had to clone, and clones nothing", async () => {
