@@ -125,8 +125,9 @@ scopes: [core]
 description: Reminds a session that Acme's conventions apply.
 
 event: SessionStart
-# A bare command line: no leading \`./\`, no \`/\`, no dot, so nothing is looked for on disk and
-# the harness runs this verbatim. The hook's directory holds nothing but this file.
+# \`type: command\` means the harness runs this verbatim and nothing is looked for on disk. The
+# hook's directory holds nothing but this file.
+type: command
 command: echo "acme conventions apply"
 `;
 
@@ -136,8 +137,9 @@ description: Inspects a Bash command before Acme's tooling runs it.
 
 event: PreToolUse
 matcher: Bash
-# Names \`guard.sh\`, which this directory ships, so the script is materialized under
-# \`.agents/hooks/guard-secrets/\` and the command is rewritten to point at it.
+# \`type: script\` names \`guard.sh\`, which this directory ships, so the script is materialized
+# under \`.agents/hooks/guard-secrets/\` and the command is rewritten to point at it.
+type: script
 command: guard.sh
 timeout: 10
 `;
@@ -155,6 +157,7 @@ const REQUIRED_HOOK = `name: acme-standup
 description: Records what the session touched, for the Acme standup.
 
 event: SessionEnd
+type: command
 command: echo "acme session ended"
 `;
 

@@ -132,12 +132,15 @@ const INLINE_HOOKS: readonly string[] = [
   "  - name: guard",
   "    event: PreToolUse",
   "    matcher: Bash",
+  "    type: command",
   "    command: ./bin/guard",
   "  - name: trace",
   "    event: PreToolUse",
+  "    type: command",
   "    command: ./bin/trace",
   "  - name: notify",
   "    event: Stop",
+  "    type: command",
   "    command: ./bin/notify",
 ];
 

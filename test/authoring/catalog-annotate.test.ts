@@ -63,6 +63,7 @@ const HOOK_TEXT = `name: notify
 # Nothing selects it yet.
 scopes: []
 event: Stop
+type: command
 command: npx --yes @acme/notify
 `;
 

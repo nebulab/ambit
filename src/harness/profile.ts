@@ -159,10 +159,10 @@ export interface HarnessProfile {
    * one place that decides how the materialized path is spelled: a documented placeholder where the
    * harness has one, project-relative where it does not (`harness/definitions.ts`).
    *
-   * Takes the {@link MergedHook} rather than the entity, because that rewrite needs two things a
-   * declaration alone does not carry: the `name` the script was materialized under, and `shipsScript` —
-   * the answer to whether `command` is a path to rewrite at all or a command line to leave exactly as
-   * written.
+   * Takes the {@link MergedHook} because that is what the planner holds; the rewrite itself needs only
+   * what the declaration carries — `type`, which says whether `command` is a path to rewrite at all or
+   * a command line to leave exactly as written, and `name`, the directory the script was materialized
+   * under.
    */
   hookConfig?(hook: MergedHook, project: ProjectPaths): unknown;
 }
@@ -300,16 +300,16 @@ export function skippedHooks(
  *
  * `catalogRoot` and `path` are read rather than asserted, and their absence reads as "nothing to
  * materialize". They are present for exactly the hooks a catalog declares, which is exactly the hooks
- * that can ship a script: an inline hook has no directory for one to sit in, so `shipsScript` is false
- * for it by construction. Two facts, one conclusion — and the conclusion is safe from whichever of them
- * a reader reaches first.
+ * that can ship a script: an inline hook has no directory for one to sit in, and `type: script` is
+ * refused for it when the config parses. Two facts, one conclusion — and the conclusion is safe from
+ * whichever of them a reader reaches first.
  */
 function planHookDir(
   profile: HarnessProfile,
   hook: MergedHook,
   project: ProjectPaths,
 ): PlannedHookDir | undefined {
-  if (!hook.shipsScript || hook.catalogRoot === undefined || hook.path === undefined) {
+  if (hook.type !== "script" || hook.catalogRoot === undefined || hook.path === undefined) {
     return undefined;
   }
   if (hookArrayFor(profile, hook) === undefined) return undefined;

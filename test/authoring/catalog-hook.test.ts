@@ -4,7 +4,7 @@
  * A hook is the one item that is a *directory* whose *document* is entirely ambit's, so this suite
  * takes one claim from each of the two suites beside it. From `catalog mcp`: the round trip, that what
  * `new` writes is exactly `emitYaml` of the values it was given and the parser reads that file back as
- * the hook — including the two derivations only the catalog can make, `shipsScript` and the name. From
+ * the hook — including the name, which only the catalog can derive. From
  * `catalog skill`: that `rm` removes a *tree*, so a hook that shipped a script loses the script with
  * it, and that a directory holding another hook is refused rather than silently deleted.
  *
@@ -200,6 +200,7 @@ describe("ambit catalog hook new", () => {
     // the command computed.
     expect(await read(NOTIFY_FILE)).toBe(
       emitYaml({
+        type: "command",
         command: NOTIFY_COMMAND,
         description: "Says something happened.",
         env: [NOTIFY_ENV],
@@ -207,17 +208,16 @@ describe("ambit catalog hook new", () => {
         name: NOTIFY,
       }),
     );
-    // `path` and `shipsScript` are the two things only the catalog can say: where the hook was found,
-    // and whether its `command` names a file the directory holds.
+    // `path` is the one thing only the catalog can say: where the hook was found.
     expect(await hook(NOTIFY)).toEqual({
       name: NOTIFY,
       description: "Says something happened.",
       scopes: [],
       event: NOTIFY_EVENT,
+      type: "command",
       command: NOTIFY_COMMAND,
       env: [NOTIFY_ENV],
       path: NOTIFY_DIR,
-      shipsScript: false,
     });
     await validates();
   });
@@ -238,6 +238,7 @@ describe("ambit catalog hook new", () => {
 
     expect(await read(GUARD_FILE)).toBe(
       emitYaml({
+        type: "command",
         command: GUARD_COMMAND,
         event: GUARD_EVENT,
         matcher: GUARD_MATCHER,
@@ -250,13 +251,13 @@ describe("ambit catalog hook new", () => {
   });
 
   it("declares a hook whose script the directory already holds", async () => {
-    // The order is deliberate: `command` naming a file the directory does not hold is what parsing
+    // The order is deliberate: `--script` naming a file the directory does not hold is what parsing
     // refuses, so a hook that ships bytes is authored by putting the script there first.
     await write(`${NOTIFY_DIR}/hook.sh`, "#!/bin/sh\necho hi\n");
 
-    await succeeds("new", NOTIFY, "--event", NOTIFY_EVENT, "--command", "hook.sh --strict");
+    await succeeds("new", NOTIFY, "--event", NOTIFY_EVENT, "--script", "hook.sh --strict");
 
-    expect(await hook(NOTIFY)).toMatchObject({ shipsScript: true, command: "hook.sh --strict" });
+    expect(await hook(NOTIFY)).toMatchObject({ type: "script", command: "hook.sh --strict" });
     await validates();
   });
 
@@ -285,7 +286,7 @@ describe("ambit catalog hook new", () => {
     await succeeds("new", NOTIFY, "--event", NOTIFY_EVENT, "--command", NOTIFY_COMMAND);
 
     expect(await read(NOTIFY_FILE)).toBe(
-      emitYaml({ command: NOTIFY_COMMAND, event: NOTIFY_EVENT, name: NOTIFY }),
+      emitYaml({ command: NOTIFY_COMMAND, event: NOTIFY_EVENT, name: NOTIFY, type: "command" }),
     );
     // Including `scopes`, which this command is given no way to set: a new hook is reachable only
     // through a skill's `requires` until someone annotates it.
@@ -349,6 +350,26 @@ describe("ambit catalog hook new", () => {
     );
 
     expect(blank.stderr).toContain(`hook "${NOTIFY}" names no command (${NOTIFY_FILE})`);
+    expect(blank.stderr).toContain("`--script <path>` for a script the hook ships");
+  });
+
+  it("refuses an invocation that is both a command and a script, rather than picking one", async () => {
+    // The pair is how argv spells `type`, so giving both is undecided rather than redundant —
+    // choosing silently would put back exactly the guessing the declared type removed.
+    const result = await refused(
+      ExitCode.Config,
+      "new",
+      NOTIFY,
+      "--event",
+      NOTIFY_EVENT,
+      "--command",
+      NOTIFY_COMMAND,
+      "--script",
+      "hook.sh",
+    );
+
+    expect(result.stderr).toContain(`hook "${NOTIFY}" is both a command and a script`);
+    expect(result.stderr).toContain("give exactly one of them");
   });
 
   it("refuses a timeout that is not a whole number of seconds", async () => {
@@ -391,7 +412,7 @@ describe("ambit catalog hook new", () => {
       NOTIFY,
       "--event",
       NOTIFY_EVENT,
-      "--command",
+      "--script",
       "./hook.sh",
     );
 
@@ -453,7 +474,7 @@ describe("ambit catalog hook new", () => {
     expect(result.stdout).toBe(
       [
         "created (1)",
-        `  ${NOTIFY}  ${NOTIFY_EVENT}  ${NOTIFY_COMMAND}`,
+        `  ${NOTIFY}  ${NOTIFY_EVENT}  command  ${NOTIFY_COMMAND}`,
         "",
         "files (1)",
         `  ${NOTIFY_FILE}  created`,
@@ -466,13 +487,14 @@ describe("ambit catalog hook new", () => {
   it("carries the new file's bytes in --json", async () => {
     const result = await newNotify("--json");
     const report = JSON.parse(result.stdout) as {
-      created: { command: string; event: string; name: string };
+      created: { command: string; event: string; name: string; type: string };
       files: readonly { file: string; text: string }[];
       trees: readonly unknown[];
       written: boolean;
     };
 
     expect(report.created).toEqual({
+      type: "command",
       command: NOTIFY_COMMAND,
       event: NOTIFY_EVENT,
       name: NOTIFY,

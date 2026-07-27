@@ -73,6 +73,7 @@ hooks:
   - name: format-on-write
     event: PostToolUse
     matcher: "Edit|Write"
+    type: command
     command: npm run format
     timeout: 60
     env: [SOME_TOKEN]
@@ -138,6 +139,7 @@ describe("project config", () => {
           scopes: [],
           event: "PostToolUse",
           matcher: "Edit|Write",
+          type: "command",
           command: "npm run format",
           timeout: 60,
           env: ["SOME_TOKEN"],
@@ -218,9 +220,11 @@ describe("project config", () => {
         "hooks:",
         "  - name: one",
         "    event: SessionStart",
+        "    type: command",
         "    command: one.sh",
         "  - name: two",
         "    event: Stop",
+        "    type: command",
         "    command: two.sh",
         "",
       ].join("\n"),
@@ -230,7 +234,7 @@ describe("project config", () => {
     expect(config.origin.hookLines).toEqual(
       new Map([
         ["one", 3],
-        ["two", 6],
+        ["two", 7],
       ]),
     );
   });
@@ -357,29 +361,46 @@ describe("project config", () => {
           "hooks:",
           "  - name: x",
           "    event: SessionStart",
+          "    type: command",
           "    command: one.sh",
           "  - name: x",
           "    event: Stop",
+          "    type: command",
           "    command: two.sh",
           "",
         ].join("\n"),
       );
 
-      expect(error.format()).toContain(`duplicate hooks entry "x" (${FILE} line 6)`);
+      expect(error.format()).toContain(`duplicate hooks entry "x" (${FILE} line 7)`);
       expect(error.format()).toContain("define each hook once");
+    });
+
+    it("rejects an inline hook that says it ships a script, which it has nowhere to put", () => {
+      // The one hook rule this surface adds of its own: `type: script` is legal in a catalog and
+      // impossible here, because the script lives in a directory `ambit.yml` does not have.
+      const error = rejection(
+        "version: 1\nhooks:\n  - name: x\n    event: Stop\n    type: script\n    command: guard.sh\n",
+      );
+
+      expect(error.format()).toContain(
+        `hook "x" cannot ship a script from ${FILE} (${FILE} line 5)`,
+      );
+      expect(error.format()).toContain(
+        "say `type: command`, or move the hook into a catalog at `hooks/<name>/HOOK.yml`",
+      );
     });
 
     it("names the `hooks` entry's key path when the hook itself is malformed", () => {
       // The entity parser is shared with `HOOK.yml`, so the only thing this surface adds is where
       // in the config the offending value sits.
-      expect(rejection("version: 1\nhooks:\n  - name: x\n    event: Stop\n").format()).toContain(
-        'missing required key "hooks[0].command"',
-      );
+      expect(
+        rejection("version: 1\nhooks:\n  - name: x\n    event: Stop\n    type: command\n").format(),
+      ).toContain('missing required key "hooks[0].command"');
     });
 
     it("rejects an unknown hook event, listing the supported set", () => {
       const error = rejection(
-        "version: 1\nhooks:\n  - name: x\n    event: OnSave\n    command: x.sh\n",
+        "version: 1\nhooks:\n  - name: x\n    event: OnSave\n    type: command\n    command: x.sh\n",
       );
 
       expect(error.format()).toContain(`unknown hook event "OnSave" (${FILE} line 4)`);

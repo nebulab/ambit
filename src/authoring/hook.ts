@@ -40,7 +40,7 @@ import type { EditOptions, EditResult } from "./editor.js";
 import { applyCatalogEdit, hookDocumentPath } from "./editor.js";
 import type { AmbitError } from "../errors.js";
 import { at, configError, resolutionError } from "../errors.js";
-import type { HookEvent } from "../model/hook-entity.js";
+import type { HookEvent, HookType } from "../model/hook-entity.js";
 import { requirementFor } from "../resolution/resolve.js";
 import { emitYaml } from "../model/yaml.js";
 
@@ -56,6 +56,7 @@ const DESCRIPTION_KEY = "description";
 const EVENT_KEY = "event";
 const MATCHER_KEY = "matcher";
 const COMMAND_KEY = "command";
+const TYPE_KEY = "type";
 const TIMEOUT_KEY = "timeout";
 const ENV_KEY = "env";
 
@@ -66,6 +67,8 @@ export type HookEdit = EditResult;
 export interface HookSummary {
   readonly name: string;
   readonly event: HookEvent;
+  /** Reported alongside the command, because the two together are what was decided. */
+  readonly type: HookType;
   /** The `command` as written, before any harness rewrites a shipped script's path. */
   readonly command: string;
 }
@@ -84,7 +87,9 @@ export interface HookRemoveResult extends HookEdit {
  */
 export interface HookDeclaration {
   readonly event: HookEvent;
-  /** A command line, or a path to a file the hook's own directory ships. */
+  /** How to read {@link command}. */
+  readonly type: HookType;
+  /** A command line, or a path to a file the hook's own directory ships, per {@link type}. */
   readonly command: string;
   /** Absent leaves the key out rather than writing an empty one. */
   readonly description?: string;
@@ -268,15 +273,16 @@ function renderHook(name: string, declaration: HookDeclaration): string {
     ...(declaration.matcher !== undefined && { [MATCHER_KEY]: declaration.matcher }),
     [NAME_KEY]: name,
     ...(declaration.timeout !== undefined && { [TIMEOUT_KEY]: declaration.timeout }),
+    [TYPE_KEY]: declaration.type,
   });
 }
 
 /**
  * Creates a hook: one directory, one `HOOK.yml`, and nothing else.
  *
- * A hook that ships a script is created the other way round — put the script in
- * `hooks/<name>/` first, then declare it — because `command` naming a file the directory does not hold
- * is what parsing refuses, and it refuses it here, before anything is written.
+ * A `type: script` hook is created the other way round — put the script in `hooks/<name>/` first, then
+ * declare it — because a hook claiming a file its directory does not hold is what parsing refuses, and
+ * it refuses it here, before anything is written.
  *
  * @param root the catalog root, absolute.
  * @param name the hook's name, which decides where it is written.
@@ -301,7 +307,7 @@ export async function newHook(
   const result = await applyCatalogEdit(root, [change], options);
 
   return {
-    created: { name, event: options.event, command: options.command },
+    created: { name, event: options.event, type: options.type, command: options.command },
     ...result,
   };
 }

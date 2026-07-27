@@ -279,7 +279,12 @@ describe("ambit validate: unregistered scopes", () => {
   });
 
   it("reports one for a hook too, naming the hook and its catalog", async () => {
-    await writeHook("guard", ["scopes: [marketing]", "event: Stop", "command: npx notify"]);
+    await writeHook("guard", [
+      "scopes: [marketing]",
+      "event: Stop",
+      "type: command",
+      "command: npx notify",
+    ]);
 
     const found = await report("validate");
 
@@ -302,6 +307,7 @@ describe("ambit validate: unregistered scopes", () => {
         "  - name: custom",
         "    scopes: [marketing]",
         "    event: Stop",
+        "    type: command",
         "    command: x",
       ],
     );
@@ -425,7 +431,7 @@ describe("ambit validate: requirements and cycles", () => {
   });
 
   it("resolves a `hook.` requirement against the hooks a catalog provides", async () => {
-    await writeHook("guard", ["event: Stop", "command: npx notify"]);
+    await writeHook("guard", ["event: Stop", "type: command", "command: npx notify"]);
     await writeSkill("well-formed", ["requires: [hook.guard]"]);
 
     expect((await report("validate")).problems).toEqual([]);
@@ -434,7 +440,7 @@ describe("ambit validate: requirements and cycles", () => {
   it("follows no edge out of a hook when hunting cycles, since a hook has no `requires`", async () => {
     // A hook named like a skill in the cycle would send a one-step walk round it twice; the prefix
     // decides the namespace, so the edge simply ends.
-    await writeHook("cycle-a", ["event: Stop", "command: npx notify"]);
+    await writeHook("cycle-a", ["event: Stop", "type: command", "command: npx notify"]);
     await writeSkill("cycle-a", ["requires: [hook.cycle-a]"]);
 
     expect((await report("validate")).problems).toEqual([]);
@@ -585,8 +591,12 @@ describe("ambit validate: shadowing", () => {
   });
 
   it("reports a hook two catalogs provide, after the skills and the servers", async () => {
-    await writeHook("guard", ["event: Stop", "command: npx notify"]);
-    await writeHook("guard", ["event: Stop", "command: npx notify"], path.join(root, SECOND));
+    await writeHook("guard", ["event: Stop", "type: command", "command: npx notify"]);
+    await writeHook(
+      "guard",
+      ["event: Stop", "type: command", "command: npx notify"],
+      path.join(root, SECOND),
+    );
 
     const found = await report("validate");
 
@@ -734,7 +744,7 @@ describe("ambit validate output", () => {
   });
 
   it("counts the hooks it checked, so a clean run says the third namespace was looked at", async () => {
-    await writeHook("guard", ["event: Stop", "command: npx notify"]);
+    await writeHook("guard", ["event: Stop", "type: command", "command: npx notify"]);
 
     const result = await cli("validate");
 

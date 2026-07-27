@@ -60,9 +60,7 @@ function mcpJson(mcp: MergedMcp): Readonly<Record<string, unknown>> {
 }
 
 /**
- * One hook, including the two facts a reader cannot see in the document: which catalog provided it,
- * and whether `command` names a script that catalog ships — derived from the directory's contents, so
- * this is the only place it can be read.
+ * One hook, including the one fact a reader cannot see in the document: which catalog provided it.
  */
 function hookJson(hook: MergedHook): Readonly<Record<string, unknown>> {
   return {
@@ -74,8 +72,8 @@ function hookJson(hook: MergedHook): Readonly<Record<string, unknown>> {
     ...(hook.matcher !== undefined && { matcher: hook.matcher }),
     ...(hook.path !== undefined && { path: hook.path }),
     scopes: hook.scopes,
-    shipsScript: hook.shipsScript,
     ...(hook.timeout !== undefined && { timeout: hook.timeout }),
+    type: hook.type,
   };
 }
 
@@ -110,7 +108,7 @@ function transportSummary(transport: McpTransport): string {
 
 /** What the hook runs, and — for a shipped script — that it is one, since the name alone cannot say. */
 function commandSummary(hook: MergedHook): string {
-  return hook.shipsScript ? `${hook.command} (shipped)` : hook.command;
+  return hook.type === "script" ? `${hook.command} (shipped)` : hook.command;
 }
 
 function toText(catalogs: readonly Catalog[], merged: MergedCatalog): readonly string[] {

@@ -42,12 +42,18 @@ const FORMAT_HOOK = [
   "- name: format",
   "  event: PostToolUse",
   "  matcher: Write",
+  "  type: command",
   "  command: npx prettier --write",
   "  timeout: 30",
 ];
 
 /** The hook whose event array is ambit's alone, so removing it empties one. */
-const NOTIFY_HOOK = ["- name: notify", "  event: Stop", "  command: ./bin/notify"];
+const NOTIFY_HOOK = [
+  "- name: notify",
+  "  event: Stop",
+  "  type: command",
+  "  command: ./bin/notify",
+];
 
 /** What each of them is written as — the renderer's output, which the digest is taken over. */
 const FORMAT_ENTRY = {
@@ -423,6 +429,7 @@ describe("an entry whose digest no longer matches what state recorded", () => {
     "- name: format",
     "  event: PostToolUse",
     "  matcher: Write",
+    "  type: command",
     "  command: npx prettier --write",
     "  timeout: 45",
   ];
@@ -541,7 +548,12 @@ describe("an inline hook installed into .cursor/hooks.json", () => {
   const WATCH_ENTRY = { command: "./bin/watch" };
 
   function watchHook(event: string): readonly string[] {
-    return ["- name: watch", `  event: ${event}`, `  command: ${WATCH_ENTRY.command}`];
+    return [
+      "- name: watch",
+      `  event: ${event}`,
+      "  type: command",
+      `  command: ${WATCH_ENTRY.command}`,
+    ];
   }
 
   /**
@@ -598,7 +610,13 @@ describe("an inline hook installed into .cursor/hooks.json", () => {
 
   it("drops a `matcher`, which Cursor has no field for", async () => {
     await writeProfile(
-      ["- name: guard", "  event: PreToolUse", "  matcher: Bash", "  command: ./bin/guard"],
+      [
+        "- name: guard",
+        "  event: PreToolUse",
+        "  matcher: Bash",
+        "  type: command",
+        "  command: ./bin/guard",
+      ],
       ["cursor"],
     );
 
@@ -896,6 +914,7 @@ describe("a hook that ships its own script", () => {
         "scopes: [core]",
         "event: PreToolUse",
         "matcher: Bash",
+        "type: script",
         `command: ${SCRIPT}`,
         "",
       ].join("\n"),
@@ -904,6 +923,7 @@ describe("a hook that ships its own script", () => {
         "name: announce",
         "scopes: [core]",
         "event: Stop",
+        "type: command",
         "command: npx --yes say done",
         "",
       ].join("\n"),

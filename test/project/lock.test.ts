@@ -238,7 +238,13 @@ describe("ambit.lock", () => {
   it("records an inline hook as config values, with no bytes to pin", async () => {
     await writeProfile(
       [],
-      ["hooks:", "  - name: notify", "    event: Stop", "    command: ./notify"],
+      [
+        "hooks:",
+        "  - name: notify",
+        "    event: Stop",
+        "    type: command",
+        "    command: ./notify",
+      ],
     );
 
     await cli("install");
@@ -254,11 +260,15 @@ describe("ambit.lock", () => {
   });
 
   it("pins where a hook's bytes came from only when it ships a script", async () => {
-    await writeCatalogHook("block-rm", ["event: PreToolUse", "command: hook.sh"], {
+    await writeCatalogHook("block-rm", ["event: PreToolUse", "type: script", "command: hook.sh"], {
       file: "hook.sh",
       body: "#!/bin/sh\nexit 0\n",
     });
-    await writeCatalogHook("announce", ["event: Stop", "command: npx --yes say done"]);
+    await writeCatalogHook("announce", [
+      "event: Stop",
+      "type: command",
+      "command: npx --yes say done",
+    ]);
     await writeProfile(["core"]);
 
     // Through `buildLock` rather than the CLI, so the commit is a value rather than something a git

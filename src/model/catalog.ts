@@ -25,7 +25,7 @@ import path from "node:path";
 import type { CatalogRef, ConfigOrigin, ProjectConfig, SourceSkillRequest } from "./config.js";
 import { AmbitError, at, configError, resolutionError } from "../errors.js";
 import type { HookEntity } from "./hook-entity.js";
-import { parseHookEntity } from "./hook-entity.js";
+import { commandProgram, parseHookEntity, scriptReference } from "./hook-entity.js";
 import type { McpEntity } from "./mcp-entity.js";
 import { parseMcpEntity } from "./mcp-entity.js";
 import type { ResolvedSource, SourceContext, SourceRequest } from "./sources.js";
@@ -169,14 +169,6 @@ export interface CatalogMcp extends McpEntity {
 export interface CatalogHook extends HookEntity {
   /** The hook directory, relative to the catalog root, `/`-separated. */
   readonly path: string;
-  /**
-   * Whether `command` names a script this hook's own directory ships.
-   *
-   * Derived from what the catalog holds rather than declared — see {@link shipsScript} — so a hook
-   * cannot claim to ship a file it does not, and a typo in a script name is refused instead of
-   * written through as a command line that will not run.
-   */
-  readonly shipsScript: boolean;
 }
 
 /** One parsed catalog. */
@@ -264,13 +256,6 @@ export interface MergedHook extends HookEntity {
    * output surface: it is machine-specific.
    */
   readonly catalogRoot?: string;
-  /**
-   * Whether `command` names a script the hook's own directory ships — see {@link CatalogHook.shipsScript}.
-   *
-   * Always false for an inline hook: `ambit.yml` declares no directory, so there is nowhere for a
-   * script to be shipped from and the command is a command line by construction.
-   */
-  readonly shipsScript: boolean;
 }
 
 /**
@@ -623,70 +608,23 @@ async function parseMcpFile(files: CatalogFiles, stem: string, file: string): Pr
 }
 
 /**
- * The program a `command` runs: its first whitespace-separated token.
- *
- * Only the program can name a shipped script. Everything after it is arguments, and a hook handing its
- * own file to another program (`node hook.js`) is asking *that* program to find it — a shell fragment
- * ambit does not parse and must not rewrite.
- */
-function commandProgram(command: string): string {
-  return command.trim().split(/\s+/)[0] ?? "";
-}
-
-/**
- * Whether a program reads as a path inside the hook's own directory rather than as a command line.
- *
- * A filename, a `./`-prefixed name, or anything carrying a `/` reads as a path; a bare word does not,
- * which is what keeps `npx prettier --write` and `npm run format` from being looked for on disk. An
- * absolute path and one climbing out through `..` cannot be inside the directory, so neither is a
- * candidate either — they are commands the harness will run as written.
- *
- * The one thing this refuses that a reader might not expect is a bare program whose name carries a dot
- * (`python3.11`): it reads as a filename, is looked for, is not found, and is refused naming the
- * directory's contents. That is the deliberate trade — the alternative is a list of script extensions
- * to keep current, and a misspelled script name silently written through as a command line, which is
- * the failure the derivation exists to remove. Spelling it `/usr/bin/python3.11` says "a command" and
- * is accepted.
- */
-function readsAsPath(program: string): boolean {
-  if (program === "" || program.startsWith("/")) return false;
-
-  const segments = program.split("/");
-  if (segments.includes("..")) return false;
-  if (program.startsWith("./") || segments.length > 1) return true;
-
-  return program.includes(".");
-}
-
-/**
- * The file a shipped script's program names, as its own directory holds it.
- *
- * `./hook.sh` and `hook.sh` name the same file — the `./` is a person saying "a path, not a command",
- * which {@link readsAsPath} has already read off it. Dropped here so one spelling reaches disk, which
- * is what lets {@link shipsScript} look for exactly what {@link hookCommand} later writes.
- */
-function scriptReference(program: string): string {
-  return program.startsWith("./") ? program.slice(2) : program;
-}
-
-/**
  * One hook's `command` as a harness should read it: a shipped script's path moved under `root`.
  *
- * The rewrite is the whole reason a hook can ship bytes. A catalog declares `command: hook.sh`, which
+ * The rewrite is the whole reason a hook can ship bytes. A catalog declares `command: guard.sh`, which
  * names a file relative to the hook's own directory — a location that exists in the catalog and nowhere
- * a harness looks. Once installed the script sits at `<root>/<name>/hook.sh`, and `root` is how each
+ * a harness looks. Once installed the script sits at `<root>/<name>/guard.sh`, and `root` is how each
  * harness spells the way there — its profile's `hookConfig` chooses it (`harness/definitions.ts`).
  *
  * Only the program is rewritten. Everything after the first token is arguments, and a `command` is a
  * shell fragment ambit does not parse: rewriting inside it would corrupt a quoted string or a path that
- * means something to the program rather than to ambit. So `hook.sh --strict` becomes
- * `<root>/<name>/hook.sh --strict`, and the arguments arrive exactly as written.
+ * means something to the program rather than to ambit. So `guard.sh --strict` becomes
+ * `<root>/<name>/guard.sh --strict`, and the arguments arrive exactly as written.
  *
- * A hook that ships nothing is returned verbatim, which is most of them: `npx --yes prettier` is a
- * command line the harness runs as-is, and prefixing it with a directory would break it.
+ * A `type: command` hook is returned verbatim, which is most of them: `npx --yes prettier` is a command
+ * line the harness runs as-is, and prefixing it with a directory would break it.
  */
 export function hookCommand(hook: MergedHook, root: string): string {
-  if (!hook.shipsScript) return hook.command;
+  if (hook.type !== "script") return hook.command;
 
   const command = hook.command.trim();
   const program = commandProgram(command);
@@ -715,36 +653,37 @@ async function hookDirectoryContents(
 }
 
 /**
- * Whether this hook's `command` names a script its own directory ships.
+ * Asserts that a `type: script` hook ships the file its `command` names.
  *
- * Derived rather than declared: the catalog is asked what it actually holds. A `command` that reads as
- * a path and is there ships a script; one that reads as a command line does not; and one that reads as
- * a path and is *not* there is a mistake, refused naming the directory's contents — because writing it
- * through as a command line would install a hook that cannot run, and say nothing.
+ * The declaration says a script is there; this is the catalog being asked whether it is. A hook that
+ * claims a file it does not hold is refused naming the directory's contents, because installing it
+ * would write a command pointing at bytes that never arrive — a hook that cannot run, and says nothing
+ * about why.
+ *
+ * The shape of the reference was already settled by the parser, so what is left here is existence
+ * alone. A `type: command` hook is never asked: its `command` is a command line, and whether a file of
+ * that name happens to sit in the directory is a coincidence.
  *
  * @param name the hook's name as its path derives it, which is what it will be installed under.
  * @throws {AmbitError} exit 2 for a `command` that names a file the directory does not hold.
  */
-async function shipsScript(
+async function assertScriptShipped(
   files: CatalogFiles,
   mapping: YamlMapping,
   directory: string,
   name: string,
   command: string,
-): Promise<boolean> {
-  const program = commandProgram(command);
-  if (!readsAsPath(program)) return false;
-
-  const reference = scriptReference(program);
-  if (await files.isFile(`${directory}/${reference}`)) return true;
+): Promise<void> {
+  const reference = scriptReference(commandProgram(command));
+  if (await files.isFile(`${directory}/${reference}`)) return;
 
   const contents = await hookDirectoryContents(files, directory);
   throw mapping.keyError("command", `hook "${name}" ships no ${reference}`, [
-    `\`command\` reads as a path, so it must name a file ${directory} holds`,
+    `\`type: script\` means \`command\` names a file ${directory} holds`,
     contents.length === 0
       ? `${directory} holds nothing but ${HOOK_FILENAME}`
       : `${directory} holds: ${contents.join(", ")}`,
-    "correct the name, add the file to the hook's directory, or write a command line instead",
+    "correct the name, add the file to the hook's directory, or say `type: command` instead",
   ]);
 }
 
@@ -779,11 +718,11 @@ async function parseHookDirectory(files: CatalogFiles, relative: string): Promis
     ]);
   }
 
-  return {
-    ...entity,
-    path: directory,
-    shipsScript: await shipsScript(files, mapping, directory, derived, entity.command),
-  };
+  if (entity.type === "script") {
+    await assertScriptShipped(files, mapping, directory, derived, entity.command);
+  }
+
+  return { ...entity, path: directory };
 }
 
 /**
@@ -1063,8 +1002,9 @@ export async function mergeConfigEntities(
         "remove the `hooks` entry to take the catalog's, or rename one of the two",
       );
     }
-    // No directory, so no script: an inline hook's `command` is a command line by construction.
-    hooks.push({ ...entity, catalog: config.origin.file, shipsScript: false });
+    // `type: script` was already refused for an inline hook when the config parsed, so whatever
+    // arrives here is a command line and needs no directory.
+    hooks.push({ ...entity, catalog: config.origin.file });
   }
 
   return { ...merged, skills: byName(skills), mcps: byName(mcps), hooks: byName(hooks) };

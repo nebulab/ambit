@@ -112,6 +112,7 @@ async function writeHook(dir: string, name: string, scopes: readonly string[]): 
       `name: ${name}`,
       `scopes: [${scopes.join(", ")}]`,
       "event: Stop",
+      "type: command",
       "command: npx notify",
       "",
     ].join("\n"),
