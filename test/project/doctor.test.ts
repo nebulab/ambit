@@ -65,8 +65,9 @@ const HOOK_LINES: readonly string[] = [
 
 /** What a healthy project reports: every check named, and both finding lists explicitly empty. */
 const HEALTHY_REPORT = [
-  "checks (6)",
+  "checks (7)",
   "  env        ok",
+  "  scripts    ok",
   "  lock       ok",
   "  ownership  ok",
   "  drift      ok",
@@ -234,6 +235,7 @@ describe("ambit doctor on a healthy project", () => {
     expect(JSON.parse(result.stdout)).toEqual({
       checks: [
         { check: "env", status: "ok" },
+        { check: "scripts", status: "ok" },
         { check: "lock", status: "ok" },
         { check: "ownership", status: "ok" },
         { check: "drift", status: "ok" },
@@ -269,6 +271,7 @@ describe("ambit doctor on an incomplete environment", () => {
     ]);
     expect(await checks()).toEqual([
       "env=fail",
+      "scripts=ok",
       "lock=ok",
       "ownership=ok",
       "drift=ok",
@@ -460,6 +463,7 @@ describe("ambit doctor on a project installed with `--copy`", () => {
     ]);
     expect(await checks()).toEqual([
       "env=ok",
+      "scripts=ok",
       "lock=ok",
       "ownership=ok",
       "drift=ok",
@@ -518,6 +522,93 @@ describe("ambit doctor on a hook's `env`", () => {
 });
 
 /**
+ * The check the inline `type: script` surface needs, and the only one that reads a file ambit does not
+ * own.
+ *
+ * A hook declared in `ambit.yml` can name a script the repo itself holds, which ambit points at rather
+ * than ships — so the two ways that goes wrong are invisible everywhere else. `status` has no row for
+ * the file (it is not an artifact), the parser cannot ask (the file may not be written yet when the
+ * config is), and `install` must not refuse (same reason it cannot refuse an unset variable). The hook
+ * installs perfectly and never runs, which is precisely this command's subject.
+ */
+describe("ambit doctor on an inline hook that names a script", () => {
+  const SCRIPT = "scripts/guard.sh";
+  const SCRIPT_HOOK = "guard";
+
+  const SCRIPT_LINES: readonly string[] = [
+    `  - name: ${SCRIPT_HOOK}`,
+    "    event: PreToolUse",
+    "    matcher: Bash",
+    "    type: script",
+    `    command: ${SCRIPT} --strict`,
+  ];
+
+  /** Writes the script the hook names, with `mode` as its permissions. */
+  async function writeScript(mode: number): Promise<void> {
+    const target = path.join(projectDir, SCRIPT);
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeFile(target, "#!/bin/sh\nexit 0\n", { encoding: "utf8", mode });
+  }
+
+  beforeEach(async () => {
+    await writeHookProfile(["claude"], SCRIPT_LINES);
+  });
+
+  it("passes once the script is there and executable", async () => {
+    await writeScript(0o755);
+    expect((await cli("install")).code).toBe(ExitCode.Success);
+
+    const result = await cli("doctor");
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+    expect(result.stdout).toBe(HEALTHY_REPORT);
+  });
+
+  it("fails on a script the project does not hold, naming the file rather than the hook's command", async () => {
+    // Installed first, and successfully: the file being absent is not something install can refuse,
+    // since a script may legitimately be written after the declaration that names it.
+    expect((await cli("install")).code).toBe(ExitCode.Success);
+
+    expect((await cli("doctor")).code).toBe(ExitCode.Doctor);
+    // The path alone — `--strict` is an argument the harness passes through, not part of the file.
+    expect(await findings()).toEqual([`scripts/fail: hook "${SCRIPT_HOOK}" names no ${SCRIPT}`]);
+    expect(await checks()).toContain("scripts=fail");
+    expect(await detailOf(SCRIPT)).toEqual([
+      "`type: script` in a project's own config means `command` names a file the project holds, from its root",
+      "ambit points at it rather than shipping it, so nothing but this repo can put it there",
+      `add ${SCRIPT}, or correct the hook's \`command\``,
+    ]);
+  });
+
+  it.skipIf(process.platform === "win32")(
+    "fails on one that is there and cannot be executed, with the one-line fix",
+    async () => {
+      await writeScript(0o644);
+      expect((await cli("install")).code).toBe(ExitCode.Success);
+
+      // A catalog ships the bit with the script; this file is the project's, so nothing but the project
+      // can set it — and a harness spawning it gets "permission denied" from a shell, not from ambit.
+      expect((await cli("doctor")).code).toBe(ExitCode.Doctor);
+      expect(await findings()).toEqual([`scripts/fail: ${SCRIPT} is not executable`]);
+      expect(await detailOf(SCRIPT)).toEqual([
+        `hook "${SCRIPT_HOOK}" runs it as a program, and a harness spawns it through a shell`,
+        "a catalog ships the bit with the script; a file the project holds is the project's to set",
+        `run \`chmod +x ${SCRIPT}\``,
+      ]);
+    },
+  );
+
+  it("says nothing about a `type: command` hook, whatever its command names", async () => {
+    // `./bin/notify` is a command line, so whether the project holds such a file is none of ambit's
+    // business: the declaration says it is not a script.
+    await writeHookProfile(["claude"]);
+    expect((await cli("install")).code).toBe(ExitCode.Success);
+
+    expect(await findings()).toEqual([]);
+    expect(await checks()).toContain("scripts=ok");
+  });
+});
+
+/**
  * §7's one harness finding: Codex reads hooks only when a user's own config carries
  * `[features] codex_hooks = true`, and that file is not one ambit writes. So ambit can write
  * `.codex/hooks.json` exactly as planned — every other check `ok` — and the hooks still never run,
@@ -535,6 +626,7 @@ describe("ambit doctor on a project configuring codex", () => {
     ]);
     expect(await checks()).toEqual([
       "env=ok",
+      "scripts=ok",
       "lock=ok",
       "ownership=ok",
       "drift=ok",
@@ -583,6 +675,7 @@ describe("ambit doctor before an install", () => {
     expect(result.code).toBe(ExitCode.Doctor);
     expect(await checks()).toEqual([
       "env=ok",
+      "scripts=ok",
       "lock=fail",
       "ownership=ok",
       "drift=fail",

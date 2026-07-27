@@ -16,10 +16,12 @@
  * it and declares one is warned and left installed — the case that must not be an error, since one
  * harness's limitation cannot be allowed to cost every other harness its hooks.
  *
- * No catalog in any of that: an inline hook is selected because it was declared, so a project needs
+ * No catalog in most of that: an inline hook is selected because it was declared, so a project needs
  * nothing else to walk the entire path — and a test that resolves nothing cannot be reading some
- * fixture's hooks by accident. The last block is the one exception, and it has to be: a hook can only
- * ship a script from a directory, which only a catalog gives it.
+ * fixture's hooks by accident. The script-shipping block is the one exception, and it has to be: a hook
+ * can only *ship* a script from a directory, which only a catalog gives it. The block after it is the
+ * other half of that story — an inline hook naming a script the project itself holds, where the bytes
+ * need no directory because they are already in the repo.
  */
 import { chmod, lstat, mkdir, mkdtemp, readFile, readlink, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -1195,5 +1197,163 @@ scopes: [core]
     // what stops a withdrawn hook's script from sitting in the project forever.
     expect(await pathExists(HOOK_DIR)).toBe(false);
     expect(await stateArtifacts()).toEqual([]);
+  });
+});
+
+/**
+ * An inline hook that runs a script the project already holds.
+ *
+ * The block above needs a catalog because shipping bytes needs a directory to ship them from. This one
+ * is the same declaration with nothing to ship: a project writing `hooks:` is by definition in a repo,
+ * the script is right there under `scripts/`, versioned beside the config that names it, and the only
+ * thing ambit is missing is ownership of it — which is an implementation concern rather than something
+ * the author asked about.
+ *
+ * So `type: script` means here what it means in a catalog — `command` is a file, not a command line —
+ * and the path is anchored to the project root instead of a hook directory. Everything downstream
+ * follows from ambit owning nothing: no directory is materialized, no `.gitignore` line is written, no
+ * lock records a path or a commit, and `prune` and `clean` cannot touch the file. Deleting a person's
+ * own script on `ambit clean` would be considerably more surprising than refusing the declaration was.
+ */
+describe("an inline hook that runs a script the project holds", () => {
+  const SCRIPT = "scripts/guard.sh";
+  const SCRIPT_BODY = "#!/bin/sh\nexit 0\n";
+
+  /** The declaration, `./` and all: the spelling a person uses to be explicit about a path. */
+  const GUARD_HOOK = [
+    "- name: guard",
+    "  event: PreToolUse",
+    "  matcher: Bash",
+    "  type: script",
+    `  command: ./${SCRIPT} --strict`,
+  ];
+
+  /**
+   * The two spellings of the way to the script — the same split a materialized one gets.
+   *
+   * Claude and VS Code get the documented project-root placeholder, so the hook fires whatever a
+   * session's cwd is. Cursor and Codex interpolate nothing, so the declared path is written as it
+   * stands: they resolve a relative command against the project root already, which is the same
+   * resolution the placeholder buys and the reason nothing is prefixed in front of it.
+   *
+   * `./` is gone from both, and `--strict` survives in both: one spelling reaches every file, and
+   * everything after the program is an argument ambit does not parse.
+   */
+  const CLAUDE_COMMAND = `\${CLAUDE_PROJECT_DIR}/${SCRIPT} --strict`;
+  const RELATIVE_COMMAND = `${SCRIPT} --strict`;
+
+  const GUARD_ENTRY = {
+    matcher: "Bash",
+    hooks: [{ type: "command", command: CLAUDE_COMMAND }],
+  };
+  const GUARD_KEY = managedKey("hooks", arrayEntryKey("PreToolUse", GUARD_ENTRY));
+
+  /** Writes the script the declaration names, executable, as its author would commit it. */
+  async function writeScript(): Promise<void> {
+    const target = path.join(projectDir, SCRIPT);
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeFile(target, SCRIPT_BODY, { encoding: "utf8", mode: 0o755 });
+  }
+
+  beforeEach(async () => {
+    await writeScript();
+    await writeProfile(GUARD_HOOK);
+  });
+
+  it("anchors the path to the project root, the way each harness spells one", async () => {
+    await writeProfile(GUARD_HOOK, ["claude", "codex", "cursor", "vscode"]);
+
+    const result = await cli("install");
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+
+    expect(await settings()).toEqual({ hooks: { PreToolUse: [GUARD_ENTRY] } });
+    expect(await settingsText()).toContain(CLAUDE_COMMAND);
+    expect(JSON.parse(await fileText(".codex/hooks.json"))).toEqual({
+      hooks: {
+        PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: RELATIVE_COMMAND }] }],
+      },
+    });
+    expect(JSON.parse(await fileText(".cursor/hooks.json"))).toEqual({
+      version: 1,
+      hooks: { preToolUse: [{ command: RELATIVE_COMMAND }] },
+    });
+  });
+
+  it("materializes nothing, and records only the config file it wrote", async () => {
+    expect((await cli("install")).code).toBe(ExitCode.Success);
+
+    // The bytes are already at the path the command names, so there is nothing to copy anywhere — and
+    // `.agents/hooks` is where ambit puts scripts it owns, which this is not.
+    expect(await pathExists(".agents/hooks")).toBe(false);
+    expect(await stateArtifacts()).toEqual([
+      {
+        path: SETTINGS,
+        kind: "harness-config",
+        format: "json",
+        shape: "array",
+        managedKeys: [GUARD_KEY],
+      },
+    ]);
+  });
+
+  it("never lists the script in a managed .gitignore block", async () => {
+    expect((await cli("install")).code).toBe(ExitCode.Success);
+
+    // It is a tracked file of the project's, so ignoring it would hide the very bytes the hook runs.
+    for (const file of [".gitignore", SHARED_GITIGNORE_FILE]) {
+      if (!(await pathExists(file))) continue;
+      expect(await fileText(file), file).not.toContain("guard.sh");
+    }
+  });
+
+  it("leaves the script where it is through prune and clean", async () => {
+    expect((await cli("install")).code).toBe(ExitCode.Success);
+    expect((await cli("prune")).code).toBe(ExitCode.Success);
+    expect(await fileText(SCRIPT)).toBe(SCRIPT_BODY);
+
+    // And after the declaration is withdrawn entirely: `clean` takes back the config entry ambit wrote
+    // and nothing else. The file is the user's, at the user's path, which is why it was never owned.
+    expect((await cli("clean")).code).toBe(ExitCode.Success);
+    expect(await fileText(SCRIPT)).toBe(SCRIPT_BODY);
+    expect((await lstat(path.join(projectDir, SCRIPT))).mode & 0o111).toBe(0o111);
+    expect(await settings()).toEqual({ hooks: { PreToolUse: [] } });
+  });
+
+  it("pins nothing in the lock, having resolved nothing", async () => {
+    expect((await cli("install")).code).toBe(ExitCode.Success);
+
+    // `path` and `commit` say "these bytes came from a source ambit fetched". These came from the repo
+    // holding the lock, whose own history pins them, so the entry is config values and no more.
+    expect(await fileText("ambit.lock")).toContain("guard:");
+    expect(await fileText("ambit.lock")).not.toContain(SCRIPT);
+  });
+
+  it("changes no bytes on a second install, and reports no drift", async () => {
+    await cli("install");
+    const written = await settingsText();
+
+    expect((await cli("install")).code).toBe(ExitCode.Success);
+
+    expect(await settingsText()).toBe(written);
+    expect((await cli("status", "--check")).code).toBe(ExitCode.Success);
+  });
+
+  /**
+   * The one thing `install` will not do: refuse a script that is not there yet.
+   *
+   * Nothing about the declaration is wrong, and the file may be written five minutes later — so the
+   * install succeeds and `doctor` is where the project finds out, exactly as it is for a variable
+   * nobody exported.
+   */
+  it("installs a hook whose script is missing, and leaves doctor to say so", async () => {
+    await rm(path.join(projectDir, SCRIPT));
+
+    expect((await cli("install")).code).toBe(ExitCode.Success);
+    expect(await settings()).toEqual({ hooks: { PreToolUse: [GUARD_ENTRY] } });
+
+    const report = await diagnoseProject(projectDir);
+    expect(
+      report.findings.map((finding) => `${finding.check}/${finding.severity}: ${finding.message}`),
+    ).toEqual([`scripts/fail: hook "guard" names no ${SCRIPT}`]);
   });
 });

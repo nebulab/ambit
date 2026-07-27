@@ -76,6 +76,10 @@ export interface LockMcp {
  * inline hook, and a catalog hook whose command is a command line, are config values and take
  * {@link LockMcp}'s shape.
  *
+ * An inline hook takes that shape even when it names a script, and the omission is the point: those
+ * bytes live in the consuming repo, pinned by that repo's own history. A `path` here would claim ambit
+ * resolved a file it merely pointed at, and a `commit` would name a revision that is not the file's.
+ *
  * `path` is the hook's directory within its source, as {@link LockSkill.path} is — never the command
  * ambit writes into a harness file. That command is rewritten per harness, so it is not one value
  * the lock could hold.

@@ -4,9 +4,10 @@
  * The other two read-only commands each answer one question and deliberately stop there. `validate`
  * asks whether the *catalog* is coherent; `status` asks whether install would change an *artifact*.
  * Neither can answer "is this project going to work when someone runs an agent in it", because the
- * things that break that live between the two: a variable a skill needs and nobody exported, a
- * committed lock that no longer describes what resolution produces, artifacts a crashed install left
- * present but unowned. This is the command for those.
+ * things that break that live between the two: a variable a skill needs and nobody exported, a script
+ * an inline hook names and the repo does not hold, a committed lock that no longer describes what
+ * resolution produces, artifacts a crashed install left present but unowned. This is the command for
+ * those.
  *
  * Findings, not throws — the shape `validate` uses. Every check runs, the whole list is printed, and
  * the exit code carries the verdict (exit 6). A health command that stopped at the first
@@ -27,7 +28,8 @@
  * prints — so `doctor` and `status` cannot disagree about an artifact, and `doctor` and
  * `install --frozen` cannot disagree about the lock. Nothing here writes.
  */
-import { lstat } from "node:fs/promises";
+import { lstat, stat } from "node:fs/promises";
+import path from "node:path";
 
 import type {
   PlannedArtifact,
@@ -37,7 +39,8 @@ import type {
 import { codex } from "../harness/definitions.js";
 import { referencedNames } from "../harness/env.js";
 import { gitignoreStatus } from "./gitignore.js";
-import type { MergedMcp } from "../model/catalog.js";
+import type { MergedHook, MergedMcp } from "../model/catalog.js";
+import { commandProgram, scriptReference } from "../model/hook-entity.js";
 import { managedKey } from "../model/documents/index.js";
 import { planInstall } from "./install.js";
 import { LOCK_FILENAME, readLockText } from "./lock.js";
@@ -50,12 +53,20 @@ import { statusOfPlan } from "./status.js";
  * The checks, in the order they run and are reported.
  *
  * A declared order rather than an alphabetical one, because it is an argument: the environment
- * around the project first, then the record of the last install, then what that record and the
- * project disagree about, and last the two that are merely worth knowing — which mode a directory
- * landed in, and what a harness needs that ambit is not allowed to write. A fixed order is all
- * determinism needs.
+ * around the project first — the variables it needs, then the files of its own it told ambit to point
+ * at — then the record of the last install, then what that record and the project disagree about, and
+ * last the two that are merely worth knowing — which mode a directory landed in, and what a harness
+ * needs that ambit is not allowed to write. A fixed order is all determinism needs.
  */
-export const DOCTOR_CHECKS = ["env", "lock", "ownership", "drift", "mode", "harness"] as const;
+export const DOCTOR_CHECKS = [
+  "env",
+  "scripts",
+  "lock",
+  "ownership",
+  "drift",
+  "mode",
+  "harness",
+] as const;
 
 export type DoctorCheck = (typeof DOCTOR_CHECKS)[number];
 
@@ -272,6 +283,95 @@ function envFindings(
 
       return fail("env", `unset environment variable "${variable}"`, [...wanted, step]);
     });
+}
+
+/**
+ * Every hook whose script the project itself holds, with the file each one names.
+ *
+ * A `type: script` hook declared in `ambit.yml` names a file relative to the project root, and ambit
+ * materializes nothing for it: the bytes are the repo's own, already versioned beside the config that
+ * names them (`HOOK_ORIGINS`). Which is why they are checked here rather than at parse time or install
+ * time — the only thing that can answer "is it there, and can it run" is the working tree, and asking
+ * at parse time would refuse a config for a file someone is about to write.
+ *
+ * A catalog hook's script is deliberately not among them. That one is checked when the catalog is read,
+ * materialized into an artifact, and reported by `drift` if it goes missing — a whole answer already.
+ */
+function projectScripts(
+  bundle: Bundle,
+): readonly { readonly hook: MergedHook; readonly reference: string }[] {
+  return bundle.hooks
+    .filter((hook) => hook.type === "script" && hook.path === undefined)
+    .map((hook) => ({ hook, reference: scriptReference(commandProgram(hook.command)) }));
+}
+
+/**
+ * Whether the project holds one path as a file, and whether anything may execute it.
+ *
+ * `stat` rather than `lstat`, so a script someone symlinked into place is the file it points at — the
+ * harness spawns it through a shell, which follows the link too.
+ *
+ * `executable` is `true` on Windows whatever the mode says. The bit does not exist there, `stat` reports
+ * the same plausible mode for every file, and a check that failed on every Windows project would be one
+ * nobody could ever pass.
+ */
+async function scriptFile(target: string): Promise<{ readonly executable: boolean } | undefined> {
+  try {
+    const found = await stat(target);
+    if (!found.isFile()) return undefined;
+    return { executable: process.platform === "win32" || (found.mode & 0o111) !== 0 };
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The scripts a project's own inline hooks name, and cannot run.
+ *
+ * Both findings are failures, and for the reason the module comment gives about an unset variable: the
+ * hook is installed exactly as declared, every artifact is what the plan says, and the thing still does
+ * not run. Install cannot refuse either one — a script may legitimately not exist yet when someone runs
+ * `ambit install` — which is precisely why this command must say so.
+ *
+ * A missing file and a non-executable one are separate messages rather than one about "unusable",
+ * because the fix is a different action: write the file, or set a bit on the file you already wrote. The
+ * second is the failure a catalog hook cannot have, since `cp` carries the mode out of the catalog and
+ * nothing materializes here.
+ */
+async function scriptFindings(
+  projectDir: string,
+  bundle: Bundle,
+): Promise<readonly DoctorFinding[]> {
+  const findings: DoctorFinding[] = [];
+
+  // `bundle.hooks` is sorted by name, so the findings are a function of the bundle rather than of the
+  // order resolution happened to add hooks in.
+  for (const { hook, reference } of projectScripts(bundle)) {
+    const found = await scriptFile(path.join(projectDir, reference));
+
+    if (found === undefined) {
+      findings.push(
+        fail("scripts", `hook "${hook.name}" names no ${reference}`, [
+          "`type: script` in a project's own config means `command` names a file the project holds, from its root",
+          "ambit points at it rather than shipping it, so nothing but this repo can put it there",
+          `add ${reference}, or correct the hook's \`command\``,
+        ]),
+      );
+      continue;
+    }
+
+    if (!found.executable) {
+      findings.push(
+        fail("scripts", `${reference} is not executable`, [
+          `hook "${hook.name}" runs it as a program, and a harness spawns it through a shell`,
+          "a catalog ships the bit with the script; a file the project holds is the project's to set",
+          `run \`chmod +x ${reference}\``,
+        ]),
+      );
+    }
+  }
+
+  return findings;
 }
 
 /**
@@ -496,6 +596,7 @@ export async function diagnoseProject(
 
   const findings = [
     ...envFindings(planned.bundle, planned.artifacts, process.env),
+    ...(await scriptFindings(projectDir, planned.bundle)),
     ...(await lockFindings(projectDir, planned.lockText)),
     ...ownershipFindings(status.artifacts),
     ...(await driftFindings(projectDir, planned.artifacts, status.artifacts)),

@@ -2,7 +2,9 @@
  * Hook entity parsing.
  *
  * The same shape appears in two places — `hooks/<name>/HOOK.yml` in a catalog, and inline `hooks`
- * entries in `ambit.yml` — so one parser serves both.
+ * entries in `ambit.yml` — so one parser serves both, told which surface it is reading by a
+ * {@link HookOrigin}. That is the only thing the two disagree about: what a `type: script` path is
+ * anchored to, and so how a message about one is worded. Every field means the same thing on either.
  */
 import type { YamlMapping } from "./yaml.js";
 
@@ -30,7 +32,8 @@ export type HookEvent = (typeof HOOK_EVENTS)[number];
 export const MATCHABLE_EVENTS = ["PreToolUse", "PostToolUse"] as const;
 
 /**
- * What a hook's `command` is, which decides whether ambit rewrites it and ships bytes beside it.
+ * What a hook's `command` is: a command line, or a path to a file that has to be anchored before a
+ * harness can find it.
  *
  * Declared rather than derived. The two kinds are not distinguishable by looking: `guard.sh` is a
  * script a hook ships and `prettier` is a program on the `PATH`, and nothing about either string says
@@ -41,6 +44,23 @@ export const MATCHABLE_EVENTS = ["PreToolUse", "PostToolUse"] as const;
 export const HOOK_TYPES = ["command", "script"] as const;
 
 export type HookType = (typeof HOOK_TYPES)[number];
+
+/**
+ * Which surface a hook was written on — the one thing that changes what a `type: script` path means.
+ *
+ * - `catalog` — `hooks/<name>/HOOK.yml`. The script is a file the hook's own directory ships, named
+ *   relative to it, and ambit materializes it to `.agents/hooks/<name>/`.
+ * - `project` — a `hooks` entry in `ambit.yml`. The script is a file the consuming repo already holds,
+ *   named relative to the project root. Nothing is materialized and nothing is owned: the bytes are
+ *   already at a stable location, pinned by that repo's own history.
+ *
+ * Both are `type: script` — a file, not a command line — so the declaration says the same thing on
+ * either surface and the parser is one function. What differs is only what the path is anchored to,
+ * which is why this is the parser's single parameter rather than a second entity shape.
+ */
+export const HOOK_ORIGINS = ["catalog", "project"] as const;
+
+export type HookOrigin = (typeof HOOK_ORIGINS)[number];
 
 export interface HookEntity {
   readonly name: string;
@@ -55,8 +75,9 @@ export interface HookEntity {
   readonly type: HookType;
   /**
    * What the hook runs, read according to {@link type}: a command line the harness executes as
-   * written, or a path — relative to the hook's own directory — to a script the hook ships, followed
-   * by any arguments.
+   * written, or a path to a script, followed by any arguments. A script's path is relative to whatever
+   * holds it — the hook's own directory in a catalog, the project root in `ambit.yml` — which is the
+   * {@link HookOrigin} the document was parsed under.
    *
    * `${VAR}` references are left intact, unlike an MCP transport's, where ambit rewrites them into
    * each harness's own reference syntax. A hook command is executed by a shell the harness spawns,
@@ -94,7 +115,7 @@ export function commandProgram(command: string): string {
 }
 
 /**
- * The file a `script` hook's program names, as its own directory holds it.
+ * The file a `script` hook's program names, as the directory it is anchored to holds it.
  *
  * `./guard.sh` and `guard.sh` name the same file — the `./` is a person being explicit about a path,
  * which under `type: script` they no longer have to be. Dropped here so one spelling reaches disk,
@@ -134,12 +155,34 @@ function parseMatcher(mapping: YamlMapping, event: HookEvent): string | undefine
   return matcher;
 }
 
-function parseType(mapping: YamlMapping): HookType {
+/**
+ * How each surface says what a `type: script` is, in the three messages that have to name it.
+ *
+ * Written out per origin rather than composed from a directory name, because the sentences are about
+ * *whose* file the script is — the hook's, or the repo's — and that is the distinction a reader has to
+ * take away. Each field is used exactly once, in the message its name gives.
+ */
+const SCRIPT_WORDING: Readonly<
+  Record<HookOrigin, { readonly inside: string; readonly summary: string; readonly hint: string }>
+> = {
+  catalog: {
+    inside: "the hook",
+    summary: "a file the hook's own directory ships",
+    hint: "a script is a file the hook's own directory ships, named relative to it — `guard.sh`, `bin/guard.sh`",
+  },
+  project: {
+    inside: "the project",
+    summary: "a file the project itself holds",
+    hint: "a script is a file this repo holds, named relative to the project root — `scripts/guard.sh`",
+  },
+};
+
+function parseType(mapping: YamlMapping, origin: HookOrigin): HookType {
   const type = mapping.requireString("type");
 
   if (!(HOOK_TYPES as readonly string[]).includes(type)) {
     throw mapping.keyError("type", `unknown hook type "${type}"`, [
-      "`command` runs a command line as written; `script` runs a file the hook's own directory ships",
+      `\`command\` runs a command line as written; \`script\` runs ${SCRIPT_WORDING[origin].summary}`,
       `replace \`${type}\` with one of them`,
     ]);
   }
@@ -148,18 +191,19 @@ function parseType(mapping: YamlMapping): HookType {
 }
 
 /**
- * Rejects a `type: script` whose `command` cannot name a file inside the hook's own directory.
+ * Rejects a `type: script` whose `command` cannot name a file inside the directory it is anchored to.
  *
  * Shape only — whether the file is actually there is a question for whoever holds the directory, and
- * an inline hook holds none. What is refused here is a reference that could not be inside it under any
- * contents: an absolute path, and one climbing out through `..`. An empty one cannot reach this at all,
- * because `requireString` has already refused a blank `command`.
+ * neither holder can be asked here: a catalog answers it when the catalog is read, and a project's own
+ * working tree answers it in `doctor`. What is refused here is a reference that could not be inside
+ * either under any contents: an absolute path, and one climbing out through `..`. An empty one cannot
+ * reach this at all, because `requireString` has already refused a blank `command`.
  *
  * Under the old derivation these were silently reclassified as command lines, which is how
  * `command: /usr/bin/guard.sh` on a hook that meant to ship one installed a hook pointing at a file
  * outside the catalog. Now they are refused, and the fix is to say `type: command`.
  */
-function assertScriptReference(mapping: YamlMapping, command: string): void {
+function assertScriptReference(mapping: YamlMapping, command: string, origin: HookOrigin): void {
   const reference = scriptReference(commandProgram(command));
 
   const problem = reference.startsWith("/")
@@ -172,11 +216,8 @@ function assertScriptReference(mapping: YamlMapping, command: string): void {
 
   throw mapping.keyError(
     "command",
-    `\`type: script\` needs a path inside the hook, and ${problem}`,
-    [
-      "a script is a file the hook's own directory ships, named relative to it — `guard.sh`, `bin/guard.sh`",
-      "to run something else, say `type: command` instead",
-    ],
+    `\`type: script\` needs a path inside ${SCRIPT_WORDING[origin].inside}, and ${problem}`,
+    [SCRIPT_WORDING[origin].hint, "to run something else, say `type: command` instead"],
   );
 }
 
@@ -185,20 +226,23 @@ function assertScriptReference(mapping: YamlMapping, command: string): void {
  *
  * @param mapping the entity's mapping — a whole `hooks/<name>/HOOK.yml` document, or one item of
  *   `ambit.yml`'s `hooks` list.
+ * @param origin which of those two it is, which decides what a `type: script` path is relative to —
+ *   see {@link HOOK_ORIGINS}. Required rather than defaulted: a hook parsed under the wrong anchor is
+ *   a command pointing at the wrong file, and nothing downstream could notice.
  * @throws {AmbitError} exit 2 for any shape violation.
  */
-export function parseHookEntity(mapping: YamlMapping): HookEntity {
+export function parseHookEntity(mapping: YamlMapping, origin: HookOrigin): HookEntity {
   mapping.rejectUnknownKeys(ENTITY_KEYS);
 
   const name = mapping.requireString("name");
   const description = mapping.optionalString("description");
   const event = parseEvent(mapping);
   const matcher = parseMatcher(mapping, event);
-  const type = parseType(mapping);
+  const type = parseType(mapping, origin);
   const command = mapping.requireString("command");
   const timeout = mapping.optionalInteger("timeout");
 
-  if (type === "script") assertScriptReference(mapping, command);
+  if (type === "script") assertScriptReference(mapping, command, origin);
 
   return {
     name,

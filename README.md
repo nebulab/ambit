@@ -175,13 +175,19 @@ mcps:
         args: ["-y", "some-server"]
     env: [SOME_TOKEN]
 
-# Ad-hoc hooks not defined in any catalog. Same shape as a catalog hook, minus the
-# shipped script: an inline hook has no directory, so `type` must be `command`.
+# Ad-hoc hooks not defined in any catalog. Same shape as a catalog hook. A hook
+# written here has no directory of its own, so a `type: script` command names a
+# file this repo already holds, from the project root.
 hooks:
   - name: session-notes
     event: SessionStart
     type: command
     command: cat NOTES.md
+  - name: guard-secrets
+    event: PreToolUse
+    matcher: Bash
+    type: script
+    command: scripts/guard.sh
 ```
 
 | Field       | Type                    | Required | Notes                                                                                                                                            |
@@ -294,14 +300,29 @@ env: [SOME_TOKEN]
 | `timeout`     | int      | no       | Seconds. Written where the harness has a field for it.                                                                                    |
 | `env`         | string[] | no       | Env vars the hook needs, for `doctor` to check.                                                                                           |
 
-**Whether a hook ships a script is declared, not guessed.** `type: command` is a command line the
+**Whether a hook runs a script is declared, not guessed.** `type: command` is a command line the
 harness runs exactly as written — `npx prettier --write`, `node tools/check.js`. `type: script` names
-a file this directory ships, relative to it, optionally followed by arguments: `guard.sh --strict`.
-The script is materialized to `.agents/hooks/<name>/`, and the command each harness gets points at it
-there — only the first word is rewritten, so the arguments arrive untouched.
+a file, optionally followed by arguments: `guard.sh --strict`. Only the first word is ever rewritten,
+so the arguments arrive untouched.
 
-A `type: script` hook naming a file the directory does not hold is an error listing what it does hold.
-A hook declared inline in `ambit.yml` has no directory, so it must be `type: command`.
+**What a script's path is relative to depends on which file declares the hook**, and that is the only
+difference between the two surfaces:
+
+| Declared in             | `command: guard.sh` names                     | ambit                                                                    |
+| ----------------------- | --------------------------------------------- | ------------------------------------------------------------------------ |
+| `hooks/<name>/HOOK.yml` | a file the hook's own directory ships         | materializes it to `.agents/hooks/<name>/` and points each harness there |
+| `hooks:` in `ambit.yml` | a file this repo holds, from the project root | points each harness at it where it already is, and owns nothing          |
+
+A catalog hook naming a file its directory does not hold is an error listing what it does hold. An
+inline one is a file only the project can supply, so it is `ambit doctor`'s to check: a missing script,
+or one without its executable bit, is a failure there rather than an install that refuses a config for
+a file someone is about to write. Nothing ambit owns is involved either way — the script is a tracked
+file at a path ambit never writes, never lists in a `.gitignore`, never pins in `ambit.lock`, and
+neither `prune` nor `clean` can touch it.
+
+For `claude` and `vscode` a script's path is anchored with `${CLAUDE_PROJECT_DIR}`, so the hook fires
+whatever a session's working directory is. `cursor` and `codex` interpolate nothing and resolve a
+relative command against the project root themselves, so they get the path as written.
 
 `${VAR}` in a `command` is left exactly as written, unlike an MCP transport's: the harness spawns a
 shell, so it already means the right thing.
@@ -429,7 +450,7 @@ refused, with the same message and exit code.
 | `ambit prune`                                         | Remove owned artifacts not in the current bundle.                                                                                 |
 | `ambit clean`                                         | Remove everything ambit owns.                                                                                                     |
 | `ambit validate`                                      | Validate everything this project configures, for CI. One catalog on its own is `ambit catalog validate`.                          |
-| `ambit doctor`                                        | Check env vars, the lock, ownership, drift, materialization mode, and harness limits.                                             |
+| `ambit doctor`                                        | Check env vars, inline hook scripts, the lock, ownership, drift, materialization mode, and harness limits.                        |
 
 ### Authoring commands
 

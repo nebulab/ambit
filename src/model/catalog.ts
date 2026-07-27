@@ -251,6 +251,12 @@ export interface MergedHook extends HookEntity {
    * Absent for a hook a project declares inline in its `ambit.yml`, which has no directory of its own
    * — the same argument {@link MergedMcp.file} makes: `catalog` already names the config file, which
    * is where a reader goes to change it.
+   *
+   * Load-bearing beyond attribution, and this is the one place that says so: its absence is what makes
+   * a `type: script` hook's `command` project-relative rather than directory-relative. There are only
+   * the two anchors, and a hook has a directory or it does not — so `path` answers "which one" for
+   * {@link hookCommand} and for materialization (`planHookDir`, `harness/profile.ts`) without a second
+   * field that could disagree with it.
    */
   readonly path?: string;
   /** The commit the hook's bytes came from, when its catalog has one — see {@link MergedSkill.commit}. */
@@ -613,27 +619,56 @@ async function parseMcpFile(files: CatalogFiles, stem: string, file: string): Pr
 }
 
 /**
- * One hook's `command` as a harness should read it: a shipped script's path moved under `root`.
+ * How one harness spells the two places a `type: script` hook's script can be.
  *
- * The rewrite is the whole reason a hook can ship bytes. A catalog declares `command: guard.sh`, which
- * names a file relative to the hook's own directory — a location that exists in the catalog and nowhere
- * a harness looks. Once installed the script sits at `<root>/<name>/guard.sh`, and `root` is how each
- * harness spells the way there — its profile's `hookConfig` chooses it (`harness/definitions.ts`).
+ * A profile declares both because the anchoring is the harness's problem rather than the hook's: a
+ * script has to be named the way *that* harness resolves a path, and there are two roots to name — the
+ * shared directory ambit materializes a catalog hook's script into, and the project root an inline
+ * hook's script is already somewhere under. Chosen per harness in `harness/definitions.ts`.
+ */
+export interface HookRoots {
+  /** Where materialized hook directories sit, so a shipped script is at `<hooks>/<name>/<script>`. */
+  readonly hooks: string;
+  /**
+   * How this harness spells the project root, for a script the project itself holds.
+   *
+   * Absent for a harness that interpolates nothing in a `command`: there the path as written *is* the
+   * way there, since the harness resolves a relative command against the project root already, and a
+   * prefix would be a directory name invented in front of a path that was correct.
+   */
+  readonly project?: string;
+}
+
+/**
+ * One hook's `command` as a harness should read it: a script's path anchored to wherever it actually is.
+ *
+ * The rewrite is the whole reason a hook can name a script at all. A catalog declares
+ * `command: guard.sh`, which names a file relative to the hook's own directory — a location that exists
+ * in the catalog and nowhere a harness looks. Once installed the script sits at
+ * `<roots.hooks>/<name>/guard.sh`. An inline hook declares `command: scripts/guard.sh`, which names a
+ * file relative to the project root — already a real location, so nothing is materialized and the path
+ * only has to be anchored: `<roots.project>/scripts/guard.sh`, or left as written for a harness that
+ * resolves a relative command against the project root itself.
+ *
+ * Which of the two applies is `hook.path`: a hook with a directory names a file inside it, and a hook
+ * without one names a file in the repo that declared it. See {@link MergedHook.path}.
  *
  * Only the program is rewritten. Everything after the first token is arguments, and a `command` is a
  * shell fragment ambit does not parse: rewriting inside it would corrupt a quoted string or a path that
  * means something to the program rather than to ambit. So `guard.sh --strict` becomes
- * `<root>/<name>/guard.sh --strict`, and the arguments arrive exactly as written.
+ * `<roots.hooks>/<name>/guard.sh --strict`, and the arguments arrive exactly as written.
  *
  * A `type: command` hook is returned verbatim, which is most of them: `npx --yes prettier` is a command
  * line the harness runs as-is, and prefixing it with a directory would break it.
  */
-export function hookCommand(hook: MergedHook, root: string): string {
+export function hookCommand(hook: MergedHook, roots: HookRoots): string {
   if (hook.type !== "script") return hook.command;
 
   const command = hook.command.trim();
   const program = commandProgram(command);
-  const script = `${root}/${hook.name}/${scriptReference(program)}`;
+  const reference = scriptReference(program);
+  const anchor = hook.path === undefined ? roots.project : `${roots.hooks}/${hook.name}`;
+  const script = anchor === undefined ? reference : `${anchor}/${reference}`;
   return `${script}${command.slice(program.length)}`;
 }
 
@@ -713,7 +748,7 @@ async function parseHookDirectory(files: CatalogFiles, relative: string): Promis
   const directory = `${HOOKS_DIRNAME}/${relative}`;
   const file = `${directory}/${HOOK_FILENAME}`;
   const mapping = await files.mapping(file);
-  const entity = parseHookEntity(mapping);
+  const entity = parseHookEntity(mapping, "catalog");
 
   const derived = skillNameFromPath(relative);
   if (entity.name !== derived) {
@@ -1007,8 +1042,9 @@ export async function mergeConfigEntities(
         "remove the `hooks` entry to take the catalog's, or rename one of the two",
       );
     }
-    // `type: script` was already refused for an inline hook when the config parsed, so whatever
-    // arrives here is a command line and needs no directory.
+    // No `path`, and that is the whole of what an inline hook is: a command line, or a script the
+    // consuming repo already holds at a project-relative path. Either way there is no directory for
+    // ambit to materialize, and nothing here for it to own.
     hooks.push({ ...entity, catalog: config.origin.file });
   }
 

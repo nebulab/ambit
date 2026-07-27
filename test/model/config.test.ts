@@ -375,18 +375,47 @@ describe("project config", () => {
       expect(error.format()).toContain("define each hook once");
     });
 
-    it("rejects an inline hook that says it ships a script, which it has nowhere to put", () => {
-      // The one hook rule this surface adds of its own: `type: script` is legal in a catalog and
-      // impossible here, because the script lives in a directory `ambit.yml` does not have.
+    it("accepts an inline `type: script`, whose path is the project's rather than a hook's", () => {
+      // The one thing this surface reads differently: a hook here has no directory, so a script is a
+      // file the repo already holds, named from the project root. Kept verbatim — anchoring it is the
+      // renderer's job, and each harness spells the way to the project root differently.
+      const config = parseProjectConfig(
+        [
+          "version: 1",
+          "hooks:",
+          "  - name: guard-secrets",
+          "    event: PreToolUse",
+          "    matcher: Bash",
+          "    type: script",
+          "    command: scripts/guard.sh --strict",
+          "",
+        ].join("\n"),
+        FILE,
+      );
+
+      expect(config.hooks).toEqual([
+        {
+          name: "guard-secrets",
+          scopes: [],
+          event: "PreToolUse",
+          matcher: "Bash",
+          type: "script",
+          command: "scripts/guard.sh --strict",
+          env: [],
+        },
+      ]);
+    });
+
+    it("refuses an inline script that could not be inside the project, naming the project", () => {
       const error = rejection(
-        "version: 1\nhooks:\n  - name: x\n    event: Stop\n    type: script\n    command: guard.sh\n",
+        "version: 1\nhooks:\n  - name: x\n    event: Stop\n    type: script\n    command: /opt/guard.sh\n",
       );
 
       expect(error.format()).toContain(
-        `hook "x" cannot ship a script from ${FILE} (${FILE} line 5)`,
+        "`type: script` needs a path inside the project, and it is an absolute path",
       );
       expect(error.format()).toContain(
-        "say `type: command`, or move the hook into a catalog at `hooks/<name>/HOOK.yml`",
+        "a script is a file this repo holds, named relative to the project root — `scripts/guard.sh`",
       );
     });
 

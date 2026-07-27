@@ -155,14 +155,14 @@ export interface HarnessProfile {
    * {@link HarnessProfile.serverConfig}.
    *
    * The one place a neutral `PreToolUse` becomes whatever this harness spells it, and the one place
-   * that decides what a `matcher` or a `timeout` turns into — and, for a hook that ships a script, the
-   * one place that decides how the materialized path is spelled: a documented placeholder where the
-   * harness has one, project-relative where it does not (`harness/definitions.ts`).
+   * that decides what a `matcher` or a `timeout` turns into — and, for a hook that runs a script, the
+   * one place that decides how the path to it is spelled: a documented placeholder where the harness has
+   * one, project-relative where it does not (`harness/definitions.ts`).
    *
    * Takes the {@link MergedHook} because that is what the planner holds; the rewrite itself needs only
-   * what the declaration carries — `type`, which says whether `command` is a path to rewrite at all or
-   * a command line to leave exactly as written, and `name`, the directory the script was materialized
-   * under.
+   * what the declaration carries — `type`, which says whether `command` is a path to anchor at all or a
+   * command line to leave exactly as written, `name`, the directory a materialized script sits under,
+   * and `path`, whose absence says the script is one the project itself holds.
    */
   hookConfig?(hook: MergedHook, project: ProjectPaths): unknown;
 }
@@ -292,17 +292,18 @@ export function skippedHooks(
 /**
  * The directory one hook's script is materialized from, or nothing.
  *
- * Nothing for the two cases with no bytes to put anywhere: a hook whose `command` is a command line,
- * which is most of them, and a hook this harness cannot express at all — the same predicate
+ * Nothing for the three cases with no bytes to move: a hook whose `command` is a command line, which is
+ * most of them; a hook whose script the project itself holds, whose bytes are already at the path the
+ * command names; and a hook this harness cannot express at all — the same predicate
  * {@link planHookConfig} and {@link skippedHooks} partition the bundle with, so a script is never
  * installed for a harness that was told the hook was skipped. A project on opencode alone therefore
  * acquires no `.agents/hooks` at all, which is the same answer it gets about the config file.
  *
  * `catalogRoot` and `path` are read rather than asserted, and their absence reads as "nothing to
- * materialize". They are present for exactly the hooks a catalog declares, which is exactly the hooks
- * that can ship a script: an inline hook has no directory for one to sit in, and `type: script` is
- * refused for it when the config parses. Two facts, one conclusion — and the conclusion is safe from
- * whichever of them a reader reaches first.
+ * materialize" — which is exactly right for the inline case: a `type: script` hook declared in
+ * `ambit.yml` names a file in the consuming repo, at a path ambit neither writes, lists in a
+ * `.gitignore`, nor prunes. It is the user's file at the user's path, and every artifact ambit owns
+ * comes from a catalog.
  */
 function planHookDir(
   profile: HarnessProfile,

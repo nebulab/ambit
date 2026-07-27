@@ -42,6 +42,7 @@ export type {
   CatalogOverlay,
   CatalogParseOptions,
   CatalogSkill,
+  HookRoots,
   MergedCatalog,
   MergedHook,
   MergedMcp,
@@ -97,8 +98,14 @@ export {
   gitCacheKey,
 } from "./model/git.js";
 export type { FetchedGitSource, GitFetchRequest } from "./model/git.js";
-export { HOOK_EVENTS, HOOK_TYPES, MATCHABLE_EVENTS, parseHookEntity } from "./model/hook-entity.js";
-export type { HookEntity, HookEvent, HookType } from "./model/hook-entity.js";
+export {
+  HOOK_EVENTS,
+  HOOK_ORIGINS,
+  HOOK_TYPES,
+  MATCHABLE_EVENTS,
+  parseHookEntity,
+} from "./model/hook-entity.js";
+export type { HookEntity, HookEvent, HookOrigin, HookType } from "./model/hook-entity.js";
 export { MCP_TRANSPORT_KINDS, parseMcpEntity } from "./model/mcp-entity.js";
 export type { HttpTransport, McpEntity, McpTransport, StdioTransport } from "./model/mcp-entity.js";
 export { renderScaffold } from "./model/scaffold.js";
