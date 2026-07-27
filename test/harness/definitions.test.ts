@@ -323,11 +323,11 @@ describe("the hook each profile emits", () => {
   const HOOK: MergedHook = {
     name: "block-rm",
     catalog: "company",
-    shipsScript: false,
     scopes: [],
     env: [],
     event: "PreToolUse",
     matcher: "Bash",
+    type: "command",
     command: "./bin/block-rm",
     timeout: 30,
   };
@@ -336,10 +336,10 @@ describe("the hook each profile emits", () => {
   const BARE: MergedHook = {
     name: "greet",
     catalog: "company",
-    shipsScript: false,
     scopes: [],
     env: [],
     event: "SessionStart",
+    type: "command",
     command: "./bin/greet",
   };
 
@@ -470,13 +470,13 @@ describe("the hook each profile emits", () => {
    * interpolate is not a near miss: it is a hook that never fires, and it fails silently.
    */
   describe("a hook that ships its own script", () => {
-    /** The script-shipping counterpart of {@link HOOK}: the same declaration, `shipsScript` set. */
+    /** The script-shipping counterpart of {@link HOOK}: the same declaration, declared `script`. */
     const SCRIPT: MergedHook = {
       ...HOOK,
       catalogRoot: "/catalogs/company",
       path: "hooks/block-rm",
+      type: "script",
       command: "hook.sh",
-      shipsScript: true,
     };
 
     /** The command out of one profile's rendering, whichever shape it wrote. */
@@ -542,8 +542,8 @@ describe("the hook each profile emits", () => {
       for (const profile of [claude, codex, cursor, vscode]) {
         expect(commandOf(profile, inline), profile.name).toBe("npx --yes prettier --check");
       }
-      // Including one whose command reads as a path but ships nothing: `shipsScript` is the answer, and
-      // the catalog derived it by looking. Rewriting on the spelling alone would point at a file the
+      // Including one whose command reads exactly like a path and is still a command line: `type` is
+      // the answer, and it was declared. Rewriting on the spelling alone would point at a file the
       // hook's directory never held.
       expect(commandOf(claude, HOOK)).toBe("./bin/block-rm");
     });

@@ -212,6 +212,23 @@ function parseMcps(root: YamlMapping): Positioned<McpEntity> {
   return { entries, lines };
 }
 
+/**
+ * Refuses an inline hook that says it ships a script.
+ *
+ * A `type: script` hook runs a file its own directory holds, and a hook declared in `ambit.yml` has no
+ * directory — there is nowhere to put the script and nothing for ambit to materialize. Refused here
+ * rather than in the shared parser because it is a fact about *where* the hook was written, which the
+ * parser cannot see: the same document under `hooks/<name>/HOOK.yml` is perfectly legal.
+ */
+function assertNotScript(entry: YamlMapping, entity: HookEntity): void {
+  if (entity.type !== "script") return;
+
+  throw entry.keyError("type", `hook "${entity.name}" cannot ship a script from ${entry.file}`, [
+    "a script lives in the hook's own directory, and a hook declared here has none",
+    "say `type: command`, or move the hook into a catalog at `hooks/<name>/HOOK.yml`",
+  ]);
+}
+
 function parseHooks(root: YamlMapping): Positioned<HookEntity> {
   const track = nameTracker(root.file, "hooks entry", "define each hook once");
   const entries: HookEntity[] = [];
@@ -219,6 +236,7 @@ function parseHooks(root: YamlMapping): Positioned<HookEntity> {
 
   for (const entry of root.optionalMappingList("hooks") ?? []) {
     const entity = parseHookEntity(entry);
+    assertNotScript(entry, entity);
     const line = entry.lineOf("name");
     track(entity.name, line);
     if (line !== undefined) lines.set(entity.name, line);

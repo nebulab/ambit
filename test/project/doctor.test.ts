@@ -59,6 +59,7 @@ const HOOK_VAR = "NOTIFY_WEBHOOK";
 const HOOK_LINES: readonly string[] = [
   `  - name: ${HOOK}`,
   "    event: Stop",
+  "    type: command",
   "    command: ./bin/notify",
 ];
 

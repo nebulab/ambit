@@ -176,10 +176,11 @@ mcps:
     env: [SOME_TOKEN]
 
 # Ad-hoc hooks not defined in any catalog. Same shape as a catalog hook, minus the
-# shipped script: an inline hook has no directory, so `command` is a command line.
+# shipped script: an inline hook has no directory, so `type` must be `command`.
 hooks:
   - name: session-notes
     event: SessionStart
+    type: command
     command: cat NOTES.md
 ```
 
@@ -263,7 +264,8 @@ scopes: [function.engineering]
 
 event: PreToolUse
 matcher: Bash
-command: guard.sh # a file this directory ships, or a command line
+type: script # or `command`
+command: guard.sh # a file this directory ships, since `type` is `script`
 timeout: 30
 
 env: [SOME_TOKEN]
@@ -276,15 +278,19 @@ env: [SOME_TOKEN]
 | `scopes`      | string[] | no       | Same semantics as skills.                                                                                                                 |
 | `event`       | string   | yes      | One of `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`, `SubagentStop`, `PreCompact`, `SessionEnd`.               |
 | `matcher`     | string   | no       | Tool-name filter. Meaningful only for `PreToolUse` and `PostToolUse`; on any other event it is an error rather than a value quietly lost. |
-| `command`     | string   | yes      | A command line, or a file this directory ships.                                                                                           |
+| `type`        | string   | yes      | `command` or `script` — how to read `command`.                                                                                            |
+| `command`     | string   | yes      | What to run, per `type`.                                                                                                                  |
 | `timeout`     | int      | no       | Seconds. Written where the harness has a field for it.                                                                                    |
 | `env`         | string[] | no       | Env vars the hook needs, for `doctor` to check.                                                                                           |
 
-**Whether a hook ships a script is derived, not declared.** A `command` whose first word reads as a
-path — `guard.sh`, `./guard.sh`, `bin/guard.sh` — must name a file the directory holds, or it is an
-error listing what the directory does hold. A bare word (`npx prettier --write`) is a command line.
-A shipped script is materialized to `.agents/hooks/<name>/`, and the command each harness gets points
-at it there.
+**Whether a hook ships a script is declared, not guessed.** `type: command` is a command line the
+harness runs exactly as written — `npx prettier --write`, `node tools/check.js`. `type: script` names
+a file this directory ships, relative to it, optionally followed by arguments: `guard.sh --strict`.
+The script is materialized to `.agents/hooks/<name>/`, and the command each harness gets points at it
+there — only the first word is rewritten, so the arguments arrive untouched.
+
+A `type: script` hook naming a file the directory does not hold is an error listing what it does hold.
+A hook declared inline in `ambit.yml` has no directory, so it must be `type: command`.
 
 `${VAR}` in a `command` is left exactly as written, unlike an MCP transport's: the harness spawns a
 shell, so it already means the right thing.
@@ -435,7 +441,7 @@ ambit catalog mcp new <name> (--stdio <command> [--arg <a>…] | --http <url> [-
                              [--env <v>…]
 ambit catalog mcp rm <name>
 
-ambit catalog hook new <name> --event <event> --command <cmd> [--matcher <tool>]
+ambit catalog hook new <name> --event <event> (--command <cmd> | --script <path>) [--matcher <tool>]
                               [--description <text>] [--timeout <seconds>] [--env <v>…]
 ambit catalog hook rm <name>
 

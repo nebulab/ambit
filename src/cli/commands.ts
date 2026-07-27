@@ -238,12 +238,14 @@ const CATALOG_SUBCOMMANDS: readonly CommandSpec[] = [
         args: [["<name>", "hook name"]],
         subject: "catalog",
         mutating: true,
-        // `--event` and `--command` are mandatory, and `--event` names one of a fixed set — both
-        // through `catalogHookNewRule` rather than `.makeOptionMandatory()`, which names no file and
-        // lists no supported events.
+        // `--event` is mandatory and names one of a fixed set, and exactly one of `--command` and
+        // `--script` has to be given — all through `catalogHookNewRule` rather than
+        // `.makeOptionMandatory()` or `.conflicts()`, neither of which names a file, lists the
+        // supported events, or explains what the two flags choose between.
         options: [
           new Option("--event <event>", "the harness event the hook fires on"),
-          new Option("--command <command>", "a command line, or a script the hook ships"),
+          new Option("--command <command>", "a command line the harness runs as written"),
+          new Option("--script <path>", "a script the hook ships, relative to its own directory"),
           new Option(
             "--matcher <tool>",
             "a tool-name filter, for a PreToolUse or PostToolUse hook",

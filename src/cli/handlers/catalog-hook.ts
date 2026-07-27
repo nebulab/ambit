@@ -8,17 +8,18 @@
  * tree and a row per file, since `rm` removing a hook that shipped a script has to say the script went
  * with it.
  *
- * What is particular to this handler is the event, and all of it lives here. `--event` is argv syntax,
- * so turning it into the one {@link HookEvent} the model admits is the boundary's job — the same split
- * `catalog mcp new` makes over `--stdio`/`--http`, and for the same reason: below this line the event
- * is a type that cannot name something no harness supports. Every way that can fail is refused by
- * {@link catalogHookNewRule}, declared with the command and run by Commander before dispatch, so the
- * message names the file, names the offending value, and gives one next step — which
- * `.makeOptionMandatory()` does not.
+ * What is particular to this handler is argv's two vocabularies, and all of it lives here. `--event` is
+ * a string, so turning it into the one {@link HookEvent} the model admits is the boundary's job; and
+ * `--command`/`--script` are how argv spells the hook's `type`, so choosing between them is too. Both
+ * are the split `catalog mcp new` makes over `--stdio`/`--http`, and for the same reason: below this
+ * line a hook is a type that cannot name an event no harness supports, and cannot be undecided about
+ * what its `command` is. Every way that can fail is refused by {@link catalogHookNewRule}, declared
+ * with the command and run by Commander before dispatch, so the message names the file, names the
+ * offending value, and gives one next step — which `.makeOptionMandatory()` and `.conflicts()` do not.
  *
  * Two refusals are deliberately *not* here, because the parser already owns them and a second copy
- * could drift: a `matcher` on an event that carries no tool, and a `command` naming a script the hook's
- * directory does not hold. Both are raised when the editor validates the result, which is before
+ * could drift: a `matcher` on an event that carries no tool, and a `type: script` hook naming a file
+ * its directory does not hold. Both are raised when the editor validates the result, which is before
  * anything is written.
  *
  * `rm` closes with nothing, deliberately: no project's `ambit.yml` can name a catalog's hook — its
@@ -58,7 +59,8 @@ const REMOVED: Heading = { done: "removed", would: "would remove" };
 const SUPPORTED = `supported events: ${HOOK_EVENTS.join(", ")}`;
 
 /** How `new` is invoked, for the messages that have to say so. */
-const NEW_USAGE = "ambit catalog hook new <name> --event <event> --command <command>";
+const NEW_USAGE =
+  "ambit catalog hook new <name> --event <event> (--command <command> | --script <path>)";
 
 /** What a command tells the reader, on top of the paths it touched. */
 interface Subject {
@@ -101,8 +103,25 @@ function unknownEvent(name: string, given: string): AmbitError {
 function noCommand(name: string): AmbitError {
   return configError(`hook "${name}" names no command ${at(hookDocumentPath(name), undefined)}`, [
     "a hook has to say what to run, or there is nothing for the harness to execute",
-    "give `--command <command>`: a command line, or a script the hook's own directory ships",
+    "give `--command <command>` for a command line, or `--script <path>` for a script the hook ships",
   ]);
+}
+
+/**
+ * The error for an invocation that gives both flags.
+ *
+ * They are the two `type` values, and a hook has one: `--command` is run as written, `--script` names
+ * a file the hook's directory ships and is rewritten to where it was installed. Refusing is the point
+ * of the pair — picking one silently would put the guessing back that declaring the type removed.
+ */
+function bothCommandAndScript(name: string): AmbitError {
+  return configError(
+    `hook "${name}" is both a command and a script ${at(hookDocumentPath(name), undefined)}`,
+    [
+      "`--command` runs a command line as written; `--script` runs a file the hook's own directory ships",
+      "give exactly one of them",
+    ],
+  );
 }
 
 /** The error for a `--timeout` argv entry that is not a whole number of seconds. */
@@ -152,15 +171,32 @@ function timeoutOf(ctx: CommandContext): number | undefined {
 }
 
 /**
+ * The `type` and `command` this invocation declares, from the flag it chose.
+ *
+ * The same split `catalog mcp new` makes over `--stdio`/`--http`: two flags naming the two shapes, so
+ * argv says which one it means and nothing below this line has to work it out from the string.
+ *
+ * @throws {AmbitError} exit 2 when neither flag is given, or both are.
+ */
+function runOf(ctx: CommandContext, name: string): Pick<HookDeclaration, "type" | "command"> {
+  const command = flag(ctx, "command");
+  const script = flag(ctx, "script");
+
+  if (command !== undefined && script !== undefined) throw bothCommandAndScript(name);
+  if (command !== undefined) return { type: "command", command };
+  if (script !== undefined) return { type: "script", command: script };
+  throw noCommand(name);
+}
+
+/**
  * What this invocation declares, read off argv.
  *
- * @throws {AmbitError} exit 2 for a missing or unknown event, a missing command, or a timeout that is
- *   not a whole number of seconds.
+ * @throws {AmbitError} exit 2 for a missing or unknown event, a missing or doubled command, or a
+ *   timeout that is not a whole number of seconds.
  */
 function declarationOf(ctx: CommandContext, name: string): HookDeclaration {
   const event = eventOf(ctx, name);
-  const command = flag(ctx, "command");
-  if (command === undefined) throw noCommand(name);
+  const { type, command } = runOf(ctx, name);
 
   const description = flag(ctx, "description");
   const matcher = flag(ctx, "matcher");
@@ -169,6 +205,7 @@ function declarationOf(ctx: CommandContext, name: string): HookDeclaration {
 
   return {
     event,
+    type,
     command,
     ...(description !== undefined && { description }),
     ...(matcher !== undefined && { matcher }),
@@ -260,12 +297,15 @@ export const catalogHookNewHandler: CommandHandler = async (ctx) => {
     ctx,
     {
       heading: CREATED,
-      rows: [[result.created.name, result.created.event, result.created.command]],
+      rows: [
+        [result.created.name, result.created.event, result.created.type, result.created.command],
+      ],
       json: {
         created: {
           command: result.created.command,
           event: result.created.event,
           name: result.created.name,
+          type: result.created.type,
         },
       },
       next: newNextStep(result.created),

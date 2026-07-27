@@ -173,8 +173,8 @@ export function buildLock(catalogs: readonly Catalog[], bundle: Bundle): Lock {
         catalog: hook.catalog,
         // A hook that ships no script has no bytes of its own to pin, so it records neither where
         // they live nor which commit they came from — see LockHook.
-        ...(hook.shipsScript && hook.path !== undefined && { path: hook.path }),
-        ...(hook.shipsScript && hook.commit !== undefined && { commit: hook.commit }),
+        ...(hook.type === "script" && hook.path !== undefined && { path: hook.path }),
+        ...(hook.type === "script" && hook.commit !== undefined && { commit: hook.commit }),
         reason: formatReason(reasonOf(bundle, { kind: "hook", name: hook.name })),
       }),
     ),

@@ -834,6 +834,7 @@ describe("inline hooks", () => {
     "    scopes: [function.sales]",
     "    event: PostToolUse",
     '    matcher: "Edit|Write"',
+    "    type: command",
     "    command: npm run format",
     "    env: [HOOK_TOKEN]",
   ];
@@ -845,6 +846,7 @@ describe("inline hooks", () => {
       ...names.flatMap((name) => [
         `  - name: ${name}`,
         "    event: Stop",
+        "    type: command",
         `    command: ${name}.sh`,
       ]),
     ];
@@ -917,6 +919,7 @@ describe("catalog hooks", () => {
       "scopes: [function.engineering.frontend]",
       "event: PreToolUse",
       "matcher: Bash",
+      "type: command",
       "command: npx block-rm",
     ]);
   });
@@ -925,7 +928,7 @@ describe("catalog hooks", () => {
     const frontend = await bundle(["function.engineering.frontend"]);
 
     expect(frontend.hooks.map((hook) => hook.name)).toEqual([HOOK_NAME]);
-    expect(frontend.hooks[0]).toMatchObject({ catalog: CATALOG_NAME, shipsScript: false });
+    expect(frontend.hooks[0]).toMatchObject({ catalog: CATALOG_NAME, type: "command" });
     expect(frontend.reasons.hooks.get(HOOK_NAME)).toEqual({
       kind: "scope",
       scope: "function.engineering.frontend",
@@ -942,7 +945,7 @@ describe("catalog hooks", () => {
   });
 
   it("leaves a hook declaring no scopes out of every scope-selected bundle", async () => {
-    await writeHook("unscoped", ["event: Stop", "command: npx notify"]);
+    await writeHook("unscoped", ["event: Stop", "type: command", "command: npx notify"]);
 
     const everything = await bundle(["core", "function.engineering", "project.acme"]);
     expect(writtenHooks(everything)).toEqual([HOOK_NAME]);
@@ -972,6 +975,7 @@ describe("hooks reached through `requires`", () => {
     await writeHook(HOOK_NAME, [
       "event: PreToolUse",
       "matcher: Bash",
+      "type: command",
       "command: npx guard",
       "env: [GUARD_TOKEN]",
     ]);
@@ -1023,7 +1027,13 @@ describe("hooks reached through `requires`", () => {
     await writeSkill("risky", ["scopes: [core]", "requires: [hook.declared]"]);
     const inline = await bundle(
       ["core"],
-      ["hooks:", "  - name: declared", "    event: Stop", "    command: npx notify"],
+      [
+        "hooks:",
+        "  - name: declared",
+        "    event: Stop",
+        "    type: command",
+        "    command: npx notify",
+      ],
     );
 
     expect(writtenHooks(inline)).toEqual(["declared"]);
@@ -1232,7 +1242,12 @@ describe("ambit why", () => {
   });
 
   it("prints the chain to a hook a skill required, ending on the hook", async () => {
-    await writeHook("guard", ["event: PreToolUse", "matcher: Bash", "command: npx guard"]);
+    await writeHook("guard", [
+      "event: PreToolUse",
+      "matcher: Bash",
+      "type: command",
+      "command: npx guard",
+    ]);
     await writeSkill("risky", ["scopes: [core]", "requires: [hook.guard]"]);
     await writeProfile(["core"]);
 
@@ -1253,7 +1268,12 @@ describe("ambit why", () => {
   });
 
   it("insists on the hook for a `hook.`-prefixed name a skill also answers to", async () => {
-    await writeHook(CORE_SKILL, ["scopes: [core]", "event: Stop", "command: npx notify"]);
+    await writeHook(CORE_SKILL, [
+      "scopes: [core]",
+      "event: Stop",
+      "type: command",
+      "command: npx notify",
+    ]);
     await writeProfile(["core"]);
 
     expect((await cli("why", CORE_SKILL)).stdout).toContain(`skill ${CORE_SKILL}`);
@@ -1265,6 +1285,7 @@ describe("ambit why", () => {
       "scopes: [project.acme]",
       "event: PreToolUse",
       "matcher: Bash",
+      "type: command",
       "command: npx guard",
     ]);
     await writeProfile(["core"]);

@@ -216,6 +216,7 @@ describe("fixture catalog", () => {
       scopes: ["core"],
       description: "Reminds a session that Acme's conventions apply.",
       event: "SessionStart",
+      type: "command",
       command: 'echo "acme conventions apply"',
     });
     expect(await read("hooks/guard-secrets/HOOK.yml")).toEqual({
@@ -224,6 +225,7 @@ describe("fixture catalog", () => {
       description: "Inspects a Bash command before Acme's tooling runs it.",
       event: "PreToolUse",
       matcher: "Bash",
+      type: "script",
       command: "guard.sh",
       timeout: 10,
     });
@@ -231,12 +233,13 @@ describe("fixture catalog", () => {
       name: "acme-standup",
       description: "Records what the session touched, for the Acme standup.",
       event: "SessionEnd",
+      type: "command",
       command: 'echo "acme session ended"',
     });
   });
 
   it("ships the script its script-shipping hook names, and only there", async () => {
-    // `shipsScript` is derived from what the directory holds, so the fixture's proof of the
+    // A `type: script` hook is the only one that ships bytes, so the fixture's proof of the
     // distinction is the file's presence: one hook's `command` names a file beside its `HOOK.yml`,
     // and the other two directories hold nothing but their own document.
     const shipped = HOOK_PATHS.map((hook) => path.posix.dirname(hook)).filter((hookDir) =>
