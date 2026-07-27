@@ -423,7 +423,7 @@ refused, with the same message and exit code.
 | `ambit scopes`                                        | List the merged registry with descriptions, marking which scopes this project holds.                                              |
 | `ambit dump-catalog`                                  | Dump the merged catalog: every catalog the project lists, merged with its own declarations.                                       |
 | `ambit resolve [--explain]`                           | Compute the bundle and print it.                                                                                                  |
-| `ambit why <kind>:<name>`                             | Explain why one item is in the bundle, as a chain. The subject declares its namespace, as everything that names an item does.     |
+| `ambit why <kind:name>`                               | Explain why one item is in the bundle, as a chain. The subject declares its namespace, as everything that names an item does.     |
 | `ambit install [--frozen] [--adopt] [--copy\|--link]` | Resolve, write `ambit.lock`, materialize the bundle, prune what left it.                                                          |
 | `ambit status [--check]`                              | Compare what is installed against what resolve produces. `--check` exits 5 on drift.                                              |
 | `ambit prune`                                         | Remove owned artifacts not in the current bundle.                                                                                 |
@@ -444,7 +444,7 @@ ambit catalog scope rm <name>
 ambit catalog scope mv <old> <new>
 
 ambit catalog skill new <name> [--description <text>] [--scope <s>…]
-                               [--requires <kind>:<name>…] [--env <v>…]
+                               [--requires <kind:name>…] [--env <v>…]
 ambit catalog skill rm <name>
 ambit catalog skill mv <old> <new>
 
@@ -456,10 +456,10 @@ ambit catalog hook new <name> --event <event> (--command <cmd> | --script <path>
                               [--description <text>] [--timeout <seconds>] [--env <v>…]
 ambit catalog hook rm <name>
 
-ambit catalog annotate <kind>:<name>
-                              [--add-scope <s>…]              [--remove-scope <s>…]
-                              [--add-requires <kind>:<name>…] [--remove-requires <kind>:<name>…]
-                              [--add-env <v>…]                [--remove-env <v>…]
+ambit catalog annotate <kind:name>
+                              [--add-scope <s>…]            [--remove-scope <s>…]
+                              [--add-requires <kind:name>…] [--remove-requires <kind:name>…]
+                              [--add-env <v>…]              [--remove-env <v>…]
 ```
 
 ### Exit codes

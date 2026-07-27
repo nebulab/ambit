@@ -46,7 +46,7 @@ const WOULD_DECLARE = "would declare";
 const NONE = "-";
 
 /** How the command is invoked, for the messages that have to say so. */
-const USAGE = "ambit catalog annotate <kind>:<name> --add-scope <scope>";
+const USAGE = "ambit catalog annotate <kind:name> --add-scope <scope>";
 
 /** One annotation, and the two flags that change it. */
 interface AnnotationFlags {
