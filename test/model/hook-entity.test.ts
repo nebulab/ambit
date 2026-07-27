@@ -41,7 +41,7 @@ describe("hook entity", () => {
           "type: script",
           "command: hook.sh",
           "timeout: 30",
-          "env: [SOME_TOKEN]",
+          "expects: [{ env: SOME_TOKEN }]",
           "",
         ].join("\n"),
       ),
@@ -54,7 +54,7 @@ describe("hook entity", () => {
       type: "script",
       command: "hook.sh",
       timeout: 30,
-      env: ["SOME_TOKEN"],
+      expects: [{ kind: "env", name: "SOME_TOKEN" }],
     });
   });
 
@@ -67,7 +67,7 @@ describe("hook entity", () => {
       event: "SessionStart",
       type: "command",
       command: "echo hi",
-      env: [],
+      expects: [],
     });
     expect(hook).not.toHaveProperty("description");
     expect(hook).not.toHaveProperty("matcher");
@@ -182,7 +182,7 @@ describe("hook entity", () => {
 
     expect(error.format()).toContain('unknown key "matchers"');
     expect(error.format()).toContain(
-      "accepted keys: command, description, env, event, matcher, name, scopes, timeout, type",
+      "accepted keys: command, description, event, expects, matcher, name, scopes, timeout, type",
     );
   });
 

@@ -177,7 +177,8 @@ mcps:
       stdio:
         command: npx
         args: ["-y", "some-server"]
-    env: [SOME_TOKEN]
+    expects:
+      - env: SOME_TOKEN
 
 # Ad-hoc hooks not defined in any catalog. Same shape as a catalog hook, minus the
 # shipped script: an inline hook has no directory, so `type` must be `command`.
@@ -210,10 +211,11 @@ name: close-crm
 description: "Calls the Close CRM REST API…"
 ambit:
   scopes: [function.sales]
-  requires:
+  requires: # resolved into the bundle; exit 3 if unsatisfiable
     - skill: company-context
     - mcp: close
-  env: [CLOSE_API_KEY]
+  expects: # checked by `doctor`; exit 6 if unsatisfied
+    - env: CLOSE_API_KEY
 ---
 ```
 
@@ -222,7 +224,7 @@ ambit:
 | `ambit`          | map      | no       | Every annotation below. Absent means the skill declares nothing.                                 |
 | `ambit.scopes`   | string[] | no       | Absent or empty: never selected by scope, reachable only via `requires` or an explicit listing.  |
 | `ambit.requires` | map[]    | no       | One entry per requirement, each a single key naming its namespace: `skill:`, `mcp:`, or `hook:`. |
-| `ambit.env`      | string[] | no       | Env vars the skill itself reads (not via an MCP).                                                |
+| `ambit.expects`  | map[]    | no       | One entry per precondition, each a single key naming its kind. Today: `env:`.                    |
 
 A `requires` entry **declares** its namespace instead of encoding it in the name. The three namespaces
 are flat and independent, so a skill at `skills/mcp/sentry/SKILL.md` is legitimately named `mcp.sentry`
@@ -234,6 +236,24 @@ Where only a string will do — a flag's value, a command's subject — the same
 `<kind>:<name>`: `--add-requires mcp:close`, `ambit why skill:mcp.sentry`. One grammar, everywhere a
 name is taken from a person: nothing guesses a namespace, so a bare name is refused rather than
 resolved against whatever the catalog happens to hold today.
+
+#### `requires` vs. `expects`
+
+They share that grammar and nothing else. **`requires` is resolved**: every entry names a catalog item,
+resolution closes over it to a fixpoint, and an entry nothing provides fails the install at exit 3
+rather than leaving a bundle missing what a skill said it could not work without. **`expects` is
+checked**: nothing provides an environment variable, so there is no lookup, no shadowing, no cycle and
+nothing to close over. `ambit doctor` asks the machine, and a machine that says no fails at exit 6 with
+the install left exactly as it was.
+
+That is why they are two lists rather than one with four kinds. Each has one algebra, one exit code,
+and one answer to _why does this entry fail my install and that one doesn't_.
+
+`env:` is `expects`' only kind today, and the list is the shape the next precondition arrives in: a
+skill whose instructions shell out to `docker` has something to declare that no `env:` can carry, and
+`bin:` lands as one more entry rather than as another top-level key meaning _check this_. It is also
+the one annotation all three kinds of entity share — a skill, a server and a hook each read something
+from the world — while only a skill carries `requires`.
 
 ### `mcps/<name>.yml`: MCP entities
 
@@ -253,7 +273,8 @@ transport:
 #     command: npx
 #     args: ["-y", "@acme/close-mcp"]
 
-env: [SENTRY_TOKEN]
+expects:
+  - env: SENTRY_TOKEN
 ```
 
 | Key                       | Type     | Required      | Notes                                                               |
@@ -265,7 +286,7 @@ env: [SENTRY_TOKEN]
 | `transport.stdio.args`    | string[] | no            | Arguments, in order.                                                |
 | `transport.http.url`      | string   | yes for http  | Server endpoint.                                                    |
 | `transport.http.headers`  | map      | no            | `${VAR}` becomes a reference in each harness's own syntax.          |
-| `env`                     | string[] | no            | Env vars this server needs.                                         |
+| `expects`                 | map[]    | no            | Preconditions, each a single key naming its kind. Today: `env:`.    |
 
 ### `hooks/<name>/HOOK.yml`: hooks
 
@@ -283,7 +304,8 @@ type: script # or `command`
 command: guard.sh # a file this directory ships, since `type` is `script`
 timeout: 30
 
-env: [SOME_TOKEN]
+expects:
+  - env: SOME_TOKEN
 ```
 
 | Key           | Type     | Required | Notes                                                                                                                                     |
@@ -296,7 +318,7 @@ env: [SOME_TOKEN]
 | `type`        | string   | yes      | `command` or `script` — how to read `command`.                                                                                            |
 | `command`     | string   | yes      | What to run, per `type`.                                                                                                                  |
 | `timeout`     | int      | no       | Seconds. Written where the harness has a field for it.                                                                                    |
-| `env`         | string[] | no       | Env vars the hook needs, for `doctor` to check.                                                                                           |
+| `expects`     | map[]    | no       | Preconditions, each a single key naming its kind. Today: `env:`. Checked by `doctor`.                                                     |
 
 **Whether a hook ships a script is declared, not guessed.** `type: command` is a command line the
 harness runs exactly as written — `npx prettier --write`, `node tools/check.js`. `type: script` names
@@ -355,7 +377,9 @@ scopes:
    resolves against MCP entities, a `hook:` entry against hooks, and a `skill:` entry against skills —
    nothing is read off the name. Servers and hooks are leaves: neither carries `requires`. Unresolvable
    → exit 3 naming the requirer and the missing target. A cycle → exit 3 printing the full cycle path.
-10. **Union `env`** across every selected skill, server and hook.
+10. **Union `expects`** across every selected skill, server and hook, grouped by kind. Nothing is
+    resolved here: an expectation names no catalog item, so the union is the list `doctor` later
+    checks the machine against.
 11. **Emit the bundle**, sorted by name.
 
 ### Scope inheritance
@@ -433,7 +457,7 @@ refused, with the same message and exit code.
 | `ambit prune`                                         | Remove owned artifacts not in the current bundle.                                                                                 |
 | `ambit clean`                                         | Remove everything ambit owns.                                                                                                     |
 | `ambit validate`                                      | Validate everything this project configures, for CI. One catalog on its own is `ambit catalog validate`.                          |
-| `ambit doctor`                                        | Check env vars, the lock, ownership, drift, materialization mode, and harness limits.                                             |
+| `ambit doctor`                                        | Check preconditions, the lock, ownership, drift, materialization mode, and harness limits.                                        |
 
 ### Authoring commands
 
@@ -448,22 +472,22 @@ ambit catalog scope rm <name>
 ambit catalog scope mv <old> <new>
 
 ambit catalog skill new <name> [--description <text>] [--scope <s>…]
-                               [--requires <kind:name>…] [--env <v>…]
+                               [--requires <kind:name>…] [--expects <kind:name>…]
 ambit catalog skill rm <name>
 ambit catalog skill mv <old> <new>
 
 ambit catalog mcp new <name> (--stdio <command> [--arg <a>…] | --http <url> [--header <k=v>…])
-                             [--env <v>…]
+                             [--expects <kind:name>…]
 ambit catalog mcp rm <name>
 
 ambit catalog hook new <name> --event <event> (--command <cmd> | --script <path>) [--matcher <tool>]
-                              [--description <text>] [--timeout <seconds>] [--env <v>…]
+                              [--description <text>] [--timeout <seconds>] [--expects <kind:name>…]
 ambit catalog hook rm <name>
 
 ambit catalog annotate <kind:name>
                               [--add-scope <s>…]            [--remove-scope <s>…]
                               [--add-requires <kind:name>…] [--remove-requires <kind:name>…]
-                              [--add-env <v>…]              [--remove-env <v>…]
+                              [--add-expects <kind:name>…]  [--remove-expects <kind:name>…]
 ```
 
 ### Exit codes

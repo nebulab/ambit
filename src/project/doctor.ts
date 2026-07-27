@@ -1,5 +1,5 @@
 /**
- * `ambit doctor` — env vars, drift, and ownership.
+ * `ambit doctor` — preconditions, drift, and ownership.
  *
  * The other two read-only commands each answer one question and deliberately stop there. `validate`
  * asks whether the *catalog* is coherent; `status` asks whether install would change an *artifact*.
@@ -38,6 +38,7 @@ import { codex } from "../harness/definitions.js";
 import { referencedNames } from "../harness/env.js";
 import { gitignoreStatus } from "./gitignore.js";
 import type { MergedMcp } from "../model/catalog.js";
+import { expectedEnv } from "../model/expectation.js";
 import { managedKey } from "../model/documents/index.js";
 import { planInstall } from "./install.js";
 import { LOCK_FILENAME, readLockText } from "./lock.js";
@@ -49,13 +50,18 @@ import { statusOfPlan } from "./status.js";
 /**
  * The checks, in the order they run and are reported.
  *
- * A declared order rather than an alphabetical one, because it is an argument: the environment
- * around the project first, then the record of the last install, then what that record and the
+ * A declared order rather than an alphabetical one, because it is an argument: the world around the
+ * project first, then the record of the last install, then what that record and the
  * project disagree about, and last the two that are merely worth knowing — which mode a directory
  * landed in, and what a harness needs that ambit is not allowed to write. A fixed order is all
  * determinism needs.
+ *
+ * `expects` is one check for every kind of precondition an entity can declare rather than one per
+ * kind, because they share a verdict and a fix shape: something about the machine is not as the
+ * catalog said it needed to be, and the reader sets it. Today that is `env:` alone; the `bin:` that
+ * follows it is a case inside this check, not a seventh entry here.
  */
-export const DOCTOR_CHECKS = ["env", "lock", "ownership", "drift", "mode", "harness"] as const;
+export const DOCTOR_CHECKS = ["expects", "lock", "ownership", "drift", "mode", "harness"] as const;
 
 export type DoctorCheck = (typeof DOCTOR_CHECKS)[number];
 
@@ -186,14 +192,18 @@ function entityReferences(mcp: MergedMcp): readonly string[] {
  * Who wants each environment variable the bundle needs.
  *
  * Four routes, all of them reported, because they say different things about where the variable is
- * read: a skill's `env` is something the agent reads at runtime, a server's `env` is something that
- * server reads, a hook's `env` is something the command the harness spawns reads, and a reference in a
+ * read: a skill's `env:` expectation is something the agent reads at runtime, a server's is something
+ * that server reads, a hook's is something the command the harness spawns reads, and a reference in a
  * config file is one the harness expands when it spawns the server. The fix is the same for all four —
  * set the variable — because ambit puts references into these files rather than values, so nothing
  * needs reinstalling once it is set.
  *
- * A hook contributes through its `env` alone, and never a config-reference line: a `${VAR}` inside a
- * hook's `command` is left intact for the shell the harness spawns rather than rewritten into a
+ * The fourth route is the one nothing declared, and it is why this check reads more than `expects`: a
+ * `${VAR}` an author wrote into a transport's headers is a precondition they stated by using it rather
+ * than by writing it down, and the check that can see it is this one.
+ *
+ * A hook contributes through its `expects` alone, and never a config-reference line: a `${VAR}` inside
+ * a hook's `command` is left intact for the shell the harness spawns rather than rewritten into a
  * harness's own reference syntax (`HookEntity.command`), so there is no reference in the file for a
  * harness to expand.
  */
@@ -204,20 +214,20 @@ function envDemands(
   const demands = new Map<string, EnvDemand>();
 
   for (const skill of bundle.skills) {
-    for (const variable of sortedUnique(skill.env)) {
-      demandOf(demands, variable).wanted.push(`skill "${skill.name}" declares it in \`env\``);
+    for (const variable of expectedEnv(skill.expects)) {
+      demandOf(demands, variable).wanted.push(`skill "${skill.name}" expects it`);
     }
   }
 
   for (const mcp of bundle.mcps) {
-    for (const variable of sortedUnique(mcp.env)) {
-      demandOf(demands, variable).wanted.push(`MCP server "${mcp.name}" declares it in \`env\``);
+    for (const variable of expectedEnv(mcp.expects)) {
+      demandOf(demands, variable).wanted.push(`MCP server "${mcp.name}" expects it`);
     }
   }
 
   for (const hook of bundle.hooks) {
-    for (const variable of sortedUnique(hook.env)) {
-      demandOf(demands, variable).wanted.push(`hook "${hook.name}" declares it in \`env\``);
+    for (const variable of expectedEnv(hook.expects)) {
+      demandOf(demands, variable).wanted.push(`hook "${hook.name}" expects it`);
     }
   }
 
@@ -246,7 +256,7 @@ function envDemands(
 }
 
 /**
- * Every variable something in the bundle declares that the environment does not have.
+ * Every variable something in the bundle expects that the environment does not have.
  *
  * "Does not have" is strictly absent, not empty. An empty value is a decision someone made, and it
  * is what install interpolates — treating it as missing would report a project that is configured
@@ -255,7 +265,7 @@ function envDemands(
  * Reported in variable order, so the list is a function of the bundle rather than of which check
  * happened to notice a variable first.
  */
-function envFindings(
+function expectFindings(
   bundle: Bundle,
   artifacts: readonly PlannedArtifact[],
   env: Readonly<Record<string, string | undefined>>,
@@ -270,7 +280,7 @@ function envFindings(
       const wanted = demand === undefined ? [] : demand.wanted;
       const step = `set ${variable} in the environment the agent runs in`;
 
-      return fail("env", `unset environment variable "${variable}"`, [...wanted, step]);
+      return fail("expects", `unset environment variable "${variable}"`, [...wanted, step]);
     });
 }
 
@@ -495,7 +505,7 @@ export async function diagnoseProject(
   const status = await statusOfPlan(planned.artifacts, planned.prior);
 
   const findings = [
-    ...envFindings(planned.bundle, planned.artifacts, process.env),
+    ...expectFindings(planned.bundle, planned.artifacts, process.env),
     ...(await lockFindings(projectDir, planned.lockText)),
     ...ownershipFindings(status.artifacts),
     ...(await driftFindings(projectDir, planned.artifacts, status.artifacts)),

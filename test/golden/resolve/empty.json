@@ -1,5 +1,7 @@
 {
-  "env": [],
+  "expects": {
+    "env": []
+  },
   "hooks": {},
   "mcps": {},
   "scopes": [],

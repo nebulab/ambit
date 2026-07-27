@@ -22,9 +22,11 @@ import {
   annotate,
   annotationDirname,
   annotationSubject,
-  assertRequirementRefs,
+  assertReferenceRefs,
 } from "../../authoring/annotate.js";
 import type { AnnotationKey } from "../../model/catalog.js";
+import { EXPECTS } from "../../model/expectation.js";
+import { REQUIRES } from "../../model/requirement.js";
 import type { CommandContext, CommandHandler, CommandRule } from "../commands.js";
 import {
   catalogDirOf,
@@ -69,7 +71,11 @@ const ANNOTATION_FLAGS: readonly AnnotationFlags[] = [
     add: ["--add-requires", "addRequires"],
     remove: ["--remove-requires", "removeRequires"],
   },
-  { key: "env", add: ["--add-env", "addEnv"], remove: ["--remove-env", "removeEnv"] },
+  {
+    key: "expects",
+    add: ["--add-expects", "addExpects"],
+    remove: ["--remove-expects", "removeExpects"],
+  },
 ];
 
 /** Every flag as it is typed, for the refusal that has to list them. */
@@ -140,9 +146,10 @@ function editsOf(
     };
   }
 
-  // Before the catalog is opened, since a `requires` entry that names no namespace is a malformed
-  // invocation rather than something the catalog could settle.
-  assertRequirementRefs(edits.requires);
+  // Before the catalog is opened, since an entry that names no kind is a malformed invocation rather
+  // than something the catalog could settle.
+  assertReferenceRefs(REQUIRES, edits.requires);
+  assertReferenceRefs(EXPECTS, edits.expects);
 
   if (Object.keys(edits).length === 0) throw nothingAsked(name);
   return edits;

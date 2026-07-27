@@ -4,6 +4,8 @@
  * The same shape appears in two places — `hooks/<name>/HOOK.yml` in a catalog, and inline `hooks`
  * entries in `ambit.yml` — so one parser serves both.
  */
+import type { Expectation } from "./expectation.js";
+import { parseExpectations } from "./expectation.js";
 import type { YamlMapping } from "./yaml.js";
 
 /**
@@ -66,15 +68,15 @@ export interface HookEntity {
   readonly command: string;
   /** Seconds. Rendered where the harness has a field for it. */
   readonly timeout?: number;
-  /** Env vars this hook needs. */
-  readonly env: readonly string[];
+  /** What must be true of the world for this hook to work — what its command reads, today. */
+  readonly expects: readonly Expectation[];
 }
 
 const ENTITY_KEYS = [
   "command",
   "description",
-  "env",
   "event",
+  "expects",
   "matcher",
   "name",
   "scopes",
@@ -209,6 +211,6 @@ export function parseHookEntity(mapping: YamlMapping): HookEntity {
     type,
     command,
     ...(timeout !== undefined && { timeout }),
-    env: mapping.optionalStringList("env") ?? [],
+    expects: parseExpectations(mapping),
   };
 }

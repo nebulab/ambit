@@ -173,7 +173,7 @@ const CATALOG_SUBCOMMANDS: readonly CommandSpec[] = [
           new Option("--description <text>", "what the skill is for"),
           repeatable("--scope <scope>", "a scope the skill is selected by"),
           repeatable("--requires <kind:name>", "something the skill needs, in one namespace"),
-          repeatable("--env <var>", "an environment variable the skill needs"),
+          repeatable("--expects <kind:name>", "a precondition the skill has, in one kind"),
         ],
       },
       {
@@ -213,7 +213,7 @@ const CATALOG_SUBCOMMANDS: readonly CommandSpec[] = [
           repeatable("--arg <arg>", "an argument for the stdio command"),
           new Option("--http <url>", "reach the server over http"),
           repeatable("--header <key=value>", "a header for the http transport"),
-          repeatable("--env <var>", "an environment variable the server needs"),
+          repeatable("--expects <kind:name>", "a precondition the server has, in one kind"),
         ],
       },
       {
@@ -249,7 +249,7 @@ const CATALOG_SUBCOMMANDS: readonly CommandSpec[] = [
           ),
           new Option("--description <text>", "what the hook does"),
           new Option("--timeout <seconds>", "how long the harness waits for it"),
-          repeatable("--env <var>", "an environment variable the hook needs"),
+          repeatable("--expects <kind:name>", "a precondition the hook has, in one kind"),
         ],
       },
       {
@@ -263,7 +263,7 @@ const CATALOG_SUBCOMMANDS: readonly CommandSpec[] = [
   },
   {
     name: "annotate",
-    summary: "change a skill, MCP or hook's scopes, requires, or env",
+    summary: "change a skill, MCP or hook's scopes, requires, or expects",
     args: [["<kind:name>", "`skill:<name>`, `mcp:<name>`, or `hook:<name>`"]],
     subject: "catalog",
     mutating: true,
@@ -275,8 +275,8 @@ const CATALOG_SUBCOMMANDS: readonly CommandSpec[] = [
       repeatable("--remove-scope <scope>", "remove a scope"),
       repeatable("--add-requires <kind:name>", "add a requirement"),
       repeatable("--remove-requires <kind:name>", "remove a requirement"),
-      repeatable("--add-env <var>", "add an environment variable"),
-      repeatable("--remove-env <var>", "remove an environment variable"),
+      repeatable("--add-expects <kind:name>", "add a precondition"),
+      repeatable("--remove-expects <kind:name>", "remove a precondition"),
     ],
   },
 ];
@@ -326,7 +326,7 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
   // scopes. A single catalog on its own terms is `ambit catalog validate`, which is a different
   // subject rather than the same command under a flag.
   { name: "validate", summary: "validate everything this project configures, for CI" },
-  { name: "doctor", summary: "check env vars, drift, ownership" },
+  { name: "doctor", summary: "check preconditions, drift, ownership" },
   // Last, because it is the whole of the authoring surface and no consumer reaches into it.
   { name: "catalog", summary: "author and maintain a catalog", subcommands: CATALOG_SUBCOMMANDS },
 ];

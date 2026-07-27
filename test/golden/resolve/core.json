@@ -1,5 +1,7 @@
 {
-  "env": [],
+  "expects": {
+    "env": []
+  },
   "hooks": {
     "session-notes": {
       "catalog": "company",

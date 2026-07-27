@@ -31,6 +31,7 @@ import {
 } from "./env.js";
 import type { MergedHook, MergedMcp } from "../model/catalog.js";
 import { hookCommand } from "../model/catalog.js";
+import { expectedEnv } from "../model/expectation.js";
 import type { HookEvent } from "../model/hook-entity.js";
 
 /** Where Claude Code and Cursor look for skills. */
@@ -224,7 +225,7 @@ function stdio(
   style: EnvRefStyle,
   envKey = "env",
 ): Record<string, unknown> {
-  const env = envPassthrough(mcp.env, style);
+  const env = envPassthrough(expectedEnv(mcp.expects), style);
   return {
     command: mcp.transport.command,
     ...(mcp.transport.args.length > 0 && {
@@ -373,7 +374,7 @@ export const opencode: HarnessProfile = {
   mcp: { file: ".opencode/opencode.jsonc", section: "mcp", format: "jsonc" },
   serverConfig: (mcp) => {
     if (mcp.transport.kind === "stdio") {
-      const env = envPassthrough(mcp.env, shellRef);
+      const env = envPassthrough(expectedEnv(mcp.expects), shellRef);
       return {
         type: "local",
         command: [

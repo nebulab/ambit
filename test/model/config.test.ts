@@ -59,7 +59,7 @@ mcps:
       stdio:
         command: npx
         args: ["-y", "some-server"]
-    env: [SOME_TOKEN]
+    expects: [{ env: SOME_TOKEN }]
   - name: remote
     scopes: [function.sales]
     transport:
@@ -67,7 +67,7 @@ mcps:
         url: https://api.close.com/mcp
         headers:
           Authorization: "Bearer \${CLOSE_API_KEY}"
-    env: [CLOSE_API_KEY]
+    expects: [{ env: CLOSE_API_KEY }]
 
 hooks:
   - name: format-on-write
@@ -76,7 +76,7 @@ hooks:
     type: command
     command: npm run format
     timeout: 60
-    env: [SOME_TOKEN]
+    expects: [{ env: SOME_TOKEN }]
 `;
 
 describe("project config", () => {
@@ -120,7 +120,7 @@ describe("project config", () => {
           name: "custom",
           scopes: [],
           transport: { kind: "stdio", command: "npx", args: ["-y", "some-server"] },
-          env: ["SOME_TOKEN"],
+          expects: [{ kind: "env", name: "SOME_TOKEN" }],
         },
         {
           name: "remote",
@@ -130,7 +130,7 @@ describe("project config", () => {
             url: "https://api.close.com/mcp",
             headers: { Authorization: "Bearer ${CLOSE_API_KEY}" },
           },
-          env: ["CLOSE_API_KEY"],
+          expects: [{ kind: "env", name: "CLOSE_API_KEY" }],
         },
       ],
       hooks: [
@@ -142,7 +142,7 @@ describe("project config", () => {
           type: "command",
           command: "npm run format",
           timeout: 60,
-          env: ["SOME_TOKEN"],
+          expects: [{ kind: "env", name: "SOME_TOKEN" }],
         },
       ],
     });

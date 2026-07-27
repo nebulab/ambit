@@ -139,9 +139,21 @@ export {
 } from "./model/yaml.js";
 export type { FrontmatterSplit, PositionedString } from "./model/yaml.js";
 export {
+  KIND_SEPARATOR,
+  formatReference,
+  isReference,
+  parseReference,
+  parseReferenceList,
+  parseSubject,
+  referenceYaml,
+  sameReference,
+  sortedUniqueReferences,
+} from "./model/reference.js";
+export type { Reference, ReferenceGrammar, ReferenceGrammarOf } from "./model/reference.js";
+export {
   ITEM_KINDS,
   KIND_NOUNS,
-  KIND_SEPARATOR,
+  REQUIRES,
   formatRequirement,
   isRequirementReference,
   parseRequirement,
@@ -151,6 +163,20 @@ export {
   sortedUniqueRequirements,
 } from "./model/requirement.js";
 export type { ItemKind, Requirement } from "./model/requirement.js";
+export {
+  EXPECTATION_KINDS,
+  EXPECTATION_NOUNS,
+  EXPECTS,
+  expectationYaml,
+  expectedEnv,
+  formatExpectation,
+  parseExpectation,
+  parseExpectations,
+  sameExpectation,
+  sortedUniqueExpectations,
+  unionExpectations,
+} from "./model/expectation.js";
+export type { Expectation, ExpectationKind, ExpectationSet } from "./model/expectation.js";
 
 // ── resolution — derive and verify the selected closure ───────────────────────────────────────
 export {
@@ -231,7 +257,7 @@ export {
   annotate,
   annotationDirname,
   annotationSubject,
-  assertRequirementRefs,
+  assertReferenceRefs,
 } from "./authoring/annotate.js";
 export type {
   AnnotateOptions,

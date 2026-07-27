@@ -243,12 +243,12 @@ function newNextStep(created: McpSummary): string {
 export const catalogMcpNewHandler: CommandHandler = async (ctx) => {
   const name = positional(ctx, 0, NEW_USAGE);
   const transport = transportOf(ctx, name);
-  const env = optionList(ctx, "env");
+  const expects = optionList(ctx, "expects");
 
   const result = await newMcp(catalogDirOf(ctx), name, {
     transport,
     dryRun: dryRunRequested(ctx),
-    ...(env !== undefined && { env }),
+    ...(expects !== undefined && { expects }),
   });
 
   return report(

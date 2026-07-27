@@ -141,8 +141,8 @@ async function newNotes(...extra: readonly string[]): Promise<CliResult> {
     NOTES_ARGS[0],
     "--arg",
     NOTES_ARGS[1],
-    "--env",
-    NOTES_ENV,
+    "--expects",
+    `env:${NOTES_ENV}`,
     ...extra,
   );
 }
@@ -197,7 +197,7 @@ describe("ambit catalog mcp new", () => {
     // independent of what the command computed.
     expect(await read(NOTES_FILE)).toBe(
       emitYaml({
-        env: [NOTES_ENV],
+        expects: [{ env: NOTES_ENV }],
         name: NOTES,
         transport: { stdio: { args: [...NOTES_ARGS], command: NOTES_COMMAND } },
       }),
@@ -207,7 +207,7 @@ describe("ambit catalog mcp new", () => {
     expect(await server(NOTES)).toEqual({
       name: NOTES,
       scopes: [],
-      env: [NOTES_ENV],
+      expects: [{ kind: "env", name: NOTES_ENV }],
       file: NOTES_FILE,
       transport: { kind: "stdio", command: NOTES_COMMAND, args: [...NOTES_ARGS] },
     });
@@ -215,11 +215,11 @@ describe("ambit catalog mcp new", () => {
   });
 
   it("emits an http entity as exactly `emitYaml` of its values, and parses it back", async () => {
-    await newClose("--env", "CLOSE_API_KEY");
+    await newClose("--expects", "env:CLOSE_API_KEY");
 
     expect(await read(CLOSE_FILE)).toBe(
       emitYaml({
-        env: ["CLOSE_API_KEY"],
+        expects: [{ env: "CLOSE_API_KEY" }],
         name: CLOSE,
         transport: { http: { headers: { [CLOSE_HEADER]: CLOSE_HEADER_VALUE }, url: CLOSE_URL } },
       }),
@@ -227,7 +227,7 @@ describe("ambit catalog mcp new", () => {
     expect(await server(CLOSE)).toEqual({
       name: CLOSE,
       scopes: [],
-      env: ["CLOSE_API_KEY"],
+      expects: [{ kind: "env", name: "CLOSE_API_KEY" }],
       file: CLOSE_FILE,
       transport: {
         kind: "http",
@@ -264,11 +264,11 @@ describe("ambit catalog mcp new", () => {
     expect(await read(NOTES_FILE)).toBe(
       emitYaml({ name: NOTES, transport: { stdio: { command: NOTES_COMMAND } } }),
     );
-    expect(await server(NOTES)).toMatchObject({ scopes: [], env: [] });
+    expect(await server(NOTES)).toMatchObject({ scopes: [], expects: [] });
     await validates();
   });
 
-  it("sorts and deduplicates `--env`, and leaves `--arg` in the order it was given", async () => {
+  it("sorts and deduplicates `--expects`, and leaves `--arg` in the order it was given", async () => {
     await succeeds(
       "new",
       NOTES,
@@ -278,18 +278,21 @@ describe("ambit catalog mcp new", () => {
       "second",
       "--arg",
       "first",
-      "--env",
-      "SECOND",
-      "--env",
-      "FIRST",
-      "--env",
-      "SECOND",
+      "--expects",
+      "env:SECOND",
+      "--expects",
+      "env:FIRST",
+      "--expects",
+      "env:SECOND",
     );
 
-    // Argv order is not information for a set of env vars, and is the whole of what a program's
-    // positional arguments mean.
+    // Argv order is not information for a set of preconditions, and is the whole of what a
+    // program's positional arguments mean.
     expect(await server(NOTES)).toMatchObject({
-      env: ["FIRST", "SECOND"],
+      expects: [
+        { kind: "env", name: "FIRST" },
+        { kind: "env", name: "SECOND" },
+      ],
       transport: { args: ["second", "first"] },
     });
   });

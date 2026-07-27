@@ -66,7 +66,7 @@ const HOOK_LINES: readonly string[] = [
 /** What a healthy project reports: every check named, and both finding lists explicitly empty. */
 const HEALTHY_REPORT = [
   "checks (6)",
-  "  env        ok",
+  "  expects    ok",
   "  lock       ok",
   "  ownership  ok",
   "  drift      ok",
@@ -233,7 +233,7 @@ describe("ambit doctor on a healthy project", () => {
 
     expect(JSON.parse(result.stdout)).toEqual({
       checks: [
-        { check: "env", status: "ok" },
+        { check: "expects", status: "ok" },
         { check: "lock", status: "ok" },
         { check: "ownership", status: "ok" },
         { check: "drift", status: "ok" },
@@ -264,11 +264,11 @@ describe("ambit doctor on an incomplete environment", () => {
     // A finding is a report, not an error: nothing reaches stderr.
     expect(result.stderr).toBe("");
     expect(await findings()).toEqual([
-      `env/fail: unset environment variable "${FIGMA_VAR}"`,
-      `env/fail: unset environment variable "${SCOPED_VAR}"`,
+      `expects/fail: unset environment variable "${FIGMA_VAR}"`,
+      `expects/fail: unset environment variable "${SCOPED_VAR}"`,
     ]);
     expect(await checks()).toEqual([
-      "env=fail",
+      "expects=fail",
       "lock=ok",
       "ownership=ok",
       "drift=ok",
@@ -279,14 +279,14 @@ describe("ambit doctor on an incomplete environment", () => {
 
   it("names the skill that wants the variable, and how to satisfy it", async () => {
     expect(await detailOf(FIGMA_VAR)).toEqual([
-      `skill "${FRONTEND_SKILL}" declares it in \`env\``,
+      `skill "${FRONTEND_SKILL}" expects it`,
       `set ${FIGMA_VAR} in the environment the agent runs in`,
     ]);
   });
 
   it("names the server, and the reference install left in `.mcp.json` for the harness", async () => {
     expect(await detailOf(SCOPED_VAR)).toEqual([
-      'MCP server "scoped" declares it in `env`',
+      'MCP server "scoped" expects it',
       `"mcpServers.scoped" in ${MCP_FILE} references it, for the harness to expand at spawn`,
       // No reinstall in the fix: ambit wrote a reference, so setting the variable is the whole of it.
       `set ${SCOPED_VAR} in the environment the agent runs in`,
@@ -296,7 +296,7 @@ describe("ambit doctor on an incomplete environment", () => {
   it("says nothing about a variable set to the empty string, which is a decision someone made", async () => {
     vi.stubEnv(FIGMA_VAR, "");
 
-    expect(await findings()).toEqual([`env/fail: unset environment variable "${SCOPED_VAR}"`]);
+    expect(await findings()).toEqual([`expects/fail: unset environment variable "${SCOPED_VAR}"`]);
   });
 
   it("goes quiet once the variables are set and install has interpolated them", async () => {
@@ -432,7 +432,7 @@ describe("ambit doctor against the project", () => {
     // cannot make the installed file differ from what resolution now produces. An installed config is
     // a function of the bundle alone, which is what stops `doctor` inventing drift from a shell.
     expect(await findings()).toEqual([
-      `env/fail: unset environment variable "${SCOPED_VAR}"`,
+      `expects/fail: unset environment variable "${SCOPED_VAR}"`,
       `lock/fail: ${LOCK_FILE} is missing`,
       `drift/fail: ${CORE_TARGET} is missing`,
     ]);
@@ -459,7 +459,7 @@ describe("ambit doctor on a project installed with `--copy`", () => {
       `mode/warn: ${HOOK_TARGET} is installed as a copy`,
     ]);
     expect(await checks()).toEqual([
-      "env=ok",
+      "expects=ok",
       "lock=ok",
       "ownership=ok",
       "drift=ok",
@@ -490,22 +490,22 @@ describe("ambit doctor on a project installed with `--copy`", () => {
 });
 
 /**
- * A hook's `env` is the fourth route into the one check that reads the environment, and it is the only
- * one of the four with nothing in a config file behind it: a `${VAR}` in a hook's `command` is left for
- * the shell the harness spawns, so the declaration is all there is to report.
+ * A hook's `env:` expectation is the fourth route into the one check that reads the environment, and it
+ * is the only one of the four with nothing in a config file behind it: a `${VAR}` in a hook's `command`
+ * is left for the shell the harness spawns, so the declaration is all there is to report.
  */
-describe("ambit doctor on a hook's `env`", () => {
+describe("ambit doctor on a hook's `expects`", () => {
   beforeEach(async () => {
-    await writeHookProfile(["claude"], [...HOOK_LINES, `    env: [${HOOK_VAR}]`]);
+    await writeHookProfile(["claude"], [...HOOK_LINES, `    expects: [{ env: ${HOOK_VAR} }]`]);
     vi.stubEnv(HOOK_VAR, undefined);
     expect((await cli("install")).code).toBe(ExitCode.Success);
   });
 
   it("fails on a variable a selected hook declares and the environment does not have", async () => {
     expect((await cli("doctor")).code).toBe(ExitCode.Doctor);
-    expect(await findings()).toEqual([`env/fail: unset environment variable "${HOOK_VAR}"`]);
+    expect(await findings()).toEqual([`expects/fail: unset environment variable "${HOOK_VAR}"`]);
     expect(await detailOf(HOOK_VAR)).toEqual([
-      `hook "${HOOK}" declares it in \`env\``,
+      `hook "${HOOK}" expects it`,
       `set ${HOOK_VAR} in the environment the agent runs in`,
     ]);
   });
@@ -534,7 +534,7 @@ describe("ambit doctor on a project configuring codex", () => {
       "harness/warn: codex runs hooks only with `[features] codex_hooks = true` set",
     ]);
     expect(await checks()).toEqual([
-      "env=ok",
+      "expects=ok",
       "lock=ok",
       "ownership=ok",
       "drift=ok",
@@ -582,7 +582,7 @@ describe("ambit doctor before an install", () => {
 
     expect(result.code).toBe(ExitCode.Doctor);
     expect(await checks()).toEqual([
-      "env=ok",
+      "expects=ok",
       "lock=fail",
       "ownership=ok",
       "drift=fail",

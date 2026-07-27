@@ -416,7 +416,7 @@ describe("selection by scope", () => {
       skills: [],
       mcps: [],
       hooks: [],
-      env: [],
+      expects: { env: [] },
       reasons: { skills: new Map(), mcps: new Map(), hooks: new Map() },
     });
   });
@@ -428,12 +428,12 @@ describe("selection by scope", () => {
     expect((await bundle(["core"])).mcps).toEqual([]);
   });
 
-  it("unions env across the whole subtree it selected", async () => {
+  it("unions `expects` across the whole subtree it selected", async () => {
     // ACME_FIGMA_TOKEN comes from the nested frontend skill, SCOPED_API_KEY from the server the
     // parent scope selects, so one held scope must produce both.
     const wide = await bundle(["function.engineering"]);
 
-    expect(wide.env).toEqual(["ACME_FIGMA_TOKEN", "SCOPED_API_KEY"]);
+    expect(wide.expects.env).toEqual(["ACME_FIGMA_TOKEN", "SCOPED_API_KEY"]);
   });
 
   it("deduplicates and sorts the held scopes it reports", async () => {
@@ -457,10 +457,10 @@ describe("the requires closure", () => {
     expect(project.mcps.map((mcp) => mcp.name)).toEqual(["fixture"]);
   });
 
-  it("unions env over what the closure added, not only what scope selected", async () => {
+  it("unions `expects` over what the closure added, not only what scope selected", async () => {
     // FIXTURE_API_KEY belongs to the server only `requires` can reach, so a bundle that lists the
     // server without its credential would send `doctor` looking at the wrong thing.
-    expect((await bundle(["project.acme"])).env).toEqual(["FIXTURE_API_KEY"]);
+    expect((await bundle(["project.acme"])).expects.env).toEqual(["FIXTURE_API_KEY"]);
   });
 
   it("follows a requirement of a requirement, to fixpoint", async () => {
@@ -588,6 +588,64 @@ describe("unresolvable requirements", () => {
   });
 });
 
+/**
+ * `expects` borrows `requires`' spelling, so the shape errors are the same errors in the other
+ * vocabulary — which is the point of sharing the grammar, and what these cases pin.
+ *
+ * The one thing deliberately *not* here is a resolution failure: an expectation names nothing a
+ * catalog could provide, so there is no unresolvable entry to write and no cycle to close. That is
+ * `doctor`'s question, and the split is exactly this: everything below fails at parse time, and a
+ * variable the machine does not have fails nowhere until the machine is asked.
+ */
+describe("`expects` entries", () => {
+  it("refuses an entry written as a bare string, naming the spelling it wanted", async () => {
+    await writeSkill("legacy", ["scopes: [core]", "expects: [CLOSE_API_KEY]"]);
+
+    const result = await cli("resolve");
+
+    expect(result.code).toBe(ExitCode.Config);
+    expect(result.stderr).toContain('`expects` entry "CLOSE_API_KEY" names no precondition');
+    expect(result.stderr).toContain("`- env: CLOSE_API_KEY`");
+  });
+
+  it("refuses an entry naming two preconditions at once", async () => {
+    await writeSkill("greedy", ["scopes: [core]", "expects: [{env: A, bin: b}]"]);
+
+    const result = await cli("resolve");
+
+    expect(result.code).toBe(ExitCode.Config);
+    expect(result.stderr).toContain("an `expects` entry names 2 preconditions: bin, env");
+  });
+
+  it("refuses a kind that is not one this version knows", async () => {
+    // `bin:` is the obvious second kind and is deliberately not one yet, so this doubles as the
+    // claim that a catalog written against a later ambit fails loudly here rather than silently
+    // declaring nothing.
+    await writeSkill("ahead", ["scopes: [core]", "expects: [{bin: docker}]"]);
+
+    const result = await cli("resolve");
+
+    expect(result.code).toBe(ExitCode.Config);
+    expect(result.stderr).toContain('unknown precondition "bin" in an `expects` entry');
+  });
+
+  it("takes an `expects` on all three kinds, which is what `requires` cannot do", async () => {
+    await writeSkill("reader", ["scopes: [core]", "expects: [{env: SKILL_VAR}]"]);
+    await writeMcp("server", ["scopes: [core]", "expects: [{env: MCP_VAR}]"]);
+    await writeHook("watcher", [
+      "scopes: [core]",
+      "event: Stop",
+      "type: command",
+      "command: npx watch",
+      "expects: [{env: HOOK_VAR}]",
+    ]);
+
+    expect((await bundle(["core"])).expects.env).toEqual(
+      expect.arrayContaining(["HOOK_VAR", "MCP_VAR", "SKILL_VAR"]),
+    );
+  });
+});
+
 describe("requirement cycles", () => {
   it("exits 3 printing the whole path, not just the fact of a cycle", async () => {
     await writeSkill("cycle-a", ["scopes: [core]", "requires: [{skill: cycle-b}]"]);
@@ -670,7 +728,7 @@ describe("explicit skills and inline servers", () => {
 
     expect(explicit.skills.map((skill) => skill.name)).toEqual([PROJECT_SKILL, CORE_SKILL]);
     expect(explicit.mcps.map((mcp) => mcp.name)).toEqual(["fixture"]);
-    expect(explicit.env).toEqual(["FIXTURE_API_KEY"]);
+    expect(explicit.expects.env).toEqual(["FIXTURE_API_KEY"]);
   });
 
   it("selects a skill once when a held scope also reaches it", async () => {
@@ -680,7 +738,7 @@ describe("explicit skills and inline servers", () => {
   });
 
   it("loads a skill from its own source, by the name→path convention", async () => {
-    await writeSourceSkill(`skills/${READWISE}`, READWISE, ["env: [READWISE_TOKEN]"]);
+    await writeSourceSkill(`skills/${READWISE}`, READWISE, ["expects: [{ env: READWISE_TOKEN }]"]);
 
     const explicit = await bundle(
       [],
@@ -694,7 +752,7 @@ describe("explicit skills and inline servers", () => {
       // No catalog provided it, so the origin column names the source it came from instead.
       catalog: SOURCE,
     });
-    expect(explicit.env).toEqual(["READWISE_TOKEN"]);
+    expect(explicit.expects.env).toEqual(["READWISE_TOKEN"]);
   });
 
   it("takes a `path` that overrides the convention, even outside `skills/`", async () => {
@@ -728,13 +786,13 @@ describe("explicit skills and inline servers", () => {
         "    transport:",
         "      stdio:",
         "        command: custom-mcp",
-        "    env: [CUSTOM_TOKEN]",
+        "    expects: [{ env: CUSTOM_TOKEN }]",
       ],
     );
 
     expect(explicit.mcps).toHaveLength(1);
     expect(explicit.mcps[0]).toMatchObject({ name: "custom", catalog: "ambit.yml" });
-    expect(explicit.env).toEqual(["CUSTOM_TOKEN"]);
+    expect(explicit.expects.env).toEqual(["CUSTOM_TOKEN"]);
   });
 
   it("lets a catalog skill's `requires` reach an inline server", async () => {
@@ -873,7 +931,7 @@ describe("inline hooks", () => {
     '    matcher: "Edit|Write"',
     "    type: command",
     "    command: npm run format",
-    "    env: [HOOK_TOKEN]",
+    "    expects: [{ env: HOOK_TOKEN }]",
   ];
 
   /** `hooks` lines for a name per hook, each on `Stop` and shipping nothing. */
@@ -897,10 +955,10 @@ describe("inline hooks", () => {
     expect(inline.reasons.hooks.get(HOOK_NAME)).toEqual({ kind: "explicit" });
   });
 
-  it("unions a hook's env into the bundle's, as a server's is", async () => {
+  it("unions a hook's `expects` into the bundle's, as a server's is", async () => {
     // A hook that cannot see its credential is as broken as a server that cannot, and `doctor`
     // reads the one list.
-    expect((await bundle([], HOOK)).env).toEqual(["HOOK_TOKEN"]);
+    expect((await bundle([], HOOK)).expects.env).toEqual(["HOOK_TOKEN"]);
   });
 
   it("sorts hooks by name, whatever order the config lists them in", async () => {
@@ -1014,7 +1072,7 @@ describe("hooks reached through `requires`", () => {
       "matcher: Bash",
       "type: command",
       "command: npx guard",
-      "env: [GUARD_TOKEN]",
+      "expects: [{ env: GUARD_TOKEN }]",
     ]);
   });
 
@@ -1030,10 +1088,10 @@ describe("hooks reached through `requires`", () => {
     });
   });
 
-  it("unions a required hook's env, so the closure feeds the credential list too", async () => {
+  it("unions a required hook's `expects`, so the closure feeds the credential list too", async () => {
     await writeSkill("risky", ["scopes: [core]", `requires: [{hook: ${HOOK_NAME}}]`]);
 
-    expect((await bundle(["core"])).env).toContain("GUARD_TOKEN");
+    expect((await bundle(["core"])).expects.env).toContain("GUARD_TOKEN");
   });
 
   it("reaches a hook down a chain, not only from a skill a scope selected", async () => {
@@ -1162,7 +1220,7 @@ describe("selection reasons", () => {
 });
 
 describe("ambit resolve --explain", () => {
-  it("adds a reason column to skills and mcps, and leaves scopes and env alone", async () => {
+  it("adds a reason column to skills and mcps, and leaves scopes and `expects` alone", async () => {
     await writeProfile(["core", "function.engineering"]);
 
     const result = await cli("resolve", "--explain");
@@ -1186,9 +1244,9 @@ describe("ambit resolve --explain", () => {
         `  ${ENGINEERING_HOOK}  ${CATALOG_NAME}  PreToolUse    scope:function.engineering`,
         `  ${CORE_HOOK}  ${CATALOG_NAME}  SessionStart  scope:core`,
         "",
-        "env (2)",
-        "  ACME_FIGMA_TOKEN",
-        "  SCOPED_API_KEY",
+        "expects (2)",
+        "  env  ACME_FIGMA_TOKEN",
+        "  env  SCOPED_API_KEY",
       ].join("\n"),
     );
   });
@@ -1537,9 +1595,9 @@ describe("ambit resolve", () => {
         `  ${ENGINEERING_HOOK}  ${CATALOG_NAME}  PreToolUse`,
         `  ${CORE_HOOK}  ${CATALOG_NAME}  SessionStart`,
         "",
-        "env (2)",
-        "  ACME_FIGMA_TOKEN",
-        "  SCOPED_API_KEY",
+        "expects (2)",
+        "  env  ACME_FIGMA_TOKEN",
+        "  env  SCOPED_API_KEY",
       ].join("\n"),
     );
   });
@@ -1563,7 +1621,7 @@ describe("ambit resolve", () => {
         "hooks (0)",
         "  (none)",
         "",
-        "env (0)",
+        "expects (0)",
         "  (none)",
       ].join("\n"),
     );

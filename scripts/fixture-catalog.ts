@@ -71,7 +71,8 @@ name: design-tokens
 description: Acme's design tokens — color, spacing, and the type scale.
 ambit:
   scopes: [function.engineering.frontend]
-  env: [ACME_FIGMA_TOKEN]
+  expects:
+    - env: ACME_FIGMA_TOKEN
 ---
 
 # Design tokens
@@ -105,7 +106,8 @@ transport:
     command: npx
     args: ["-y", "@acme/fixture-mcp"]
 
-env: [FIXTURE_API_KEY]
+expects:
+  - env: FIXTURE_API_KEY
 `;
 
 const SCOPED_MCP = `name: scoped
@@ -117,7 +119,8 @@ transport:
     headers:
       Authorization: "Bearer \${SCOPED_API_KEY}"
 
-env: [SCOPED_API_KEY]
+expects:
+  - env: SCOPED_API_KEY
 `;
 
 const INLINE_HOOK = `name: session-notes

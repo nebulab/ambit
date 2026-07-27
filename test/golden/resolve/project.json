@@ -1,7 +1,9 @@
 {
-  "env": [
-    "FIXTURE_API_KEY"
-  ],
+  "expects": {
+    "env": [
+      "FIXTURE_API_KEY"
+    ]
+  },
   "hooks": {
     "acme-standup": {
       "catalog": "company",

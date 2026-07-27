@@ -40,6 +40,8 @@ import type { EditOptions, EditResult } from "./editor.js";
 import { applyCatalogEdit, mcpDocumentPath } from "./editor.js";
 import type { AmbitError } from "../errors.js";
 import { at, configError, resolutionError } from "../errors.js";
+import type { Expectation } from "../model/expectation.js";
+import { parseExpectation, sortedUniqueExpectations } from "../model/expectation.js";
 import type { McpTransport } from "../model/mcp-entity.js";
 import type { Requirement } from "../model/requirement.js";
 import { formatRequirement, sameRequirement } from "../model/requirement.js";
@@ -48,7 +50,7 @@ import { emitYaml } from "../model/yaml.js";
 /** The keys an entity document holds. */
 const NAME_KEY = "name";
 const TRANSPORT_KEY = "transport";
-const ENV_KEY = "env";
+const EXPECTS_KEY = "expects";
 
 /** What an edit to an entity amounted to: the editor's own report, unchanged. */
 export type McpEdit = EditResult;
@@ -72,22 +74,21 @@ export interface McpRemoveResult extends McpEdit {
 export interface McpNewOptions extends EditOptions {
   /** The one transport the entity declares. Exactly one kind, by construction. */
   readonly transport: McpTransport;
-  /** Env vars the server needs. Absent leaves the key out rather than writing an empty list. */
-  readonly env?: readonly string[];
-}
-
-function compare(a: string, b: string): number {
-  return a < b ? -1 : a > b ? 1 : 0;
+  /**
+   * What must be true of the world for the server to work, each as a `<kind>:<name>` reference —
+   * `env:SENTRY_TOKEN`. Absent leaves the key out rather than writing an empty list.
+   */
+  readonly expects?: readonly string[];
 }
 
 /**
- * A list as ambit writes it into a file it is creating: sorted and deduplicated.
+ * The `expects` list as ambit writes it into a file it is creating: sorted and deduplicated.
  *
- * `env` only. A stdio command's `args` are deliberately left in the order they were given — they are
- * positional arguments to a program, so argv order there *is* information.
+ * That list only. A stdio command's `args` are deliberately left in the order they were given — they
+ * are positional arguments to a program, so argv order there *is* information.
  */
-function sortedUnique(values: readonly string[]): readonly string[] {
-  return [...new Set(values)].sort(compare);
+function expectations(references: readonly string[]): readonly Expectation[] {
+  return sortedUniqueExpectations(references.map((reference) => parseExpectation(reference)));
 }
 
 /** How a server reads in a report: the command it spawns, or the url it is reached at. */
@@ -216,9 +217,11 @@ function provided(catalog: Catalog, name: string): CatalogMcp {
  * the same thing, and the shorter file is the one a reader can see the point of. That
  * includes `scopes`, which this command is given no way to set.
  */
-function renderMcp(name: string, transport: McpTransport, env: readonly string[]): string {
+function renderMcp(name: string, transport: McpTransport, expects: readonly Expectation[]): string {
   return emitYaml({
-    ...(env.length > 0 && { [ENV_KEY]: env }),
+    ...(expects.length > 0 && {
+      [EXPECTS_KEY]: expects.map((item) => ({ [item.kind]: item.name })),
+    }),
     [NAME_KEY]: name,
     [TRANSPORT_KEY]: transportValues(transport),
   });
@@ -249,7 +252,7 @@ function transportValues(transport: McpTransport): Readonly<Record<string, unkno
  *
  * @param root the catalog root, absolute.
  * @param name the server's name, which decides the filename.
- * @param options the one transport, the env vars, and `--dry-run`.
+ * @param options the one transport, what it expects of the world, and `--dry-run`.
  * @throws {AmbitError} exit 2 for a name that cannot be a filename stem, a catalog that does not
  *   parse, or a write that fails; exit 3 for a name the catalog already provides or a result that
  *   would not validate — with nothing written.
@@ -265,7 +268,7 @@ export async function newMcp(
   const existing = catalog.mcps.find((candidate) => candidate.name === name);
   if (existing !== undefined) throw alreadyProvided(name, existing.file);
 
-  const text = renderMcp(name, options.transport, sortedUnique(options.env ?? []));
+  const text = renderMcp(name, options.transport, expectations(options.expects ?? []));
   const result = await applyCatalogEdit(root, [{ file: mcpDocumentPath(name), text }], options);
 
   return {

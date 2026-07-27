@@ -31,6 +31,8 @@ import type {
 } from "../model/catalog.js";
 import { HOOKS_DIRNAME, MCPS_DIRNAME, SCOPES_FILENAME, SKILL_FILENAME } from "../model/catalog.js";
 import type { ProjectConfig } from "../model/config.js";
+import type { ExpectationSet } from "../model/expectation.js";
+import { unionExpectations } from "../model/expectation.js";
 import type { ItemKind, Requirement } from "../model/requirement.js";
 import {
   KIND_NOUNS,
@@ -107,8 +109,14 @@ export interface Bundle {
   readonly mcps: readonly MergedMcp[];
   /** Selected hooks, sorted by name. */
   readonly hooks: readonly MergedHook[];
-  /** Every env var the selection declares, unioned and sorted. */
-  readonly env: readonly string[];
+  /**
+   * Every precondition the selection declares, unioned and grouped by kind.
+   *
+   * Grouped rather than flat because an expectation's kind decides what checking it *means* — a
+   * variable is looked up in the environment, and the `bin:` that follows it would be looked up on the
+   * `PATH`. A flat list would make `doctor` re-derive from a name what the entry already said.
+   */
+  readonly expects: ExpectationSet;
   /** Why each of the above is here, one entry per selected item. */
   readonly reasons: SelectionReasons;
 }
@@ -657,8 +665,8 @@ export function explainSelection(bundle: Bundle, item: BundleItem): readonly Rea
  * Selection order comes from the merged catalog, which is already sorted by name, so filtering
  * preserves it and no collection is iterated in filesystem order.
  *
- * `env` is unioned over the closed selection, not the scope-selected one: a server
- * pulled in by `requires` needs its credentials as much as one selected by scope. A hook's `env`
+ * `expects` is unioned over the closed selection, not the scope-selected one: a server
+ * pulled in by `requires` needs its credentials as much as one selected by scope. A hook's `expects`
  * joins it too — a hook that cannot see its credential is as broken as a server that cannot.
  *
  * Reasons are computed here rather than on request, so `--explain`, `ambit why`, and the lock all
@@ -700,10 +708,10 @@ export function resolveBundle(config: ProjectConfig, merged: MergedCatalog): Bun
     skills,
     mcps,
     hooks,
-    env: sortedUnique([
-      ...skills.flatMap((skill) => skill.env),
-      ...mcps.flatMap((mcp) => mcp.env),
-      ...hooks.flatMap((hook) => hook.env),
+    expects: unionExpectations([
+      ...skills.map((skill) => skill.expects),
+      ...mcps.map((mcp) => mcp.expects),
+      ...hooks.map((hook) => hook.expects),
     ]),
     reasons: {
       skills: selectionReasons(skills, "skill", explicit.skills, selecting, held, skills),
