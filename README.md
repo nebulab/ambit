@@ -1,11 +1,13 @@
 # ambit
 
-ambit is a dependency manager for your AI agent's capabilities: skills, MCP servers, and hooks.
+ambit is a dependency manager for your AI agent's harness.
 
 All agent harnesses (Claude Code, Codex, Cursor, opencode, etc.) load skills, hooks, and MCP servers.
-ambit makes picking them declarative. A project declares the **scopes** it holds; skills, MCP servers,
-and hooks in a **catalog** declare which scopes they belong to; ambit resolves the two into a **bundle**
-and writes it into each configured harness's own layout.
+ambit makes picking them declarative:
+
+- An ambit catalog declares the capabilities it offers (skills, hooks, and MCP servers).
+- An ambit project declares the catalogs it wants to pull and the scopes it wants from each catalog.
+- ambit resolves the scopes into a bundle and writes it into your harness's configuration.
 
 - [Install](#install)
 - [Quick start](#quick-start)
