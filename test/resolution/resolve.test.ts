@@ -1221,7 +1221,7 @@ describe("ambit why", () => {
   it("prints the one-link chain of something a held scope selected outright", async () => {
     await writeProfile(["core"]);
 
-    const result = await cli("why", CORE_SKILL);
+    const result = await cli("why", `skill:${CORE_SKILL}`);
 
     expect(result.code, result.stderr).toBe(ExitCode.Success);
     expect(result.stdout).toBe(
@@ -1232,7 +1232,7 @@ describe("ambit why", () => {
   it("walks back through `requires` to the held scope that started it", async () => {
     await writeProfile(["project.acme"]);
 
-    const result = await cli("why", CORE_SKILL);
+    const result = await cli("why", `skill:${CORE_SKILL}`);
 
     expect(result.code, result.stderr).toBe(ExitCode.Success);
     expect(result.stdout).toBe(
@@ -1249,45 +1249,43 @@ describe("ambit why", () => {
   it("names the held scope as well when the subtree rule did the reaching", async () => {
     await writeProfile(["function.engineering"]);
 
-    const result = await cli("why", FRONTEND_SKILL);
+    const result = await cli("why", `skill:${FRONTEND_SKILL}`);
 
     expect(result.stdout).toContain(
       "scope:function.engineering.frontend (held function.engineering)",
     );
   });
 
-  it("finds a server by its bare name and by the `mcp:` reference `requires` uses", async () => {
+  it("finds a server by the `mcp:` reference `requires` uses", async () => {
     await writeProfile(["project.acme"]);
 
-    const bare = await cli("why", "fixture");
-    const referenced = await cli("why", "mcp:fixture");
+    const result = await cli("why", "mcp:fixture");
 
-    expect(bare.code, bare.stderr).toBe(ExitCode.Success);
-    expect(bare.stdout).toContain("mcp fixture");
-    expect(bare.stdout).toContain(
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+    expect(result.stdout).toContain("mcp fixture");
+    expect(result.stdout).toContain(
       `${"fixture".padEnd(PROJECT_SKILL.length)}  mcp    required-by:${PROJECT_SKILL}`,
     );
-    expect(referenced.stdout).toBe(bare.stdout);
   });
 
-  it("refuses a bare name two namespaces hold, offering both readings", async () => {
-    await writeMcp(CORE_SKILL, ["scopes: [core]"]);
+  it("refuses a bare name, in the words `catalog annotate` refuses one", async () => {
     await writeProfile(["core"]);
 
     const result = await cli("why", CORE_SKILL);
 
-    // No precedence rule. Ranking them is what made `ambit why` and a `requires` entry read one
-    // string two different ways, which is the whole bug this format removed.
-    expect(result.code).toBe(ExitCode.Resolution);
-    expect(result.stderr).toContain(`"${CORE_SKILL}" names 2 things`);
-    expect(result.stderr).toContain(`ambit why skill:${CORE_SKILL}`);
-    expect(result.stderr).toContain(`ambit why mcp:${CORE_SKILL}`);
+    // Refused rather than looked up, even though this command *could* look it up: one grammar
+    // everywhere a name is taken from a person beats a rule that holds only while a name is unique.
+    expect(result.code).toBe(ExitCode.Config);
+    expect(result.stderr).toContain(`\`why ${CORE_SKILL}\` does not say what to explain`);
+    expect(result.stderr).toContain(`\`skill:${CORE_SKILL}\`, \`mcp:${CORE_SKILL}\``);
   });
 
-  it("names either namespace for a name both hold, when asked for one", async () => {
+  it("names either namespace for a name both hold", async () => {
     await writeMcp(CORE_SKILL, ["scopes: [core]"]);
     await writeProfile(["core"]);
 
+    // Two namespaces answering to one name is a legitimate catalog, and neither reading is preferred
+    // over the other — both are simply asked for.
     expect((await cli("why", `skill:${CORE_SKILL}`)).stdout).toContain(`skill ${CORE_SKILL}`);
     expect((await cli("why", `mcp:${CORE_SKILL}`)).stdout).toContain(`mcp ${CORE_SKILL}`);
   });
@@ -1299,7 +1297,6 @@ describe("ambit why", () => {
     await writeProfile(["core"]);
 
     expect((await cli("why", "skill:mcp.sentry")).stdout).toContain("skill mcp.sentry");
-    expect((await cli("why", "mcp.sentry")).stdout).toContain("skill mcp.sentry");
   });
 
   it("lets a skill named for one namespace and an entity of that name coexist", async () => {
@@ -1307,9 +1304,8 @@ describe("ambit why", () => {
     await writeMcp("sentry", ["scopes: [core]"]);
     await writeProfile(["core"]);
 
-    // Two different things, and both reachable: the skill by its own name, the server by a
-    // reference. Neither shadows the other.
-    expect((await cli("why", "mcp.sentry")).stdout).toContain("skill mcp.sentry");
+    // Two different things, and both reachable: the kind decides, and the name never does.
+    expect((await cli("why", "skill:mcp.sentry")).stdout).toContain("skill mcp.sentry");
     expect((await cli("why", "mcp:sentry")).stdout).toContain("mcp sentry");
   });
 
@@ -1335,8 +1331,6 @@ describe("ambit why", () => {
         "  guard  hook   required-by:risky",
       ].join("\n"),
     );
-    // A bare name reaches it too, since nothing else holds it.
-    expect((await cli("why", "guard")).stdout).toBe(result.stdout);
   });
 
   it("insists on the hook for a `hook:` reference a skill also answers to", async () => {
@@ -1373,7 +1367,7 @@ describe("ambit why", () => {
   it("reports an explicit entry as the whole chain, since nothing precedes it", async () => {
     await writeProfile([], ["skills:", `  - ${ENGINEERING_SKILL}`]);
 
-    const result = await cli("why", ENGINEERING_SKILL);
+    const result = await cli("why", `skill:${ENGINEERING_SKILL}`);
 
     expect(result.code, result.stderr).toBe(ExitCode.Success);
     expect(result.stdout).toContain(`${ENGINEERING_SKILL}  skill  explicit`);
@@ -1403,7 +1397,7 @@ describe("ambit why", () => {
   it("exits 3 for a skill a catalog provides but nothing selects, naming the scope that would", async () => {
     await writeProfile(["core"]);
 
-    const result = await cli("why", PROJECT_SKILL);
+    const result = await cli("why", `skill:${PROJECT_SKILL}`);
 
     expect(result.code).toBe(ExitCode.Resolution);
     expect(result.stderr).toContain(`skill "${PROJECT_SKILL}" is not in the bundle`);
@@ -1421,33 +1415,36 @@ describe("ambit why", () => {
     expect(result.stderr).toContain("have a selected skill require it, with `- mcp: fixture`");
   });
 
-  it("exits 3 for a name nothing provides, and says where to look", async () => {
-    const result = await cli("why", "absent-skill");
+  it("exits 3 for a name nothing provides, naming the namespace and where to look", async () => {
+    const result = await cli("why", "skill:absent-skill");
 
+    // The namespace is named rather than hedged over all three: the subject said which it meant.
     expect(result.code).toBe(ExitCode.Resolution);
-    expect(result.stderr).toContain('unknown skill, MCP server or hook "absent-skill"');
+    expect(result.stderr).toContain('unknown skill "absent-skill"');
     expect(result.stderr).toContain("run `ambit dump-catalog` to see what is available");
   });
 
   it("exits 3 for a reference nothing provides, without falling back to another namespace", async () => {
     await writeProfile(["core"]);
 
-    // `core-skill` is a skill this catalog does have. A reference is taken at its word, so naming
-    // the wrong namespace is a miss rather than a lookup that wanders into the right one.
+    // `company-context` is a skill this catalog does have. A reference is taken at its word, so
+    // naming the wrong namespace is a miss rather than a lookup that wanders into the right one.
     const result = await cli("why", `mcp:${CORE_SKILL}`);
 
     expect(result.code).toBe(ExitCode.Resolution);
-    expect(result.stderr).toContain(`unknown skill, MCP server or hook "mcp:${CORE_SKILL}"`);
+    expect(result.stderr).toContain(`unknown MCP server "${CORE_SKILL}"`);
   });
 
-  it("refuses a reference whose kind is not a namespace", async () => {
+  it("refuses a subject whose kind is not a namespace, rather than reading it as a name", async () => {
     await writeProfile(["core"]);
 
     const result = await cli("why", "server:fixture");
 
-    // Not a reference at all — `server:` is no kind — so it is a bare name, and nothing holds it.
-    expect(result.code).toBe(ExitCode.Resolution);
-    expect(result.stderr).toContain('unknown skill, MCP server or hook "server:fixture"');
+    // `server:` is no kind, so this is a bare name — and the refusal explains the grammar rather
+    // than complaining about a namespace nobody claimed to be naming.
+    expect(result.code).toBe(ExitCode.Config);
+    expect(result.stderr).toContain("`why server:fixture` does not say what to explain");
+    expect(result.stderr).toContain("`skill:server:fixture`");
   });
 });
 

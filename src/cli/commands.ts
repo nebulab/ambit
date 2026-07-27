@@ -298,7 +298,7 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
   {
     name: "why",
     summary: "explain why one item is in the bundle",
-    args: [["<name>", "a skill, MCP or hook name, or `<kind>:<name>` to name one namespace"]],
+    args: [["<kind>:<name>", "`skill:<name>`, `mcp:<name>`, or `hook:<name>`"]],
   },
   {
     name: "install",

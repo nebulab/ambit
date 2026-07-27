@@ -22,12 +22,13 @@
  * kind is mandatory and is matched against a closed set, so `skill:mcp.sentry` names the skill above
  * and `mcp:sentry` names the server, with no string a reader could write that means both.
  *
- * The one place a bare name is still accepted is a command naming something that already exists —
- * `ambit why`, `ambit catalog annotate` — where it is resolved by *looking it up* and refused when more
- * than one namespace holds it. That is a search, not a reading of the string, which is why it can never
- * silently pick the wrong one. Declaring a requirement never takes that route: `--add-requires` has to
- * be able to name a target no catalog provides, which is precisely what removing a dangling requirement
- * means.
+ * One grammar, everywhere a name is taken from a person: a `requires` entry, a `--add-requires` value,
+ * and the subject of `ambit why` or `ambit catalog annotate` all say which namespace they mean, and
+ * none of them will guess. A bare name is refused with the three spellings of what was typed
+ * ({@link parseSubject}) rather than resolved against the catalog, because a rule that holds only while
+ * a name happens to be unique is a rule nobody can rely on — and because half of these callers have no
+ * catalog to resolve against: `--remove-requires` must be able to name the dangling entry whose target
+ * has already gone, which is the whole reason to run it.
  */
 import { at, configError } from "../errors.js";
 import type { AmbitError } from "../errors.js";
@@ -152,12 +153,35 @@ export function parseRequirement(text: string, where = ""): Requirement {
 /**
  * Whether a string is written as a namespaced reference at all — a known kind, then the separator.
  *
- * What lets a command accept both `mcp:sentry` and a bare `code-review`: the prefixed form is
- * recognized by its kind rather than by the mere presence of a `:`, so a name that happens to carry one
- * is a bare name and gets the lookup, not a refusal about an unknown namespace.
+ * Recognized by its kind rather than by the mere presence of a `:`, so a name that happens to carry
+ * one of its own is a bare name and gets {@link parseSubject}'s refusal, which explains the grammar,
+ * rather than a confusing complaint about a namespace called `odd`.
  */
 export function isRequirementReference(text: string): boolean {
   return ITEM_KINDS.some((kind) => text.startsWith(`${kind}${KIND_SEPARATOR}`));
+}
+
+/**
+ * The item a command's subject argument names.
+ *
+ * Every command that takes one takes it the same way — `ambit why`, `ambit catalog annotate` — so the
+ * grammar is explained in the same words wherever it is met, and there is one rule to learn rather
+ * than one per command. All three spellings of what was typed are offered rather than one of them
+ * assumed: a catalog's namespaces are flat and independent, so a bare name is in none of them in
+ * particular, and guessing is what this format exists to stop.
+ *
+ * @param summary how the command names what it is missing — `` `why acme` does not say what to
+ *   explain `` — since only that half differs between them.
+ * @throws {AmbitError} exit 2 for a bare name, or a kind that is not one of {@link ITEM_KINDS}.
+ */
+export function parseSubject(text: string, summary: string): Requirement {
+  if (!isRequirementReference(text)) {
+    throw configError(summary, [
+      "a catalog holds three namespaces, and a bare name is in none of them in particular",
+      `write the subject as one of: ${ITEM_KINDS.map((kind) => `\`${kind}${KIND_SEPARATOR}${text}\``).join(", ")}`,
+    ]);
+  }
+  return parseRequirement(text);
 }
 
 /**

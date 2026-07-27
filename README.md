@@ -226,8 +226,10 @@ are flat and independent, so a skill at `skills/mcp/sentry/SKILL.md` is legitima
 server of the same name instead. Each entry is therefore one key, exactly as an MCP entity's
 `transport` is: `skill:`, `mcp:`, or `hook:`, and never two of them.
 
-Where only a string will do — a flag's value, `ambit why`'s argument — the same pair is written
-`<kind>:<name>`: `--add-requires mcp:close`, `ambit why skill:mcp.sentry`.
+Where only a string will do — a flag's value, a command's subject — the same pair is written
+`<kind>:<name>`: `--add-requires mcp:close`, `ambit why skill:mcp.sentry`. One grammar, everywhere a
+name is taken from a person: nothing guesses a namespace, so a bare name is refused rather than
+resolved against whatever the catalog happens to hold today.
 
 ### `mcps/<name>.yml`: MCP entities
 
@@ -415,19 +417,19 @@ refused, with the same message and exit code.
 
 ### Consumer commands
 
-| Command                                               | What it does                                                                                                                                                                         |
-| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `ambit init`                                          | Scaffold an `ambit.yml`. Refuses a directory that already has one, `--dry-run` included, and does not create a missing directory.                                                    |
-| `ambit scopes`                                        | List the merged registry with descriptions, marking which scopes this project holds.                                                                                                 |
-| `ambit dump-catalog`                                  | Dump the merged catalog: every catalog the project lists, merged with its own declarations.                                                                                          |
-| `ambit resolve [--explain]`                           | Compute the bundle and print it.                                                                                                                                                     |
-| `ambit why <name>`                                    | Explain why one item is in the bundle, as a chain. A bare name is looked up across the three namespaces and refused when more than one holds it; `<kind>:<name>` names one outright. |
-| `ambit install [--frozen] [--adopt] [--copy\|--link]` | Resolve, write `ambit.lock`, materialize the bundle, prune what left it.                                                                                                             |
-| `ambit status [--check]`                              | Compare what is installed against what resolve produces. `--check` exits 5 on drift.                                                                                                 |
-| `ambit prune`                                         | Remove owned artifacts not in the current bundle.                                                                                                                                    |
-| `ambit clean`                                         | Remove everything ambit owns.                                                                                                                                                        |
-| `ambit validate`                                      | Validate everything this project configures, for CI. One catalog on its own is `ambit catalog validate`.                                                                             |
-| `ambit doctor`                                        | Check env vars, the lock, ownership, drift, materialization mode, and harness limits.                                                                                                |
+| Command                                               | What it does                                                                                                                      |
+| ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `ambit init`                                          | Scaffold an `ambit.yml`. Refuses a directory that already has one, `--dry-run` included, and does not create a missing directory. |
+| `ambit scopes`                                        | List the merged registry with descriptions, marking which scopes this project holds.                                              |
+| `ambit dump-catalog`                                  | Dump the merged catalog: every catalog the project lists, merged with its own declarations.                                       |
+| `ambit resolve [--explain]`                           | Compute the bundle and print it.                                                                                                  |
+| `ambit why <kind>:<name>`                             | Explain why one item is in the bundle, as a chain. The subject declares its namespace, as everything that names an item does.     |
+| `ambit install [--frozen] [--adopt] [--copy\|--link]` | Resolve, write `ambit.lock`, materialize the bundle, prune what left it.                                                          |
+| `ambit status [--check]`                              | Compare what is installed against what resolve produces. `--check` exits 5 on drift.                                              |
+| `ambit prune`                                         | Remove owned artifacts not in the current bundle.                                                                                 |
+| `ambit clean`                                         | Remove everything ambit owns.                                                                                                     |
+| `ambit validate`                                      | Validate everything this project configures, for CI. One catalog on its own is `ambit catalog validate`.                          |
+| `ambit doctor`                                        | Check env vars, the lock, ownership, drift, materialization mode, and harness limits.                                             |
 
 ### Authoring commands
 

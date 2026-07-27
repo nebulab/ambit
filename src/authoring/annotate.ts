@@ -59,12 +59,7 @@ import { CatalogDocument, applyCatalogEdit } from "./editor.js";
 import type { AmbitError } from "../errors.js";
 import { at, configError } from "../errors.js";
 import type { ItemKind, Requirement } from "../model/requirement.js";
-import {
-  ITEM_KINDS,
-  formatRequirement,
-  isRequirementReference,
-  parseRequirement,
-} from "../model/requirement.js";
+import { formatRequirement, parseRequirement, parseSubject } from "../model/requirement.js";
 
 /** What an annotatable subject is: the three file shapes a catalog holds. */
 export type AnnotatedKind = ItemKind;
@@ -222,30 +217,19 @@ export function annotationDirname(name: string): string {
 }
 
 /**
- * The error for a bare name where a `<kind>:<name>` reference belongs.
- *
- * Separate from {@link parseRequirement}'s own refusal so it can name what this command would do about
- * it: a catalog holds three namespaces and a bare name says nothing about which one it is in, so the
- * three spellings are listed rather than one of them assumed.
- */
-function unnamespacedSubject(name: string): AmbitError {
-  return configError(`\`annotate ${name}\` does not say what to annotate`, [
-    "a catalog holds three namespaces, and a bare name is in none of them in particular",
-    `write the subject as one of: ${ITEM_KINDS.map((kind) => `\`${kind}:${name}\``).join(", ")}`,
-  ]);
-}
-
-/**
  * The subject reference a name asks for.
  *
- * Exported so the command's argv rule refuses a bare name before Commander dispatches, in the same
- * words the mutation would.
+ * Through {@link parseSubject}, which every command taking a subject shares — so a bare name is
+ * refused here in the words `ambit why` refuses one, and there is one grammar to learn rather than one
+ * per command.
+ *
+ * Exported so the command's argv rule refuses before Commander dispatches, in the same words the
+ * mutation would.
  *
  * @throws {AmbitError} exit 2 for a name that does not declare its namespace.
  */
 export function annotationSubject(name: string): Requirement {
-  if (!isRequirementReference(name)) throw unnamespacedSubject(name);
-  return parseRequirement(name);
+  return parseSubject(name, `\`annotate ${name}\` does not say what to annotate`);
 }
 
 /**
