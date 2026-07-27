@@ -65,8 +65,14 @@ function skipReason(skipped: SkippedHook): string {
     : `${skipped.harness} has no spelling for the ${skipped.event} event`;
 }
 
-/** One line per skipped hook, named the way its declaration names it. */
-function skipWarnings(skipped: readonly SkippedHook[]): readonly string[] {
+/**
+ * One line per skipped hook, named the way its declaration names it.
+ *
+ * Exported for `ambit update`, which ends in an install and owes the same warning: a hook a harness
+ * cannot express is no less skipped for having arrived through an updated catalog, and that is exactly
+ * the run where it is most likely to be new.
+ */
+export function skipWarnings(skipped: readonly SkippedHook[]): readonly string[] {
   return skipped.map(
     (skip) => `warning: hook "${skip.hook}" (${skip.event}) not installed: ${skipReason(skip)}`,
   );
@@ -78,7 +84,7 @@ function skipWarnings(skipped: readonly SkippedHook[]): readonly string[] {
  * The reason kind rather than the sentence: a `--json` consumer wants the fact, and the wording is the
  * text renderer's business.
  */
-function skipJson(skipped: SkippedHook): Readonly<Record<string, unknown>> {
+export function skipJson(skipped: SkippedHook): Readonly<Record<string, unknown>> {
   return {
     event: skipped.event,
     harness: skipped.harness,

@@ -275,6 +275,8 @@ export interface FixtureGitCatalog {
   readonly commit: string;
   readonly branch: string;
   readonly tag: string;
+  /** The working tree the bare repository was cloned from, so a test can commit a second revision. */
+  readonly work: string;
 }
 
 const execFileAsync = promisify(execFile);
@@ -314,7 +316,50 @@ export async function buildFixtureGitCatalog(dir: string): Promise<FixtureGitCat
 
   await git(["clone", "--mirror", "--quiet", "--", work, repo], root);
 
-  return { repo, url: `file://${repo}`, commit, branch: FIXTURE_GIT_BRANCH, tag: FIXTURE_GIT_TAG };
+  return {
+    repo,
+    url: `file://${repo}`,
+    commit,
+    branch: FIXTURE_GIT_BRANCH,
+    tag: FIXTURE_GIT_TAG,
+    work,
+  };
+}
+
+/**
+ * Commits an edit to the fixture repository and pushes it, moving the branch.
+ *
+ * What `ambit outdated` and `ambit update` need and no other suite does: a repository whose `ref`
+ * points somewhere new since a project last resolved it. The working tree the builder committed from
+ * is reused rather than re-cloned, so the second commit's parent is the first and the branch fast-
+ * forwards exactly as a real one would.
+ *
+ * The tag is deliberately left where it was, so one repository can serve both a moving ref and a
+ * standing one.
+ *
+ * @param files the edit, keyed by repo-relative `/`-separated path; `null` deletes a file.
+ * @returns the commit the branch now points at.
+ */
+export async function commitFixtureGitRevision(
+  fixture: FixtureGitCatalog,
+  files: Readonly<Record<string, string | null>>,
+  message = "a second revision",
+): Promise<string> {
+  for (const [relative, text] of Object.entries(files)) {
+    const target = path.join(fixture.work, relative);
+    if (text === null) {
+      await rm(target, { recursive: true, force: true });
+      continue;
+    }
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeFile(target, text, "utf8");
+  }
+
+  await git(["add", "--all"], fixture.work);
+  await git(["commit", "--quiet", "--message", message], fixture.work);
+  const commit = await git(["rev-parse", "HEAD"], fixture.work);
+  await git(["push", "--quiet", fixture.repo, FIXTURE_GIT_BRANCH], fixture.work);
+  return commit;
 }
 
 const DEFAULT_DIR = "test/tmp/fixture-catalog";

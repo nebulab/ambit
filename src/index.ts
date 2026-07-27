@@ -36,6 +36,7 @@ export type {
   AnnotationKey,
   Catalog,
   CatalogHook,
+  CatalogLoadOptions,
   CatalogMcp,
   CatalogParseOptions,
   CatalogSkill,
@@ -77,13 +78,15 @@ export type {
 } from "./model/documents/index.js";
 export {
   CACHE_DIRNAME,
+  PROBE_NAMESPACE,
+  REFRESH_MODES,
   REPOS_DIRNAME,
   SOURCES_DIRNAME,
   cacheRoot,
   fetchGitSource,
   gitCacheKey,
 } from "./model/git.js";
-export type { FetchedGitSource, GitFetchRequest } from "./model/git.js";
+export type { FetchedGitSource, GitFetchRequest, RefreshMode } from "./model/git.js";
 export { HOOK_EVENTS, HOOK_TYPES, MATCHABLE_EVENTS, parseHookEntity } from "./model/hook-entity.js";
 export type { HookEntity, HookEvent, HookType } from "./model/hook-entity.js";
 export { MCP_TRANSPORT_KINDS, parseMcpEntity } from "./model/mcp-entity.js";
@@ -236,6 +239,20 @@ export {
 export type { EnvRefStyle } from "./harness/env.js";
 
 // ── project — act on a consuming project ──────────────────────────────────────────────────────
+export {
+  BUNDLE_CHANGE_KINDS,
+  allChanges,
+  countChanges,
+  diffBundles,
+  hookSummary,
+  isUnchanged,
+} from "./project/bundle-diff.js";
+export type {
+  BundleChange,
+  BundleChangeCounts,
+  BundleChangeKind,
+  BundleDiff,
+} from "./project/bundle-diff.js";
 export { cleanProject, pruneProject } from "./project/clean.js";
 export type { CleanOptions, CleanResult, PruneOptions, PruneResult } from "./project/clean.js";
 export {
@@ -321,6 +338,21 @@ export type {
   StatusArtifact,
   StatusOptions,
 } from "./project/status.js";
+export {
+  CATALOG_FRESHNESS,
+  checkOutdated,
+  hasOutdated,
+  previewUpdate,
+  updateProject,
+} from "./project/update.js";
+export type {
+  CatalogFreshness,
+  CatalogPin,
+  UpdateInstallOptions,
+  UpdateOptions,
+  UpdatePlan,
+  UpdateResult,
+} from "./project/update.js";
 
 // ── cli — presentation and dispatch ───────────────────────────────────────────────────────────
 export {

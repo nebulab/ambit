@@ -55,10 +55,10 @@ export interface CommandSpec {
    * mean `ambit catalog dump`, and with it one word covering both a project and a catalog directory.
    *
    * Nothing declares one: the surface is flat, `catalog` having been the only group and its last
-   * subcommand having been absorbed into `ambit validate`. Kept as the seam a future group hangs off,
-   * the way {@link CommandRule} is kept with `RULES` empty — the group machinery in
-   * {@link buildCommand} is what a second one would need, and it is exercised directly rather than
-   * through the surface (see the group-seam cases in `test/model/catalog.test.ts`).
+   * subcommand having been absorbed into `ambit validate`. Kept as the seam a future group hangs
+   * off — the group machinery in {@link buildCommand} is what a second one would need, and with no
+   * group on the surface it is exercised directly rather than through it (see the group-seam cases in
+   * `test/model/catalog.test.ts`).
    */
   readonly subcommands?: readonly CommandSpec[];
 }
@@ -68,7 +68,7 @@ export interface CommandSpec {
  * cannot drift apart. Commands are wired to behaviour as the build reaches them; until then
  * they report that they are unimplemented rather than pretending to work.
  *
- * Ten commands, and flat: one subject, one directory flag, and no word standing for a group. Nothing
+ * Twelve commands, and flat: one subject, one directory flag, and no word standing for a group. Nothing
  * writes into a catalog — a catalog is Markdown and YAML in a git repo, and an author has an editor —
  * and nothing reads a catalog directory instead of an `ambit.yml`, because a catalog repo lists
  * itself.
@@ -105,6 +105,21 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
     name: "status",
     summary: "compare what is installed against what resolve produces",
     options: [new Option("--check", "exit 5 when drift is detected")],
+  },
+  // The pair, in the order they are used: find out, then act. Neither is `install` under a flag —
+  // `install` deliberately resolves from the cache and never moves a pin, and these two are the only
+  // commands that reach a remote for a ref the cache can already answer.
+  { name: "outdated", summary: "check whether any catalog's ref now names a different commit" },
+  {
+    name: "update",
+    summary: "move catalog pins forward, then install",
+    args: [["[catalog...]", "catalogs to update; every one of them when none is named"]],
+    mutating: true,
+    options: [
+      new Option("--adopt", "take ownership of existing unowned artifacts"),
+      new Option("--copy", "copy local-source skills instead of symlinking").conflicts("link"),
+      new Option("--link", "symlink skills instead of copying"),
+    ],
   },
   { name: "prune", summary: "remove owned artifacts not in the current bundle", mutating: true },
   { name: "clean", summary: "remove everything ambit owns", mutating: true },
@@ -212,12 +227,23 @@ export function notImplemented(name: string): AmbitError {
   ]);
 }
 
-/** What a rule and a handler both read: the flags and positionals Commander parsed for one command. */
+/**
+ * What a rule and a handler both read: the flags and positionals Commander parsed for one command.
+ *
+ * A variadic argument — `[catalog...]` — arrives as one array where every other argument arrives as a
+ * string, so it is flattened into the same list. That keeps {@link positional} meaning what it always
+ * meant for the commands that take fixed arguments, and lets a variadic command read `ctx.args` as the
+ * list it asked for; no command mixes the two, so nothing is ambiguous about the result.
+ */
 function contextOf(
   command: Command,
   io: Pick<CommandContext, "cwd" | "stdout" | "stderr">,
 ): CommandContext {
-  const args = command.processedArgs.filter((value): value is string => typeof value === "string");
+  const args = command.processedArgs.flatMap((value): readonly string[] => {
+    if (typeof value === "string") return [value];
+    if (!Array.isArray(value)) return [];
+    return value.filter((entry): entry is string => typeof entry === "string");
+  });
   return { options: command.opts(), args, ...io };
 }
 

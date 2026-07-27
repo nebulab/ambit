@@ -29,6 +29,7 @@ import path from "node:path";
 
 import type { CatalogRef, ProjectConfig } from "./config.js";
 import { AmbitError, at, configError } from "../errors.js";
+import type { RefreshMode } from "./git.js";
 import type { HookEntity } from "./hook-entity.js";
 import { commandProgram, parseHookEntity, scriptReference } from "./hook-entity.js";
 import type { McpEntity } from "./mcp-entity.js";
@@ -185,6 +186,14 @@ export interface Catalog {
    * revision — a working directory is whatever it currently says.
    */
   readonly commit?: string;
+  /**
+   * Whether its `ref` is one that can move — a branch, a tag, or the source's default branch — as
+   * against a `ref` naming a commit, which is already a pin.
+   *
+   * Present only when the load refreshed this catalog: it is `ambit outdated`'s question, and only a
+   * run that reached the remote can answer it without guessing.
+   */
+  readonly moving?: boolean;
   /** Skills, sorted by name. */
   readonly skills: readonly CatalogSkill[];
   /** MCP entities, sorted by name. */
@@ -413,6 +422,8 @@ class CatalogFiles {
  *
  * @param file how the config file is named in errors. Catalog entries carry no line of their own, so
  *   the message names the file alone.
+ * @param refresh how much of the remote this one catalog may consult. Defaults to `"none"`, which is
+ *   every command but `ambit outdated` and `ambit update`.
  * @throws {AmbitError} exit 2 for a source ambit cannot read, a missing directory, or an unknown
  *   ref; exit 4 if a fetch fails.
  */
@@ -420,6 +431,7 @@ export async function resolveCatalogRoot(
   catalog: CatalogRef,
   context: SourceContext,
   file: string,
+  refresh: RefreshMode = "none",
 ): Promise<ResolvedSource> {
   return resolveSource(
     {
@@ -427,6 +439,7 @@ export async function resolveCatalogRoot(
       ...(catalog.ref !== undefined && { ref: catalog.ref }),
       subject: `catalog "${catalog.name}"`,
       where: at(file, undefined),
+      refresh,
     },
     context,
   );
@@ -806,24 +819,47 @@ export async function parseCatalogDirectory(
 }
 
 /**
+ * How a load reaches each catalog's source, on top of what parsing needs.
+ *
+ * Separate from {@link CatalogParseOptions} because it is about the fetch rather than the parse:
+ * `parseCatalogDirectory` is handed a directory and never learns where it came from, so a refresh has
+ * nothing to say to it.
+ */
+export interface CatalogLoadOptions extends CatalogParseOptions {
+  /**
+   * How each catalog may consult its remote, keyed by catalog name.
+   *
+   * A name the map does not hold — and an absent map — resolves from the cache exactly as every other
+   * command does. Per catalog rather than per run because `ambit update company` moves one pin: a
+   * run-wide setting would move every catalog's, which is a pin nobody asked to move.
+   */
+  readonly refresh?: ReadonlyMap<string, RefreshMode>;
+}
+
+/**
  * Loads every catalog the config declares, in config order.
  *
  * Sequential rather than concurrent: two catalogs can be two refs of one repository, and a shared
  * cache directory is not something two fetches may race over.
  *
  * @param options a collector for the one problem parsing can continue past — see
- *   {@link CatalogParseOptions}.
+ *   {@link CatalogParseOptions} — and the per-catalog refresh plan, see {@link CatalogLoadOptions}.
  * @throws {AmbitError} exit 2 for an unresolvable source or a malformed catalog; exit 4 if a fetch
  *   fails.
  */
 export async function loadCatalogs(
   config: ProjectConfig,
   context: SourceContext,
-  options: CatalogParseOptions = {},
+  options: CatalogLoadOptions = {},
 ): Promise<readonly Catalog[]> {
   const catalogs: Catalog[] = [];
   for (const entry of config.catalogs) {
-    const resolved = await resolveCatalogRoot(entry, context, config.origin.file);
+    const resolved = await resolveCatalogRoot(
+      entry,
+      context,
+      config.origin.file,
+      options.refresh?.get(entry.name),
+    );
     const parsed = await parseCatalogDirectory(
       entry.name,
       entry.source,
@@ -831,10 +867,15 @@ export async function loadCatalogs(
       resolved.commit,
       options,
     );
-    // `ref` is a fact about the config entry, not about the directory that was parsed, so it is
-    // attached here rather than threaded through parsing — which also keeps a `path:` catalog, whose
-    // directory has no ref to speak of, from having to invent one.
-    catalogs.push({ ...parsed, ...(entry.ref !== undefined && { ref: entry.ref }) });
+    // `ref` and `moving` are facts about the config entry and about how its source answered, not
+    // about the directory that was parsed, so both are attached here rather than threaded through
+    // parsing — which also keeps a `path:` catalog, whose directory has neither a ref nor a
+    // revision to speak of, from having to invent either.
+    catalogs.push({
+      ...parsed,
+      ...(entry.ref !== undefined && { ref: entry.ref }),
+      ...(resolved.moving !== undefined && { moving: resolved.moving }),
+    });
   }
   return catalogs;
 }

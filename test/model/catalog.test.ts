@@ -1129,10 +1129,11 @@ describe("usage errors and the exit-code contract", () => {
  * declared with its command as a `preAction` hook, for the refusals `.makeOptionMandatory()` and
  * `.conflicts()` cannot word without giving up the message shape required.
  *
- * `RULES` is empty — the four rules that filled it belonged to the catalog mutators and went with them —
- * so what is pinned here is the mechanism rather than any command's wording: a rule refuses *before*
- * the handler, and it runs once, for the command it belongs to. Each case therefore injects its own
- * rule, which is also how the seam would be exercised by a command that acquires one.
+ * `RULES` holds two entries, and they are one rule twice — `outdated` and `update` both refusing
+ * `--offline`, whose wording `test/project/update.test.ts` pins. So what is pinned here is the
+ * mechanism rather than any command's wording: a rule refuses *before* the handler, and it runs once,
+ * for the command it belongs to. Each case therefore injects its own rule, which is also how the seam
+ * is exercised by a command that has none.
  */
 describe("the flag rules Commander enforces before a handler runs", () => {
   /** A wiring in which one command's handler succeeds, doing nothing but recording the visit. */
@@ -1150,8 +1151,11 @@ describe("the flag rules Commander enforces before a handler runs", () => {
     };
   }
 
-  it("declares no rule, every command's flags being ones Commander can refuse itself", () => {
-    expect(Object.keys(RULES)).toEqual([]);
+  it("declares a rule only for the two commands that refuse `--offline`", () => {
+    expect(Object.keys(RULES).sort()).toEqual(["outdated", "update"]);
+    // One rule twice, not two rules that agree today: `outdated` and `update` ask a remote the same
+    // question, so their refusal cannot drift apart.
+    expect(RULES.outdated).toBe(RULES.update);
   });
 
   it("refuses before the handler, in ambit's own message shape", async () => {

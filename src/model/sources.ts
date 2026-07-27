@@ -19,6 +19,7 @@ import { stat } from "node:fs/promises";
 import path from "node:path";
 
 import { configError } from "../errors.js";
+import type { RefreshMode } from "./git.js";
 import { fetchGitSource } from "./git.js";
 
 /** The prefix marking a source as a local directory. */
@@ -62,6 +63,15 @@ export interface SourceRequest {
   readonly subject: string;
   /** The `(file line N)` suffix its config entry sits at. */
   readonly where: string;
+  /**
+   * How much of the remote resolving *this* source may consult. Absent means `"none"`, which is
+   * every command but `ambit outdated` and `ambit update`.
+   *
+   * Per request rather than on the {@link SourceContext} because `ambit update company` refreshes one
+   * catalog and leaves the rest exactly where they were: a run-wide setting could not say that, and a
+   * catalog whose pin moved because a sibling was named is a pin nobody asked to move.
+   */
+  readonly refresh?: RefreshMode;
 }
 
 /**
@@ -91,6 +101,14 @@ export interface ResolvedSource {
   readonly root: string;
   /** The commit a git source was pinned to. Absent for `path:`, which has no revision. */
   readonly commit?: string;
+  /**
+   * Whether the `ref` this resolved through can move: a branch, a tag, or the repository's default
+   * branch, as against a `ref` naming a commit, which is already a pin.
+   *
+   * Absent for a `path:` source, which has no ref at all, and absent without a refresh, which is not
+   * a question that path asks.
+   */
+  readonly moving?: boolean;
 }
 
 /** The error for two disagreeing refs, which ambit will not pick between. */
@@ -195,7 +213,9 @@ async function resolvePathRoot(
  * Resolves a source to a directory on disk, fetching it if it is a git source.
  *
  * A `path:` source is read in place, so `--offline` has nothing to say about it: there is no cache
- * between the project and the directory it names.
+ * between the project and the directory it names. A `refresh` has nothing to say about it either, and
+ * for the same reason — the directory is whatever it currently holds, with no remote to ask and no
+ * revision to have moved.
  *
  * @throws {AmbitError} exit 2 for a source ambit cannot read, a missing directory, or an unknown
  *   ref; exit 4 if git is missing, a fetch fails, or `--offline` was given and the cache cannot
@@ -219,6 +239,11 @@ export async function resolveSource(
     env: context.env,
     cwd: context.projectDir,
     ...(context.offline !== undefined && { offline: context.offline }),
+    ...(request.refresh !== undefined && { refresh: request.refresh }),
   });
-  return { root: fetched.root, commit: fetched.commit };
+  return {
+    root: fetched.root,
+    commit: fetched.commit,
+    ...(fetched.moving !== undefined && { moving: fetched.moving }),
+  };
 }
