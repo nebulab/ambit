@@ -1,5 +1,11 @@
 {
   "env": [],
+  "hooks": {
+    "session-notes": {
+      "catalog": "company",
+      "event": "SessionStart"
+    }
+  },
   "mcps": {},
   "scopes": [
     "core"

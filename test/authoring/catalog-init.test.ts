@@ -33,6 +33,7 @@ import { emitYaml } from "../../src/model/yaml.js";
 const SCAFFOLD_FILES = [
   CATALOG_WORKFLOW_FILENAME,
   CATALOG_README_FILENAME,
+  "hooks/.gitkeep",
   "mcps/.gitkeep",
   "scopes.yml",
   "skills/.gitkeep",
@@ -121,6 +122,9 @@ describe("ambit catalog init", () => {
     ]);
     expect(catalog.skills).toEqual([]);
     expect(catalog.mcps).toEqual([]);
+    // A `.gitkeep` is invisible to parsing, so the scaffolded `hooks/` holds no hook — which is what
+    // makes the directory additive rather than a catalog declaring something nobody wrote.
+    expect(catalog.hooks).toEqual([]);
   });
 
   it("scaffolds a catalog `ambit catalog validate` passes against", async () => {
@@ -133,7 +137,7 @@ describe("ambit catalog init", () => {
     expect(result.stdout).toContain("problems (0)");
   });
 
-  it("writes the registry, both directories, a README, and a CI workflow", async () => {
+  it("writes the registry, all three item directories, a README, and a CI workflow", async () => {
     await init(catalogDir);
 
     expect(Object.keys(await snapshot(catalogDir)).sort()).toEqual([...SCAFFOLD_FILES].sort());

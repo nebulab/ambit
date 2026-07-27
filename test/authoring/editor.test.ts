@@ -18,11 +18,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import {
-  FIXTURE_CATALOG_FILES,
-  FIXTURE_MARKER,
-  buildFixtureCatalog,
-} from "../../scripts/fixture-catalog.js";
+import { FIXTURE_CATALOG_FILES, buildFixtureCatalog } from "../../scripts/fixture-catalog.js";
 import {
   CatalogDocument,
   applyCatalogEdit,
@@ -32,9 +28,14 @@ import {
 import { AmbitError, ExitCode } from "../../src/errors.js";
 import { isValid, validateCatalogDirectory } from "../../src/resolution/validate.js";
 
-/** The fixture's YAML-bearing files: everything but the marker, which is prose. */
+/**
+ * The fixture's YAML-bearing files: every `SKILL.md` and every entity document.
+ *
+ * Named by extension rather than by exclusion, because a catalog holds bytes that are not documents at
+ * all — the marker, which is prose, and the shell script one hook ships beside its `HOOK.yml`.
+ */
 const FIXTURE_DOCUMENTS = Object.keys(FIXTURE_CATALOG_FILES)
-  .filter((file) => file !== FIXTURE_MARKER)
+  .filter((file) => file.endsWith(".yml") || file.endsWith(".md"))
   .sort();
 
 /** A skill carrying a harness key ambit knows nothing about, a comment, and a body. */

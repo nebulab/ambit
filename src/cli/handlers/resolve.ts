@@ -36,6 +36,21 @@ function reason(bundle: Bundle, item: BundleItem, explain: boolean): string | un
   return explain ? formatReason(reasonOf(bundle, item)) : undefined;
 }
 
+/** The shadowings of the namespace `kind` names, so a lookup never has to know which map that is. */
+function shadowingsOf(
+  merged: MergedCatalog,
+  kind: BundleItem["kind"],
+): ReadonlyMap<string, Shadowing> {
+  switch (kind) {
+    case "skill":
+      return merged.shadowing.skills;
+    case "mcp":
+      return merged.shadowing.mcps;
+    case "hook":
+      return merged.shadowing.hooks;
+  }
+}
+
 /**
  * The shadowing an item carries, present only under `--explain` and only where two catalogs both
  * provided the name.
@@ -46,8 +61,7 @@ function shadowing(
   explain: boolean,
 ): Shadowing | undefined {
   if (!explain) return undefined;
-  const shadowed = item.kind === "skill" ? merged.shadowing.skills : merged.shadowing.mcps;
-  return shadowed.get(item.name);
+  return shadowingsOf(merged, item.kind).get(item.name);
 }
 
 function toJson(
@@ -57,6 +71,23 @@ function toJson(
 ): Readonly<Record<string, unknown>> {
   return {
     env: bundle.env,
+    hooks: keyed(
+      bundle.hooks,
+      (hook) => hook.name,
+      (hook) => {
+        const item: BundleItem = { kind: "hook", name: hook.name };
+        const why = reason(bundle, item, explain);
+        const shadowed = shadowing(merged, item, explain);
+        // The event beside the origin, not instead of it: a hook a project declares inline names
+        // `ambit.yml` there, and the event is what a reader scanning the list is looking for.
+        return {
+          catalog: hook.catalog,
+          event: hook.event,
+          ...(why !== undefined && { reason: why }),
+          ...(shadowed !== undefined && { shadows: shadowed.shadows }),
+        };
+      },
+    ),
     mcps: keyed(
       bundle.mcps,
       (mcp) => mcp.name,
@@ -131,6 +162,17 @@ function toText(bundle: Bundle, merged: MergedCatalog, explain: boolean): readon
         const item: BundleItem = { kind: "mcp", name: mcp.name };
         return row(
           [mcp.name, mcp.catalog],
+          reason(bundle, item, explain),
+          shadowing(merged, item, explain),
+        );
+      }),
+    ),
+    ...section(
+      "hooks",
+      bundle.hooks.map((hook) => {
+        const item: BundleItem = { kind: "hook", name: hook.name };
+        return row(
+          [hook.name, hook.catalog, hook.event],
           reason(bundle, item, explain),
           shadowing(merged, item, explain),
         );

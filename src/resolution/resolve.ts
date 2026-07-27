@@ -11,18 +11,25 @@
  * load-bearing, so it lives here rather than in any adapter.
  *
  * Nothing else is implicit: no scope is reserved, and a project selects exactly the scopes it
- * lists, expanded downward. Alongside that, a project may name skills and servers outright —
- * those are selected whatever their scopes, since asking for something by name is
- * already the decision that scopes exist to make. Everything selected either way is then closed
- * over `requires`, so a skill can carry its dependencies into a bundle that would never have
- * selected them.
+ * lists, expanded downward — a catalog's skills, servers and hooks all come down that route.
+ * Alongside it, a project may name skills and servers outright, and declare servers and hooks of its
+ * own: those are selected whatever their scopes, since asking for something by
+ * name is already the decision that scopes exist to make. Everything selected either way is
+ * then closed over `requires`, so a skill can carry its dependencies into a bundle that would never
+ * have selected them.
  *
  * Every selected item also carries the reason it was selected, because with three routes
  * into a bundle a list of names is not an answer to "why is this here?" — and the lock records the
  * reason too, so it has to be part of resolution rather than a reporting afterthought.
  */
-import type { MergedCatalog, MergedMcp, MergedSkill, ScopeDefinition } from "../model/catalog.js";
-import { MCPS_DIRNAME, SCOPES_FILENAME, SKILL_FILENAME } from "../model/catalog.js";
+import type {
+  MergedCatalog,
+  MergedHook,
+  MergedMcp,
+  MergedSkill,
+  ScopeDefinition,
+} from "../model/catalog.js";
+import { HOOKS_DIRNAME, MCPS_DIRNAME, SCOPES_FILENAME, SKILL_FILENAME } from "../model/catalog.js";
 import type { ProjectConfig } from "../model/config.js";
 import { AmbitError, ExitCode, at, resolutionError } from "../errors.js";
 
@@ -37,19 +44,29 @@ export const SCOPE_SEPARATOR = ".";
 /**
  * What marks a `requires` entry as naming an MCP entity rather than a skill.
  *
- * Exported because it is the only disambiguator the two namespaces have, so anything that takes a
+ * Exported because a prefix is the only disambiguator the namespaces have, so anything that takes a
  * name from a human — `ambit why` — has to read it the same way `requires` does.
  */
 export const MCP_REQUIREMENT_PREFIX = "mcp.";
+
+/**
+ * What marks a `requires` entry as naming a hook rather than a skill.
+ *
+ * The same argument {@link MCP_REQUIREMENT_PREFIX} makes, one namespace over: a bare name is a skill,
+ * so a hook has to say so. This is how a hook reaches a project without being named — a skill that is
+ * unsafe without its guard pulls the guard in.
+ */
+export const HOOK_REQUIREMENT_PREFIX = "hook.";
 
 /** A set of catalog items under consideration, each list sorted by name. */
 export interface Selection {
   readonly skills: readonly MergedSkill[];
   readonly mcps: readonly MergedMcp[];
+  readonly hooks: readonly MergedHook[];
 }
 
-/** Which of the bundle's two namespaces a name belongs to. */
-export type ItemKind = "skill" | "mcp";
+/** Which of the bundle's namespaces a name belongs to. */
+export type ItemKind = "skill" | "mcp" | "hook";
 
 /** One item of a bundle, named the way its namespace requires. */
 export interface BundleItem {
@@ -80,9 +97,10 @@ export interface ReasonedItem extends BundleItem {
 export interface SelectionReasons {
   readonly skills: ReadonlyMap<string, SelectionReason>;
   readonly mcps: ReadonlyMap<string, SelectionReason>;
+  readonly hooks: ReadonlyMap<string, SelectionReason>;
 }
 
-/** The resolved set of skills and MCP servers for a project. */
+/** The resolved set of skills, MCP servers and hooks for a project. */
 export interface Bundle {
   /**
    * The held scopes exactly as the project declared them, deduplicated and sorted. The subtree
@@ -94,6 +112,8 @@ export interface Bundle {
   readonly skills: readonly MergedSkill[];
   /** Selected MCP servers, sorted by name. */
   readonly mcps: readonly MergedMcp[];
+  /** Selected hooks, sorted by name. */
+  readonly hooks: readonly MergedHook[];
   /** Every env var the selection declares, unioned and sorted. */
   readonly env: readonly string[];
   /** Why each of the above is here, one entry per selected item. */
@@ -275,22 +295,68 @@ export function skillFile(skill: MergedSkill): string {
 }
 
 /**
+ * Which namespace a `requires` entry names, and the name inside it.
+ *
+ * The prefixes are the only disambiguator the three namespaces have, so one function reads them:
+ * closure, validation, and the error a failure raises cannot then disagree about what
+ * `hook.block-rm` means.
+ *
+ * Exported for validation, which resolves the same entries across a whole catalog rather than a
+ * closure.
+ */
+export function requirementTarget(requirement: string): BundleItem {
+  if (requirement.startsWith(MCP_REQUIREMENT_PREFIX)) {
+    return { kind: "mcp", name: requirement.slice(MCP_REQUIREMENT_PREFIX.length) };
+  }
+  if (requirement.startsWith(HOOK_REQUIREMENT_PREFIX)) {
+    return { kind: "hook", name: requirement.slice(HOOK_REQUIREMENT_PREFIX.length) };
+  }
+  return { kind: "skill", name: requirement };
+}
+
+/**
+ * How a `requires` entry names an item — the inverse of {@link requirementTarget}.
+ *
+ * A switch rather than a ternary, so a fourth namespace is a type error here instead of a name
+ * silently written without its prefix.
+ */
+export function requirementFor(item: BundleItem): string {
+  switch (item.kind) {
+    case "skill":
+      return item.name;
+    case "mcp":
+      return `${MCP_REQUIREMENT_PREFIX}${item.name}`;
+    case "hook":
+      return `${HOOK_REQUIREMENT_PREFIX}${item.name}`;
+  }
+}
+
+/** What a namespace is called in a message about one of its members. */
+const NOUNS: Readonly<Record<ItemKind, string>> = {
+  skill: "a skill",
+  mcp: "an MCP entity",
+  hook: "a hook",
+};
+
+/** Where a missing member of each namespace is added, as the last line of an error says. */
+const WHERE_TO_ADD: Readonly<Record<ItemKind, string>> = {
+  skill: "add it to a catalog",
+  mcp: `add it under ${MCPS_DIRNAME}/ in a catalog`,
+  hook: `add it under ${HOOKS_DIRNAME}/ in a catalog`,
+};
+
+/**
  * The error for a `requires` entry no catalog can satisfy.
  *
  * Both halves of the edge are named — the requirer and the target — because either could be the
  * mistake: a skill may have been renamed, or the requirement misspelled.
  */
 export function missingRequirement(requirer: MergedSkill, requirement: string): AmbitError {
-  const isMcp = requirement.startsWith(MCP_REQUIREMENT_PREFIX);
-  const target = isMcp ? requirement.slice(MCP_REQUIREMENT_PREFIX.length) : requirement;
+  const target = requirementTarget(requirement);
 
   return resolutionError(`unresolvable requirement "${requirement}" (${skillFile(requirer)})`, [
-    isMcp
-      ? `${requirer.name} requires an MCP entity named "${target}", which no catalog provides`
-      : `${requirer.name} requires a skill named "${target}", which no catalog provides`,
-    isMcp
-      ? `add it under ${MCPS_DIRNAME}/ in a catalog, or remove the \`requires\` entry`
-      : "add it to a catalog, or remove the `requires` entry",
+    `${requirer.name} requires ${NOUNS[target.kind]} named "${target.name}", which no catalog provides`,
+    `${WHERE_TO_ADD[target.kind]}, or remove the \`requires\` entry`,
   ]);
 }
 
@@ -311,31 +377,36 @@ export function cycleError(cycle: readonly string[], head: MergedSkill): AmbitEr
 
 /**
  * Closes a selection over `requires` until fixpoint: every skill a selected skill
- * requires, and every MCP entity one names with an `mcp.` prefix, joins the selection — whether or
- * not its own scopes would ever have selected it.
+ * requires, every MCP entity one names with an `mcp.` prefix, and every hook one names with a
+ * `hook.` prefix, joins the selection — whether or not its own scopes would ever have selected it.
  *
  * That is the point of the mechanism. A skill that is useless without a company-context skill and
  * a server declares so once, and every profile that reaches it gets a working bundle instead of a
- * plausible-looking broken one.
+ * plausible-looking broken one. A hook comes down the same route for the same reason: a skill whose
+ * instructions are unsafe without its guard carries the guard.
  *
- * Only skills carry `requires` (MCP entities have no such key), so the graph walked
- * here is skill → skill, with MCP entities as leaves.
+ * Only skills carry `requires` (neither MCP entities nor hooks have such a key), so the graph walked
+ * here is skill → skill, with both other namespaces as leaves.
  *
  * @param skills the roots — what scope selection found, sorted by name.
  * @param mcps MCP entities already selected by their own scopes.
+ * @param hooks hooks already selected by their own scopes.
  * @param merged what requirements resolve against.
  * @throws {AmbitError} exit 3 for a requirement no catalog provides, or a cycle.
  */
 export function closeOverRequires(
   skills: readonly MergedSkill[],
   mcps: readonly MergedMcp[],
+  hooks: readonly MergedHook[],
   merged: MergedCatalog,
 ): Selection {
   const skillsByName = new Map(merged.skills.map((skill) => [skill.name, skill]));
   const mcpsByName = new Map(merged.mcps.map((mcp) => [mcp.name, mcp]));
+  const hooksByName = new Map(merged.hooks.map((hook) => [hook.name, hook]));
 
   const chosenSkills = new Set<string>();
   const chosenMcps = new Set(mcps.map((mcp) => mcp.name));
+  const chosenHooks = new Set(hooks.map((hook) => hook.name));
 
   // The two colours a depth-first walk needs to tell a cycle from a diamond: `path` is the chain
   // currently being followed, in order, so meeting something already on it yields the cycle
@@ -356,14 +427,25 @@ export function closeOverRequires(
     // Sorted and deduplicated, so which of several problems in one `requires` list is reported
     // does not depend on the order its author happened to write them in.
     for (const requirement of sortedUnique(skill.requires)) {
-      if (requirement.startsWith(MCP_REQUIREMENT_PREFIX)) {
-        const required = mcpsByName.get(requirement.slice(MCP_REQUIREMENT_PREFIX.length));
+      const target = requirementTarget(requirement);
+
+      // Both leaf namespaces end the walk: nothing an entity or a hook declares reaches anything
+      // else, so joining the selection is all there is to do.
+      if (target.kind === "mcp") {
+        const required = mcpsByName.get(target.name);
         if (required === undefined) throw missingRequirement(skill, requirement);
         chosenMcps.add(required.name);
         continue;
       }
 
-      const required = skillsByName.get(requirement);
+      if (target.kind === "hook") {
+        const required = hooksByName.get(target.name);
+        if (required === undefined) throw missingRequirement(skill, requirement);
+        chosenHooks.add(required.name);
+        continue;
+      }
+
+      const required = skillsByName.get(target.name);
       if (required === undefined) throw missingRequirement(skill, requirement);
       follow(required);
     }
@@ -379,6 +461,7 @@ export function closeOverRequires(
   return {
     skills: merged.skills.filter((skill) => chosenSkills.has(skill.name)),
     mcps: merged.mcps.filter((mcp) => chosenMcps.has(mcp.name)),
+    hooks: merged.hooks.filter((hook) => chosenHooks.has(hook.name)),
   };
 }
 
@@ -396,6 +479,7 @@ function selectedByScope(selecting: ReadonlySet<string>, declared: readonly stri
 interface ExplicitNames {
   readonly skills: ReadonlySet<string>;
   readonly mcps: ReadonlySet<string>;
+  readonly hooks: ReadonlySet<string>;
 }
 
 /**
@@ -416,11 +500,12 @@ export function unknownExplicitSkill(name: string, config: ProjectConfig): Ambit
 }
 
 /**
- * The skills and servers config names outright, whatever scopes they declare.
+ * The skills, servers and hooks config names outright, whatever scopes they declare.
  *
- * A `skills` entry carrying its own `source`, and every inline `mcps` entry, were folded into
- * `merged` before resolution (see `mergeConfigEntities`), so both `skills` forms resolve by name
- * here and neither needs a case of its own.
+ * A `skills` entry carrying its own `source`, and every inline `mcps` and `hooks` entry, were folded
+ * into `merged` before resolution (see `mergeConfigEntities`), so both `skills` forms resolve by name
+ * here and neither needs a case of its own. What is collected here is only which *names* the config
+ * asked for by writing them down, which is what makes their reason `explicit`.
  *
  * @throws {AmbitError} exit 3 for a name nothing provides.
  */
@@ -436,6 +521,7 @@ function explicitNames(config: ProjectConfig, merged: MergedCatalog): ExplicitNa
   return {
     skills: new Set(config.skills.map((request) => request.name)),
     mcps: new Set(config.mcps.map((entity) => entity.name)),
+    hooks: new Set(config.hooks.map((entity) => entity.name)),
   };
 }
 
@@ -510,7 +596,7 @@ function requiredByReason(
   item: BundleItem,
   selected: readonly MergedSkill[],
 ): SelectionReason | undefined {
-  const target = item.kind === "mcp" ? `${MCP_REQUIREMENT_PREFIX}${item.name}` : item.name;
+  const target = requirementFor(item);
   const requirer = selected.find((skill) => skill.requires.includes(target));
   return requirer === undefined ? undefined : { kind: "required-by", requirer: requirer.name };
 }
@@ -554,10 +640,21 @@ function selectionReasons(
   return reasons;
 }
 
+/** The reasons of the namespace `kind` names, so a lookup never has to know which map that is. */
+function reasonsOf(bundle: Bundle, kind: ItemKind): ReadonlyMap<string, SelectionReason> {
+  switch (kind) {
+    case "skill":
+      return bundle.reasons.skills;
+    case "mcp":
+      return bundle.reasons.mcps;
+    case "hook":
+      return bundle.reasons.hooks;
+  }
+}
+
 /** Whether an item is in the bundle. */
 export function isSelected(bundle: Bundle, item: BundleItem): boolean {
-  const reasons = item.kind === "skill" ? bundle.reasons.skills : bundle.reasons.mcps;
-  return reasons.has(item.name);
+  return reasonsOf(bundle, item.kind).has(item.name);
 }
 
 /**
@@ -567,8 +664,7 @@ export function isSelected(bundle: Bundle, item: BundleItem): boolean {
  *   first, so a name a user typed is rejected as the resolution error it is.
  */
 export function reasonOf(bundle: Bundle, item: BundleItem): SelectionReason {
-  const reasons = item.kind === "skill" ? bundle.reasons.skills : bundle.reasons.mcps;
-  const reason = reasons.get(item.name);
+  const reason = reasonsOf(bundle, item.kind).get(item.name);
   if (reason === undefined) throw unexplainable(item, "it is not in the bundle");
   return reason;
 }
@@ -613,14 +709,16 @@ export function explainSelection(bundle: Bundle, item: BundleItem): readonly Rea
  * preserves it and no collection is iterated in filesystem order.
  *
  * `env` is unioned over the closed selection, not the scope-selected one: a server
- * pulled in by `requires` needs its credentials as much as one selected by scope.
+ * pulled in by `requires` needs its credentials as much as one selected by scope. A hook's `env`
+ * joins it too — a hook that cannot see its credential is as broken as a server that cannot.
  *
  * Reasons are computed here rather than on request, so `--explain`, `ambit why`, and the lock all
  * report the same answer, and so a bundle that cannot account for an item fails at resolution
  * instead of at whichever surface happens to ask first.
  *
  * @param merged the catalogs, with the project's own declarations already folded in — a `skills`
- *   entry carrying a `source`, and inline `mcps` — as `mergeConfigEntities` does.
+ *   entry carrying a `source`, inline `mcps`, and inline `hooks` — as `mergeConfigEntities` does, so
+ *   every namespace resolves by name here and no surface needs a case of its own.
  * @throws {AmbitError} exit 3 for a held scope the merged registry does not know, an explicit skill
  *   nothing provides, a requirement no catalog provides, or a `requires` cycle.
  */
@@ -631,14 +729,19 @@ export function resolveBundle(config: ProjectConfig, merged: MergedCatalog): Bun
   const selecting = expandHeldScopes(config.scopes, merged.scopes);
   const explicit = explicitNames(config, merged);
 
-  // Both seed lists stay in name order, being filters of the merged catalog, so how something was
-  // selected cannot change where it lands in the bundle.
-  const { skills, mcps } = closeOverRequires(
+  // All three seed lists stay in name order, being filters of the merged catalog, so how something
+  // was selected cannot change where it lands in the bundle. The third one means a catalog hook is
+  // reached by scope exactly as a server is, and an inline one — folded in as explicit — is selected
+  // whatever scopes it names.
+  const { skills, mcps, hooks } = closeOverRequires(
     merged.skills.filter(
       (skill) => explicit.skills.has(skill.name) || selectedByScope(selecting, skill.scopes),
     ),
     merged.mcps.filter(
       (mcp) => explicit.mcps.has(mcp.name) || selectedByScope(selecting, mcp.scopes),
+    ),
+    merged.hooks.filter(
+      (hook) => explicit.hooks.has(hook.name) || selectedByScope(selecting, hook.scopes),
     ),
     merged,
   );
@@ -647,10 +750,16 @@ export function resolveBundle(config: ProjectConfig, merged: MergedCatalog): Bun
     scopes: held,
     skills,
     mcps,
-    env: sortedUnique([...skills.flatMap((skill) => skill.env), ...mcps.flatMap((mcp) => mcp.env)]),
+    hooks,
+    env: sortedUnique([
+      ...skills.flatMap((skill) => skill.env),
+      ...mcps.flatMap((mcp) => mcp.env),
+      ...hooks.flatMap((hook) => hook.env),
+    ]),
     reasons: {
       skills: selectionReasons(skills, "skill", explicit.skills, selecting, held, skills),
       mcps: selectionReasons(mcps, "mcp", explicit.mcps, selecting, held, skills),
+      hooks: selectionReasons(hooks, "hook", explicit.hooks, selecting, held, skills),
     },
   };
 }

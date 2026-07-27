@@ -5,6 +5,11 @@ import { COMMAND_SPECS, buildCommand } from "./commands.js";
 import { AmbitError, ExitCode } from "../errors.js";
 import { catalogAnnotateHandler, catalogAnnotateRule } from "./handlers/catalog-annotate.js";
 import { catalogAuditHandler } from "./handlers/catalog-audit.js";
+import {
+  catalogHookNewHandler,
+  catalogHookNewRule,
+  catalogHookRemoveHandler,
+} from "./handlers/catalog-hook.js";
 import { catalogInitHandler } from "./handlers/catalog-init.js";
 import {
   catalogMcpNewHandler,
@@ -48,6 +53,8 @@ export type Io = Pick<CommandContext, "cwd" | "stdout" | "stderr">;
 export const HANDLERS: CommandHandlers = {
   "catalog annotate": catalogAnnotateHandler,
   "catalog audit": catalogAuditHandler,
+  "catalog hook new": catalogHookNewHandler,
+  "catalog hook rm": catalogHookRemoveHandler,
   "catalog init": catalogInitHandler,
   "catalog mcp new": catalogMcpNewHandler,
   "catalog mcp rm": catalogMcpRemoveHandler,
@@ -77,7 +84,7 @@ export const HANDLERS: CommandHandlers = {
  * was given, before it is dispatched (`buildCommand` hangs each one off its command as a `preAction`
  * hook).
  *
- * Only three commands need one, and each is here rather than on a Commander primitive for the same
+ * Only four commands need one, and each is here rather than on a Commander primitive for the same
  * reason: `.makeOptionMandatory()` and `.conflicts()` produce a message that names no file and gives no
  * next step, which every error a user can reach has to give. `install`'s `--copy`/`--link` is
  * the counter-example that stayed on `.conflicts()` — Commander's wording for two flags that cannot
@@ -85,6 +92,7 @@ export const HANDLERS: CommandHandlers = {
  */
 export const RULES: CommandRules = {
   "catalog annotate": catalogAnnotateRule,
+  "catalog hook new": catalogHookNewRule,
   "catalog mcp new": catalogMcpNewRule,
   "catalog scope add": catalogScopeAddRule,
 };

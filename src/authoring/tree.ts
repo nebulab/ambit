@@ -34,10 +34,11 @@ import { parseCatalogDirectory } from "../model/catalog.js";
 import { SCOPE_SEPARATOR } from "../resolution/resolve.js";
 
 /**
- * What a scope selects, by name and by kind — the two namespaces `ambit dump-catalog` keys separately, in the
- * same order, since a report about one scope reads like a slice of that one.
+ * What a scope selects, by name and by kind — the three namespaces `ambit dump-catalog` keys separately, in
+ * the same order, since a report about one scope reads like a slice of that one.
  */
 export interface ScopeSelection {
+  readonly hooks: readonly string[];
   readonly mcps: readonly string[];
   readonly skills: readonly string[];
 }
@@ -62,18 +63,29 @@ function sortedUnique(values: readonly string[]): readonly string[] {
   return [...new Set(values)].sort(compare);
 }
 
-/** How many items a selection holds, which is what the report counts. */
+/**
+ * How many items a selection holds, which is what the report counts.
+ *
+ * All three namespaces, so this one function answers "what does this scope select?" for every report
+ * that asks — `catalog audit`'s dead-scope rule reads it too, and a namespace counted in one and not
+ * the other would have the two disagreeing about the same catalog.
+ */
 export function selectionSize(selection: ScopeSelection): number {
-  return selection.mcps.length + selection.skills.length;
+  return selection.hooks.length + selection.mcps.length + selection.skills.length;
 }
 
-function selectionOf(mcps: readonly string[], skills: readonly string[]): ScopeSelection {
-  return { mcps: sortedUnique(mcps), skills: sortedUnique(skills) };
+function selectionOf(
+  hooks: readonly string[],
+  mcps: readonly string[],
+  skills: readonly string[],
+): ScopeSelection {
+  return { hooks: sortedUnique(hooks), mcps: sortedUnique(mcps), skills: sortedUnique(skills) };
 }
 
 /** Everything in `selections`, merged. */
 function union(selections: readonly ScopeSelection[]): ScopeSelection {
   return selectionOf(
+    selections.flatMap((selection) => [...selection.hooks]),
     selections.flatMap((selection) => [...selection.mcps]),
     selections.flatMap((selection) => [...selection.skills]),
   );
@@ -81,9 +93,11 @@ function union(selections: readonly ScopeSelection[]): ScopeSelection {
 
 /** `selection` without anything `taken` already holds, so the two never count one item twice. */
 function without(selection: ScopeSelection, taken: ScopeSelection): ScopeSelection {
+  const hooks = new Set(taken.hooks);
   const mcps = new Set(taken.mcps);
   const skills = new Set(taken.skills);
   return {
+    hooks: selection.hooks.filter((name) => !hooks.has(name)),
     mcps: selection.mcps.filter((name) => !mcps.has(name)),
     skills: selection.skills.filter((name) => !skills.has(name)),
   };
@@ -96,7 +110,7 @@ function declaredBy(catalog: Catalog, scope: string): ScopeSelection {
   ): readonly string[] =>
     items.filter((item) => item.scopes.includes(scope)).map((item) => item.name);
 
-  return selectionOf(declaring(catalog.mcps), declaring(catalog.skills));
+  return selectionOf(declaring(catalog.hooks), declaring(catalog.mcps), declaring(catalog.skills));
 }
 
 /**

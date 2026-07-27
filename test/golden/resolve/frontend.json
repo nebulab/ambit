@@ -2,6 +2,7 @@
   "env": [
     "ACME_FIGMA_TOKEN"
   ],
+  "hooks": {},
   "mcps": {},
   "scopes": [
     "function.engineering.frontend"

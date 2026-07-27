@@ -20,9 +20,12 @@ import {
   PROFILES,
   vscode,
 } from "../../src/harness/definitions.js";
+import type { ProjectPaths } from "../../src/harness/adapter.js";
 import type { HarnessProfile } from "../../src/harness/profile.js";
-import { SHARED_SKILLS_DIR } from "../../src/harness/profile.js";
-import type { MergedMcp } from "../../src/model/catalog.js";
+import { SHARED_SKILLS_DIR, skippedHooks } from "../../src/harness/profile.js";
+import type { MergedHook, MergedMcp } from "../../src/model/catalog.js";
+import type { HookEvent } from "../../src/model/hook-entity.js";
+import { HOOK_EVENTS } from "../../src/model/hook-entity.js";
 
 /** Where Claude Code and Cursor read skills, and so the one link ambit plans. */
 const CLAUDE_SKILLS_LINK = ".claude/skills";
@@ -298,5 +301,306 @@ describe("a credential in a stdio server's arguments", () => {
     expect(argsFor(cursor).at(-1)).toBe("Authorization: Bearer ${TOKEN}");
     expect(argsFor(opencode).at(-1)).toBe("Authorization: Bearer ${TOKEN}");
     expect(argsFor(vscode).at(-1)).toBe("Authorization: Bearer ${env:TOKEN}");
+  });
+});
+
+/**
+ * The hook each profile emits.
+ *
+ * Four harnesses express hooks, in two shapes: Claude, VS Code and Codex render one entry — the first
+ * two into one shared file, Codex into its own — and Cursor shares nothing with any of them. So the
+ * claims are each entry's exact shape, its key order, and which harnesses render the same bytes. Key
+ * order is load-bearing here in a way it is not for a server: the managed key is a digest of these
+ * bytes, so reordering them renames every hook every project owns.
+ *
+ * The fifth harness expresses none, which is the other thing asserted here: opencode carries no layout,
+ * and `skippedHooks` turns that absence into something the run reports.
+ */
+describe("the hook each profile emits", () => {
+  const PROJECT: ProjectPaths = { root: "/tmp/ambit-project" };
+
+  /** A hook carrying both optional fields, which is where the shape has anything to say. */
+  const HOOK: MergedHook = {
+    name: "block-rm",
+    catalog: "company",
+    shipsScript: false,
+    scopes: [],
+    env: [],
+    event: "PreToolUse",
+    matcher: "Bash",
+    command: "./bin/block-rm",
+    timeout: 30,
+  };
+
+  /** A hook carrying neither, on the event a `matcher` is not even allowed on. */
+  const BARE: MergedHook = {
+    name: "greet",
+    catalog: "company",
+    shipsScript: false,
+    scopes: [],
+    env: [],
+    event: "SessionStart",
+    command: "./bin/greet",
+  };
+
+  it("gives Claude and VS Code one shared file, and Codex one of its own", () => {
+    const layout = {
+      file: ".claude/settings.json",
+      section: "hooks",
+      format: "json",
+      shape: "array",
+    };
+
+    expect(claude.hooks).toEqual(layout);
+    // The same file, so a project configuring both writes it once.
+    expect(vscode.hooks).toEqual(layout);
+    // Codex differs in the file and in nothing else — Claude's section, Claude's shape, Claude's
+    // entries. Not `[hooks]` in `.codex/config.toml`, which Codex also reads: that is an
+    // array-of-tables, which the TOML driver refuses, so it would cost a second driver to write a
+    // document Codex is equally happy to read as JSON.
+    expect(codex.hooks).toEqual({ ...layout, file: ".codex/hooks.json" });
+    // No `events` on any of the three: all read ambit's own PascalCase spellings. And no `rootDefaults`
+    // either — Claude's file is a person's and Codex's holds hooks alone, so ambit seeds no key in
+    // either beyond the hooks it was asked for.
+    expect(opencode.hooks).toBeUndefined();
+  });
+
+  it("leaves opencode without hooks, which is what makes a hook for it a skip", () => {
+    // The one harness with no declarative mechanism at all: it runs TypeScript plugins, which is code
+    // rather than config. So the profile carries no layout and no renderer, and `skippedHooks` reads
+    // that absence as the reason.
+    expect(opencode.hooks).toBeUndefined();
+    expect(opencode.hookConfig).toBeUndefined();
+    expect(PROFILES.filter((profile) => profile.hooks === undefined).map((p) => p.name)).toEqual([
+      "opencode",
+    ]);
+  });
+
+  it("gives Cursor a file of its own, a `version` to seed, and its own event names", () => {
+    expect(cursor.hooks).toEqual({
+      file: ".cursor/hooks.json",
+      section: "hooks",
+      format: "json",
+      shape: "array",
+      rootDefaults: { version: 1 },
+      events: {
+        SessionStart: "sessionStart",
+        UserPromptSubmit: "userPromptSubmit",
+        PreToolUse: "preToolUse",
+        PostToolUse: "postToolUse",
+        Stop: "stop",
+        SubagentStop: "subagentStop",
+        PreCompact: "preCompact",
+        SessionEnd: "sessionEnd",
+      },
+    });
+  });
+
+  it("spells every event ambit knows, so no hook lands in an array Cursor never reads", () => {
+    // Total over the vocabulary rather than nearly so: a missing spelling would write an entry into an
+    // array named the Claude way, which Cursor would ignore in silence.
+    expect(Object.keys(cursor.hooks?.events ?? {})).toEqual([...HOOK_EVENTS]);
+  });
+
+  it("pairs a layout with a renderer, so a profile carries both or neither", () => {
+    for (const profile of PROFILES) {
+      expect(profile.hookConfig === undefined, profile.name).toBe(profile.hooks === undefined);
+    }
+  });
+
+  it("writes the entry Claude Code's own documentation describes, in that key order", () => {
+    const emitted = claude.hookConfig?.(HOOK, PROJECT);
+
+    expect(emitted).toEqual({
+      matcher: "Bash",
+      hooks: [{ type: "command", command: "./bin/block-rm", timeout: 30 }],
+    });
+    expect(Object.keys(emitted as object)).toEqual(["matcher", "hooks"]);
+    const [command] = (emitted as { hooks: readonly object[] }).hooks;
+    expect(Object.keys(command as object)).toEqual(["type", "command", "timeout"]);
+  });
+
+  it("omits a `matcher` and a `timeout` the hook does not declare", () => {
+    expect(claude.hookConfig?.(BARE, PROJECT)).toEqual({
+      hooks: [{ type: "command", command: "./bin/greet" }],
+    });
+  });
+
+  it("renders one entry for the three harnesses that read Claude's shape", () => {
+    // Byte equality, not structural: the digest that identifies the entry is taken over exactly these
+    // bytes, so two renderings that differ only in key order would be two entries in one array. For
+    // Claude and VS Code that is what lets them share the file; for Codex it is what makes the same
+    // hook carry the same digest in a file of its own.
+    const claudes = JSON.stringify(claude.hookConfig?.(HOOK, PROJECT));
+
+    expect(JSON.stringify(vscode.hookConfig?.(HOOK, PROJECT))).toBe(claudes);
+    expect(JSON.stringify(codex.hookConfig?.(HOOK, PROJECT))).toBe(claudes);
+  });
+
+  it("writes Cursor's flat entry, which nests nothing and carries no matcher", () => {
+    const emitted = cursor.hookConfig?.(HOOK, PROJECT);
+
+    // Cursor has no field for a tool `matcher`, so `Bash` is dropped rather than written through into a
+    // key the harness would ignore — and no inner `hooks` array, because one entry is one command.
+    expect(emitted).toEqual({ command: "./bin/block-rm", timeout: 30 });
+    expect(Object.keys(emitted as object)).toEqual(["command", "timeout"]);
+  });
+
+  it("omits a `timeout` a Cursor hook does not declare", () => {
+    expect(cursor.hookConfig?.(BARE, PROJECT)).toEqual({ command: "./bin/greet" });
+  });
+
+  it("renders Cursor's entry differently from Claude's, which is why the files stay separate", () => {
+    // Not a detail: the two renderings have different digests, so `planFor` cannot collapse them and a
+    // project on both harnesses gets two artifacts rather than one written twice.
+    expect(JSON.stringify(cursor.hookConfig?.(HOOK, PROJECT))).not.toBe(
+      JSON.stringify(claude.hookConfig?.(HOOK, PROJECT)),
+    );
+  });
+
+  /**
+   * The command a shipped script is written as, per harness.
+   *
+   * The one string that decides whether a materialized hook actually runs, and it is genuinely
+   * per-harness: a catalog declares `command: hook.sh`, which names a file relative to the hook's own
+   * directory in the catalog — a location no harness has ever heard of. So the rendered command has to
+   * say where the *installed* script is, spelled the way that harness resolves a path.
+   *
+   * Asserted as exact strings rather than by pattern, because a placeholder a harness does not
+   * interpolate is not a near miss: it is a hook that never fires, and it fails silently.
+   */
+  describe("a hook that ships its own script", () => {
+    /** The script-shipping counterpart of {@link HOOK}: the same declaration, `shipsScript` set. */
+    const SCRIPT: MergedHook = {
+      ...HOOK,
+      catalogRoot: "/catalogs/company",
+      path: "hooks/block-rm",
+      command: "hook.sh",
+      shipsScript: true,
+    };
+
+    /** The command out of one profile's rendering, whichever shape it wrote. */
+    function commandOf(profile: HarnessProfile, hook: MergedHook): string {
+      const emitted = profile.hookConfig?.(hook, PROJECT) as {
+        command?: string;
+        hooks?: readonly { command: string }[];
+      };
+      return emitted.command ?? emitted.hooks?.[0]?.command ?? "";
+    }
+
+    it("points Claude and VS Code at the project root through Claude's own placeholder", () => {
+      // `${CLAUDE_PROJECT_DIR}` is documented — by Claude — as interpolated in `command` and as holding
+      // the project root, so the script is found however deep in the tree the session's cwd sits. VS Code
+      // reads this same file and gets the same string, documented or not: a second spelling would put two
+      // entries in one array for one declared hook, and both harnesses would run both.
+      expect(commandOf(claude, SCRIPT)).toBe(
+        "${CLAUDE_PROJECT_DIR}/.agents/hooks/block-rm/hook.sh",
+      );
+      expect(commandOf(vscode, SCRIPT)).toBe(
+        "${CLAUDE_PROJECT_DIR}/.agents/hooks/block-rm/hook.sh",
+      );
+    });
+
+    it("writes Cursor and Codex a project-relative path, and no subshell", () => {
+      // Neither interpolates anything in a `command`, so the path as written is all there is. Codex's
+      // own docs suggest `$(git rev-parse --show-toplevel)/…`; ambit does not write it — it assumes git
+      // and a POSIX shell, and a config file holding a subshell is not a value a reader can check.
+      expect(commandOf(cursor, SCRIPT)).toBe(".agents/hooks/block-rm/hook.sh");
+      expect(commandOf(codex, SCRIPT)).toBe(".agents/hooks/block-rm/hook.sh");
+      for (const profile of [cursor, codex]) {
+        expect(commandOf(profile, SCRIPT)).not.toContain("git rev-parse");
+        expect(commandOf(profile, SCRIPT)).not.toContain("${");
+      }
+    });
+
+    it("gives Codex a different command from Claude's, sharing the entry shape and not the path", () => {
+      // Which is why `root` is a parameter of the Claude renderer rather than a constant inside it: the
+      // three harnesses agree on the shape of an entry and disagree on how to name a file.
+      expect(commandOf(codex, SCRIPT)).not.toBe(commandOf(claude, SCRIPT));
+      expect(Object.keys(claude.hookConfig?.(SCRIPT, PROJECT) as object)).toEqual(
+        Object.keys(codex.hookConfig?.(SCRIPT, PROJECT) as object),
+      );
+    });
+
+    it("rewrites the program and keeps every argument", () => {
+      // `command` is a shell fragment ambit does not parse, so only the first token — the one thing that
+      // can name a shipped file — is rewritten. An argument that happens to look like a path is the
+      // program's business, not ambit's.
+      const withArgs: MergedHook = { ...SCRIPT, command: "./hook.sh --strict bin/other" };
+
+      expect(commandOf(claude, withArgs)).toBe(
+        "${CLAUDE_PROJECT_DIR}/.agents/hooks/block-rm/hook.sh --strict bin/other",
+      );
+      expect(commandOf(cursor, withArgs)).toBe(".agents/hooks/block-rm/hook.sh --strict bin/other");
+    });
+
+    it("leaves a hook that ships nothing exactly as declared", () => {
+      // The command line case, which is most hooks: prefixing `npx --yes prettier` with a directory
+      // would break it, and there are no bytes at that directory to point at anyway.
+      const inline: MergedHook = { ...HOOK, command: "npx --yes prettier --check" };
+
+      for (const profile of [claude, codex, cursor, vscode]) {
+        expect(commandOf(profile, inline), profile.name).toBe("npx --yes prettier --check");
+      }
+      // Including one whose command reads as a path but ships nothing: `shipsScript` is the answer, and
+      // the catalog derived it by looking. Rewriting on the spelling alone would point at a file the
+      // hook's directory never held.
+      expect(commandOf(claude, HOOK)).toBe("./bin/block-rm");
+    });
+  });
+
+  it("resolves no variable in a command, and rewrites no reference either", () => {
+    process.env.TOKEN = "s3cret";
+    try {
+      const emitted = claude.hookConfig?.({ ...BARE, command: "./bin/greet ${TOKEN}" }, PROJECT);
+
+      // Unlike an MCP transport: a hook's command is run by a shell the harness spawns, so `${TOKEN}`
+      // already means the right thing and translating it would be rewriting a shell fragment.
+      expect(JSON.stringify(emitted)).toContain("${TOKEN}");
+      expect(JSON.stringify(emitted)).not.toContain("s3cret");
+    } finally {
+      delete process.env.TOKEN;
+    }
+  });
+
+  /**
+   * What a harness declines, as the other half of what it writes.
+   *
+   * One predicate answers both — a hook is planned for the array it belongs in, or skipped because there
+   * is none — so these cases and the ones above partition every hook a bundle can hold.
+   */
+  describe("skippedHooks", () => {
+    it("accounts for every hook on the harness that expresses none", () => {
+      expect(skippedHooks(opencode, [HOOK, BARE])).toEqual([
+        { harness: "opencode", hook: "block-rm", event: "PreToolUse", reason: "no-mechanism" },
+        { harness: "opencode", hook: "greet", event: "SessionStart", reason: "no-mechanism" },
+      ]);
+    });
+
+    it("skips nothing on the four harnesses that do, for every event ambit knows", () => {
+      for (const profile of PROFILES.filter((candidate) => candidate.hooks !== undefined)) {
+        const every = HOOK_EVENTS.map((event) => ({ ...BARE, event }));
+        expect(skippedHooks(profile, every), profile.name).toEqual([]);
+      }
+    });
+
+    it("skips a hook whose event a harness has no spelling for", () => {
+      // Unreachable through the profiles this build ships — `HookLayout.events` is total over
+      // `HookEvent`, so a missing spelling is a type error at the declaration. This is the second line
+      // of defence for the day the vocabulary grows: the hook is skipped and named, rather than written
+      // into an array named the Claude way that Cursor would ignore in silence.
+      const partial: HarnessProfile = {
+        ...cursor,
+        hooks: {
+          ...(cursor.hooks as NonNullable<HarnessProfile["hooks"]>),
+          events: { SessionStart: "sessionStart" } as Readonly<Record<HookEvent, string>>,
+        },
+      };
+
+      expect(skippedHooks(partial, [BARE])).toEqual([]);
+      expect(skippedHooks(partial, [HOOK])).toEqual([
+        { harness: "cursor", hook: "block-rm", event: "PreToolUse", reason: "no-event" },
+      ]);
+    });
   });
 });

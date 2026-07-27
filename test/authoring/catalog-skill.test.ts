@@ -511,7 +511,8 @@ describe("ambit catalog skill mv", () => {
     const provided = new Set(skills.map((candidate) => candidate.name));
     for (const candidate of skills) {
       for (const requirement of candidate.requires) {
-        if (requirement.startsWith("mcp.")) continue;
+        // A prefixed requirement names another namespace, which a skill rename cannot break.
+        if (requirement.startsWith("mcp.") || requirement.startsWith("hook.")) continue;
         expect(provided.has(requirement), `${candidate.name} requires ${requirement}`).toBe(true);
       }
     }

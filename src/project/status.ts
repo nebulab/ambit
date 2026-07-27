@@ -28,9 +28,9 @@ import path from "node:path";
 
 import type {
   PlannedArtifact,
+  PlannedCatalogDir,
   PlannedHarnessConfig,
   PlannedPathArtifact,
-  PlannedSkillDir,
   PlannedSkillsLink,
   ProjectPaths,
 } from "../harness/adapter.js";
@@ -186,8 +186,8 @@ async function sameBytes(source: string, target: string): Promise<boolean> {
 }
 
 /**
- * The first difference between a skill's source and what is installed, or undefined when the two
- * agree.
+ * The first difference between a materialized directory's source and what is installed, or undefined
+ * when the two agree.
  *
  * One difference rather than all of them, and the first in sorted order rather than the first found,
  * so two identical projects report identically. A whole diff belongs to a diff tool; what a status
@@ -195,7 +195,7 @@ async function sameBytes(source: string, target: string): Promise<boolean> {
  *
  * @throws {AmbitError} exit 2 when either tree cannot be listed.
  */
-async function firstDifference(artifact: PlannedSkillDir): Promise<string | undefined> {
+async function firstDifference(artifact: PlannedCatalogDir): Promise<string | undefined> {
   const [expected, actual] = await Promise.all([
     fileList(artifact.source, `the source of "${artifact.name}"`),
     fileList(artifact.target, artifact.path),
@@ -242,22 +242,6 @@ async function linkVerdict(artifact: PlannedPathArtifact): Promise<Verdict> {
 }
 
 /**
- * Compares one planned skill directory against the project.
- *
- * Existence, then ownership, then contents: something ambit did not create is `unowned` whatever it
- * holds, because install would refuse it rather than compare it.
- *
- * What is on disk decides *how* the comparison is made, not the plan's `mode`. A link is checked for
- * pointing at its source; a directory is compared byte for byte. So a project installed with `--copy`
- * whose copies are intact reads as clean even though a plain `install` would relink it: the mode is a
- * per-run choice, both modes put the same bytes in front of the harness, and the
- * alternative would leave anyone who uses the flag with a `status --check` that can never pass.
- * Reporting mode divergence belongs to `doctor` (A24), which is the command for "this is not how it
- * would be set up today".
- *
- * @throws {AmbitError} exit 2 when the target cannot be inspected.
- */
-/**
  * The skills link: present, ambit's, and pointing where the plan says.
  *
  * A directory here is the pre-shared-layout install, which `install` migrates by replacing it — so it
@@ -276,8 +260,28 @@ async function skillsLinkVerdict(
   return { state: "modified", detail: `it is not a symlink to ${SHARED_SKILLS_DIR}` };
 }
 
-async function skillVerdict(
-  artifact: PlannedSkillDir,
+/**
+ * Compares one planned directory — a skill's, or a hook's shipped script — against the project.
+ *
+ * Existence, then ownership, then contents: something ambit did not create is `unowned` whatever it
+ * holds, because install would refuse it rather than compare it.
+ *
+ * What is on disk decides *how* the comparison is made, not the plan's `mode`. A link is checked for
+ * pointing at its source; a directory is compared byte for byte. So a project installed with `--copy`
+ * whose copies are intact reads as clean even though a plain `install` would relink it: the mode is a
+ * per-run choice, both modes put the same bytes in front of the harness, and the
+ * alternative would leave anyone who uses the flag with a `status --check` that can never pass.
+ * Reporting mode divergence belongs to `doctor` (A24), which is the command for "this is not how it
+ * would be set up today".
+ *
+ * One function for both kinds because the comparison is about the directory rather than its contents —
+ * the argument {@link PlannedCatalogDir} makes. A hook directory handed to {@link configVerdict}
+ * instead would be read as a document, which is the failure this branch exists to prevent.
+ *
+ * @throws {AmbitError} exit 2 when the target cannot be inspected.
+ */
+async function catalogDirVerdict(
+  artifact: PlannedCatalogDir,
   owned: ReadonlySet<string>,
 ): Promise<Verdict> {
   const shape = await shapeOf(artifact.target, artifact.path);
@@ -306,6 +310,14 @@ async function skillVerdict(
  * putting it to the code that would do the writing is both cheaper and harder to get wrong than a
  * second, parallel notion of equality.
  *
+ * In an array section the digest *is* the key, so the two verdicts divide differently there than they
+ * do for a server: a hook entry someone edited is not a changed value but an absent key, and the row
+ * reads `missing`. Which is the whole reason this comparison matters for hooks — an install would
+ * append ambit's entry beside the edited one, so a person needs the row before the run rather than a
+ * second hook on the event afterwards. A *declaration* someone edited reads the same way, and there
+ * the digest state claims is one the plan no longer writes, so the next install prunes it and writes
+ * the current one.
+ *
  * @param stale the keys prior state claims here that the plan no longer writes, sorted.
  * @throws {AmbitError} exit 2 if the file exists but cannot be parsed.
  */
@@ -319,7 +331,7 @@ async function configVerdict(
   const text = await readDocumentText(target, file);
 
   for (const artifact of artifacts) {
-    const driver = driverFor(artifact.format);
+    const driver = driverFor(artifact.format, artifact.shape);
     const present = driver.sectionKeys(text, artifact.section, file);
     for (const entry of artifact.entries) {
       const key = managedKey(artifact.section, entry.key);
@@ -387,8 +399,8 @@ async function compareArtifacts(
     // artifacts of different kinds at one path would be an adapter bug, not a project's problem.
     if (first === undefined) continue;
 
-    if (first.kind === "skill-dir") {
-      rows.push({ path: file, kind: first.kind, ...(await skillVerdict(first, owned)) });
+    if (first.kind === "skill-dir" || first.kind === "hook-dir") {
+      rows.push({ path: file, kind: first.kind, ...(await catalogDirVerdict(first, owned)) });
       continue;
     }
 

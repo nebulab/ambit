@@ -35,7 +35,7 @@ function counted(selection: ScopeSelection, word: string): string {
 }
 
 function selectionJson(selection: ScopeSelection): Readonly<Record<string, unknown>> {
-  return { mcps: selection.mcps, skills: selection.skills };
+  return { hooks: selection.hooks, mcps: selection.mcps, skills: selection.skills };
 }
 
 /** Keys in one order, sorted, so the emitted JSON is byte-stable (`keyed` in `src/cli/output.ts`). */

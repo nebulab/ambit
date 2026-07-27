@@ -96,6 +96,29 @@ async function installedSkills(): Promise<readonly string[]> {
   }
 }
 
+/**
+ * Adds a hook to the fixture catalog, held by `core`.
+ *
+ * @param name the hook's directory and name.
+ * @param body further `HOOK.yml` lines — `event`, `command`, and whatever else the case needs.
+ * @param script when given, written beside `HOOK.yml` under that filename, which makes `command:
+ *   <filename>` a shipped script rather than a command line.
+ */
+async function writeCatalogHook(
+  name: string,
+  body: readonly string[],
+  script?: { readonly file: string; readonly body: string },
+): Promise<void> {
+  const dir = path.join(catalogDir, "hooks", name);
+  await mkdir(dir, { recursive: true });
+  await writeFile(
+    path.join(dir, "HOOK.yml"),
+    [`name: ${name}`, "scopes: [core]", ...body, ""].join("\n"),
+    "utf8",
+  );
+  if (script !== undefined) await writeFile(path.join(dir, script.file), script.body, "utf8");
+}
+
 /** What the project's current profile resolves to against `catalogs`. */
 async function bundleFrom(catalogs: readonly Catalog[]): Promise<Bundle> {
   const context: SourceContext = { projectDir, env: process.env };
@@ -126,6 +149,16 @@ describe("ambit.lock", () => {
         "catalogs:",
         `  ${CATALOG_NAME}:`,
         `    source: ${CATALOG_SOURCE}`,
+        // `path` on the hook that ships a script and not on the inline one: a lock pins bytes, and an
+        // inline command is config values, which is the argument the servers make.
+        "hooks:",
+        "  guard-secrets:",
+        `    catalog: ${CATALOG_NAME}`,
+        "    path: hooks/guard-secrets",
+        "    reason: scope:function.engineering",
+        "  session-notes:",
+        `    catalog: ${CATALOG_NAME}`,
+        "    reason: scope:core",
         "mcps:",
         "  scoped:",
         `    catalog: ${CATALOG_NAME}`,
@@ -176,6 +209,7 @@ describe("ambit.lock", () => {
         "catalogs:",
         `  ${CATALOG_NAME}:`,
         `    source: ${CATALOG_SOURCE}`,
+        "hooks: {}",
         "mcps: {}",
         "skills: {}",
         "version: 1",
@@ -199,6 +233,63 @@ describe("ambit.lock", () => {
     expect(lock.requireMapping("mcps").requireMapping("fixture").requireString("reason")).toBe(
       `required-by:${PROJECT_SKILL}`,
     );
+  });
+
+  it("records an inline hook as config values, with no bytes to pin", async () => {
+    await writeProfile(
+      [],
+      ["hooks:", "  - name: notify", "    event: Stop", "    command: ./notify"],
+    );
+
+    await cli("install");
+    const entry = parseYamlMapping(await readLock(), LOCK_FILENAME)
+      .requireMapping("hooks")
+      .requireMapping("notify");
+
+    // An inline hook is a handful of config values from `ambit.yml`, which has no revision and no
+    // directory — so it takes `LockMcp`'s shape, and `catalog` names the file a reader edits.
+    expect(entry.keys()).toEqual(["catalog", "reason"]);
+    expect(entry.requireString("catalog")).toBe("ambit.yml");
+    expect(entry.requireString("reason")).toBe("explicit");
+  });
+
+  it("pins where a hook's bytes came from only when it ships a script", async () => {
+    await writeCatalogHook("block-rm", ["event: PreToolUse", "command: hook.sh"], {
+      file: "hook.sh",
+      body: "#!/bin/sh\nexit 0\n",
+    });
+    await writeCatalogHook("announce", ["event: Stop", "command: npx --yes say done"]);
+    await writeProfile(["core"]);
+
+    // Through `buildLock` rather than the CLI, so the commit is a value rather than something a git
+    // source has to supply — the same trick the numeric-SHA case below uses.
+    const catalog = await parseCatalogDirectory(
+      CATALOG_NAME,
+      CATALOG_SOURCE,
+      catalogDir,
+      "abc1234",
+    );
+    const hooks = parseYamlMapping(
+      serializeLock(buildLock([catalog], await bundleFrom([catalog]))),
+      LOCK_FILENAME,
+    ).requireMapping("hooks");
+
+    // `command: hook.sh` names a file the hook's directory holds, so an install materializes those
+    // bytes and the lock says which they were. `path` is the catalog-relative directory, as a skill's
+    // is — never the command written into a harness file, which is rewritten per harness and so is no
+    // single value a lock could hold.
+    const shipping = hooks.requireMapping("block-rm");
+    expect(shipping.keys()).toEqual(["catalog", "commit", "path", "reason"]);
+    expect(shipping.requireString("catalog")).toBe(CATALOG_NAME);
+    expect(shipping.requireString("path")).toBe("hooks/block-rm");
+    expect(shipping.requireString("commit")).toBe("abc1234");
+    expect(shipping.requireString("reason")).toBe("scope:core");
+
+    // `npx --yes say done` is a command line, so the same catalog entry ships nothing and pins
+    // nothing: a directory holding only the declaration that was already read has no bytes to record.
+    const inert = hooks.requireMapping("announce");
+    expect(inert.keys()).toEqual(["catalog", "reason"]);
+    expect(inert.requireString("catalog")).toBe(CATALOG_NAME);
   });
 
   it("names the source, not a catalog, for a skill that carries its own", async () => {

@@ -17,14 +17,14 @@
  *   the same to the parser, but only one of them is a statement the author made, and a
  *   command that deleted the key would quietly undo the annotation rather than empty it.
  *
- * The two subjects it edits are asymmetric, because §3.2 and §3.3 are, in two ways. A skill declares
- * `scopes`, `requires`, and `env`, while an MCP entity has no `requires` at all — a server is
- * *required*, it does not require; asking to change one is refused rather than ignored, naming the
- * skill-side flag that does what the reader meant. And a skill's annotations are nested under
- * `ambit:` while an entity's sit at the top level, because a `SKILL.md`'s frontmatter is the
- * harness's document and an `mcps/<name>.yml` is ambit's own end to end — so the two differ only in
- * where the keys are written, which is a key path this module carries per subject rather than a
- * branch inside the loop that writes them.
+ * The three subjects it edits are asymmetric, because the file shapes are, in two ways. A skill
+ * declares `scopes`, `requires`, and `env`, while an MCP entity and a hook have no `requires` at all —
+ * both are *required*, neither requires; asking to change one is refused rather than ignored, naming
+ * the skill-side flag that does what the reader meant. And a skill's annotations are nested under
+ * `ambit:` while the other two sit at the top level, because a `SKILL.md`'s frontmatter is the
+ * harness's document and an `mcps/<name>.yml` or a `hooks/<name>/HOOK.yml` is ambit's own end to end —
+ * so they differ only in where the keys are written, which is a key path this module carries per
+ * subject rather than a branch inside the loop that writes them.
  *
  * `--add-scope` is pre-checked against the registry ({@link assertRegisteredScopes}) so a typo gets its
  * "did you mean"; `--add-requires` deliberately is not, because validation's own message already names
@@ -37,11 +37,14 @@ import type { AnnotationKey, Catalog } from "../model/catalog.js";
 import {
   AMBIT_FRONTMATTER_KEY,
   ANNOTATION_KEYS,
+  HOOKS_DIRNAME,
+  HOOK_FILENAME,
   MCPS_DIRNAME,
   SKILL_FILENAME,
   SKILLS_DIRNAME,
   parseCatalogDirectory,
 } from "../model/catalog.js";
+import { unknownHook } from "./hook.js";
 import { mcpDocumentFile, unknownMcp } from "./mcp.js";
 import { assertRegisteredScopes } from "./scope.js";
 import { unknownSkill } from "./skill.js";
@@ -49,18 +52,19 @@ import type { EditOptions, EditResult } from "./editor.js";
 import { CatalogDocument, applyCatalogEdit } from "./editor.js";
 import type { AmbitError } from "../errors.js";
 import { at, configError } from "../errors.js";
-import { MCP_REQUIREMENT_PREFIX } from "../resolution/resolve.js";
+import { requirementFor, requirementTarget } from "../resolution/resolve.js";
 
-/** What an annotatable subject is: the two file shapes §3.2 and §3.3 describe. */
-export type AnnotatedKind = "skill" | "mcp";
+/** What an annotatable subject is: the three file shapes a catalog holds. */
+export type AnnotatedKind = "skill" | "mcp" | "hook";
 
 /**
- * The keys an MCP entity may declare.
+ * The keys a leaf may declare — an MCP entity, or a hook.
  *
- * `requires` is absent because a server is required by skills rather than requiring anything itself, and
- * the §3.3 parser rejects the key outright — so writing one would produce a document ambit cannot read.
+ * `requires` is absent because both are *required* by skills rather than requiring anything
+ * themselves, and both parsers reject the key outright — so writing one would produce a document ambit
+ * cannot read.
  */
-const MCP_ANNOTATION_KEYS: readonly AnnotationKey[] = ANNOTATION_KEYS.filter(
+const LEAF_ANNOTATION_KEYS: readonly AnnotationKey[] = ANNOTATION_KEYS.filter(
   (key) => key !== "requires",
 );
 
@@ -115,17 +119,44 @@ function sameList(a: readonly string[], b: readonly string[]): boolean {
 }
 
 /**
- * The error for asking to change an MCP entity's `requires`.
+ * How a refusal names a leaf: the noun it is called, and the keys it does declare.
+ *
+ * A skill has none, which is what {@link Subject.leaf} being absent means — and is what makes the one
+ * refusal below reachable for exactly the two kinds it is about.
+ */
+interface LeafWording {
+  readonly noun: string;
+  readonly declares: string;
+}
+
+const MCP_WORDING: LeafWording = {
+  noun: "MCP server",
+  declares: "an entity declares `name`, `scopes`, `transport`, and `env`",
+};
+
+const HOOK_WORDING: LeafWording = {
+  noun: "hook",
+  declares: "a hook declares its `event` and `command`, with `scopes` and `env` beside them",
+};
+
+/**
+ * The error for asking to change an MCP entity's or a hook's `requires`.
  *
  * Exit 2 — a malformed invocation, like every other flag that would be written nowhere — and it names
- * the skill-side flag that does what the reader meant, because wanting a server to follow a skill into
- * the bundle is the sensible thing behind the request.
+ * the skill-side flag that does what the reader meant, because wanting a server or a hook to follow a
+ * skill into the bundle is the sensible thing behind the request. The requirement is spelled by
+ * {@link requirementFor}, so the advice cannot disagree with what `requires` actually accepts.
  */
-function noRequirements(name: string, file: string): AmbitError {
-  return configError(`MCP server "${name}" declares no requirements ${at(file, undefined)}`, [
-    "`requires` is a skill's key: an entity declares `name`, `scopes`, `transport`, and `env`",
-    `to pull the server in behind a skill, run \`ambit catalog annotate <skill> --add-requires ${MCP_REQUIREMENT_PREFIX}${name}\``,
-  ]);
+function noRequirements(subject: Subject, leaf: LeafWording): AmbitError {
+  const requirement = requirementFor({ kind: subject.kind, name: subject.name });
+
+  return configError(
+    `${leaf.noun} "${subject.name}" declares no requirements ${at(subject.file, undefined)}`,
+    [
+      `\`requires\` is a skill's key: ${leaf.declares}`,
+      `to pull it in behind a skill, run \`ambit catalog annotate <skill> --add-requires ${requirement}\``,
+    ],
+  );
 }
 
 /**
@@ -147,29 +178,46 @@ interface Subject {
   readonly keys: readonly AnnotationKey[];
   /**
    * The mapping the keys are written inside, as a path from the document root: `["ambit"]` for a
-   * skill, and the root itself for an entity.
+   * skill, and the root itself for an entity or a hook, whose whole document is ambit's.
    */
   readonly under: readonly string[];
   readonly current: Readonly<Record<AnnotationKey, readonly string[]>>;
+  /** How a refusal names it, for the kinds that declare no `requires`. Absent for a skill. */
+  readonly leaf?: LeafWording;
 }
 
 /**
  * Whether a name refers to an MCP server: the `mcp.` prefix, the same disambiguation `requires` and
  * `ambit why` use. A bare name is a skill, because that is what a catalog is mostly made of.
+ *
+ * Read through {@link requirementTarget}, which is the one function that reads the prefixes — so
+ * `hook.block-rm` cannot mean one thing to a `requires` closure and another to this command.
  */
 export function isMcpTarget(name: string): boolean {
-  return name.startsWith(MCP_REQUIREMENT_PREFIX);
+  return requirementTarget(name).kind === "mcp";
 }
+
+/** Whether a name refers to a hook: the `hook.` prefix, read the same way. */
+export function isHookTarget(name: string): boolean {
+  return requirementTarget(name).kind === "hook";
+}
+
+/** Where each namespace's documents live, so one place answers it for all three. */
+const NAMESPACE_DIRNAME: Readonly<Record<AnnotatedKind, string>> = {
+  skill: SKILLS_DIRNAME,
+  mcp: MCPS_DIRNAME,
+  hook: HOOKS_DIRNAME,
+};
 
 /**
  * Where an annotation *would* be written, from the name alone — for a refusal raised before the catalog
  * is read, which therefore cannot know which §3.3 extension an entity actually carries.
  *
  * Exported because the handler's argv refusals name the directory rather than a file for exactly that
- * reason; this names the two directories in one place.
+ * reason; this names the three directories in one place.
  */
 export function annotationDirname(name: string): string {
-  return isMcpTarget(name) ? MCPS_DIRNAME : SKILLS_DIRNAME;
+  return NAMESPACE_DIRNAME[requirementTarget(name).kind];
 }
 
 /**
@@ -178,28 +226,46 @@ export function annotationDirname(name: string): string {
  * An entity is reached through {@link mcpDocumentFile} rather than through the editor's
  * `mcpDocumentPath`, because this command edits a file the author wrote: `mcps/<name>.yaml` is as legal
  * as `.yml`, and writing the other one would leave two files defining one server — which
- * parsing rejects.
+ * parsing rejects. A hook needs none of that: its document has exactly one spelling, and parsing
+ * carries the directory it was found in.
  *
- * @throws {AmbitError} exit 3 when the catalog provides no such skill or server.
+ * @throws {AmbitError} exit 3 when the catalog provides no such skill, server or hook.
  */
 async function subjectOf(root: string, catalog: Catalog, name: string): Promise<Subject> {
-  if (isMcpTarget(name)) {
-    const bare = name.slice(MCP_REQUIREMENT_PREFIX.length);
-    const entity = catalog.mcps.find((candidate) => candidate.name === bare);
-    if (entity === undefined) throw unknownMcp(bare);
+  const target = requirementTarget(name);
+
+  if (target.kind === "mcp") {
+    const entity = catalog.mcps.find((candidate) => candidate.name === target.name);
+    if (entity === undefined) throw unknownMcp(target.name);
 
     return {
       kind: "mcp",
       name: entity.name,
       file: await mcpDocumentFile(root, entity.name),
-      keys: MCP_ANNOTATION_KEYS,
+      keys: LEAF_ANNOTATION_KEYS,
       under: [],
       current: { scopes: entity.scopes, requires: [], env: entity.env },
+      leaf: MCP_WORDING,
     };
   }
 
-  const skill = catalog.skills.find((candidate) => candidate.name === name);
-  if (skill === undefined) throw unknownSkill(name);
+  if (target.kind === "hook") {
+    const hook = catalog.hooks.find((candidate) => candidate.name === target.name);
+    if (hook === undefined) throw unknownHook(target.name);
+
+    return {
+      kind: "hook",
+      name: hook.name,
+      file: `${hook.path}/${HOOK_FILENAME}`,
+      keys: LEAF_ANNOTATION_KEYS,
+      under: [],
+      current: { scopes: hook.scopes, requires: [], env: hook.env },
+      leaf: HOOK_WORDING,
+    };
+  }
+
+  const skill = catalog.skills.find((candidate) => candidate.name === target.name);
+  if (skill === undefined) throw unknownSkill(target.name);
 
   return {
     kind: "skill",
@@ -229,14 +295,15 @@ function addedScopes(options: AnnotateOptions): readonly string[] {
 }
 
 /**
- * Adds and removes entries in a skill's or an MCP entity's `scopes`, `requires`, and `env`.
+ * Adds and removes entries in a skill's, an MCP entity's or a hook's `scopes`, `requires`, and `env`.
  *
  * @param root the catalog root, absolute.
- * @param name the skill's name, or `mcp.<name>` for a server.
+ * @param name the skill's name, `mcp.<name>` for a server, or `hook.<name>` for a hook.
  * @param options what each annotation gains and loses, and `--dry-run`.
  * @throws {AmbitError} exit 2 for a catalog that does not parse, a `requires` edit aimed at an MCP
- *   entity, or a write that fails; exit 3 for a skill or server the catalog does not provide, an added
- *   scope its registry does not hold, or a result that would not validate — with nothing written.
+ *   entity or a hook, or a write that fails; exit 3 for a skill, server or hook the catalog does not
+ *   provide, an added scope its registry does not hold, or a result that would not validate — with
+ *   nothing written.
  */
 export async function annotate(
   root: string,
@@ -246,8 +313,8 @@ export async function annotate(
   const catalog = await readCatalog(root);
   const subject = await subjectOf(root, catalog, name);
 
-  if (subject.kind === "mcp" && options.edits?.requires !== undefined) {
-    throw noRequirements(subject.name, subject.file);
+  if (subject.leaf !== undefined && options.edits?.requires !== undefined) {
+    throw noRequirements(subject, subject.leaf);
   }
 
   assertRegisteredScopes(catalog, addedScopes(options));

@@ -17,12 +17,15 @@ export { VERSION } from "./version.js";
 export {
   AMBIT_FRONTMATTER_KEY,
   ANNOTATION_KEYS,
+  HOOKS_DIRNAME,
+  HOOK_FILENAME,
   MCPS_DIRNAME,
   MCP_EXTENSIONS,
   SCOPES_FILENAME,
   SKILLS_DIRNAME,
   SKILL_FILENAME,
   formatShadowing,
+  hookCommand,
   loadCatalogs,
   loadSourceSkill,
   mergeCatalogs,
@@ -34,11 +37,13 @@ export {
 export type {
   AnnotationKey,
   Catalog,
+  CatalogHook,
   CatalogMcp,
   CatalogOverlay,
   CatalogParseOptions,
   CatalogSkill,
   MergedCatalog,
+  MergedHook,
   MergedMcp,
   MergedSkill,
   ScopeDefinition,
@@ -63,8 +68,13 @@ export type {
   SourceSkillRequest,
 } from "./model/config.js";
 export {
+  DIGEST_LENGTH,
   DOCUMENT_FORMATS,
+  DOCUMENT_SHAPES,
+  arrayEntryKey,
+  arraySectionDriver,
   driverFor,
+  entryDigest,
   jsonDriver,
   jsoncDriver,
   managedKey,
@@ -75,6 +85,7 @@ export type {
   ConfigEntry,
   DocumentDriver,
   DocumentFormat,
+  DocumentShape,
   JsonObject,
 } from "./model/documents/index.js";
 export {
@@ -86,6 +97,8 @@ export {
   gitCacheKey,
 } from "./model/git.js";
 export type { FetchedGitSource, GitFetchRequest } from "./model/git.js";
+export { HOOK_EVENTS, MATCHABLE_EVENTS, parseHookEntity } from "./model/hook-entity.js";
+export type { HookEntity, HookEvent } from "./model/hook-entity.js";
 export { MCP_TRANSPORT_KINDS, parseMcpEntity } from "./model/mcp-entity.js";
 export type { HttpTransport, McpEntity, McpTransport, StdioTransport } from "./model/mcp-entity.js";
 export { renderScaffold } from "./model/scaffold.js";
@@ -128,6 +141,7 @@ export type { FrontmatterSplit, PositionedString } from "./model/yaml.js";
 
 // ── resolution — derive and verify the selected closure ───────────────────────────────────────
 export {
+  HOOK_REQUIREMENT_PREFIX,
   MCP_REQUIREMENT_PREFIX,
   SCOPE_SEPARATOR,
   assertScopesRegistered,
@@ -139,6 +153,8 @@ export {
   isSelected,
   missingRequirement,
   reasonOf,
+  requirementFor,
+  requirementTarget,
   resolveBundle,
   scopeSuggestion,
   skillFile,
@@ -173,14 +189,24 @@ export type {
 export type {
   AppliedArtifact,
   HarnessAdapter,
+  HookSkipReason,
   PlannedArtifact,
+  PlannedCatalogDir,
   PlannedHarnessConfig,
+  PlannedHookDir,
   PlannedSkillDir,
   ProjectPaths,
+  SkippedHook,
 } from "./harness/adapter.js";
 export { claude, codex, cursor, opencode, PROFILES, vscode } from "./harness/definitions.js";
-export { adapterFor, SHARED_AGENTS_DIR, SHARED_SKILLS_DIR } from "./harness/profile.js";
-export type { HarnessProfile, McpLayout } from "./harness/profile.js";
+export {
+  adapterFor,
+  SHARED_AGENTS_DIR,
+  SHARED_HOOKS_DIR,
+  SHARED_SKILLS_DIR,
+  skippedHooks,
+} from "./harness/profile.js";
+export type { HarnessProfile, HookLayout, McpLayout } from "./harness/profile.js";
 export {
   bracedRef,
   envPassthrough,
@@ -193,7 +219,7 @@ export {
 export type { EnvRefStyle } from "./harness/env.js";
 
 // ── authoring — the `ambit catalog …` command family ──────────────────────────────────────────
-export { annotate, annotationDirname, isMcpTarget } from "./authoring/annotate.js";
+export { annotate, annotationDirname, isHookTarget, isMcpTarget } from "./authoring/annotate.js";
 export type {
   AnnotateOptions,
   AnnotateResult,
@@ -218,6 +244,8 @@ export {
   CatalogDocument,
   applyCatalogEdit,
   catalogFilePath,
+  hookDirectoryPath,
+  hookDocumentPath,
   mcpDocumentPath,
   skillDirectoryPath,
   skillDocumentPath,
@@ -230,6 +258,15 @@ export type {
   EditResult,
   EditedFile,
 } from "./authoring/editor.js";
+export { newHook, removeHook, unknownHook } from "./authoring/hook.js";
+export type {
+  HookDeclaration,
+  HookEdit,
+  HookNewOptions,
+  HookNewResult,
+  HookRemoveResult,
+  HookSummary,
+} from "./authoring/hook.js";
 export {
   CATALOG_INIT_SCOPE,
   CATALOG_KEEP_FILENAME,
@@ -330,7 +367,7 @@ export {
   serializeLock,
   writeLockText,
 } from "./project/lock.js";
-export type { Lock, LockCatalog, LockMcp, LockSkill } from "./project/lock.js";
+export type { Lock, LockCatalog, LockHook, LockMcp, LockSkill } from "./project/lock.js";
 export { authorizePlan, ownedKeys } from "./project/ownership.js";
 export type { OwnershipOptions } from "./project/ownership.js";
 export { planPrune, pruneArtifacts, remainingArtifacts } from "./project/prune.js";

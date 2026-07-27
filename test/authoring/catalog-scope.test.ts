@@ -31,9 +31,10 @@ const REGISTRY = "scopes.yml";
 const CODE_REVIEW = "skills/code-review/SKILL.md";
 const DESIGN_TOKENS = "skills/design-tokens/SKILL.md";
 const SCOPED_MCP = "mcps/scoped.yml";
+const SCOPED_HOOK = "hooks/guard-secrets/HOOK.yml";
 
 /** Every file `mv function.engineering` touches, in the path order the command reports them. */
-const RENAMED_FILES = [SCOPED_MCP, REGISTRY, CODE_REVIEW, DESIGN_TOKENS];
+const RENAMED_FILES = [SCOPED_HOOK, SCOPED_MCP, REGISTRY, CODE_REVIEW, DESIGN_TOKENS];
 
 const JANE = "person.jane";
 const JANE_DESCRIPTION = "Jane's own things";
@@ -279,23 +280,28 @@ describe("ambit catalog scope rm", () => {
     await validates();
   });
 
-  it("refuses while a skill or a server still declares it, naming every declarer", async () => {
+  it("refuses while a skill, a server or a hook still declares it, naming every declarer", async () => {
     const result = await refused(ExitCode.Resolution, "rm", PARENT);
 
     expect(result.stderr).toContain(`scope "${PARENT}" is still declared (${REGISTRY})`);
     expect(result.stderr).toContain(`skill "code-review" declares it (${CODE_REVIEW})`);
     expect(result.stderr).toContain(`MCP server "scoped" declares it (${SCOPED_MCP})`);
+    expect(result.stderr).toContain(`hook "guard-secrets" declares it (${SCOPED_HOOK})`);
     // The next step names the command that clears a declaration, not the hand-editing it replaced.
     expect(result.stderr).toContain(
       `clear it from each with \`ambit catalog annotate <name> --remove-scope ${PARENT}\``,
     );
-    expect(result.stderr).toContain("naming a server `mcp.<server>`");
+    expect(result.stderr).toContain("naming a server `mcp.<server>` and a hook `hook.<hook>`");
   });
 
-  it("names the `mcp.` spelling only when a server is among the declarers", async () => {
+  it("names each prefixed spelling only when something needing it is among the declarers", async () => {
+    // `core` is declared by a skill and a hook and by no server, so the next step explains the one
+    // prefix a reader is about to need and stays quiet about the other.
     const result = await refused(ExitCode.Resolution, "rm", "core");
 
     expect(result.stderr).toContain('skill "company-context" declares it');
+    expect(result.stderr).toContain('hook "session-notes" declares it');
+    expect(result.stderr).toContain("naming a hook `hook.<hook>`");
     expect(result.stderr).not.toContain("mcp.<server>");
   });
 
@@ -364,6 +370,11 @@ describe("ambit catalog scope mv", () => {
     expect(await read(REGISTRY)).toBe(fixture(REGISTRY).replaceAll(PARENT, RENAMED_PARENT));
     expect(await read(SCOPED_MCP)).toBe(
       fixture(SCOPED_MCP).replace(`scopes: [${PARENT}]`, `scopes: [${RENAMED_PARENT}]`),
+    );
+    // The third namespace: a hook declares scopes like anything else, so a rename that skipped it would
+    // leave the catalog declaring a name the registry no longer holds.
+    expect(await read(SCOPED_HOOK)).toBe(
+      fixture(SCOPED_HOOK).replace(`scopes: [${PARENT}]`, `scopes: [${RENAMED_PARENT}]`),
     );
     expect(await read(CODE_REVIEW)).toBe(
       fixture(CODE_REVIEW).replace(`scopes: [${PARENT}]`, `scopes: [${RENAMED_PARENT}]`),

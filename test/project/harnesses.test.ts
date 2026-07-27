@@ -27,7 +27,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { buildFixtureCatalog } from "../../scripts/fixture-catalog.js";
 import { ExitCode } from "../../src/errors.js";
-import { SHARED_SKILLS_DIR } from "../../src/harness/profile.js";
+import { SHARED_HOOKS_DIR, SHARED_SKILLS_DIR } from "../../src/harness/profile.js";
+import { arrayEntryKey, managedKey } from "../../src/model/documents/index.js";
 import { installProject } from "../../src/project/install.js";
 import { run } from "../../src/cli/program.js";
 import { parseState, STATE_DIRNAME, STATE_FILENAME } from "../../src/model/state.js";
@@ -43,6 +44,34 @@ const ALL_SKILLS = [ENGINEERING_SKILL, CORE_SKILL, FRONTEND_SKILL];
 /** The fixture's scope-matched http server, and the variable its `Authorization` header names. */
 const SCOPED_MCP = "scoped";
 const SCOPED_KEY_VAR = "SCOPED_API_KEY";
+
+/**
+ * The fixture's two scope-matched hooks: one inline command on `core`, one shipping a script on
+ * `function.engineering`. Both harness families here read a Claude-shaped entry and differ in one
+ * string — how each spells the way to a materialized script — which is why the keys are built from the
+ * entry per root rather than written out.
+ */
+const HOOK_DIR = `${SHARED_HOOKS_DIR}/guard-secrets`;
+const CLAUDE_HOOK_ROOT = `\${CLAUDE_PROJECT_DIR}/${SHARED_HOOKS_DIR}`;
+
+/** The two managed keys a Claude-shaped hooks section holds, in state's own key order. */
+function hookKeys(hooksRoot: string): readonly string[] {
+  return [
+    managedKey(
+      "hooks",
+      arrayEntryKey("PreToolUse", {
+        matcher: "Bash",
+        hooks: [{ type: "command", command: `${hooksRoot}/guard-secrets/guard.sh`, timeout: 10 }],
+      }),
+    ),
+    managedKey(
+      "hooks",
+      arrayEntryKey("SessionStart", {
+        hooks: [{ type: "command", command: 'echo "acme conventions apply"' }],
+      }),
+    ),
+  ];
+}
 
 let root: string;
 let catalogDir: string;
@@ -122,13 +151,18 @@ describe("two harnesses of the same family", () => {
     const result = await installProject(projectDir);
 
     expect(result.harnesses).toEqual(["claude", "cursor"]);
+    // One hook directory, shared like the skills — and a config file per harness, because the two
+    // read their hooks from files of their own even where they share a skills link.
     expect(result.artifacts.map((artifact) => artifact.path)).toEqual([
       `${SKILLS_DIR}/${ENGINEERING_SKILL}`,
       `${SKILLS_DIR}/${CORE_SKILL}`,
       `${SKILLS_DIR}/${FRONTEND_SKILL}`,
+      HOOK_DIR,
       CLAUDE_LINK,
       ".mcp.json",
+      ".claude/settings.json",
       ".cursor/mcp.json",
+      ".cursor/hooks.json",
     ]);
   });
 
@@ -233,10 +267,26 @@ Authorization = "Bearer \${${SCOPED_KEY_VAR}}"
       // In state's own order, which is by path — so a diff of two installs reads as a diff.
       [
         {
+          path: ".claude/settings.json",
+          kind: "harness-config",
+          format: "json",
+          shape: "array",
+          managedKeys: hookKeys(CLAUDE_HOOK_ROOT),
+        },
+        {
           path: ".codex/config.toml",
           kind: "harness-config",
           format: "toml",
           managedKeys: [`mcp_servers.${SCOPED_MCP}`],
+        },
+        {
+          path: ".codex/hooks.json",
+          kind: "harness-config",
+          format: "json",
+          shape: "array",
+          // The same entry shape, and one string apart: Codex interpolates nothing, so its copy of
+          // the script-shipping hook carries the project-relative path.
+          managedKeys: hookKeys(SHARED_HOOKS_DIR),
         },
         {
           path: ".mcp.json",

@@ -67,9 +67,34 @@ export interface LockMcp {
 }
 
 /**
+ * One selected hook, explained — and pinned when it ships bytes.
+ *
+ * A hook is both kinds of thing the two sections above are: a set of config values that a harness
+ * file renders, and — when its `command` names a script the hook's own directory ships — a tree of
+ * files that gets materialized. So `path` and `commit` appear only in the second case, for the same
+ * reason {@link LockSkill} carries them and {@link LockMcp} does not: there are bytes to pin. An
+ * inline hook, and a catalog hook whose command is a command line, are config values and take
+ * {@link LockMcp}'s shape.
+ *
+ * `path` is the hook's directory within its source, as {@link LockSkill.path} is — never the command
+ * ambit writes into a harness file. That command is rewritten per harness, so it is not one value
+ * the lock could hold.
+ */
+export interface LockHook {
+  /** Where it came from: a catalog name, or the config file that declared it inline. */
+  readonly catalog: string;
+  /** Its directory within that source, `/`-separated. Present only when it ships a script. */
+  readonly path?: string;
+  /** The commit those bytes came from, when the source has one. */
+  readonly commit?: string;
+  /** Why it is in the bundle, in `--explain`'s short form. */
+  readonly reason: string;
+}
+
+/**
  * A lock document.
  *
- * The three sections are keyed maps rather than lists because a name is the
+ * The four sections are keyed maps rather than lists because a name is the
  * identity of everything in them — and because a map is what makes a diff show one changed entry
  * instead of a reordered list.
  */
@@ -79,6 +104,7 @@ export interface Lock {
   readonly catalogs: Readonly<Record<string, LockCatalog>>;
   readonly skills: Readonly<Record<string, LockSkill>>;
   readonly mcps: Readonly<Record<string, LockMcp>>;
+  readonly hooks: Readonly<Record<string, LockHook>>;
 }
 
 /**
@@ -138,6 +164,18 @@ export function buildLock(catalogs: readonly Catalog[], bundle: Bundle): Lock {
       (mcp) => ({
         catalog: mcp.catalog,
         reason: formatReason(reasonOf(bundle, { kind: "mcp", name: mcp.name })),
+      }),
+    ),
+    hooks: byName(
+      bundle.hooks,
+      (hook) => hook.name,
+      (hook) => ({
+        catalog: hook.catalog,
+        // A hook that ships no script has no bytes of its own to pin, so it records neither where
+        // they live nor which commit they came from — see LockHook.
+        ...(hook.shipsScript && hook.path !== undefined && { path: hook.path }),
+        ...(hook.shipsScript && hook.commit !== undefined && { commit: hook.commit }),
+        reason: formatReason(reasonOf(bundle, { kind: "hook", name: hook.name })),
       }),
     ),
   };

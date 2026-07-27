@@ -77,8 +77,8 @@ async function tree(...flags: readonly string[]): Promise<CliResult> {
 interface JsonNode {
   children: Record<string, JsonNode>;
   description: string;
-  direct: { mcps: readonly string[]; skills: readonly string[] };
-  inherited: { mcps: readonly string[]; skills: readonly string[] };
+  direct: { hooks: readonly string[]; mcps: readonly string[]; skills: readonly string[] };
+  inherited: { hooks: readonly string[]; mcps: readonly string[]; skills: readonly string[] };
 }
 
 async function treeJson(): Promise<Record<string, JsonNode>> {
@@ -168,8 +168,8 @@ describe("ambit catalog tree", () => {
     expect(result.stdout).toBe(
       [
         "scopes (4)",
-        "  core                             1 direct  0 inherited  The universal floor — context everyone needs",
-        "  function.engineering             2 direct  1 inherited  Building and shipping software",
+        "  core                             2 direct  0 inherited  The universal floor — context everyone needs",
+        "  function.engineering             3 direct  1 inherited  Building and shipping software",
         "    function.engineering.frontend  1 direct  0 inherited  Browser-side work: components, styling, accessibility",
         "  project.acme                     1 direct  0 inherited  The Acme engagement",
       ].join("\n"),
@@ -180,19 +180,26 @@ describe("ambit catalog tree", () => {
     const scopes = await treeJson();
 
     expect(scopes[ENGINEERING]?.direct).toEqual({
+      hooks: ["guard-secrets"],
       mcps: ["scoped"],
       skills: ["code-review"],
     });
     // The nested skill: selected by holding the parent, and declared by neither.
     expect(scopes[ENGINEERING]?.inherited).toEqual({
+      hooks: [],
       mcps: [],
       skills: ["design-tokens"],
     });
     expect(scopes[ENGINEERING]?.children[FRONTEND]?.direct).toEqual({
+      hooks: [],
       mcps: [],
       skills: ["design-tokens"],
     });
-    expect(scopes[ENGINEERING]?.children[FRONTEND]?.inherited).toEqual({ mcps: [], skills: [] });
+    expect(scopes[ENGINEERING]?.children[FRONTEND]?.inherited).toEqual({
+      hooks: [],
+      mcps: [],
+      skills: [],
+    });
   });
 
   it("nests a scope under its longest registered ancestor, not under its dotted prefix", async () => {
@@ -206,8 +213,9 @@ describe("ambit catalog tree", () => {
     expect(Object.keys(scopes)).toEqual(["core", "function", "project.acme"]);
     expect(Object.keys(scopes.function?.children ?? {})).toEqual([ENGINEERING]);
     // Nothing declares `function`, and holding it now reaches the whole subtree.
-    expect(scopes.function?.direct).toEqual({ mcps: [], skills: [] });
+    expect(scopes.function?.direct).toEqual({ hooks: [], mcps: [], skills: [] });
     expect(scopes.function?.inherited).toEqual({
+      hooks: ["guard-secrets"],
       mcps: ["scoped"],
       skills: ["code-review", "design-tokens"],
     });
@@ -219,8 +227,8 @@ describe("ambit catalog tree", () => {
     expect(row((await tree()).stdout, "person.jane")).toContain("0 direct  0 inherited");
     expect((await treeJson())["person.jane"]).toMatchObject({
       children: {},
-      direct: { mcps: [], skills: [] },
-      inherited: { mcps: [], skills: [] },
+      direct: { hooks: [], mcps: [], skills: [] },
+      inherited: { hooks: [], mcps: [], skills: [] },
     });
   });
 
@@ -231,8 +239,8 @@ describe("ambit catalog tree", () => {
 
     const scopes = await treeJson();
     expect(scopes[ENGINEERING]?.direct.skills).toEqual(["code-review", "design-tokens"]);
-    expect(scopes[ENGINEERING]?.inherited).toEqual({ mcps: [], skills: [] });
-    expect(row((await tree()).stdout, ENGINEERING)).toContain("3 direct  0 inherited");
+    expect(scopes[ENGINEERING]?.inherited).toEqual({ hooks: [], mcps: [], skills: [] });
+    expect(row((await tree()).stdout, ENGINEERING)).toContain("4 direct  0 inherited");
   });
 
   it("reads the catalog `--catalog` names, defaulting to the cwd", async () => {
@@ -253,7 +261,11 @@ describe("ambit catalog tree", () => {
     expect(result.stdout).not.toContain("function.marketing");
 
     const scopes = await treeJson();
-    expect(scopes[ENGINEERING]?.direct).toEqual({ mcps: ["scoped"], skills: [] });
+    expect(scopes[ENGINEERING]?.direct).toEqual({
+      hooks: ["guard-secrets"],
+      mcps: ["scoped"],
+      skills: [],
+    });
     expect(JSON.stringify(scopes)).not.toContain("code-review");
   });
 
@@ -306,6 +318,9 @@ describe("the tree against the resolver's own expansion", () => {
         selected(catalog.skills),
       );
       expect([...node.direct.mcps, ...node.inherited.mcps].sort()).toEqual(selected(catalog.mcps));
+      expect([...node.direct.hooks, ...node.inherited.hooks].sort()).toEqual(
+        selected(catalog.hooks),
+      );
     }
   });
 });

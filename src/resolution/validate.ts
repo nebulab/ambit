@@ -6,7 +6,7 @@
  * cannot block everyone. That leaves a gap this closes: a dangling `requires`, a cycle, an
  * unregistered scope, or a shadowed name can sit in a catalog for weeks until the first profile
  * that reaches it fails, and the person it fails for is never the person who wrote it. So every
- * skill and every server is checked here, selected or not.
+ * skill, every server and every hook is checked here, selected or not.
  *
  * Problems are **collected, not thrown**. A CI run that reports the first of six costs six runs to
  * clear, which is what makes a validator people stop trusting. The command prints the list and
@@ -30,11 +30,13 @@ import type {
   CatalogOverlay,
   CatalogParseOptions,
   MergedCatalog,
+  MergedHook,
   MergedMcp,
   MergedSkill,
   Shadowing,
 } from "../model/catalog.js";
 import {
+  HOOK_FILENAME,
   SCOPES_FILENAME,
   loadCatalogs,
   mergeCatalogs,
@@ -45,10 +47,11 @@ import type { ProjectConfig } from "../model/config.js";
 import { loadProjectConfig } from "../model/config.js";
 import type { AmbitError } from "../errors.js";
 import { at, resolutionError } from "../errors.js";
+import type { ItemKind } from "./resolve.js";
 import {
-  MCP_REQUIREMENT_PREFIX,
   cycleError,
   missingRequirement,
+  requirementTarget,
   scopeSuggestion,
   skillFile,
   unknownExplicitSkill,
@@ -62,6 +65,10 @@ import type { SourceContext } from "../model/sources.js";
  * The five a catalog can hold, plus the two a project's own config contributes: a held scope no registry
  * knows, and a `skills` entry nothing provides. Those two are already resolution errors — `validate`
  * is where they are all listed at once instead of one per run.
+ *
+ * Each kind names a *class* of problem rather than a namespace: an unregistered scope on a hook is the
+ * same finding it is on a skill, and the message already names which of the three the offender is. So a
+ * namespace joining the catalog adds no kind here.
  */
 export const VALIDATION_PROBLEM_KINDS = [
   "cycle",
@@ -86,6 +93,7 @@ export interface ValidationProblem {
 
 /** What the run covered, so a clean report says what it checked rather than saying nothing. */
 export interface ValidationCounts {
+  readonly hooks: number;
   readonly mcps: number;
   readonly scopes: number;
   readonly skills: number;
@@ -134,6 +142,17 @@ function problem(kind: ValidationProblemKind, error: AmbitError): ValidationProb
  */
 function mcpFile(mcp: MergedMcp): string {
   return mcp.file ?? mcp.catalog;
+}
+
+/**
+ * Where a hook is written, as a problem cites it.
+ *
+ * A directory rather than a file is what parsing carries, since `HOOK.yml` is the only spelling a hook
+ * document has — so the file is joined here rather than stored. A hook a project declares inline has no
+ * directory, and its `catalog` is the config filename, which is {@link mcpFile}'s argument exactly.
+ */
+function hookFile(hook: MergedHook): string {
+  return hook.path === undefined ? hook.catalog : `${hook.path}/${HOOK_FILENAME}`;
 }
 
 /**
@@ -190,6 +209,20 @@ function unregisteredScopeProblems(merged: MergedCatalog): readonly ValidationPr
     }
   }
 
+  for (const hook of merged.hooks) {
+    for (const scope of sortedUnique(hook.scopes)) {
+      if (known.has(scope)) continue;
+      problems.push(
+        unregisteredScope(
+          scope,
+          at(hookFile(hook), undefined),
+          `hook "${hook.name}" (catalog "${hook.catalog}")`,
+          merged.scopes,
+        ),
+      );
+    }
+  }
+
   return problems;
 }
 
@@ -198,16 +231,17 @@ function unregisteredScopeProblems(merged: MergedCatalog): readonly ValidationPr
  * project's scopes reach.
  */
 function requirementProblems(merged: MergedCatalog): readonly ValidationProblem[] {
-  const skills = new Set(merged.skills.map((skill) => skill.name));
-  const mcps = new Set(merged.mcps.map((mcp) => mcp.name));
+  const provided: Readonly<Record<ItemKind, ReadonlySet<string>>> = {
+    skill: new Set(merged.skills.map((skill) => skill.name)),
+    mcp: new Set(merged.mcps.map((mcp) => mcp.name)),
+    hook: new Set(merged.hooks.map((hook) => hook.name)),
+  };
   const problems: ValidationProblem[] = [];
 
   for (const skill of merged.skills) {
     for (const requirement of sortedUnique(skill.requires)) {
-      const resolved = requirement.startsWith(MCP_REQUIREMENT_PREFIX)
-        ? mcps.has(requirement.slice(MCP_REQUIREMENT_PREFIX.length))
-        : skills.has(requirement);
-      if (!resolved) {
+      const target = requirementTarget(requirement);
+      if (!provided[target.kind].has(target.name)) {
         problems.push(problem("unresolvable-requirement", missingRequirement(skill, requirement)));
       }
     }
@@ -261,8 +295,11 @@ function cycleProblems(merged: MergedCatalog): readonly ValidationProblem[] {
 
     walked.push(skill.name);
     for (const requirement of sortedUnique(skill.requires)) {
-      if (requirement.startsWith(MCP_REQUIREMENT_PREFIX)) continue;
-      const required = byName.get(requirement);
+      const target = requirementTarget(requirement);
+      // Both leaf namespaces end the walk: only a skill can require anything, so only a skill edge
+      // can close a loop.
+      if (target.kind !== "skill") continue;
+      const required = byName.get(target.name);
       // A requirement nothing provides is `requirementProblems`'s finding; here it is simply an
       // edge that goes nowhere, and following it would report the same thing twice.
       if (required !== undefined) follow(required);
@@ -297,6 +334,9 @@ function shadowingProblems(merged: MergedCatalog): readonly ValidationProblem[] 
     ),
     ...[...merged.shadowing.mcps.values()].map((shadowing) =>
       problem("shadowed-name", shadowedName("MCP server", shadowing)),
+    ),
+    ...[...merged.shadowing.hooks.values()].map((shadowing) =>
+      problem("shadowed-name", shadowedName("hook", shadowing)),
     ),
   ];
 }
@@ -363,6 +403,7 @@ export function validateCatalog(
 
   return {
     checked: {
+      hooks: merged.hooks.length,
       mcps: merged.mcps.length,
       scopes: merged.scopes.length,
       skills: merged.skills.length,

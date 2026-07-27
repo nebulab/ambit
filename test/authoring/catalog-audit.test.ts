@@ -20,7 +20,7 @@
  * when its whole subtree selects nothing, so registering a parent of a declared scope adds no finding
  * while registering an unrelated one does (matching `catalog tree`'s own claim).
  */
-import { mkdtemp, rename, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -87,13 +87,36 @@ interface JsonFinding {
 }
 
 interface JsonReport {
-  audited: { mcps: number; scopes: number; skills: number };
+  audited: { hooks: number; mcps: number; scopes: number; skills: number };
   findings: readonly JsonFinding[];
   tidy: boolean;
 }
 
 async function auditJson(dir: string): Promise<JsonReport> {
   return JSON.parse((await audit(dir, "--json")).stdout) as JsonReport;
+}
+
+/**
+ * Hand-writes a hook, rather than going through `catalog hook new` like the rest of this suite.
+ *
+ * That command declares no scopes, and `catalog annotate` checks an added one against the registry —
+ * so a hook declaring the scope these cases need, registered or not, is the one thing the authoring
+ * commands cannot produce.
+ */
+async function writeHook(dir: string, name: string, scopes: readonly string[]): Promise<void> {
+  const target = path.join(dir, "hooks", name, "HOOK.yml");
+  await mkdir(path.dirname(target), { recursive: true });
+  await writeFile(
+    target,
+    [
+      `name: ${name}`,
+      `scopes: [${scopes.join(", ")}]`,
+      "event: Stop",
+      "command: npx notify",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
 }
 
 /**
@@ -160,11 +183,11 @@ describe("ambit catalog audit", () => {
 
     expect(result.stdout).toBe(
       [
-        "audited 2 scopes, 2 skills, 2 mcps",
+        "audited 2 scopes, 2 skills, 2 mcps, 0 hooks",
         "",
         "findings (3)",
         `  unused scope "${DEAD_SCOPE}" (scopes.yml)`,
-        "      no skill and no MCP server declares it, and nothing registered beneath it does either",
+        "      no skill, MCP server or hook declares it, and nothing registered beneath it does either",
         "      holding it selects nothing, so every picker rendering this registry offers a choice with no effect",
         `      declare it with \`ambit catalog annotate <name> --add-scope ${DEAD_SCOPE}\`, or unregister it with \`ambit catalog scope rm ${DEAD_SCOPE}\``,
         `  unreachable skill "${ORPHAN_SKILL}" (skills/orphan/SKILL.md)`,
@@ -261,14 +284,15 @@ describe("ambit catalog audit --check", () => {
   });
 
   it("exits 0 when the catalog carries no dead weight", async () => {
-    // The shared fixture: every skill declares a registered scope, and its second server is reached
-    // through `requires` alone — which is exactly the shape a naive audit would report.
+    // The shared fixture: every skill declares a registered scope, and its second server and third
+    // hook are reached through `requires` alone — which is exactly the shape a naive audit would
+    // report.
     const fixture = await buildFixtureCatalog(path.join(root, "fixture"));
     const result = await invoke("catalog", "audit", "--catalog", fixture, "--check");
 
     expect(result.code, result.stderr).toBe(ExitCode.Success);
     expect(result.stdout).toBe(
-      ["audited 4 scopes, 4 skills, 2 mcps", "", "findings (0)", "  (none)"].join("\n"),
+      ["audited 4 scopes, 4 skills, 2 mcps, 3 hooks", "", "findings (0)", "  (none)"].join("\n"),
     );
   });
 });
@@ -277,7 +301,7 @@ describe("ambit catalog audit --json", () => {
   it("carries what was audited, every finding, and the verdict", async () => {
     const report = await auditJson(authored);
 
-    expect(report.audited).toEqual({ mcps: 2, scopes: 2, skills: 2 });
+    expect(report.audited).toEqual({ hooks: 0, mcps: 2, scopes: 2, skills: 2 });
     expect(report.tidy).toBe(false);
     expect(report.findings.map((found) => ({ kind: found.kind, message: found.message }))).toEqual([
       { kind: "dead-scope", message: `unused scope "${DEAD_SCOPE}" (scopes.yml)` },
@@ -323,6 +347,36 @@ describe("what makes a registered scope dead", () => {
     ]);
   });
 
+  it("reports no finding for a scope only a hook declares", async () => {
+    // A hook is a third thing a scope selects, so a scope that selects one is not dead — telling
+    // someone to unregister the scope their hook is reached by would be advice that breaks it.
+    await author(fixture, "scope", "add", "person.jane", "--description", "Jane's own things");
+    await writeHook(fixture, "notify", ["person.jane"]);
+
+    expect((await auditJson(fixture)).findings).toEqual([]);
+  });
+
+  it("reports no finding for a parent of a scope only a hook declares", async () => {
+    await author(fixture, "scope", "add", "person", "--description", "Everyone's own things");
+    await author(fixture, "scope", "add", "person.jane", "--description", "Jane's own things");
+    await writeHook(fixture, "notify", ["person.jane"]);
+
+    expect((await auditJson(fixture)).findings).toEqual([]);
+  });
+
+  it("still reports a scope whose only hook declares a different one", async () => {
+    // The registry decides what a declaration reaches, for a hook as for everything else: an
+    // unregistered scope on a hook keeps no registered scope alive.
+    await author(fixture, "scope", "add", "person.jane", "--description", "Jane's own things");
+    await writeHook(fixture, "notify", ["person.janet"]);
+
+    // The hook itself is now unreachable too, which is the other half of the same fact.
+    expect((await auditJson(fixture)).findings.map((found) => found.message)).toEqual([
+      'unused scope "person.jane" (scopes.yml)',
+      'unreachable hook "notify" (hooks/notify/HOOK.yml)',
+    ]);
+  });
+
   it("reports no finding for a parent whose descendants are declared", async () => {
     // Nothing declares `function`, and holding it reaches the whole engineering subtree — so it is
     // not dead weight, and reporting it would tell someone to delete a scope that works.
@@ -345,5 +399,72 @@ describe("what makes a registered scope dead", () => {
     expect((await auditJson(fixture)).findings.map((found) => found.message)).toEqual([
       'unreachable MCP server "scoped" (mcps/scoped.yaml)',
     ]);
+  });
+});
+
+/**
+ * The third namespace, and the one where "unreachable" is decided in a single step: a hook carries no
+ * `requires` of its own, so it is always a leaf of the closure — reached by a registered scope of its
+ * own, or by a reachable skill's `hook.<name>`, and by nothing else.
+ */
+describe("what makes a hook unreachable", () => {
+  const NOTIFY = "notify";
+  const HOOK_DOCUMENT = `hooks/${NOTIFY}/HOOK.yml`;
+
+  /** The fixture's own hooks, which `notify` is audited beside — all three of them reachable. */
+  const FIXTURE_HOOKS = 3;
+
+  let fixture: string;
+
+  beforeEach(async () => {
+    fixture = await buildFixtureCatalog(path.join(root, "fixture"));
+  });
+
+  it("reports a hook no scope selects, naming its document and the requirement that would reach it", async () => {
+    await writeHook(fixture, NOTIFY, []);
+
+    const report = await auditJson(fixture);
+    expect(report.audited.hooks).toBe(FIXTURE_HOOKS + 1);
+    expect(report.findings).toEqual([
+      {
+        kind: "unreachable-hook",
+        message: `unreachable hook "${NOTIFY}" (${HOOK_DOCUMENT})`,
+        detail: [
+          `no registered scope selects it, and nothing reachable requires \`hook.${NOTIFY}\``,
+          "no profile can select it, so no harness is ever configured to run it",
+          `give it a scope with \`ambit catalog annotate hook.${NOTIFY} --add-scope <scope>\`, or remove it with \`ambit catalog hook rm ${NOTIFY}\``,
+        ],
+      },
+    ]);
+  });
+
+  it("treats a hook nothing declares but a reachable skill requires as reachable", async () => {
+    // The `requires` closure is the way a hook reaches a project without being named — the whole
+    // point of `hook.<name>`, so reporting it as dead weight would report the intended shape.
+    await writeHook(fixture, NOTIFY, []);
+    await author(fixture, "annotate", "code-review", "--add-requires", `hook.${NOTIFY}`);
+
+    expect((await auditJson(fixture)).findings).toEqual([]);
+  });
+
+  it("reports a hook only an unreachable skill requires", async () => {
+    // Reachability is transitive on the way in: the requirer declares no registered scope, so
+    // nothing can select the skill and nothing can therefore pull the hook in behind it.
+    await writeHook(fixture, NOTIFY, []);
+    await author(fixture, "skill", "new", ORPHAN_SKILL, "--description", "Nothing points at this.");
+    await author(fixture, "annotate", ORPHAN_SKILL, "--add-requires", `hook.${NOTIFY}`);
+
+    expect((await auditJson(fixture)).findings.map((found) => found.kind)).toEqual([
+      "unreachable-skill",
+      "unreachable-hook",
+    ]);
+  });
+
+  it("stops reporting it once a registered scope declares it", async () => {
+    await writeHook(fixture, NOTIFY, ["core"]);
+
+    const report = await auditJson(fixture);
+    expect(report.findings).toEqual([]);
+    expect(report.tidy).toBe(true);
   });
 });

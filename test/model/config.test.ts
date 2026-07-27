@@ -68,6 +68,14 @@ mcps:
         headers:
           Authorization: "Bearer \${CLOSE_API_KEY}"
     env: [CLOSE_API_KEY]
+
+hooks:
+  - name: format-on-write
+    event: PostToolUse
+    matcher: "Edit|Write"
+    command: npm run format
+    timeout: 60
+    env: [SOME_TOKEN]
 `;
 
 describe("project config", () => {
@@ -89,6 +97,7 @@ describe("project config", () => {
           ["custom", 24],
           ["remote", 30],
         ]),
+        hookLines: new Map([["format-on-write", 40]]),
       },
       harnesses: ["claude"],
       scopes: ["core", "function.engineering", "project.vision-group"],
@@ -123,6 +132,17 @@ describe("project config", () => {
           env: ["CLOSE_API_KEY"],
         },
       ],
+      hooks: [
+        {
+          name: "format-on-write",
+          scopes: [],
+          event: "PostToolUse",
+          matcher: "Edit|Write",
+          command: "npm run format",
+          timeout: 60,
+          env: ["SOME_TOKEN"],
+        },
+      ],
     });
   });
 
@@ -134,12 +154,14 @@ describe("project config", () => {
         scopeLines: new Map(),
         skillLines: new Map(),
         mcpLines: new Map(),
+        hookLines: new Map(),
       },
       harnesses: DEFAULT_HARNESSES,
       scopes: [],
       catalogs: [],
       skills: [],
       mcps: [],
+      hooks: [],
     });
   });
 
@@ -156,6 +178,7 @@ describe("project config", () => {
       ]),
       skillLines: new Map(),
       mcpLines: new Map(),
+      hookLines: new Map(),
     });
   });
 
@@ -186,6 +209,30 @@ describe("project config", () => {
       ]),
     );
     expect(config.origin.mcpLines).toEqual(new Map([["three", 7]]));
+  });
+
+  it("records the line each `hooks` entry was written on", () => {
+    const config = parseProjectConfig(
+      [
+        "version: 1",
+        "hooks:",
+        "  - name: one",
+        "    event: SessionStart",
+        "    command: one.sh",
+        "  - name: two",
+        "    event: Stop",
+        "    command: two.sh",
+        "",
+      ].join("\n"),
+      FILE,
+    );
+
+    expect(config.origin.hookLines).toEqual(
+      new Map([
+        ["one", 3],
+        ["two", 6],
+      ]),
+    );
   });
 
   it("keeps the first line of a scope listed twice", () => {
@@ -230,7 +277,7 @@ describe("project config", () => {
 
       expect(error.format()).toContain(`unknown key "scope" (${FILE} line 2)`);
       expect(error.format()).toContain(
-        "accepted keys: catalogs, harnesses, mcps, scopes, skills, version",
+        "accepted keys: catalogs, harnesses, hooks, mcps, scopes, skills, version",
       );
     });
 
@@ -301,6 +348,42 @@ describe("project config", () => {
 
       expect(error.format()).toContain(`duplicate mcps entry "x" (${FILE} line 7)`);
       expect(error.format()).toContain("define each server once");
+    });
+
+    it("rejects two `hooks` entries defining the same hook", () => {
+      const error = rejection(
+        [
+          "version: 1",
+          "hooks:",
+          "  - name: x",
+          "    event: SessionStart",
+          "    command: one.sh",
+          "  - name: x",
+          "    event: Stop",
+          "    command: two.sh",
+          "",
+        ].join("\n"),
+      );
+
+      expect(error.format()).toContain(`duplicate hooks entry "x" (${FILE} line 6)`);
+      expect(error.format()).toContain("define each hook once");
+    });
+
+    it("names the `hooks` entry's key path when the hook itself is malformed", () => {
+      // The entity parser is shared with `HOOK.yml`, so the only thing this surface adds is where
+      // in the config the offending value sits.
+      expect(rejection("version: 1\nhooks:\n  - name: x\n    event: Stop\n").format()).toContain(
+        'missing required key "hooks[0].command"',
+      );
+    });
+
+    it("rejects an unknown hook event, listing the supported set", () => {
+      const error = rejection(
+        "version: 1\nhooks:\n  - name: x\n    event: OnSave\n    command: x.sh\n",
+      );
+
+      expect(error.format()).toContain(`unknown hook event "OnSave" (${FILE} line 4)`);
+      expect(error.format()).toContain("supported events: SessionStart");
     });
 
     it("rejects an unknown key inside a skill entry", () => {

@@ -15,7 +15,7 @@
  *   matters — validation of the *result*: a scaffold that would not pass `ambit catalog validate` is
  *   not written. The directories are therefore created by writing the `.gitkeep` files inside them,
  *   which is also what makes them survive the first commit; git tracks no empty directory, and a
- *   catalog that loses two of its three directories on the way into a repo is not a scaffolded repo.
+ *   catalog that loses three of its four directories on the way into a repo is not a scaffolded repo.
  * - **An existing `scopes.yml` is refused; any other occupant is left alone.** The registry is what
  *   makes a directory a catalog, so its presence means the command was pointed at one that already
  *   exists (exit 2, nothing written). A catalog is normally initialized *inside* a repo that already
@@ -23,13 +23,20 @@
  *   it is and reported — overwriting someone's README would be exactly the reformatting authoring rule
  *   2 exists to forbid, one file up.
  * - **A missing root is created**, unlike `ambit init`, which refuses one. The scaffold necessarily
- *   creates directories (`skills/`, `mcps/`, `.github/workflows/`), so "this command does not create
+ *   creates directories (`skills/`, `mcps/`, `hooks/`, `.github/workflows/`), so "this command does not create
  *   directories" is not a stance it could hold, and starting a new catalog with
  *   `ambit catalog init --catalog acme-skills` is the ordinary first use.
  */
 import { stat } from "node:fs/promises";
 
-import { MCPS_DIRNAME, SCOPES_FILENAME, SKILLS_DIRNAME, SKILL_FILENAME } from "../model/catalog.js";
+import {
+  HOOKS_DIRNAME,
+  HOOK_FILENAME,
+  MCPS_DIRNAME,
+  SCOPES_FILENAME,
+  SKILLS_DIRNAME,
+  SKILL_FILENAME,
+} from "../model/catalog.js";
 import type { CatalogFileChange, EditOptions, EditedFile } from "./editor.js";
 import { applyCatalogEdit, catalogFilePath } from "./editor.js";
 import { configError } from "../errors.js";
@@ -52,8 +59,9 @@ export const CATALOG_README_FILENAME = "README.md";
 export const CATALOG_WORKFLOW_FILENAME = ".github/workflows/validate.yml";
 
 /**
- * What is written inside `skills/` and `mcps/` so the directories exist and survive a commit. Invisible
- * to catalog parsing, which reads only `scopes.yml`, `skills/**`, and `mcps/*.yml`.
+ * What is written inside `skills/`, `mcps/` and `hooks/` so the directories exist and survive a commit.
+ * Invisible to catalog parsing, which reads only `scopes.yml`, `skills/**`, `mcps/*.yml`, and
+ * `hooks/**`.
  */
 export const CATALOG_KEEP_FILENAME = ".gitkeep";
 
@@ -127,14 +135,15 @@ const WORKFLOW_BLOCKS: readonly ScaffoldBlock[] = [
  */
 const README = `# An ambit catalog
 
-This directory is a catalog: the skills and MCP server definitions \`ambit\` installs into projects,
-each labelled with the *scopes* that should get it.
+This directory is a catalog: the skills, MCP server definitions and hooks \`ambit\` installs into
+projects, each labelled with the *scopes* that should get it.
 
 ## Layout
 
     ${SCOPES_FILENAME}                every scope, with a description
     ${SKILLS_DIRNAME}/<name>/${SKILL_FILENAME}    one directory per skill
     ${MCPS_DIRNAME}/<name>.yml           one file per MCP server
+    ${HOOKS_DIRNAME}/<name>/${HOOK_FILENAME}     one directory per hook
 
 A skill's name is its path under \`${SKILLS_DIRNAME}/\`, so \`${SKILLS_DIRNAME}/close-crm/\` holds the skill \`close-crm\`.
 Nothing else names it — which is what keeps this directory a plain skills repo that other tools
@@ -174,6 +183,7 @@ users.
     ambit catalog scope add <name> --description <text>   register a scope
     ambit catalog skill new <name> --scope <scope>        create a skill
     ambit catalog mcp new <name> --stdio <command>        define an MCP server
+    ambit catalog hook new <name> --event <event>         define a hook
     ambit catalog tree                                    see what each scope selects
     ambit catalog audit                                   find dead scopes and unreachable items
     ambit catalog validate                                check the whole catalog
@@ -194,6 +204,7 @@ export function scaffoldCatalog(): readonly CatalogFileChange[] {
   const files: Readonly<Record<string, string>> = {
     [CATALOG_WORKFLOW_FILENAME]: renderScaffold(WORKFLOW_BLOCKS),
     [CATALOG_README_FILENAME]: README,
+    [`${HOOKS_DIRNAME}/${CATALOG_KEEP_FILENAME}`]: "",
     [`${MCPS_DIRNAME}/${CATALOG_KEEP_FILENAME}`]: "",
     [SCOPES_FILENAME]: renderScaffold(REGISTRY_BLOCKS),
     [`${SKILLS_DIRNAME}/${CATALOG_KEEP_FILENAME}`]: "",

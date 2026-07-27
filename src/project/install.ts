@@ -35,6 +35,7 @@ import type {
   HarnessAdapter,
   PlannedArtifact,
   ProjectPaths,
+  SkippedHook,
 } from "../harness/adapter.js";
 import { PROFILES } from "../harness/definitions.js";
 import { adapterFor } from "../harness/profile.js";
@@ -102,6 +103,8 @@ export interface PlannedInstall {
   readonly plans: readonly AdapterPlan[];
   /** Every adapter's plan flattened — what ownership and pruning are answered against. */
   readonly artifacts: readonly PlannedArtifact[];
+  /** Hooks a configured harness cannot express, in harness order. Reported, never fatal. */
+  readonly skipped: readonly SkippedHook[];
   /** What the last install recorded owning. */
   readonly prior: State;
   readonly lock: Lock;
@@ -115,6 +118,8 @@ export interface InstallPreview {
   readonly harnesses: readonly string[];
   /** What install would write. */
   readonly artifacts: readonly PlannedArtifact[];
+  /** What install would skip: a hook a configured harness cannot express. */
+  readonly skipped: readonly SkippedHook[];
   /** What install would remove, from state alone. */
   readonly pruned: readonly PrunedArtifact[];
   readonly lock: Lock;
@@ -131,6 +136,8 @@ export interface InstallResult {
   readonly harnesses: readonly string[];
   /** Everything now owned, in the order the adapters wrote it. */
   readonly artifacts: readonly AppliedArtifact[];
+  /** Hooks a configured harness could not express, and so was not given. */
+  readonly skipped: readonly SkippedHook[];
   /** What the previous install owned and this one does not, removed by path. */
   readonly pruned: readonly PrunedArtifact[];
   /** What was written to `ambit.lock`. */
@@ -164,7 +171,27 @@ export function adaptersFor(harnesses: readonly string[]): readonly HarnessAdapt
 }
 
 /**
- * Every adapter's plan, with each path-owned artifact planned exactly once.
+ * What makes two planned artifacts the same artifact.
+ *
+ * A path, for anything owned as a path. For a config file the path is not enough, because ambit owns
+ * *keys* there rather than the file: two harnesses writing different entries into one document both
+ * have to write, so identity is the whole write — the section, the driver it goes through, the root
+ * keys it seeds, and the entries themselves.
+ */
+function identityOf(artifact: PlannedArtifact): string {
+  if (artifact.kind !== "harness-config") return artifact.path;
+  return JSON.stringify([
+    artifact.path,
+    artifact.section,
+    artifact.format,
+    artifact.shape,
+    artifact.rootDefaults,
+    artifact.entries,
+  ]);
+}
+
+/**
+ * Every adapter's plan, with each artifact planned exactly once.
  *
  * The skills directory is shared, so *every* harness plans the same `.agents/skills/<name>` targets,
  * and two harnesses of one family plan the same skills link. Those are not two artifacts that happen
@@ -172,9 +199,15 @@ export function adaptersFor(harnesses: readonly string[]): readonly HarnessAdapt
  * rest defer. Without this the second adapter's `apply` finds a symlink the first just created and
  * refuses, state records the same path twice, and `install` prints it twice.
  *
- * Config entries are never deduplicated: ambit owns *keys* in those files rather than the files, so two
- * harnesses writing into one file both write, and dropping the second's entries would quietly install
- * less than the project asked for.
+ * A config file two harnesses write the *same* entries into goes the same way, and for the same
+ * reason: Claude and VS Code read one `.claude/settings.json`, so a project configuring both writes it
+ * once. Anything else about a config artifact differing — a different section, a different rendering
+ * of the same hook — makes it a second write rather than a duplicate, because dropping it would
+ * quietly install less than the project asked for.
+ *
+ * A shared `.agents/hooks/<name>` is the case this dedupe was widened for and needed no widening: every
+ * harness that can express a hook plans the same directory for it, exactly as every harness plans the
+ * same skill directories, so the first to name it plans it and the rest defer.
  *
  * @param adapters the harnesses to plan for, in the order they were configured — which is the order
  *   that decides who plans a shared target, and is sorted, so it does not depend on `ambit.yml`'s
@@ -189,9 +222,9 @@ export function planFor(
   return adapters.map((adapter) => ({
     adapter,
     plan: adapter.plan(bundle, project).filter((artifact) => {
-      if (artifact.kind === "harness-config") return true;
-      if (claimed.has(artifact.path)) return false;
-      claimed.add(artifact.path);
+      const identity = identityOf(artifact);
+      if (claimed.has(identity)) return false;
+      claimed.add(identity);
       return true;
     }),
   }));
@@ -249,6 +282,9 @@ export async function planInstall(
     harnesses,
     plans,
     artifacts: plans.flatMap(({ plan }) => plan),
+    // Asked of every configured adapter, not only the ones that planned something: a harness with no
+    // hook mechanism plans nothing at all, which is exactly the case worth saying out loud.
+    skipped: adapters.flatMap((adapter) => adapter.skips(bundle)),
     prior: await readState(projectDir),
     lock,
     lockText: serializeLock(lock),
@@ -290,6 +326,7 @@ export async function previewInstall(
     bundle: planned.bundle,
     harnesses: planned.harnesses,
     artifacts: planned.artifacts,
+    skipped: planned.skipped,
     pruned,
     lock: planned.lock,
     lockChanged: (await readLockText(projectDir)) !== planned.lockText,
@@ -312,7 +349,7 @@ export async function installProject(
   options: InstallOptions = {},
 ): Promise<InstallResult> {
   const planned = await planInstall(projectDir, options);
-  const { bundle, harnesses, plans, prior, lock, lockText } = planned;
+  const { bundle, harnesses, plans, prior, lock, lockText, skipped } = planned;
   if (options.frozen === true) await assertLockCurrent(projectDir, lockText);
 
   const owner = await authorizePlan(planned.artifacts, prior, { adopt: options.adopt === true });
@@ -335,5 +372,5 @@ export async function installProject(
   // unowned and the next plain install refusing them.
   await writeGitignoreBlocks(projectDir, artifacts);
 
-  return { bundle, harnesses, artifacts, pruned, lock };
+  return { bundle, harnesses, artifacts, skipped, pruned, lock };
 }

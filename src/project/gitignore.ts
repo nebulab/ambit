@@ -184,10 +184,14 @@ function isShared(artifactPath: string): boolean {
 /**
  * The two blocks a project should hold, given what an install owns.
  *
- * Every installed skill lands under the shared directory and is listed in the nested file; ambit's
- * state directory and the skills link cannot be reached from there and stay at the root. The
- * partition is by path rather than by artifact kind, so a harness that one day puts a skills link
- * inside `.agents/` needs no change here.
+ * Every installed skill — and every script a hook ships — lands under the shared directory and is
+ * listed in the nested file; ambit's state directory and the skills link cannot be reached from there
+ * and stay at the root. The partition is by path rather than by artifact kind, so a harness that one day
+ * puts a skills link inside `.agents/` needs no change here.
+ *
+ * Which kinds are listed at all *is* by kind, and every kind owned as a path has to be one of them: a
+ * kind left out is bytes ambit copied into the working tree that git then reports as untracked, and the
+ * whole point of the blocks is that nothing derived shows up in `git status`.
  *
  * Not `.mcp.json`, and not `ambit.lock`: both are files a team may well want committed, and only one
  * of them is even an owned artifact. Not `.agents/.gitignore` either — it is generated but tracked
@@ -201,7 +205,7 @@ export function gitignoreBlocks(artifacts: readonly OwnedArtifact[]): readonly I
   const shared: string[] = [];
 
   for (const artifact of artifacts) {
-    if (artifact.kind !== "skill-dir" && artifact.kind !== "skills-link") continue;
+    if (artifact.kind === "harness-config") continue;
     // No trailing slash, deliberately: a `path:` skill is installed as a symlink, git does
     // not read a symlink as a directory, and a `dir/` pattern would therefore leave every linked
     // skill tracked. Without the slash one pattern covers both modes — and the skills link, which is

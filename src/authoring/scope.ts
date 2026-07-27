@@ -17,9 +17,9 @@
  *   with no `person`), so cascading would delete entries nobody named.
  * - **`mv` renames the subtree**, because what sits beneath a scope is part of what holding it selects.
  *   Renaming `function.engineering` and leaving `function.engineering.frontend` under a name no longer
- *   registered would quietly change what every project holding the parent gets. Every skill and every
- *   server declaring any renamed scope is rewritten in the *same* edit, which is what lets the result
- *   validate as a whole (see `CatalogOverlay` in `model/catalog.ts`).
+ *   registered would quietly change what every project holding the parent gets. Every skill, every
+ *   server and every hook declaring any renamed scope is rewritten in the *same* edit, which is what
+ *   lets the result validate as a whole (see `CatalogOverlay` in `model/catalog.ts`).
  *
  * All three write through the B02 editor, so they inherit atomic writes, the root check, `--dry-run`, and
  * validation of the result. None of them reads an `ambit.yml`: a catalog is not a project, so a rename
@@ -27,9 +27,10 @@
  */
 import path from "node:path";
 
-import type { Catalog, CatalogSkill, ScopeDefinition } from "../model/catalog.js";
+import type { Catalog, CatalogHook, CatalogSkill, ScopeDefinition } from "../model/catalog.js";
 import {
   AMBIT_FRONTMATTER_KEY,
+  HOOK_FILENAME,
   SCOPES_FILENAME,
   SKILL_FILENAME,
   parseCatalogDirectory,
@@ -40,6 +41,7 @@ import { CatalogDocument, applyCatalogEdit } from "./editor.js";
 import type { AmbitError } from "../errors.js";
 import { at, configError, resolutionError } from "../errors.js";
 import {
+  HOOK_REQUIREMENT_PREFIX,
   MCP_REQUIREMENT_PREFIX,
   SCOPE_SEPARATOR,
   inSubtree,
@@ -53,21 +55,26 @@ const REGISTRY_KEY = "scopes";
 const DESCRIPTION_KEY = "description";
 
 /**
- * The key a skill or an MCP entity declares its scopes under. The same word as
+ * The key a skill, an MCP entity or a hook declares its scopes under. The same word as
  * {@link REGISTRY_KEY} and a different document — a rename rewrites both, and confusing the two would be
  * a hard bug to see.
  *
  * Where it sits differs by document: a skill's is under `ambit:`, since a `SKILL.md`'s frontmatter is
  * the harness's and ambit is namespaced inside it, while an entity's is at the root of a
- * file ambit owns end to end. See {@link SKILL_SCOPES_PATH} and {@link MCP_SCOPES_PATH}.
+ * file ambit owns end to end. See {@link SKILL_SCOPES_PATH} and {@link ENTITY_SCOPES_PATH}.
  */
 const DECLARED_KEY = "scopes";
 
 /** Where a skill declares its scopes, as a path from the frontmatter root. */
 const SKILL_SCOPES_PATH: readonly string[] = [AMBIT_FRONTMATTER_KEY, DECLARED_KEY];
 
-/** Where an MCP entity declares its scopes, as a path from the document root. */
-const MCP_SCOPES_PATH: readonly string[] = [DECLARED_KEY];
+/**
+ * Where an MCP entity and a hook declare their scopes, as a path from the document root.
+ *
+ * One constant for both: an `mcps/<name>.yml` and a `hooks/<name>/HOOK.yml` are files ambit owns end to
+ * end, so neither namespaces its own keys the way a skill's frontmatter has to.
+ */
+const ENTITY_SCOPES_PATH: readonly string[] = [DECLARED_KEY];
 
 /** What an edit to the registry amounted to. */
 export interface ScopeEdit {
@@ -126,11 +133,12 @@ function unknownScope(scope: string, registered: readonly ScopeDefinition[]): Am
  * exists.
  */
 function stillDeclared(scope: string, declarers: Declarers): AmbitError {
-  // `annotate` takes a skill by name and a server as `mcp.<name>`, so that spelling is worth explaining
-  // only when a server is actually among the declarers.
-  const naming = declarers.servers
-    ? ` (naming a server \`${MCP_REQUIREMENT_PREFIX}<server>\`)`
-    : "";
+  // `annotate` takes a skill by name and the other two by prefix, so each spelling is worth explaining
+  // only when something that needs it is actually among the declarers.
+  const prefixed: string[] = [];
+  if (declarers.servers) prefixed.push(`a server \`${MCP_REQUIREMENT_PREFIX}<server>\``);
+  if (declarers.hooks) prefixed.push(`a hook \`${HOOK_REQUIREMENT_PREFIX}<hook>\``);
+  const naming = prefixed.length > 0 ? ` (naming ${prefixed.join(" and ")})` : "";
 
   return resolutionError(`scope "${scope}" is still declared ${at(SCOPES_FILENAME, undefined)}`, [
     ...declarers.lines,
@@ -188,6 +196,11 @@ function skillDocumentOf(skill: CatalogSkill): string {
   return `${skill.path}/${SKILL_FILENAME}`;
 }
 
+/** Where a hook's annotations are written — its directory's own document. */
+function hookDocumentOf(hook: CatalogHook): string {
+  return `${hook.path}/${HOOK_FILENAME}`;
+}
+
 /** How a declarer reads in a refusal: what it is, what it is called, and where it is written. */
 function declares(kind: string, name: string, file: string): string {
   return `${kind} "${name}" declares it ${at(file, undefined)}`;
@@ -195,10 +208,15 @@ function declares(kind: string, name: string, file: string): string {
 
 /** Everything declaring one scope, as a refusal names them. */
 interface Declarers {
-  /** One line per declarer: skills first, each group in name order, as the catalog parsed them. */
+  /**
+   * One line per declarer: skills, then servers, then hooks, each group in name order, as the catalog
+   * parsed them — the order every report lists the three namespaces in.
+   */
   readonly lines: readonly string[];
   /** Whether a server is among them, which `catalog annotate` names differently from a skill. */
   readonly servers: boolean;
+  /** Whether a hook is among them, which `catalog annotate` names by its own prefix. */
+  readonly hooks: boolean;
 }
 
 /**
@@ -221,7 +239,10 @@ function declarersOf(catalog: Catalog, scope: string): Declarers {
   const servers = declaring(catalog.mcps);
   lines.push(...servers.map((mcp) => declares("MCP server", mcp.name, mcp.file)));
 
-  return { lines, servers: servers.length > 0 };
+  const hooks = declaring(catalog.hooks);
+  lines.push(...hooks.map((hook) => declares("hook", hook.name, hookDocumentOf(hook))));
+
+  return { lines, servers: servers.length > 0, hooks: hooks.length > 0 };
 }
 
 /**
@@ -439,7 +460,18 @@ export async function renameScope(
     // legal as `.yml`, and rewriting the other one would leave two files defining one
     // server — which parsing rejects, so the rename would fail with nothing written.
     const document = await CatalogDocument.open(root, await mcpDocumentFile(root, mcp.name));
-    document.setStringList(MCP_SCOPES_PATH, declared);
+    document.setStringList(ENTITY_SCOPES_PATH, declared);
+    documents.push(document);
+  }
+
+  // The third namespace, on the same terms: a hook declares scopes like anything else in a catalog, so
+  // a rename that skipped it would leave the hook declaring a name the registry no longer holds — which
+  // the editor refuses as a whole, so the rename would fail rather than half-land.
+  for (const hook of catalog.hooks) {
+    const declared = rewritten(hook.scopes, renames);
+    if (declared === undefined) continue;
+    const document = await CatalogDocument.open(root, hookDocumentOf(hook));
+    document.setStringList(ENTITY_SCOPES_PATH, declared);
     documents.push(document);
   }
 

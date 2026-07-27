@@ -14,6 +14,7 @@
 import type {
   Catalog,
   MergedCatalog,
+  MergedHook,
   MergedMcp,
   MergedSkill,
   ScopeDefinition,
@@ -58,9 +59,30 @@ function mcpJson(mcp: MergedMcp): Readonly<Record<string, unknown>> {
   };
 }
 
+/**
+ * One hook, including the two facts a reader cannot see in the document: which catalog provided it,
+ * and whether `command` names a script that catalog ships — derived from the directory's contents, so
+ * this is the only place it can be read.
+ */
+function hookJson(hook: MergedHook): Readonly<Record<string, unknown>> {
+  return {
+    catalog: hook.catalog,
+    command: hook.command,
+    ...(hook.description !== undefined && { description: hook.description }),
+    env: hook.env,
+    event: hook.event,
+    ...(hook.matcher !== undefined && { matcher: hook.matcher }),
+    ...(hook.path !== undefined && { path: hook.path }),
+    scopes: hook.scopes,
+    shipsScript: hook.shipsScript,
+    ...(hook.timeout !== undefined && { timeout: hook.timeout }),
+  };
+}
+
 function toJson(merged: MergedCatalog): Readonly<Record<string, unknown>> {
   return {
     catalogs: merged.catalogs,
+    hooks: keyed(merged.hooks, (hook) => hook.name, hookJson),
     mcps: keyed(merged.mcps, (mcp) => mcp.name, mcpJson),
     scopes: keyed(
       merged.scopes,
@@ -86,6 +108,11 @@ function transportSummary(transport: McpTransport): string {
   }
 }
 
+/** What the hook runs, and — for a shipped script — that it is one, since the name alone cannot say. */
+function commandSummary(hook: MergedHook): string {
+  return hook.shipsScript ? `${hook.command} (shipped)` : hook.command;
+}
+
 function toText(catalogs: readonly Catalog[], merged: MergedCatalog): readonly string[] {
   const heading =
     catalogs.length === 0
@@ -109,6 +136,16 @@ function toText(catalogs: readonly Catalog[], merged: MergedCatalog): readonly s
         mcp.catalog,
         scopeList(mcp.scopes),
         transportSummary(mcp.transport),
+      ]),
+    ),
+    ...section(
+      "hooks",
+      merged.hooks.map((hook) => [
+        hook.name,
+        hook.catalog,
+        scopeList(hook.scopes),
+        hook.event,
+        commandSummary(hook),
       ]),
     ),
   ];

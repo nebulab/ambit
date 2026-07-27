@@ -120,6 +120,46 @@ const CORE_SKILL = "company-context";
  */
 const HELD_SCOPES = ["core", "function.engineering", "project.acme"];
 
+/**
+ * The hooks the project declares inline, and the one `why` is asked about below.
+ *
+ * Inline in `ambit.yml` rather than in the fixture catalog, because a hook needs no catalog to reach a
+ * bundle and every surface in the table reads the project. Three of them, arranged so both orderings a
+ * hook config file has are non-trivial: two share an event, so an array's own order has to come from
+ * the bundle, and the event keys are written in an order that is not the order the names sort in.
+ */
+const INLINE_HOOKS: readonly string[] = [
+  "  - name: guard",
+  "    event: PreToolUse",
+  "    matcher: Bash",
+  "    command: ./bin/guard",
+  "  - name: trace",
+  "    event: PreToolUse",
+  "    command: ./bin/trace",
+  "  - name: notify",
+  "    event: Stop",
+  "    command: ./bin/notify",
+];
+
+const INLINE_HOOK = "guard";
+
+/**
+ * The `catalog hook new` invocation the two authoring rows below preview.
+ *
+ * Under `--dry-run` it writes nothing, which is what makes it safe beside the read-only surfaces — and
+ * what it prints is a whole `HOOK.yml` as a diff, so a document ambit emits is pinned here too.
+ */
+const AUTHORED_HOOK: readonly string[] = [
+  "catalog",
+  "hook",
+  "new",
+  "audit-trail",
+  "--event",
+  "SessionEnd",
+  "--command",
+  "npx --yes @acme/audit-trail",
+];
+
 /** The fixture's two credentials, stubbed so no surface depends on the developer's environment. */
 const ENV_STUBS: Readonly<Record<string, string>> = {
   SCOPED_API_KEY: "determinism-scoped-key",
@@ -138,9 +178,10 @@ interface Surface {
  * Every surface whose bytes this file pins, consumer and authoring alike.
  *
  * Text and `--json` are separate rows on purpose: they are two renderings, and only one of them is
- * covered by the goldens. The three `--dry-run` rows are here because a preview is a report — the
+ * covered by the goldens. The `--dry-run` rows are here because a preview is a report — the
  * one surface of a mutating command that prints without writing, and the one nothing else asserts
- * twice.
+ * twice. Three of them preview a project's install, prune and clean; the last two preview an authoring
+ * write, whose diff is a document ambit emits rather than one it read.
  */
 const SURFACES: readonly Surface[] = [
   { argv: ["scopes"], dir: "project" },
@@ -154,6 +195,7 @@ const SURFACES: readonly Surface[] = [
   { argv: ["why", CORE_SKILL], dir: "project" },
   { argv: ["why", CORE_SKILL, "--json"], dir: "project" },
   { argv: ["why", "mcp.fixture"], dir: "project" },
+  { argv: ["why", `hook.${INLINE_HOOK}`], dir: "project" },
   { argv: ["status"], dir: "project" },
   { argv: ["status", "--json"], dir: "project" },
   { argv: ["validate"], dir: "project" },
@@ -171,6 +213,8 @@ const SURFACES: readonly Surface[] = [
   { argv: ["catalog", "audit"], dir: "catalog" },
   { argv: ["catalog", "audit", "--json"], dir: "catalog" },
   { argv: ["catalog", "validate"], dir: "catalog" },
+  { argv: [...AUTHORED_HOOK, "--dry-run"], dir: "catalog" },
+  { argv: [...AUTHORED_HOOK, "--dry-run", "--json"], dir: "catalog" },
 ];
 
 /** What a surface printed, whole: two streams and the code, since all three have to be stable. */
@@ -187,6 +231,7 @@ let root: string;
 let catalogDir: string;
 let projectDir: string;
 let installed: Record<string, string>;
+let fixture: Record<string, string>;
 
 /** Points a project at a sibling `catalog/` directory and holds every scope the fixture registers. */
 async function writeProfile(dir: string): Promise<void> {
@@ -198,6 +243,8 @@ catalogs:
     source: path:../catalog
 scopes:
 ${HELD_SCOPES.map((scope) => `  - ${scope}`).join("\n")}
+hooks:
+${INLINE_HOOKS.join("\n")}
 `,
     "utf8",
   );
@@ -268,6 +315,7 @@ beforeAll(async () => {
   const install = await cli(["install", "--project", projectDir], root);
   expect(install.code, install.stderr).toBe(ExitCode.Success);
   installed = await snapshot(projectDir);
+  fixture = await snapshot(catalogDir);
 });
 
 afterAll(async () => {
@@ -359,13 +407,17 @@ describe("no surface carries anything machine-specific", () => {
 });
 
 /**
- * The guard on sharing one project across the table above: every surface listed there is either
- * read-only or a `--dry-run`, and a row that turned out to write would have corrupted the fixture
- * for whatever ran after it.
+ * The guard on sharing one project and one catalog across the table above: every surface listed there
+ * is either read-only or a `--dry-run`, and a row that turned out to write would have corrupted the
+ * fixture for whatever ran after it.
  */
 describe("nothing in the surface table touches disk", () => {
   it("leaves the installed project byte-identical to what install wrote", async () => {
     expect(await snapshot(projectDir)).toEqual(installed);
+  });
+
+  it("leaves the catalog byte-identical to what the fixture builder wrote", async () => {
+    expect(await snapshot(catalogDir)).toEqual(fixture);
   });
 });
 

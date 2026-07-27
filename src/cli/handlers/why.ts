@@ -6,15 +6,15 @@
  * far end that a reader can actually change. So this prints every link from the root cause down to
  * the item asked about.
  *
- * A bare name means a skill when one exists and a server otherwise, and an `mcp.`-prefixed name
- * always means a server — the same disambiguation `requires` uses, so a name copied out
- * of a `requires` list works here unchanged.
+ * A bare name means a skill when one exists and falls back to the other two namespaces otherwise; an
+ * `mcp.`-prefixed name always means a server and a `hook.`-prefixed one always means a hook — the same
+ * disambiguation `requires` uses, so a name copied out of a `requires` list works here unchanged.
  *
  * A name that resolves to nothing selected is an error rather than an empty report: "not in the
  * bundle" is a resolution answer a script has to be able to detect, and the two ways of getting
  * there — no catalog provides it, or nothing selects it — call for different fixes.
  */
-import type { MergedCatalog, MergedMcp, MergedSkill } from "../../model/catalog.js";
+import type { MergedCatalog, MergedHook, MergedMcp, MergedSkill } from "../../model/catalog.js";
 import { loadCatalogs, mergeCatalogs, mergeConfigEntities } from "../../model/catalog.js";
 import type { CommandHandler } from "../commands.js";
 import { jsonRequested, sourceContextOf } from "../commands.js";
@@ -25,53 +25,80 @@ import { printSections, section } from "../output.js";
 import type {
   Bundle,
   BundleItem,
+  ItemKind,
   ReasonedItem,
   SelectionReason,
 } from "../../resolution/resolve.js";
 import {
+  HOOK_REQUIREMENT_PREFIX,
   MCP_REQUIREMENT_PREFIX,
   explainSelection,
   formatReason,
   isSelected,
   reasonOf,
+  requirementFor,
   resolveBundle,
 } from "../../resolution/resolve.js";
 
+/** How an item is named in messages, one entry per namespace so a fourth is a type error. */
+const SUBJECTS: Readonly<Record<ItemKind, string>> = {
+  skill: "skill",
+  mcp: "MCP server",
+  hook: "hook",
+};
+
 /** How an item is named in messages. */
 function subject(item: BundleItem): string {
-  return item.kind === "skill" ? `skill "${item.name}"` : `MCP server "${item.name}"`;
+  return `${SUBJECTS[item.kind]} "${item.name}"`;
 }
 
 /**
  * What a name could mean, in the order a tie is broken.
  *
- * A skill wins a bare name: skills are what a project mostly holds, and `mcp.` is already the way to
- * insist on a server. The prefixed reading is tried before the literal one, so `mcp.close` finds the
- * server `close` — a skill whose own name starts with `mcp.` is still found first, by the exact
- * match ahead of both.
+ * A skill wins a bare name: skills are what a project mostly holds, and `mcp.` and `hook.` are
+ * already the way to insist on the other two. The prefixed reading is tried before the literal one,
+ * so `mcp.close` finds the server `close` — a skill whose own name starts with `mcp.` is still found
+ * first, by the exact match ahead of both.
+ *
+ * A bare name falls back to a server and then to a hook, in that order, which is only reachable when
+ * nothing else holds the name at all.
  */
 function candidates(name: string): readonly BundleItem[] {
   const options: BundleItem[] = [{ kind: "skill", name }];
   if (name.startsWith(MCP_REQUIREMENT_PREFIX)) {
     options.push({ kind: "mcp", name: name.slice(MCP_REQUIREMENT_PREFIX.length) });
   }
-  options.push({ kind: "mcp", name });
+  if (name.startsWith(HOOK_REQUIREMENT_PREFIX)) {
+    options.push({ kind: "hook", name: name.slice(HOOK_REQUIREMENT_PREFIX.length) });
+  }
+  options.push({ kind: "mcp", name }, { kind: "hook", name });
   return options;
 }
 
 /** The merged-catalog entry a candidate names, if anything provides it. */
-function provided(merged: MergedCatalog, item: BundleItem): MergedSkill | MergedMcp | undefined {
-  return item.kind === "skill"
-    ? merged.skills.find((skill) => skill.name === item.name)
-    : merged.mcps.find((mcp) => mcp.name === item.name);
+function provided(
+  merged: MergedCatalog,
+  item: BundleItem,
+): MergedSkill | MergedMcp | MergedHook | undefined {
+  switch (item.kind) {
+    case "skill":
+      return merged.skills.find((skill) => skill.name === item.name);
+    case "mcp":
+      return merged.mcps.find((mcp) => mcp.name === item.name);
+    case "hook":
+      return merged.hooks.find((hook) => hook.name === item.name);
+  }
 }
 
 /** How to get an item that exists into the bundle, given what it declares. */
 function selectionAdvice(item: BundleItem, scopes: readonly string[]): string {
   const hold = scopes.length === 0 ? undefined : `hold one of its scopes (${scopes.join(", ")})`;
-  const name = item.kind === "skill" ? item.name : `${MCP_REQUIREMENT_PREFIX}${item.name}`;
+  // A skill is the one namespace a project can name outright in a way resolution reaches by name;
+  // a server and a hook a *catalog* provides are reached by a scope or by a `requires` edge.
   const otherwise =
-    item.kind === "skill" ? "list it under `skills`" : `have a selected skill \`require\` ${name}`;
+    item.kind === "skill"
+      ? "list it under `skills`"
+      : `have a selected skill \`require\` ${requirementFor(item)}`;
 
   return hold === undefined ? otherwise : `${hold}, or ${otherwise}`;
 }
@@ -85,7 +112,7 @@ function selectionAdvice(item: BundleItem, scopes: readonly string[]): string {
  */
 function notSelected(
   item: BundleItem,
-  entry: MergedSkill | MergedMcp,
+  entry: MergedSkill | MergedMcp | MergedHook,
   config: ProjectConfig,
 ): AmbitError {
   return resolutionError(`${subject(item)} is not in the bundle`, [
@@ -96,8 +123,8 @@ function notSelected(
 
 /** The error for a name nothing provides at all. */
 function unknownName(name: string, config: ProjectConfig): AmbitError {
-  return resolutionError(`unknown skill or MCP server "${name}"`, [
-    `nothing configured in ${config.origin.file} provides a skill or a server by that name`,
+  return resolutionError(`unknown skill, MCP server or hook "${name}"`, [
+    `nothing configured in ${config.origin.file} provides a skill, a server or a hook by that name`,
     "run `ambit catalog` to see what is available",
   ]);
 }
@@ -171,7 +198,7 @@ export const whyHandler: CommandHandler = async (ctx) => {
   if (name === undefined) {
     // Commander enforces the argument, so this is unreachable rather than a user-facing path.
     throw new AmbitError(ExitCode.Internal, "`ambit why` was given no name", [
-      "the command takes the name of a skill or an MCP server",
+      "the command takes the name of a skill, an MCP server, or a hook",
       "run `ambit why <name>`",
     ]);
   }

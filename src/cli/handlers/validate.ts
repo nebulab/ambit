@@ -33,6 +33,7 @@ function problemJson(problem: ValidationProblem): Readonly<Record<string, unknow
 function toJson(report: ValidationReport): Readonly<Record<string, unknown>> {
   return {
     checked: {
+      hooks: report.checked.hooks,
       mcps: report.checked.mcps,
       scopes: report.checked.scopes,
       skills: report.checked.skills,
@@ -66,7 +67,7 @@ function problemLines(problems: readonly ValidationProblem[]): readonly string[]
 function toText(report: ValidationReport): readonly string[] {
   const { checked } = report;
   return [
-    `checked ${count(checked.scopes, "scope")}, ${count(checked.skills, "skill")}, ${count(checked.mcps, "mcp")}`,
+    `checked ${count(checked.scopes, "scope")}, ${count(checked.skills, "skill")}, ${count(checked.mcps, "mcp")}, ${count(checked.hooks, "hook")}`,
     "",
     ...problemLines(report.problems),
   ];

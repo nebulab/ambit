@@ -2,6 +2,12 @@
   "env": [
     "FIXTURE_API_KEY"
   ],
+  "hooks": {
+    "acme-standup": {
+      "catalog": "company",
+      "event": "SessionEnd"
+    }
+  },
   "mcps": {
     "fixture": {
       "catalog": "company"

@@ -19,6 +19,9 @@
  *   so no profile can select it — instructions somebody still maintains believing they are in use.
  * - **An MCP server nothing can reach**, which is the same finding one namespace over: a server is
  *   reached by a scope of its own or by a skill's `mcp.<name>` requirement, and by nothing else.
+ * - **A hook nothing can reach**, the same finding again: a scope of its own, or a skill's
+ *   `hook.<name>` requirement. A hook carries no `requires` of its own, so it is always a leaf of the
+ *   closure — which makes it the one namespace where "unreachable" is decided in a single step.
  *
  * Two decisions inside that a later change must not quietly reverse.
  *
@@ -36,21 +39,35 @@
  */
 import path from "node:path";
 
-import type { Catalog, CatalogSkill } from "../model/catalog.js";
-import { SCOPES_FILENAME, SKILL_FILENAME, parseCatalogDirectory } from "../model/catalog.js";
+import type { Catalog, CatalogHook, CatalogSkill } from "../model/catalog.js";
+import {
+  HOOK_FILENAME,
+  SCOPES_FILENAME,
+  SKILL_FILENAME,
+  parseCatalogDirectory,
+} from "../model/catalog.js";
 import { buildScopeTree, flattenScopeTree, selectionSize } from "./tree.js";
 import { at } from "../errors.js";
-import { MCP_REQUIREMENT_PREFIX } from "../resolution/resolve.js";
+import {
+  HOOK_REQUIREMENT_PREFIX,
+  MCP_REQUIREMENT_PREFIX,
+  requirementTarget,
+} from "../resolution/resolve.js";
 
 /**
  * What kind of finding a report entry is, so `--json` can be filtered without parsing prose.
  *
  * A declared order rather than an alphabetical one, and it is also the report order: the registry
- * first, then the two namespaces it selects, exactly as `ambit dump-catalog` and `catalog validate`
+ * first, then the three namespaces it selects, exactly as `ambit dump-catalog` and `catalog validate`
  * present a
  * catalog. A fixed order is all determinism needs.
  */
-export const AUDIT_FINDING_KINDS = ["dead-scope", "unreachable-skill", "unreachable-mcp"] as const;
+export const AUDIT_FINDING_KINDS = [
+  "dead-scope",
+  "unreachable-skill",
+  "unreachable-mcp",
+  "unreachable-hook",
+] as const;
 
 export type AuditFindingKind = (typeof AUDIT_FINDING_KINDS)[number];
 
@@ -69,6 +86,7 @@ export interface AuditFinding {
 
 /** What the audit looked at, so a clean report says so rather than saying nothing. */
 export interface AuditCounts {
+  readonly hooks: number;
   readonly mcps: number;
   readonly scopes: number;
   readonly skills: number;
@@ -100,6 +118,11 @@ function skillDocumentOf(skill: CatalogSkill): string {
   return `${skill.path}/${SKILL_FILENAME}`;
 }
 
+/** Where a hook is declared, the same way — a directory holding one document. */
+function hookDocumentOf(hook: CatalogHook): string {
+  return `${hook.path}/${HOOK_FILENAME}`;
+}
+
 /** What a scope declaration can reach: the scopes some `scopes.yml` actually registers. */
 function registeredScopes(catalog: Catalog): ReadonlySet<string> {
   return new Set(catalog.scopes.map((definition) => definition.name));
@@ -114,6 +137,7 @@ function selectableBy(scopes: readonly string[], registered: ReadonlySet<string>
 interface Reachable {
   readonly skills: ReadonlySet<string>;
   readonly mcps: ReadonlySet<string>;
+  readonly hooks: ReadonlySet<string>;
 }
 
 /**
@@ -130,18 +154,29 @@ function reachableItems(catalog: Catalog): Reachable {
   const byName = new Map(catalog.skills.map((skill) => [skill.name, skill]));
   const skills = new Set<string>();
   const mcps = new Set<string>();
+  const hooks = new Set<string>();
 
   const follow = (skill: CatalogSkill): void => {
     if (skills.has(skill.name)) return;
     skills.add(skill.name);
 
+    // `requirementTarget` rather than a prefix test of its own, so what `hook.deploy` names here is
+    // what it names in the closure `resolveBundle` walks — and a fourth namespace is a type error.
     for (const requirement of skill.requires) {
-      if (requirement.startsWith(MCP_REQUIREMENT_PREFIX)) {
-        mcps.add(requirement.slice(MCP_REQUIREMENT_PREFIX.length));
-        continue;
+      const target = requirementTarget(requirement);
+      switch (target.kind) {
+        case "mcp":
+          mcps.add(target.name);
+          break;
+        case "hook":
+          hooks.add(target.name);
+          break;
+        case "skill": {
+          const required = byName.get(target.name);
+          if (required !== undefined) follow(required);
+          break;
+        }
       }
-      const required = byName.get(requirement);
-      if (required !== undefined) follow(required);
     }
   };
 
@@ -151,8 +186,11 @@ function reachableItems(catalog: Catalog): Reachable {
   for (const mcp of catalog.mcps) {
     if (selectableBy(mcp.scopes, registered)) mcps.add(mcp.name);
   }
+  for (const hook of catalog.hooks) {
+    if (selectableBy(hook.scopes, registered)) hooks.add(hook.name);
+  }
 
-  return { skills, mcps };
+  return { skills, mcps, hooks };
 }
 
 /**
@@ -160,8 +198,9 @@ function reachableItems(catalog: Catalog): Reachable {
  *
  * The count comes from {@link buildScopeTree}, so "selects" here means exactly what it means in
  * `catalog tree` and in `expandHeldScopes`: this scope's own declarers plus every registered
- * descendant's. A parent nothing declares directly is therefore only reported when its whole subtree
- * is empty too.
+ * descendant's, across all three namespaces. A parent nothing declares directly is therefore only
+ * reported when its whole subtree is empty too — and a scope only a hook declares is not reported at
+ * all, which would otherwise advise someone to unregister the scope their hook is selected by.
  */
 function deadScopeFindings(catalog: Catalog): readonly AuditFinding[] {
   const selected = new Map(
@@ -175,7 +214,7 @@ function deadScopeFindings(catalog: Catalog): readonly AuditFinding[] {
     .filter((definition) => (selected.get(definition.name) ?? 0) === 0)
     .map((definition) =>
       finding("dead-scope", `unused scope "${definition.name}" ${at(SCOPES_FILENAME, undefined)}`, [
-        "no skill and no MCP server declares it, and nothing registered beneath it does either",
+        "no skill, MCP server or hook declares it, and nothing registered beneath it does either",
         "holding it selects nothing, so every picker rendering this registry offers a choice with no effect",
         `declare it with \`ambit catalog annotate <name> --add-scope ${definition.name}\`, or unregister it with \`ambit catalog scope rm ${definition.name}\``,
       ]),
@@ -218,6 +257,25 @@ function unreachableMcpFindings(catalog: Catalog, reachable: Reachable): readonl
     );
 }
 
+/** Hooks no profile can select, in name order. */
+function unreachableHookFindings(catalog: Catalog, reachable: Reachable): readonly AuditFinding[] {
+  return catalog.hooks
+    .filter((hook) => !reachable.hooks.has(hook.name))
+    .map((hook) =>
+      finding(
+        "unreachable-hook",
+        // The directory plus `HOOK.yml`, which is the only spelling a hook document has — the same
+        // file `catalog validate` cites, since a finding has to name a file the reader can open.
+        `unreachable hook "${hook.name}" ${at(hookDocumentOf(hook), undefined)}`,
+        [
+          `no registered scope selects it, and nothing reachable requires \`${HOOK_REQUIREMENT_PREFIX}${hook.name}\``,
+          "no profile can select it, so no harness is ever configured to run it",
+          `give it a scope with \`ambit catalog annotate ${HOOK_REQUIREMENT_PREFIX}${hook.name} --add-scope <scope>\`, or remove it with \`ambit catalog hook rm ${hook.name}\``,
+        ],
+      ),
+    );
+}
+
 /**
  * Audits a parsed catalog.
  *
@@ -232,6 +290,7 @@ export function auditCatalog(catalog: Catalog): AuditReport {
 
   return {
     audited: {
+      hooks: catalog.hooks.length,
       mcps: catalog.mcps.length,
       scopes: catalog.scopes.length,
       skills: catalog.skills.length,
@@ -240,6 +299,7 @@ export function auditCatalog(catalog: Catalog): AuditReport {
       ...deadScopeFindings(catalog),
       ...unreachableSkillFindings(catalog, reachable),
       ...unreachableMcpFindings(catalog, reachable),
+      ...unreachableHookFindings(catalog, reachable),
     ],
   };
 }
