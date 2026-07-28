@@ -1,7 +1,9 @@
 {
-  "env": [
-    "ACME_FIGMA_TOKEN"
-  ],
+  "expects": {
+    "env": [
+      "ACME_FIGMA_TOKEN"
+    ]
+  },
   "hooks": {},
   "mcps": {},
   "scopes": [

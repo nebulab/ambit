@@ -40,6 +40,8 @@ import type { EditOptions, EditResult } from "./editor.js";
 import { applyCatalogEdit, hookDocumentPath } from "./editor.js";
 import type { AmbitError } from "../errors.js";
 import { at, configError, resolutionError } from "../errors.js";
+import type { Expectation } from "../model/expectation.js";
+import { parseExpectation, sortedUniqueExpectations } from "../model/expectation.js";
 import type { HookEvent, HookType } from "../model/hook-entity.js";
 import type { Requirement } from "../model/requirement.js";
 import { formatRequirement, sameRequirement } from "../model/requirement.js";
@@ -59,7 +61,7 @@ const MATCHER_KEY = "matcher";
 const COMMAND_KEY = "command";
 const TYPE_KEY = "type";
 const TIMEOUT_KEY = "timeout";
-const ENV_KEY = "env";
+const EXPECTS_KEY = "expects";
 
 /** What an edit to a hook amounted to: the editor's own report, unchanged. */
 export type HookEdit = EditResult;
@@ -98,25 +100,24 @@ export interface HookDeclaration {
   readonly matcher?: string;
   /** Seconds. */
   readonly timeout?: number;
-  /** Env vars the hook needs. */
-  readonly env?: readonly string[];
+  /**
+   * What must be true of the world for the hook to work, each as a `<kind>:<name>` reference —
+   * `env:NOTIFY_TOKEN`.
+   */
+  readonly expects?: readonly string[];
 }
 
 export interface HookNewOptions extends EditOptions, HookDeclaration {}
 
-function compare(a: string, b: string): number {
-  return a < b ? -1 : a > b ? 1 : 0;
-}
-
 /**
- * A list as ambit writes it into a file it is creating: sorted and deduplicated.
+ * The `expects` list as ambit writes it into a file it is creating: sorted and deduplicated.
  *
- * `env` only, and for the reason `mcp new` sorts its own: the order argv happened to give a set of
- * variable names is not information, and sorting is what makes two runs with the same flags in a
+ * That list only, and for the reason `mcp new` sorts its own: the order argv happened to give a set of
+ * preconditions is not information, and sorting is what makes two runs with the same flags in a
  * different order produce the same bytes.
  */
-function sortedUnique(values: readonly string[]): readonly string[] {
-  return [...new Set(values)].sort(compare);
+function expectations(references: readonly string[]): readonly Expectation[] {
+  return sortedUniqueExpectations(references.map((reference) => parseExpectation(reference)));
 }
 
 /** Where a hook's annotations are written, from the path the catalog derived its name from. */
@@ -264,15 +265,17 @@ function assertHoldsNoHook(catalog: Catalog, hook: CatalogHook): void {
  * `scopes`, which this command is given no way to set.
  */
 function renderHook(name: string, declaration: HookDeclaration): string {
-  const env = sortedUnique(declaration.env ?? []);
+  const expects = expectations(declaration.expects ?? []);
 
   return emitYaml({
     [COMMAND_KEY]: declaration.command,
     ...(declaration.description !== undefined && {
       [DESCRIPTION_KEY]: declaration.description,
     }),
-    ...(env.length > 0 && { [ENV_KEY]: env }),
     [EVENT_KEY]: declaration.event,
+    ...(expects.length > 0 && {
+      [EXPECTS_KEY]: expects.map((item) => ({ [item.kind]: item.name })),
+    }),
     ...(declaration.matcher !== undefined && { [MATCHER_KEY]: declaration.matcher }),
     [NAME_KEY]: name,
     ...(declaration.timeout !== undefined && { [TIMEOUT_KEY]: declaration.timeout }),

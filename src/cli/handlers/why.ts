@@ -6,6 +6,10 @@
  * far end that a reader can actually change. So this prints every link from the root cause down to
  * the item asked about.
  *
+ * A bundle item is the only subject. An `expects` entry is not one: nothing provides an environment
+ * variable, so there is no chain to walk and no selection to explain, and the question of whether the
+ * machine satisfies one is `doctor`'s.
+ *
  * The subject declares its namespace — `mcp:sentry` — the way a `requires` entry does, and a bare name
  * is refused rather than looked up. Nothing here reads a meaning out of the string, so this command and
  * a `requires` entry cannot end up disagreeing about what `mcp.sentry` names, which is exactly what a
@@ -38,7 +42,8 @@ import {
   reasonOf,
   resolveBundle,
 } from "../../resolution/resolve.js";
-import { parseSubject, requirementYaml } from "../../model/requirement.js";
+import { parseSubject } from "../../model/reference.js";
+import { REQUIRES, requirementYaml } from "../../model/requirement.js";
 
 /** How an item is named in messages, one entry per namespace so a fourth is a type error. */
 const SUBJECTS: Readonly<Record<ItemKind, string>> = {
@@ -135,7 +140,11 @@ function locate(
   merged: MergedCatalog,
   config: ProjectConfig,
 ): BundleItem {
-  const item = parseSubject(name, `\`why ${name}\` does not say what to explain`);
+  const item = parseSubject<ItemKind>(
+    REQUIRES,
+    name,
+    `\`why ${name}\` does not say what to explain`,
+  );
   if (isSelected(bundle, item)) return item;
 
   const entry = provided(merged, item);

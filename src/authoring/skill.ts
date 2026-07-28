@@ -44,6 +44,7 @@ import {
 } from "./editor.js";
 import type { AmbitError } from "../errors.js";
 import { at, configError, resolutionError } from "../errors.js";
+import { parseExpectation, sortedUniqueExpectations } from "../model/expectation.js";
 import type { Requirement } from "../model/requirement.js";
 import {
   formatRequirement,
@@ -70,7 +71,7 @@ const NAME_KEY = "name";
 const DESCRIPTION_KEY = "description";
 const SCOPES_KEY = "scopes";
 const REQUIRES_KEY = "requires";
-const ENV_KEY = "env";
+const EXPECTS_KEY = "expects";
 
 /** Where a skill declares its requirements, as a path from the frontmatter root. */
 const REQUIRES_PATH: readonly string[] = [AMBIT_FRONTMATTER_KEY, REQUIRES_KEY];
@@ -108,7 +109,8 @@ export interface SkillAnnotations {
   readonly scopes?: readonly string[];
   /** Each as a `<kind>:<name>` reference, the spelling a flag can carry — see {@link Requirement}. */
   readonly requires?: readonly string[];
-  readonly env?: readonly string[];
+  /** The same spelling, in the `expects` grammar: `env:CLOSE_API_KEY`. */
+  readonly expects?: readonly string[];
 }
 
 export interface SkillNewOptions extends EditOptions, SkillAnnotations {}
@@ -296,14 +298,18 @@ function renderSkill(name: string, annotations: SkillAnnotations): string {
   const required = sortedUniqueRequirements(
     (annotations.requires ?? []).map((reference) => parseRequirement(reference)),
   );
-  const env = sortedUnique(annotations.env ?? []);
+  const expected = sortedUniqueExpectations(
+    (annotations.expects ?? []).map((reference) => parseExpectation(reference)),
+  );
 
   const ambit = {
     ...(scopes.length > 0 && { [SCOPES_KEY]: scopes }),
     ...(required.length > 0 && {
       [REQUIRES_KEY]: required.map((item) => ({ [item.kind]: item.name })),
     }),
-    ...(env.length > 0 && { [ENV_KEY]: env }),
+    ...(expected.length > 0 && {
+      [EXPECTS_KEY]: expected.map((item) => ({ [item.kind]: item.name })),
+    }),
   };
 
   const frontmatter = emitYaml({
@@ -447,7 +453,7 @@ export async function renameSkill(
   const moved = await CatalogDocument.open(root, skillDocumentOf(skill));
   moved.setString([NAME_KEY], to);
   const self = rewrittenRequires(skill.requires, from, to);
-  if (self !== undefined) moved.setRequirementList(REQUIRES_PATH, self);
+  if (self !== undefined) moved.setReferenceList(REQUIRES_PATH, self);
   changes.push({ file: skillDocumentPath(to), text: moved.text() });
 
   for (const other of catalog.skills) {
@@ -455,7 +461,7 @@ export async function renameSkill(
     const declared = rewrittenRequires(other.requires, from, to);
     if (declared === undefined) continue;
     const document = await CatalogDocument.open(root, skillDocumentOf(other));
-    document.setRequirementList(REQUIRES_PATH, declared);
+    document.setReferenceList(REQUIRES_PATH, declared);
     changes.push(document.change());
   }
 

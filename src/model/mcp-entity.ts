@@ -4,6 +4,8 @@
  * The same shape appears in two places — `mcps/<name>.yml` in a catalog, and inline `mcps`
  * entries in `ambit.yml` — so one parser serves both.
  */
+import type { Expectation } from "./expectation.js";
+import { parseExpectations } from "./expectation.js";
 import type { YamlMapping } from "./yaml.js";
 
 /** A locally-spawned server. */
@@ -31,8 +33,8 @@ export interface McpEntity {
   /** Declared scopes. Empty means reachable only via `requires` or an explicit listing. */
   readonly scopes: readonly string[];
   readonly transport: McpTransport;
-  /** Env vars this server needs. */
-  readonly env: readonly string[];
+  /** What must be true of the world for this server to work — its credentials, today. */
+  readonly expects: readonly Expectation[];
 }
 
 /**
@@ -41,7 +43,7 @@ export interface McpEntity {
  */
 export const MCP_TRANSPORT_KINDS = ["http", "stdio"] as const;
 
-const ENTITY_KEYS = ["env", "name", "scopes", "transport"] as const;
+const ENTITY_KEYS = ["expects", "name", "scopes", "transport"] as const;
 
 function parseTransport(mapping: YamlMapping): McpTransport {
   const transport = mapping.requireMapping("transport");
@@ -103,6 +105,6 @@ export function parseMcpEntity(mapping: YamlMapping): McpEntity {
     name: mapping.requireString("name"),
     scopes: mapping.optionalStringList("scopes") ?? [],
     transport: parseTransport(mapping),
-    env: mapping.optionalStringList("env") ?? [],
+    expects: parseExpectations(mapping),
   };
 }

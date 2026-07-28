@@ -242,7 +242,7 @@ describe("catalog parsing", () => {
       path: "skills/design-tokens",
       scopes: ["function.engineering.frontend"],
       requires: [],
-      env: ["ACME_FIGMA_TOKEN"],
+      expects: [{ kind: "env", name: "ACME_FIGMA_TOKEN" }],
     });
     expect(frontend?.description).toBeTruthy();
   });
@@ -349,7 +349,7 @@ ambit:
 
     const error = await rejection();
     expect(error.message).toBe(`unknown key "ambit.scope" (${CODE_REVIEW} line 5)`);
-    expect(error.detail).toContain("accepted keys: env, requires, scopes");
+    expect(error.detail).toContain("accepted keys: expects, requires, scopes");
   });
 
   it("rejects an `ambit:` that is not a mapping", async () => {
@@ -490,7 +490,7 @@ describe("ambit dump-catalog", () => {
           type: "command",
           command: 'echo "acme session ended"',
           description: "Records what the session touched, for the Acme standup.",
-          env: [],
+          expects: [],
           event: "SessionEnd",
           path: "hooks/acme-standup",
           scopes: [],
@@ -500,7 +500,7 @@ describe("ambit dump-catalog", () => {
           type: "script",
           command: "guard.sh",
           description: "Inspects a Bash command before Acme's tooling runs it.",
-          env: [],
+          expects: [],
           event: "PreToolUse",
           matcher: "Bash",
           path: "hooks/guard-secrets",
@@ -512,7 +512,7 @@ describe("ambit dump-catalog", () => {
           type: "command",
           command: 'echo "acme conventions apply"',
           description: "Reminds a session that Acme's conventions apply.",
-          env: [],
+          expects: [],
           event: "SessionStart",
           path: "hooks/session-notes",
           scopes: ["core"],
@@ -530,7 +530,7 @@ describe("ambit dump-catalog", () => {
         "company-context": {
           catalog: CATALOG_NAME,
           description: "Canonical context about Acme — what it sells, to whom, and how it works.",
-          env: [],
+          expects: [],
           path: "skills/company-context",
           requires: [],
           scopes: ["core"],
@@ -538,7 +538,7 @@ describe("ambit dump-catalog", () => {
         "design-tokens": {
           catalog: CATALOG_NAME,
           description: "Acme's design tokens — color, spacing, and the type scale.",
-          env: ["ACME_FIGMA_TOKEN"],
+          expects: [{ kind: "env", name: "ACME_FIGMA_TOKEN" }],
           path: "skills/design-tokens",
           requires: [],
           scopes: ["function.engineering.frontend"],
@@ -546,7 +546,7 @@ describe("ambit dump-catalog", () => {
         "code-review": {
           catalog: CATALOG_NAME,
           description: "How Acme reviews code — what reviewers look for, and in what order.",
-          env: [],
+          expects: [],
           path: "skills/code-review",
           requires: [],
           scopes: ["function.engineering"],
@@ -554,7 +554,7 @@ describe("ambit dump-catalog", () => {
         "acme-brief": {
           catalog: CATALOG_NAME,
           description: "The Acme engagement brief — scope, contacts, and conventions.",
-          env: [],
+          expects: [],
           path: "skills/acme-brief",
           requires: [
             { kind: "skill", name: "company-context" },
@@ -567,13 +567,13 @@ describe("ambit dump-catalog", () => {
       mcps: {
         fixture: {
           catalog: CATALOG_NAME,
-          env: ["FIXTURE_API_KEY"],
+          expects: [{ kind: "env", name: "FIXTURE_API_KEY" }],
           scopes: [],
           transport: { kind: "stdio", command: "npx", args: ["-y", "@acme/fixture-mcp"] },
         },
         scoped: {
           catalog: CATALOG_NAME,
-          env: ["SCOPED_API_KEY"],
+          expects: [{ kind: "env", name: "SCOPED_API_KEY" }],
           scopes: ["function.engineering"],
           transport: {
             kind: "http",
@@ -695,7 +695,8 @@ describe("catalog hooks", () => {
         "type: command",
         "command: npx block-rm",
         "timeout: 30",
-        "env: [BLOCK_RM_TOKEN]",
+        "expects:",
+        "  - env: BLOCK_RM_TOKEN",
       ]),
     );
 
@@ -710,7 +711,7 @@ describe("catalog hooks", () => {
         type: "command",
         command: "npx block-rm",
         timeout: 30,
-        env: ["BLOCK_RM_TOKEN"],
+        expects: [{ kind: "env", name: "BLOCK_RM_TOKEN" }],
       },
     ]);
   });
@@ -840,8 +841,8 @@ describe("catalog hooks", () => {
       catalog: CATALOG_NAME,
       type: "script",
       command: "hook.sh",
-      env: [],
       event: "PreToolUse",
+      expects: [],
       matcher: "Bash",
       path: HOOK_DIR,
       scopes: ["function.engineering"],
@@ -1367,7 +1368,7 @@ describe("multi-catalog merge and shadowing", () => {
         "hooks (1)",
         `  session-notes  ${CATALOG_NAME}  SessionStart  scope:core`,
         "",
-        "env (0)",
+        "expects (0)",
         "  (none)",
       ].join("\n"),
     );

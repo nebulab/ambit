@@ -37,7 +37,7 @@ function http(headers: Readonly<Record<string, string>> = {}): MergedMcp {
   return {
     name: "fixture",
     scopes: [],
-    env: [],
+    expects: [],
     catalog: "company",
     transport: { kind: "http", url: URL, headers },
   };
@@ -55,7 +55,7 @@ function stdio(args: readonly string[] = [], env: readonly string[] = []): Merge
   return {
     name: "fixture",
     scopes: [],
-    env,
+    expects: env.map((name) => ({ kind: "env", name }) as const),
     catalog: "company",
     transport: { kind: "stdio", command: "npx", args },
   };
@@ -324,7 +324,7 @@ describe("the hook each profile emits", () => {
     name: "block-rm",
     catalog: "company",
     scopes: [],
-    env: [],
+    expects: [],
     event: "PreToolUse",
     matcher: "Bash",
     type: "command",
@@ -337,7 +337,7 @@ describe("the hook each profile emits", () => {
     name: "greet",
     catalog: "company",
     scopes: [],
-    env: [],
+    expects: [],
     event: "SessionStart",
     type: "command",
     command: "./bin/greet",

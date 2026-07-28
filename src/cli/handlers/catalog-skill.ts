@@ -113,14 +113,14 @@ export const catalogSkillNewHandler: CommandHandler = async (ctx) => {
   const given = description(ctx);
   const scopes = optionList(ctx, "scope");
   const requires = optionList(ctx, "requires");
-  const env = optionList(ctx, "env");
+  const expects = optionList(ctx, "expects");
 
   const result = await newSkill(catalogDirOf(ctx), name, {
     dryRun: dryRunRequested(ctx),
     ...(given !== undefined && { description: given }),
     ...(scopes !== undefined && { scopes }),
     ...(requires !== undefined && { requires }),
-    ...(env !== undefined && { env }),
+    ...(expects !== undefined && { expects }),
   });
 
   return report(

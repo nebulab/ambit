@@ -201,7 +201,7 @@ function declarationOf(ctx: CommandContext, name: string): HookDeclaration {
   const description = flag(ctx, "description");
   const matcher = flag(ctx, "matcher");
   const timeout = timeoutOf(ctx);
-  const env = optionList(ctx, "env");
+  const expects = optionList(ctx, "expects");
 
   return {
     event,
@@ -210,7 +210,7 @@ function declarationOf(ctx: CommandContext, name: string): HookDeclaration {
     ...(description !== undefined && { description }),
     ...(matcher !== undefined && { matcher }),
     ...(timeout !== undefined && { timeout }),
-    ...(env !== undefined && { env }),
+    ...(expects !== undefined && { expects }),
   };
 }
 

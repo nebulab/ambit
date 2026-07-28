@@ -28,6 +28,8 @@ import type { HookEntity } from "./hook-entity.js";
 import { commandProgram, parseHookEntity, scriptReference } from "./hook-entity.js";
 import type { McpEntity } from "./mcp-entity.js";
 import { parseMcpEntity } from "./mcp-entity.js";
+import type { Expectation } from "./expectation.js";
+import { parseExpectations } from "./expectation.js";
 import type { Requirement } from "./requirement.js";
 import { parseRequirements } from "./requirement.js";
 import type { ResolvedSource, SourceContext, SourceRequest } from "./sources.js";
@@ -93,7 +95,7 @@ export const AMBIT_FRONTMATTER_KEY = "ambit";
  * Lives here rather than beside the command that edits them because this is where they are *read*:
  * one list, so the parser and the writer cannot drift apart on what an annotation is.
  */
-export const ANNOTATION_KEYS = ["scopes", "requires", "env"] as const;
+export const ANNOTATION_KEYS = ["scopes", "requires", "expects"] as const;
 
 export type AnnotationKey = (typeof ANNOTATION_KEYS)[number];
 
@@ -152,8 +154,11 @@ export interface CatalogSkill {
    * {@link Requirement}. In the order the author wrote them.
    */
   readonly requires: readonly Requirement[];
-  /** Env vars the skill itself reads, not via an MCP. */
-  readonly env: readonly string[];
+  /**
+   * What must be true of the world for this skill to work, each entry naming its own kind — see
+   * {@link Expectation}. In the order the author wrote them.
+   */
+  readonly expects: readonly Expectation[];
 }
 
 /** An MCP entity as one catalog declares it, carrying the document it was read from. */
@@ -528,8 +533,8 @@ function skillAnnotations(mapping: YamlMapping): Omit<CatalogSkill, "name" | "pa
   return {
     ...(description !== undefined && { description }),
     scopes: ambit?.optionalStringList("scopes") ?? [],
-    requires: ambit === undefined ? [] : parseRequirements(ambit, "requires"),
-    env: ambit?.optionalStringList("env") ?? [],
+    requires: ambit === undefined ? [] : parseRequirements(ambit),
+    expects: ambit === undefined ? [] : parseExpectations(ambit),
   };
 }
 

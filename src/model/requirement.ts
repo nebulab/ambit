@@ -1,13 +1,16 @@
 /**
- * What a `requires` entry names, and how the three namespaces are spelled.
+ * What a `requires` entry names: a catalog item that joins the bundle behind whatever required it.
  *
- * A catalog holds three namespaces — skills, MCP entities, hooks — and they are flat and independent:
- * a skill at `skills/mcp/sentry/SKILL.md` is legitimately named `mcp.sentry`, and so is an MCP entity
- * called `sentry` reached one namespace over. Something therefore has to say **which** namespace a name
- * is in, and the one thing that cannot do it is the name itself.
+ * `requires` is a **closure** operator. `closeOverRequires` walks skill → skill to a fixpoint, pulling
+ * every named item into the selection whether or not a held scope would ever have selected it. Its three
+ * kinds are exactly the three catalog namespaces, and an entry nothing can satisfy is exit 3 naming the
+ * catalog that should have provided it — the install refuses rather than producing a bundle that is
+ * missing the half a skill said it could not work without.
  *
- * So a requirement **declares** its namespace rather than encoding it in a prefix of the name. In a
- * document that is a one-key mapping, the same discriminator an MCP entity's `transport` uses:
+ * That is the whole of what separates it from `expects`, its sibling in `expectation.ts`: an expectation
+ * is looked up nowhere, cannot be shadowed, cannot require anything back and cannot cycle. It is
+ * checked, not resolved. The two lists share a spelling and nothing else, and the spelling lives in
+ * `reference.ts`.
  *
  * ```yaml
  * ambit:
@@ -16,26 +19,24 @@
  *     - mcp: sentry
  *     - hook: block-rm
  * ```
- *
- * On a command line, where a mapping cannot be written, it is {@link formatRequirement}'s
- * `<kind>:<name>` — `mcp:sentry`. The separator is what makes it a declaration rather than a guess: a
- * kind is mandatory and is matched against a closed set, so `skill:mcp.sentry` names the skill above
- * and `mcp:sentry` names the server, with no string a reader could write that means both.
- *
- * One grammar, everywhere a name is taken from a person: a `requires` entry, a `--add-requires` value,
- * and the subject of `ambit why` or `ambit catalog annotate` all say which namespace they mean, and
- * none of them will guess. A bare name is refused with the three spellings of what was typed
- * ({@link parseSubject}) rather than resolved against the catalog, because a rule that holds only while
- * a name happens to be unique is a rule nobody can rely on — and because half of these callers have no
- * catalog to resolve against: `--remove-requires` must be able to name the dangling entry whose target
- * has already gone, which is the whole reason to run it.
  */
-import { at, configError } from "../errors.js";
-import type { AmbitError } from "../errors.js";
-import { YamlMapping } from "./yaml.js";
+import type { Reference, ReferenceGrammarOf } from "./reference.js";
+import {
+  KIND_SEPARATOR,
+  formatReference,
+  isReference,
+  parseReference,
+  parseReferenceList,
+  referenceYaml,
+  sameReference,
+  sortedUniqueReferences,
+} from "./reference.js";
+import type { YamlMapping } from "./yaml.js";
+
+export { KIND_SEPARATOR };
 
 /**
- * The namespaces a name can be in, in the order every report lists them.
+ * The namespaces a requirement can name, in the order every report lists them.
  *
  * Exported as a list because three surfaces enumerate it: the error for an entry that names no
  * namespace, the error for one that names something else, and the lookup a bare name takes.
@@ -52,13 +53,7 @@ export type ItemKind = (typeof ITEM_KINDS)[number];
  * type rather than two, because it is one question, and two would let a requirement name something no
  * bundle item could be.
  */
-export interface Requirement {
-  readonly kind: ItemKind;
-  readonly name: string;
-}
-
-/** What separates a kind from a name on a command line. */
-export const KIND_SEPARATOR = ":";
+export type Requirement = Reference<ItemKind>;
 
 /** What a namespace is called in a message about one of its members. */
 export const KIND_NOUNS: Readonly<Record<ItemKind, string>> = {
@@ -67,197 +62,74 @@ export const KIND_NOUNS: Readonly<Record<ItemKind, string>> = {
   hook: "a hook",
 };
 
-function isKind(value: string): value is ItemKind {
-  return (ITEM_KINDS as readonly string[]).includes(value);
+/**
+ * The prefix spelling a bare entry was most likely reaching for.
+ *
+ * Only a proposal, and only ever an extra line in a refusal: `mcp.sentry` written as a plain string
+ * could always have meant either the server `sentry` or a skill of that exact name, which is the
+ * ambiguity the mapping form exists to remove.
+ */
+function guessNamespace(value: string): Requirement | undefined {
+  if (value.startsWith("mcp.")) return { kind: "mcp", name: value.slice("mcp.".length) };
+  if (value.startsWith("hook.")) return { kind: "hook", name: value.slice("hook.".length) };
+  return undefined;
 }
 
-/**
- * How a requirement is written where only a string will do: a flag's value, an error's next step,
- * a report's cell.
- *
- * The inverse of {@link parseRequirement}, and the one function that spells the pair — so the advice an
- * error gives cannot disagree with what the flag it names accepts.
- */
+/** How a `requires` entry is written, and the words a refusal about one uses. */
+export const REQUIRES: ReferenceGrammarOf<ItemKind> = {
+  key: "requires",
+  entry: "a `requires` entry",
+  noun: "namespace",
+  plural: "namespaces",
+  missing: "which namespace it is in",
+  named: "item",
+  kinds: ITEM_KINDS,
+  members: KIND_NOUNS,
+  guess: guessNamespace,
+};
+
+/** How a requirement is written where only a string will do — `mcp:sentry`. */
 export function formatRequirement(item: Requirement): string {
-  return `${item.kind}${KIND_SEPARATOR}${item.name}`;
+  return formatReference(item);
 }
 
 /** How a requirement is written in a document, for a message telling someone to write one. */
 export function requirementYaml(item: Requirement): string {
-  return `- ${item.kind}: ${item.name}`;
+  return referenceYaml(item);
 }
 
 /** Whether two requirements name the same thing. */
 export function sameRequirement(a: Requirement, b: Requirement): boolean {
-  return a.kind === b.kind && a.name === b.name;
+  return sameReference(a, b);
 }
 
-function compare(a: string, b: string): number {
-  return a < b ? -1 : a > b ? 1 : 0;
-}
-
-/**
- * A requirement list sorted and deduplicated, ordered by {@link formatRequirement} — so a list groups
- * by namespace and is a function of its members alone, whatever order an author wrote them in.
- */
+/** A requirement list sorted and deduplicated, so it groups by namespace and then by name. */
 export function sortedUniqueRequirements(items: readonly Requirement[]): readonly Requirement[] {
-  const byRef = new Map(items.map((item) => [formatRequirement(item), item]));
-  return [...byRef.keys()].sort(compare).map((ref) => byRef.get(ref)!);
-}
-
-/** The kinds as an error lists them: `skill`, `mcp`, `hook`. */
-function kindList(): string {
-  return ITEM_KINDS.join(", ");
-}
-
-/**
- * The error for a command-line reference whose kind is missing or is not one of the three.
- *
- * @param where the `(file line N)` suffix, as {@link at} renders it, or an empty string.
- */
-function badReference(text: string, problem: string, where: string): AmbitError {
-  const suffix = where === "" ? "" : ` ${where}`;
-  return configError(`\`${text}\` does not name a namespace${suffix}`, [
-    problem,
-    `write it as \`<kind>${KIND_SEPARATOR}<name>\`, one of: ${kindList()}`,
-    `for a skill called "${text}", that is \`skill${KIND_SEPARATOR}${text}\``,
-  ]);
+  return sortedUniqueReferences(items);
 }
 
 /**
  * The requirement a `<kind>:<name>` string names.
  *
- * Split on the *first* separator, so a name carrying one of its own survives the round trip:
- * `skill:odd:name` is the skill `odd:name`, and nothing else can be read out of it.
- *
  * @param where the `(file line N)` suffix for a refusal, or `""` when the caller has no file to cite.
  * @throws {AmbitError} exit 2 when no kind is given, or the kind is not one of {@link ITEM_KINDS}.
  */
 export function parseRequirement(text: string, where = ""): Requirement {
-  const separator = text.indexOf(KIND_SEPARATOR);
-  if (separator === -1) {
-    throw badReference(text, `a bare name does not say which namespace it is in`, where);
-  }
-
-  const kind = text.slice(0, separator);
-  const name = text.slice(separator + KIND_SEPARATOR.length);
-
-  if (!isKind(kind)) throw badReference(text, `"${kind}" is not a namespace`, where);
-  if (name === "") {
-    throw badReference(text, `\`${kind}${KIND_SEPARATOR}\` names no item`, where);
-  }
-
-  return { kind, name };
+  return parseReference(REQUIRES, text, where);
 }
 
-/**
- * Whether a string is written as a namespaced reference at all — a known kind, then the separator.
- *
- * Recognized by its kind rather than by the mere presence of a `:`, so a name that happens to carry
- * one of its own is a bare name and gets {@link parseSubject}'s refusal, which explains the grammar,
- * rather than a confusing complaint about a namespace called `odd`.
- */
+/** Whether a string is written as a namespaced reference at all — a known kind, then the separator. */
 export function isRequirementReference(text: string): boolean {
-  return ITEM_KINDS.some((kind) => text.startsWith(`${kind}${KIND_SEPARATOR}`));
+  return isReference(REQUIRES, text);
 }
 
 /**
- * The item a command's subject argument names.
- *
- * Every command that takes one takes it the same way — `ambit why`, `ambit catalog annotate` — so the
- * grammar is explained in the same words wherever it is met, and there is one rule to learn rather
- * than one per command. All three spellings of what was typed are offered rather than one of them
- * assumed: a catalog's namespaces are flat and independent, so a bare name is in none of them in
- * particular, and guessing is what this format exists to stop.
- *
- * @param summary how the command names what it is missing — `` `why acme` does not say what to
- *   explain `` — since only that half differs between them.
- * @throws {AmbitError} exit 2 for a bare name, or a kind that is not one of {@link ITEM_KINDS}.
- */
-export function parseSubject(text: string, summary: string): Requirement {
-  if (!isRequirementReference(text)) {
-    throw configError(summary, [
-      "a catalog holds three namespaces, and a bare name is in none of them in particular",
-      `write the subject as one of: ${ITEM_KINDS.map((kind) => `\`${kind}${KIND_SEPARATOR}${text}\``).join(", ")}`,
-    ]);
-  }
-  return parseRequirement(text);
-}
-
-/**
- * The error for a `requires` entry written as a bare string — the shape every catalog used before a
- * requirement declared its namespace.
- *
- * Names all three spellings rather than guessing the intended one: a bare `mcp.sentry` could always
- * have meant either the server `sentry` or a skill of that exact name, which is the ambiguity the
- * mapping form exists to remove, so resolving it here would reintroduce it.
- */
-function bareEntry(mapping: YamlMapping, key: string, value: string): AmbitError {
-  const suggestion = value.startsWith("mcp.")
-    ? { kind: "mcp" as const, name: value.slice("mcp.".length) }
-    : value.startsWith("hook.")
-      ? { kind: "hook" as const, name: value.slice("hook.".length) }
-      : undefined;
-
-  return mapping.keyError(key, `\`requires\` entry "${value}" names no namespace`, [
-    `an entry says which namespace it is in: ${ITEM_KINDS.map((kind) => `\`${kind}:\``).join(", ")}`,
-    ...(suggestion === undefined
-      ? []
-      : [
-          `for ${KIND_NOUNS[suggestion.kind]} named "${suggestion.name}", that is \`${requirementYaml(suggestion)}\``,
-        ]),
-    `for ${KIND_NOUNS.skill} named "${value}", that is \`${requirementYaml({ kind: "skill", name: value })}\``,
-  ]);
-}
-
-/** The error for an entry mapping that names none of the three kinds, or more than one. */
-function ambiguousEntry(entry: YamlMapping, keys: readonly string[]): AmbitError {
-  const [first] = keys;
-
-  return first === undefined
-    ? configError(`a \`requires\` entry names no namespace ${at(entry.file, entry.line)}`, [
-        `an entry is one key: ${kindList()}`,
-        "give it exactly one of them",
-      ])
-    : entry.keyError(
-        first,
-        `a \`requires\` entry names ${keys.length} namespaces: ${[...keys].sort(compare).join(", ")}`,
-        [`an entry is one key: ${kindList()}`, "give it exactly one of them"],
-      );
-}
-
-/**
- * Parses a `requires` list: a sequence of one-key mappings, each naming a namespace and a name in it.
- *
- * The list is returned in the order it was written. Sorting is the business of whichever command
- * *rewrites* one ({@link sortedUniqueRequirements}); a list ambit merely read keeps the author's order,
- * because reordering it is the reformatting authoring rule 2 forbids.
+ * Parses a skill's `requires`: a sequence of one-key mappings, each naming a namespace and a name.
  *
  * @param mapping the block the key sits in — a skill's `ambit:`.
- * @param key the key to read, absent meaning an empty list.
  * @throws {AmbitError} exit 2 for an entry that is not a mapping, one that names no namespace or
  *   several, or one whose value is not a string.
  */
-export function parseRequirements(mapping: YamlMapping, key: string): readonly Requirement[] {
-  const entries = mapping.optionalEntryList(key);
-  if (entries === undefined) return [];
-
-  return entries.map((entry) => {
-    // A `PositionedString` is the pre-namespace spelling, and the one shape with a migration to
-    // describe; everything else the sequence could hold was already refused by `optionalEntryList`.
-    if (!(entry instanceof YamlMapping)) throw bareEntry(mapping, key, entry.value);
-
-    const keys = entry.keys();
-    if (keys.length !== 1) throw ambiguousEntry(entry, keys);
-
-    const kind = keys[0]!;
-    if (!isKind(kind)) {
-      throw entry.keyError(kind, `unknown namespace "${kind}" in a \`requires\` entry`, [
-        `an entry is one key: ${kindList()}`,
-        `replace \`${kind}\` with one of them`,
-      ]);
-    }
-
-    return { kind, name: entry.requireString(kind) };
-  });
+export function parseRequirements(mapping: YamlMapping): readonly Requirement[] {
+  return parseReferenceList(REQUIRES, mapping);
 }

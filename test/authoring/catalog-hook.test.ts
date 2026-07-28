@@ -157,8 +157,8 @@ async function newNotify(...extra: readonly string[]): Promise<CliResult> {
     NOTIFY_EVENT,
     "--command",
     NOTIFY_COMMAND,
-    "--env",
-    NOTIFY_ENV,
+    "--expects",
+    `env:${NOTIFY_ENV}`,
     ...extra,
   );
 }
@@ -203,8 +203,8 @@ describe("ambit catalog hook new", () => {
         type: "command",
         command: NOTIFY_COMMAND,
         description: "Says something happened.",
-        env: [NOTIFY_ENV],
         event: NOTIFY_EVENT,
+        expects: [{ env: NOTIFY_ENV }],
         name: NOTIFY,
       }),
     );
@@ -216,7 +216,7 @@ describe("ambit catalog hook new", () => {
       event: NOTIFY_EVENT,
       type: "command",
       command: NOTIFY_COMMAND,
-      env: [NOTIFY_ENV],
+      expects: [{ kind: "env", name: NOTIFY_ENV }],
       path: NOTIFY_DIR,
     });
     await validates();
@@ -290,11 +290,11 @@ describe("ambit catalog hook new", () => {
     );
     // Including `scopes`, which this command is given no way to set: a new hook is reachable only
     // through a skill's `requires` until someone annotates it.
-    expect(await hook(NOTIFY)).toMatchObject({ scopes: [], env: [] });
+    expect(await hook(NOTIFY)).toMatchObject({ scopes: [], expects: [] });
     await validates();
   });
 
-  it("sorts and deduplicates `--env`, so argv order is not information", async () => {
+  it("sorts and deduplicates `--expects`, so argv order is not information", async () => {
     await succeeds(
       "new",
       NOTIFY,
@@ -302,15 +302,18 @@ describe("ambit catalog hook new", () => {
       NOTIFY_EVENT,
       "--command",
       NOTIFY_COMMAND,
-      "--env",
-      "SECOND",
-      "--env",
-      "FIRST",
-      "--env",
-      "SECOND",
+      "--expects",
+      "env:SECOND",
+      "--expects",
+      "env:FIRST",
+      "--expects",
+      "env:SECOND",
     );
 
-    expect((await hook(NOTIFY))?.env).toEqual(["FIRST", "SECOND"]);
+    expect((await hook(NOTIFY))?.expects).toEqual([
+      { kind: "env", name: "FIRST" },
+      { kind: "env", name: "SECOND" },
+    ]);
   });
 
   it("refuses an invocation that names no event, listing the supported set", async () => {

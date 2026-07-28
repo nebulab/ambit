@@ -80,7 +80,8 @@ ambit:
   scopes: [core]
   requires:
     - skill: company-context
-  env: [CLOSE_API_KEY]
+  expects:
+    - env: CLOSE_API_KEY
 ---
 
 # Close CRM
@@ -264,8 +265,8 @@ describe("ambit catalog annotate, on a skill", () => {
       CORE_SCOPE,
       "--remove-requires",
       CORE_REF,
-      "--add-env",
-      "ACME_BRIEF_TOKEN",
+      "--add-expects",
+      "env:ACME_BRIEF_TOKEN",
     );
 
     expect(await skill(PROJECT_SKILL)).toMatchObject({
@@ -274,7 +275,7 @@ describe("ambit catalog annotate, on a skill", () => {
         { kind: "hook", name: REQUIRED_HOOK },
         { kind: "mcp", name: "fixture" },
       ],
-      env: ["ACME_BRIEF_TOKEN"],
+      expects: [{ kind: "env", name: "ACME_BRIEF_TOKEN" }],
     });
     await validates();
   });
@@ -282,12 +283,15 @@ describe("ambit catalog annotate, on a skill", () => {
   it("keeps an unknown harness key, the comment above it, the layouts, and the body", async () => {
     await write(CLOSE_SKILL_FILE, CLOSE_SKILL_TEXT);
 
-    await succeeds(CLOSE_REF, "--add-env", "CLOSE_BASE_URL");
+    await succeeds(CLOSE_REF, "--add-expects", "env:CLOSE_BASE_URL");
 
     // One substitution, in a file carrying `allowed-tools`, a comment, a flow list, a block list, and
     // prose: everything rule 2 protects is asserted by the equality rather than by five assertions.
     expect(await read(CLOSE_SKILL_FILE)).toBe(
-      CLOSE_SKILL_TEXT.replace("env: [CLOSE_API_KEY]", "env: [CLOSE_API_KEY, CLOSE_BASE_URL]"),
+      CLOSE_SKILL_TEXT.replace(
+        "    - env: CLOSE_API_KEY\n",
+        "    - env: CLOSE_API_KEY\n    - env: CLOSE_BASE_URL\n",
+      ),
     );
     await validates();
   });
@@ -398,12 +402,12 @@ describe("ambit catalog annotate, on a hook", () => {
     await validates();
   });
 
-  it("adds an `env` var to a hook that declares none", async () => {
+  it("adds an `expects` entry to a hook that declares none", async () => {
     await writeHook(HOOK_TEXT);
 
-    await succeeds(HOOK_REF, "--add-env", "NOTIFY_TOKEN");
+    await succeeds(HOOK_REF, "--add-expects", "env:NOTIFY_TOKEN");
 
-    expect((await catalogHook(HOOK))?.env).toEqual(["NOTIFY_TOKEN"]);
+    expect((await catalogHook(HOOK))?.expects).toEqual([{ kind: "env", name: "NOTIFY_TOKEN" }]);
     await validates();
   });
 
@@ -434,8 +438,8 @@ describe("ambit catalog annotate, on a hook", () => {
         `hook ${HOOK}`,
         "",
         "declares (2)",
-        `  scopes  ${CORE_SCOPE}`,
-        "  env     -",
+        `  scopes   ${CORE_SCOPE}`,
+        "  expects  -",
         "",
         "files (1)",
         `  ${HOOK_FILE}  updated`,
@@ -526,12 +530,12 @@ describe("ambit catalog annotate, idempotence", () => {
     // Unsorted on purpose: a command that rewrote the list anyway would reorder entries nobody asked it
     // to touch, which is the reformatting authoring rule 2 forbids.
     const unsorted = CLOSE_SKILL_TEXT.replace(
-      "env: [CLOSE_API_KEY]",
-      "env: [CLOSE_TOKEN, CLOSE_API_KEY]",
+      "    - env: CLOSE_API_KEY\n",
+      "    - env: CLOSE_TOKEN\n    - env: CLOSE_API_KEY\n",
     );
     await write(CLOSE_SKILL_FILE, unsorted);
 
-    const result = await succeeds(CLOSE_REF, "--add-env", "CLOSE_TOKEN");
+    const result = await succeeds(CLOSE_REF, "--add-expects", "env:CLOSE_TOKEN");
 
     expect(result.stdout).toContain("files (0)");
     expect(await read(CLOSE_SKILL_FILE)).toBe(unsorted);
@@ -540,7 +544,7 @@ describe("ambit catalog annotate, idempotence", () => {
   it("reports success and no files when what it was asked to remove is not there", async () => {
     const before = await snapshot();
 
-    const result = await succeeds(CORE_REF, "--remove-env", "ABSENT_VAR");
+    const result = await succeeds(CORE_REF, "--remove-expects", "env:ABSENT_VAR");
 
     expect(result.stdout).toContain("files (0)");
     expect(await snapshot()).toEqual(before);
@@ -558,7 +562,7 @@ describe("ambit catalog annotate, output", () => {
         "declares (3)",
         `  scopes    ${CORE_SCOPE}, ${ENGINEERING}`,
         "  requires  -",
-        "  env       -",
+        "  expects   -",
         "",
         "files (1)",
         `  ${CORE_SKILL_FILE}  updated`,
@@ -574,8 +578,8 @@ describe("ambit catalog annotate, output", () => {
         `mcp ${SCOPED_MCP}`,
         "",
         "declares (2)",
-        `  scopes  ${CORE_SCOPE}, ${ENGINEERING}`,
-        "  env     SCOPED_API_KEY",
+        `  scopes   ${CORE_SCOPE}, ${ENGINEERING}`,
+        "  expects  env:SCOPED_API_KEY",
         "",
         "files (1)",
         `  ${SCOPED_MCP_FILE}  updated`,
@@ -584,7 +588,7 @@ describe("ambit catalog annotate, output", () => {
   });
 
   it("carries the resulting annotations and the file's bytes in --json", async () => {
-    const result = await succeeds(PROJECT_REF, "--add-env", "ACME_BRIEF_TOKEN", "--json");
+    const result = await succeeds(PROJECT_REF, "--add-expects", "env:ACME_BRIEF_TOKEN", "--json");
     const report = JSON.parse(result.stdout) as {
       annotated: {
         declares: Record<string, readonly string[]>;
@@ -600,7 +604,7 @@ describe("ambit catalog annotate, output", () => {
       declares: {
         scopes: [PROJECT_SCOPE],
         requires: [REQUIRED_HOOK_REF, "mcp:fixture", CORE_REF],
-        env: ["ACME_BRIEF_TOKEN"],
+        expects: ["env:ACME_BRIEF_TOKEN"],
       },
       file: PROJECT_SKILL_FILE,
       kind: "skill",

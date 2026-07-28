@@ -211,8 +211,8 @@ describe("ambit catalog skill new", () => {
       "core",
       "--requires",
       `skill:${CORE}`,
-      "--env",
-      "NOTES_TOKEN",
+      "--expects",
+      "env:NOTES_TOKEN",
     );
 
     // The claim is the same one every scaffold makes: the bytes above the body are exactly `emitYaml`
@@ -221,7 +221,11 @@ describe("ambit catalog skill new", () => {
     const { frontmatter, body } = halves(await read(JANE_FILE));
     expect(frontmatter).toBe(
       emitYaml({
-        ambit: { env: ["NOTES_TOKEN"], requires: [{ skill: CORE }], scopes: ["core"] },
+        ambit: {
+          expects: [{ env: "NOTES_TOKEN" }],
+          requires: [{ skill: CORE }],
+          scopes: ["core"],
+        },
         description: JANE_DESCRIPTION,
         name: JANE,
       }),
@@ -262,15 +266,18 @@ describe("ambit catalog skill new", () => {
       "core",
       "--scope",
       "core",
-      "--env",
-      "SECOND",
-      "--env",
-      "FIRST",
+      "--expects",
+      "env:SECOND",
+      "--expects",
+      "env:FIRST",
     );
 
     expect((await parsed()).skills.find((candidate) => candidate.name === JANE)).toMatchObject({
       scopes: ["core", "project.acme"],
-      env: ["FIRST", "SECOND"],
+      expects: [
+        { kind: "env", name: "FIRST" },
+        { kind: "env", name: "SECOND" },
+      ],
     });
   });
 
@@ -281,7 +288,7 @@ describe("ambit catalog skill new", () => {
     expect((await parsed()).skills.find((candidate) => candidate.name === JANE)).toMatchObject({
       scopes: [],
       requires: [],
-      env: [],
+      expects: [],
     });
     await validates();
   });

@@ -50,7 +50,8 @@ ambit:
   scopes: [core]
   requires:
     - skill: company-context
-  env: [CLOSE_API_KEY]
+  expects:
+    - env: CLOSE_API_KEY
 ---
 
 # Close CRM
@@ -148,14 +149,17 @@ describe("the catalog editor: round-tripping", () => {
   });
 
   it("writes a list ambit adds as a block sequence, the way `emitYaml` would", async () => {
-    await write(ANNOTATED_SKILL_PATH, ANNOTATED_SKILL.replace("  env: [CLOSE_API_KEY]\n", ""));
+    await write(
+      ANNOTATED_SKILL_PATH,
+      ANNOTATED_SKILL.replace("  expects:\n    - env: CLOSE_API_KEY\n", ""),
+    );
     const document = await CatalogDocument.open(catalogDir, ANNOTATED_SKILL_PATH);
 
-    document.setStringList(["ambit", "env"], ["CLOSE_API_KEY"]);
+    document.setStringList(["ambit", "keywords"], ["crm"]);
 
     // A key the author never wrote has no layout to preserve, so it takes ambit's own,
     // and it lands after the keys that were already there rather than being sorted into them.
-    expect(document.text()).toContain("  env:\n    - CLOSE_API_KEY\n---");
+    expect(document.text()).toContain("  keywords:\n    - crm\n---");
   });
 
   it("leaves an emptied list as an empty list rather than a null", async () => {

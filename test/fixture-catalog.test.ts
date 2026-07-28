@@ -178,12 +178,12 @@ describe("fixture catalog", () => {
     ]);
   });
 
-  it("declares env vars a bundle can be missing", async () => {
+  it("declares preconditions a bundle can be missing", async () => {
     const frontend = annotations(
       await readFile(path.join(dir, "skills/design-tokens/SKILL.md"), "utf8"),
     );
 
-    expect(frontend.env).toEqual(["ACME_FIGMA_TOKEN"]);
+    expect(frontend.expects).toEqual([{ env: "ACME_FIGMA_TOKEN" }]);
   });
 
   it("defines a requires-only stdio server and a scoped http server", async () => {
@@ -193,7 +193,7 @@ describe("fixture catalog", () => {
     expect(required).toEqual({
       name: "fixture",
       transport: { stdio: { command: "npx", args: ["-y", "@acme/fixture-mcp"] } },
-      env: ["FIXTURE_API_KEY"],
+      expects: [{ env: "FIXTURE_API_KEY" }],
     });
     expect(scoped).toEqual({
       name: "scoped",
@@ -204,7 +204,7 @@ describe("fixture catalog", () => {
           headers: { Authorization: "Bearer ${SCOPED_API_KEY}" },
         },
       },
-      env: ["SCOPED_API_KEY"],
+      expects: [{ env: "SCOPED_API_KEY" }],
     });
 
     // `transport` is the discriminator, so it must never carry more or less than one kind.

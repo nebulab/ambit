@@ -27,6 +27,7 @@ import type { CommandHandler } from "../commands.js";
 import { jsonRequested, sourceContextOf } from "../commands.js";
 import { loadProjectConfig } from "../../model/config.js";
 import { ExitCode } from "../../errors.js";
+import { EXPECTATION_KINDS } from "../../model/expectation.js";
 import { keyed, printSections, section } from "../output.js";
 import type { Bundle, BundleItem } from "../../resolution/resolve.js";
 import { formatReason, reasonOf, resolveBundle } from "../../resolution/resolve.js";
@@ -70,7 +71,7 @@ function toJson(
   explain: boolean,
 ): Readonly<Record<string, unknown>> {
   return {
-    env: bundle.env,
+    expects: bundle.expects,
     hooks: keyed(
       bundle.hooks,
       (hook) => hook.name,
@@ -178,9 +179,12 @@ function toText(bundle: Bundle, merged: MergedCatalog, explain: boolean): readon
         );
       }),
     ),
+    // One row per precondition, its kind in its own column: the kind is what says how the thing is
+    // checked, so a reader scanning the section can see `env` and the `bin` beside it for what they are
+    // rather than having to read the names.
     ...section(
-      "env",
-      bundle.env.map((name) => [name]),
+      "expects",
+      EXPECTATION_KINDS.flatMap((kind) => (bundle.expects[kind] ?? []).map((name) => [kind, name])),
     ),
   ];
 }

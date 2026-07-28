@@ -43,7 +43,7 @@ function skillJson(skill: MergedSkill): Readonly<Record<string, unknown>> {
   return {
     catalog: skill.catalog,
     ...(skill.description !== undefined && { description: skill.description }),
-    env: skill.env,
+    expects: skill.expects.map((item) => ({ kind: item.kind, name: item.name })),
     path: skill.path,
     // Each entry keeps its two halves apart, as the document writes them: a consumer filtering for
     // what a skill pulls in should not have to re-derive a namespace from a name.
@@ -55,7 +55,7 @@ function skillJson(skill: MergedSkill): Readonly<Record<string, unknown>> {
 function mcpJson(mcp: MergedMcp): Readonly<Record<string, unknown>> {
   return {
     catalog: mcp.catalog,
-    env: mcp.env,
+    expects: mcp.expects.map((item) => ({ kind: item.kind, name: item.name })),
     scopes: mcp.scopes,
     transport: transportJson(mcp.transport),
   };
@@ -69,8 +69,8 @@ function hookJson(hook: MergedHook): Readonly<Record<string, unknown>> {
     catalog: hook.catalog,
     command: hook.command,
     ...(hook.description !== undefined && { description: hook.description }),
-    env: hook.env,
     event: hook.event,
+    expects: hook.expects.map((item) => ({ kind: item.kind, name: item.name })),
     ...(hook.matcher !== undefined && { matcher: hook.matcher }),
     ...(hook.path !== undefined && { path: hook.path }),
     scopes: hook.scopes,

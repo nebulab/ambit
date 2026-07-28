@@ -273,8 +273,8 @@ describe("dotagents compatibility", () => {
         CATALOG_INIT_SCOPE,
         "--requires",
         "skill:company-context",
-        "--env",
-        "ACME_FIGMA_TOKEN",
+        "--expects",
+        "env:ACME_FIGMA_TOKEN",
       );
 
       await expectInstallable();
