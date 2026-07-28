@@ -9,7 +9,7 @@ ambit makes picking them declarative:
 2. An ambit project declares the catalogs it wants to pull and the scopes it wants from each catalog.
 3. ambit resolves the scopes into a bundle and writes it into your harness's configuration.
 
-## Table of contents 
+## Table of contents
 
 - [Install](#install)
 - [Quick start](#quick-start)
