@@ -4,7 +4,7 @@
  * Every case runs against the fixture catalog, mutated in place for the malformed ones, so the
  * subject is the same tree the rest of the suite resolves against.
  */
-import { cp, mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -939,10 +939,10 @@ describe("catalog hooks", () => {
  */
 describe("ambit catalog as a command group", () => {
   /**
-   * Every subcommand of `catalog`. Two, since nothing writes into a catalog's items any more: one
-   * scaffolds a catalog and one checks it.
+   * Every subcommand of `catalog`. One: nothing writes into a catalog's items any more, and
+   * scaffolding one is `ambit init`, since every project is a catalog.
    */
-  const SUBCOMMANDS = ["init", "validate"];
+  const SUBCOMMANDS = ["validate"];
 
   /**
    * A command's usage, read by running `--help` through the CLI. That is only testable in-process
@@ -985,8 +985,9 @@ describe("ambit catalog as a command group", () => {
   });
 
   it("gives every command under `catalog` the catalog flag and no project flag", async () => {
-    // The two directories are different subjects, not the same one under two names: a catalog has no
-    // `ambit.yml` to read. `--offline` is absent for the same reason — there is no source to resolve.
+    // The two directories are different subjects, not the same one under two names: a catalog read on
+    // its own terms has no `ambit.yml`. `--offline` is absent for the same reason — no source to
+    // resolve.
     for (const name of SUBCOMMANDS) {
       const help = await usage("catalog", name);
 
@@ -1004,7 +1005,7 @@ describe("ambit catalog as a command group", () => {
   });
 
   it("prints its usage for a group, which has no action of its own", async () => {
-    // `catalog` is the only group left, its two children both being leaves.
+    // `catalog` is the only group left, and its one child is a leaf.
     const result = await invoke(["catalog"]);
 
     expect(result.code, result.stderr).toBe(ExitCode.Success);
@@ -1039,31 +1040,22 @@ describe("ambit catalog as a command group", () => {
  *
  * A subcommand added with `addCommand` inherits neither of the two settings that make that true, so
  * before A30 every case here wrote to the real stderr and called `process.exit`, taking the test worker
- * with it. That is why the first three are asserted below the top level rather than only for a
- * top-level command: `catalog init` is the depth nothing can reach by inheriting from the program
+ * with it. That is why the first two are asserted below the top level rather than only for a
+ * top-level command: `catalog validate` is the depth nothing can reach by inheriting from the program
  * alone. Nothing under `catalog` takes a positional any more, so the missing-argument case is
  * `ambit why`'s, at the top level.
  */
 describe("usage errors below the top level", () => {
-  /** A directory `catalog init` would scaffold into, so a refused run can be shown to have written nothing. */
-  let fresh: string;
-
-  beforeEach(async () => {
-    fresh = path.join(root, "fresh");
-    await mkdir(fresh, { recursive: true });
-  });
-
   it("returns an exit code for an unknown flag on a nested subcommand", async () => {
-    const result = await invoke(["catalog", "init", "--dry-runn", "--catalog", fresh]);
+    const result = await invoke(["catalog", "validate", "--jsonn", "--catalog", catalogDir]);
 
     expect(result.code).toBe(ExitCode.Config);
-    expect(result.stderr).toContain("error: unknown option '--dry-runn'");
+    expect(result.stderr).toContain("error: unknown option '--jsonn'");
     // Commander's suggestion is half of what makes the message useful, and it reaches the reader only
     // through ambit's own writer.
-    expect(result.stderr).toContain("--dry-run");
+    expect(result.stderr).toContain("--json");
+    // Refused before the handler ran, so nothing it would have printed reached stdout.
     expect(result.stdout).toBe("");
-    // Refused before the handler ran, so the scaffold it named did not happen.
-    expect(await readdir(fresh)).toEqual([]);
   });
 
   it("prints a nested subcommand's usage on `--help`, at exit 0", async () => {

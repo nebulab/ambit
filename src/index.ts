@@ -5,8 +5,8 @@
  * API is a deliberate edit here rather than a side effect of exporting it from its own module.
  *
  * The order follows `src/`'s dependency layers, top to bottom: ambient, then what is on disk
- * (`model/`), what is derived from it (`resolution/`), and the three consumers — `harness/`,
- * `authoring/`, `project/` — with `cli/` last.
+ * (`model/`), what is derived from it (`resolution/`), and the two consumers — `harness/` and
+ * `project/` — with `cli/` last.
  */
 
 // ── ambient ───────────────────────────────────────────────────────────────────────────────────
@@ -38,7 +38,6 @@ export type {
   Catalog,
   CatalogHook,
   CatalogMcp,
-  CatalogOverlay,
   CatalogParseOptions,
   CatalogSkill,
   MergedCatalog,
@@ -256,34 +255,6 @@ export {
 } from "./harness/env.js";
 export type { EnvRefStyle } from "./harness/env.js";
 
-// ── authoring — what `ambit catalog init` writes ──────────────────────────────────────────────
-export {
-  CatalogDocument,
-  applyCatalogEdit,
-  catalogFilePath,
-  hookDirectoryPath,
-  hookDocumentPath,
-  mcpDocumentPath,
-  skillDirectoryPath,
-  skillDocumentPath,
-} from "./authoring/editor.js";
-export type {
-  CatalogChange,
-  CatalogFileChange,
-  CatalogTreeChange,
-  EditOptions,
-  EditResult,
-  EditedFile,
-} from "./authoring/editor.js";
-export {
-  CATALOG_KEEP_FILENAME,
-  CATALOG_README_FILENAME,
-  CATALOG_WORKFLOW_FILENAME,
-  initCatalog,
-  scaffoldCatalog,
-} from "./authoring/init.js";
-export type { CatalogInitOptions, CatalogInitResult } from "./authoring/init.js";
-
 // ── project — act on a consuming project ──────────────────────────────────────────────────────
 export { cleanProject, pruneProject } from "./project/clean.js";
 export type { CleanOptions, CleanResult, PruneOptions, PruneResult } from "./project/clean.js";
@@ -318,8 +289,15 @@ export {
   writeGitignoreBlocks,
 } from "./project/gitignore.js";
 export type { GitignoreStatus, IgnoreBlock } from "./project/gitignore.js";
-export { INIT_FILENAME, initProject, scaffoldConfig } from "./project/init.js";
-export type { InitOptions, InitResult } from "./project/init.js";
+export {
+  INIT_FILENAME,
+  KEEP_FILENAME,
+  LOCAL_CATALOG,
+  initProject,
+  scaffoldConfig,
+  scaffoldProject,
+} from "./project/init.js";
+export type { InitOptions, InitResult, ScaffoldedFile } from "./project/init.js";
 export {
   ADAPTERS,
   adaptersFor,
@@ -383,7 +361,5 @@ export type {
   CommandSpec,
   CommandSubject,
 } from "./cli/commands.js";
-export { changeKindOf, diffLines, diffSection, treeChangeSummary } from "./cli/diff.js";
-export type { ChangeKind } from "./cli/diff.js";
 export { buildProgram, run } from "./cli/program.js";
 export type { Io } from "./cli/program.js";

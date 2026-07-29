@@ -12,8 +12,10 @@
  * the one part of a scaffold a reader is expected to uncomment must leave the file sorted, and must be
  * valid YAML the moment the `# ` comes off.
  *
- * `ambit init` and `ambit catalog init` both render through here, so a project scaffold and a catalog
- * scaffold cannot look like the work of two different tools.
+ * `ambit init` is the only caller now that a project and a catalog are scaffolded by one command. It
+ * stays a module of its own for the reason it became one: the emit-then-comment rule is a property of
+ * how ambit writes a documented file, not of which file is being written, and the next scaffold to
+ * exist should inherit it rather than reinvent it as a template.
  */
 import { emitYaml } from "./yaml.js";
 

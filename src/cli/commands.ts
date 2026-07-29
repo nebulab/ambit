@@ -72,28 +72,22 @@ export interface CommandSpec {
 
 /**
  * The catalog surface: every command whose subject is one catalog directory, grouped under the noun
- * they both act on.
+ * it acts on.
  *
- * Nothing a consumer reaches for lives here, which is what makes the group uniform. Both commands
- * take `--catalog <dir>`, neither takes `--offline` — a catalog directory is read off disk and
- * resolves no source — and a mutation takes `--dry-run`, so a write can be previewed as a diff.
+ * Nothing a consumer reaches for lives here. It takes `--catalog <dir>` and not `--offline` — a
+ * catalog directory is read off disk and resolves no source — and it writes nothing, so it takes no
+ * `--dry-run` either.
  *
- * Nothing under this word writes into a catalog's items any more: an author has an editor, and a
- * second way to produce Markdown and YAML cost more than it saved. What is left is scaffolding a
- * catalog and checking one.
+ * One command, and the word is on its way out with it. Nothing under it writes into a catalog's items
+ * any more — an author has an editor, and a second way to produce Markdown and YAML cost more than it
+ * saved — and scaffolding a catalog is now `ambit init`, since every project is one.
  *
- * Dumping the *merged* catalog is deliberately not one of them. That view is several catalogs plus one
+ * Dumping the *merged* catalog is deliberately not here. That view is several catalogs plus one
  * `ambit.yml`, which no catalog directory contains, so it is `ambit dump-catalog` at the top level:
  * while it shared this word, one name covered two subjects and the group accepted `--project` while
  * every command under it accepted `--catalog`.
  */
 const CATALOG_SUBCOMMANDS: readonly CommandSpec[] = [
-  {
-    name: "init",
-    summary: "scaffold a catalog repo, as `ambit init` does a project",
-    subject: "catalog",
-    mutating: true,
-  },
   {
     // The mirror of `ambit validate`, and a separate command from it for the reason the group exists:
     // the two check different subjects. This one reads one catalog directory and nothing else — no
@@ -110,7 +104,7 @@ const CATALOG_SUBCOMMANDS: readonly CommandSpec[] = [
  * they report that they are unimplemented rather than pretending to work.
  */
 export const COMMAND_SPECS: readonly CommandSpec[] = [
-  { name: "init", summary: "scaffold an ambit.yml", mutating: true },
+  { name: "init", summary: "scaffold ambit.yml, skills/, mcps/, hooks/", mutating: true },
   { name: "dump-catalog", summary: "dump the merged catalog" },
   {
     name: "resolve",
@@ -150,7 +144,7 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
   { name: "validate", summary: "validate everything this project configures, for CI" },
   { name: "doctor", summary: "check preconditions, drift, ownership" },
   // Last, because it is the whole of the catalog surface and no consumer reaches into it.
-  { name: "catalog", summary: "scaffold and check a catalog", subcommands: CATALOG_SUBCOMMANDS },
+  { name: "catalog", summary: "check a catalog", subcommands: CATALOG_SUBCOMMANDS },
 ];
 
 export type CommandOptions = Readonly<Record<string, unknown>>;

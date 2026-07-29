@@ -17,9 +17,9 @@
  * the first describe below proves the permutation reaches the listings *ambit* reads and not merely
  * the ones this file reads.
  *
- * Nothing in the surface table writes, so the whole table shares one installed project; the
- * "wrote nothing" case is what pins that, and it is the reason the `--dry-run` previews are
- * safe to list beside the read-only commands.
+ * Nothing in the surface table writes, so the whole table shares one installed project, one catalog
+ * and one empty directory; the "wrote nothing" cases are what pin that, and they are the reason the
+ * `--dry-run` previews are safe to list beside the read-only commands.
  *
  * One thing the table cannot do on its own: every surface in it is sorted twice over — a catalog's
  * directory entries as they are read, its items again before they are emitted — so a single missing
@@ -147,23 +147,40 @@ const ENV_STUBS: Readonly<Record<string, string>> = {
   FIXTURE_API_KEY: "determinism-fixture-key",
 };
 
+/**
+ * Which of the three directories a surface is pointed at.
+ *
+ * `catalog` is the only one that takes a different flag. `empty` is a project directory with nothing
+ * in it, which exists for the one surface whose subject is the *absence* of a project: `ambit init`
+ * refuses a directory that already holds a config, so it cannot be aimed at `project` like the rest.
+ */
+type Subject = "project" | "catalog" | "empty";
+
+/** The directory flag each subject is named by. */
+const FLAG: Readonly<Record<Subject, string>> = {
+  project: "--project",
+  catalog: "--catalog",
+  empty: "--project",
+};
+
 /** One thing ambit prints, and which directory it is pointed at. */
 interface Surface {
   /** The words a user types, without the directory flag. */
   readonly argv: readonly string[];
-  /** `project` takes `--project <dir>`; `catalog` takes `--catalog <dir>`. */
-  readonly dir: "project" | "catalog";
+  readonly dir: Subject;
 }
 
 /**
  * Every surface whose bytes this file pins.
  *
  * Text and `--json` are separate rows on purpose: they are two renderings, and only one of them is
- * covered by the goldens. The three `--dry-run` rows are here because a preview is a report — the
- * one surface of a mutating command that prints without writing, and the one nothing else asserts
- * twice. They preview a project's install, prune and clean.
+ * covered by the goldens. The `--dry-run` rows are here because a preview is a report — the one
+ * surface of a mutating command that prints without writing, and the one nothing else asserts twice.
+ * They preview a project's init, install, prune and clean, which is every command that writes.
  */
 const SURFACES: readonly Surface[] = [
+  { argv: ["init", "--dry-run"], dir: "empty" },
+  { argv: ["init", "--dry-run", "--json"], dir: "empty" },
   { argv: ["dump-catalog"], dir: "project" },
   { argv: ["dump-catalog", "--json"], dir: "project" },
   { argv: ["resolve"], dir: "project" },
@@ -202,6 +219,7 @@ const TIMESTAMP = /\d{4}-\d{2}-\d{2}|\d{2}:\d{2}:\d{2}/;
 let root: string;
 let catalogDir: string;
 let projectDir: string;
+let emptyDir: string;
 let installed: Record<string, string>;
 let fixture: Record<string, string>;
 
@@ -250,15 +268,26 @@ async function cli(argv: readonly string[], cwd: string): Promise<Output> {
   return { code, stdout: out.join("\n"), stderr: err.join("\n") };
 }
 
+/** Which directory a subject names. Read at call time: the three are assigned in `beforeAll`. */
+function dirOf(subject: Subject): string {
+  switch (subject) {
+    case "project":
+      return projectDir;
+    case "catalog":
+      return catalogDir;
+    case "empty":
+      return emptyDir;
+  }
+}
+
 /** How a surface is typed against the shared fixture. */
 function argvOf(surface: Surface): readonly string[] {
-  const dir = surface.dir === "project" ? projectDir : catalogDir;
-  return [...surface.argv, `--${surface.dir}`, dir];
+  return [...surface.argv, FLAG[surface.dir], dirOf(surface.dir)];
 }
 
 /** How a surface's case is titled: what a reader would have to type to reproduce it. */
 function titleOf(surface: Surface): string {
-  return `ambit ${surface.argv.join(" ")} --${surface.dir}`;
+  return `ambit ${surface.argv.join(" ")} ${FLAG[surface.dir]} <${surface.dir}>`;
 }
 
 async function runSurface(surface: Surface, order: ReadOrder = "natural"): Promise<Output> {
@@ -296,9 +325,11 @@ beforeAll(async () => {
   root = await mkdtemp(path.join(tmpdir(), "ambit-determinism-"));
   catalogDir = path.join(root, "catalog");
   projectDir = path.join(root, "project");
+  emptyDir = path.join(root, "empty");
   await buildFixtureCatalog(catalogDir);
   await writeExtraHooks(catalogDir);
   await mkdir(projectDir, { recursive: true });
+  await mkdir(emptyDir, { recursive: true });
   await writeProfile(projectDir);
 
   const install = await cli(["install", "--project", projectDir], root);
@@ -407,6 +438,10 @@ describe("nothing in the surface table touches disk", () => {
 
   it("leaves the catalog byte-identical to what the fixture builder wrote", async () => {
     expect(await snapshot(catalogDir)).toEqual(fixture);
+  });
+
+  it("leaves the empty directory empty, which is what `init --dry-run` promises", async () => {
+    expect(await snapshot(emptyDir)).toEqual({});
   });
 });
 

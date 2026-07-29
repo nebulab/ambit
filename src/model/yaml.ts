@@ -16,9 +16,14 @@
  *
  * *Editing* a document ambit did not write is a third thing, and {@link EditableYaml} is it: the
  * parsed node tree is kept and re-emitted, rather than a plain object being emitted afresh, because
- * an authoring command must leave comments, unknown keys, key order, and formatting byte-for-byte
- * intact. Nothing outside this module touches the `yaml` package, so the
- * three halves cannot drift apart.
+ * a command that rewrites one key of a hand-maintained file must leave comments, unknown keys, key
+ * order, and formatting byte-for-byte intact. Nothing outside this module touches the `yaml` package,
+ * so the three halves cannot drift apart.
+ *
+ * **{@link EditableYaml} has no caller left in ambit.** Its only one was the catalog editor, which
+ * went when the authoring commands did; it survives as public API and as the answer for the next
+ * command that has to rewrite a file it did not write. Whether that is worth keeping is a live
+ * question, not an oversight.
  */
 import { readFile } from "node:fs/promises";
 

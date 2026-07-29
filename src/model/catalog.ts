@@ -40,12 +40,7 @@ import { parseEntries } from "./pattern.js";
 import type { ResolvedSource, SourceContext } from "./sources.js";
 import { resolveSource } from "./sources.js";
 import type { YamlMapping } from "./yaml.js";
-import {
-  parseFrontmatterMapping,
-  parseYamlMapping,
-  readFrontmatterMapping,
-  readYamlMapping,
-} from "./yaml.js";
+import { readFrontmatterMapping, readYamlMapping } from "./yaml.js";
 
 /**
  * The registry a catalog used to carry, kept only so its presence can be refused.
@@ -107,9 +102,8 @@ export type AnnotationKey = (typeof ANNOTATION_KEYS)[number];
 /**
  * How a catalog is parsed when the caller wants every problem rather than only the first — the validation split.
  *
- * Only validation passes one — both `validate` commands, and every authoring mutation checking its
- * own result. Everything else parses strictly, because a resolution that
- * carried on past a broken skill would install something nobody described.
+ * Only validation passes one — both `validate` commands. Everything else parses strictly, because a
+ * resolution that carried on past a broken skill would install something nobody described.
  */
 export interface CatalogParseOptions {
   /**
@@ -122,21 +116,7 @@ export interface CatalogParseOptions {
    * and there is no useful report to build on top of that.
    */
   readonly collect?: (problem: AmbitError) => void;
-  /** Files to read instead of what is on disk — see {@link CatalogOverlay}. */
-  readonly overlay?: CatalogOverlay;
 }
-
-/**
- * Files an in-flight edit would write, keyed by catalog-relative `/`-separated path: the text to parse
- * instead of what is on disk, or `null` for a file the edit removes.
- *
- * This is how an authoring mutation validates its own *result* before writing it. The alternative — write, validate, undo — leaves a window in which the catalog on disk is
- * broken, which is the one thing rule 4 exists to prevent.
- */
-export type CatalogOverlay = ReadonlyMap<string, string | null>;
-
-/** Nothing pending: what every read path outside an edit parses through. */
-const NO_OVERLAY: CatalogOverlay = new Map();
 
 /** A skill as the catalog declares it. */
 export interface CatalogSkill {
@@ -396,76 +376,46 @@ async function sortedEntries(dir: string): Promise<readonly CatalogEntry[]> {
 }
 
 /**
- * A catalog's files, read through an edit's pending contents where it has any.
+ * A catalog's files, addressed the way its own errors and reports address them.
  *
- * Every read parsing does goes through here, so an authoring command validating its own result sees
- * exactly what the next `ambit catalog validate` would see — including files the edit creates, which
- * are in no directory listing yet, and files it removes, which are still in one.
+ * Every read parsing does goes through here, which is what keeps a catalog-relative `/`-separated
+ * path the only kind of path the walk below deals in: the root is joined on in one place, so nothing
+ * that reports a file has an absolute one to accidentally print.
+ *
+ * It used to do more. An in-flight authoring edit handed its pending bytes to parsing as an overlay,
+ * so a mutation could validate its own result before writing it, and every read had to consult that
+ * overlay first. Nothing mutates a catalog any more, so the pending case is gone and these are five
+ * plain reads.
  */
 class CatalogFiles {
-  constructor(
-    private readonly root: string,
-    private readonly overlay: CatalogOverlay,
-  ) {}
+  constructor(private readonly root: string) {}
 
   private absolute(relative: string): string {
     return path.join(this.root, relative);
   }
 
   async isFile(relative: string): Promise<boolean> {
-    const pending = this.overlay.get(relative);
-    if (pending !== undefined) return pending !== null;
     return isFile(this.absolute(relative));
   }
 
-  /** Whether a directory holds anything: on disk, or only in the edit. */
   async isDirectory(relative: string): Promise<boolean> {
-    if (await isDirectory(this.absolute(relative))) return true;
-    const prefix = `${relative}/`;
-    return [...this.overlay].some(([file, text]) => text !== null && file.startsWith(prefix));
+    return isDirectory(this.absolute(relative));
   }
 
-  /** The entries of a directory, in name order, with the edit's additions and removals applied. */
+  /** The entries of a directory, in name order, or none at all when it is not there. */
   async entries(relative: string): Promise<readonly CatalogEntry[]> {
-    const found = new Map<string, boolean>();
-    if (await isDirectory(this.absolute(relative))) {
-      for (const entry of await sortedEntries(this.absolute(relative))) {
-        found.set(entry.name, entry.directory);
-      }
-    }
-
-    const prefix = relative === "" ? "" : `${relative}/`;
-    for (const [file, text] of this.overlay) {
-      if (!file.startsWith(prefix)) continue;
-      const rest = file.slice(prefix.length);
-      const slash = rest.indexOf("/");
-      if (slash === -1) {
-        if (text === null) found.delete(rest);
-        else found.set(rest, false);
-      } else if (text !== null) {
-        found.set(rest.slice(0, slash), true);
-      }
-      // A removal deeper down leaves the directories above it listed: the walk simply finds no
-      // `SKILL.md` inside, which is the same answer as an emptied directory on disk.
-    }
-
-    return byEntryName([...found].map(([name, directory]) => ({ name, directory })));
+    if (!(await isDirectory(this.absolute(relative)))) return [];
+    return sortedEntries(this.absolute(relative));
   }
 
   /** Parses a YAML file under the §3.0 rules. */
   async mapping(relative: string): Promise<YamlMapping> {
-    const pending = this.overlay.get(relative);
-    return typeof pending === "string"
-      ? parseYamlMapping(pending, relative)
-      : readYamlMapping(this.absolute(relative), relative);
+    return readYamlMapping(this.absolute(relative), relative);
   }
 
   /** Parses a Markdown file's frontmatter block under the §3.0 rules. */
   async frontmatter(relative: string): Promise<YamlMapping> {
-    const pending = this.overlay.get(relative);
-    return typeof pending === "string"
-      ? parseFrontmatterMapping(pending, relative)
-      : readFrontmatterMapping(this.absolute(relative), relative);
+    return readFrontmatterMapping(this.absolute(relative), relative);
   }
 }
 
@@ -811,8 +761,8 @@ function fromCatalog(name: string, problem: AmbitError): AmbitError {
  * @param name the catalog's name, as errors report it.
  * @param source the `source` it was resolved from.
  * @param commit the commit the directory holds, for a git source.
- * @param options a collector for the one problem parsing can continue past, and an edit's pending
- *   files to read through — see {@link CatalogParseOptions}.
+ * @param options a collector for the one problem parsing can continue past — see
+ *   {@link CatalogParseOptions}.
  * @throws {AmbitError} exit 2 for a leftover scope registry, a malformed file, or a name that
  *   disagrees with its path.
  */
@@ -828,7 +778,7 @@ export async function parseCatalogDirectory(
     collect === undefined
       ? undefined
       : (problem: AmbitError) => collect(fromCatalog(name, problem));
-  const files = new CatalogFiles(root, options.overlay ?? NO_OVERLAY);
+  const files = new CatalogFiles(root);
 
   try {
     // The one file at a catalog root ambit still has an opinion about, and the opinion is that it

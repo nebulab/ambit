@@ -29,16 +29,15 @@ npx @nebulab/ambit --help
 
 ## Quick start
 
-### Authoring a catalog
+### Scaffolding a project
 
-A catalog is a plain git repo, and a catalog is a directory: three item directories, and no config
-file of its own. Scaffold one, then write its skills, servers and hooks with your editor:
+Every ambit project is also a catalog — a project that ships a skill of its own puts it in `skills/`
+and lists itself — so one command scaffolds both halves:
 
 ```
-$ ambit catalog init --catalog acme-skills
-created (5)
-  .github/workflows/validate.yml
-  README.md
+$ ambit init
+created (4)
+  ambit.yml
   hooks/.gitkeep
   mcps/.gitkeep
   skills/.gitkeep
@@ -46,32 +45,44 @@ created (5)
 kept (0)
   (none)
 
-next: add a skill in `skills/<name>/SKILL.md`, tagged with who needs it — see `README.md`
+next: put a skill in `skills/<name>/SKILL.md`, or add a catalog under `catalogs`
+      then uncomment a `requires` entry that selects it, and run `ambit install`
 ```
+
+The `ambit.yml` it writes lists the project itself as a catalog:
+
+```yaml
+catalogs:
+  - name: local
+    source: path:. # this project's own skills/, mcps/, hooks/
+```
+
+That entry is live; the `requires` entry selecting it is scaffolded **commented out**, because an
+entry matching nothing is exit 3 and a fresh project's `local` catalog is three empty directories.
+Uncomment it once there is something to take.
+
+An existing `ambit.yml` is refused, and so is a project directory that does not exist — `--project`
+naming the wrong path should not leave a project where nobody meant one. An existing `.gitkeep` is
+left byte-identical and reported as `kept`.
+
+### Authoring a catalog
+
+A catalog is a plain git repo, and a catalog is a directory: three item directories, and no config
+file of its own. `ambit init` scaffolds one; write its skills, servers and hooks with your editor.
 
 Add a skill by writing `skills/<name>/SKILL.md`, a server by writing `mcps/<name>.yml`, a hook by
 writing `hooks/<name>/HOOK.yml`, and tag each with the labels that say who needs it. Every format is
-documented below, and `ambit catalog validate` checks the result. There is no command that writes into
-a catalog: it is Markdown and YAML, and you have an editor.
+documented below, and `ambit validate` checks the result. There is no command that writes into a
+catalog: it is Markdown and YAML, and you have an editor.
 
 Tags are free-form: nothing registers one, nothing describes one, and no file in the catalog has to
 agree about which tags exist. The cost is that a misspelled tag is silently a new tag, reaching
 nobody — nothing can catch that.
 
-`ambit catalog init` creates the root directory if it is missing, and scaffolds a GitHub Actions
-workflow that runs `ambit catalog validate`. Every scaffolded file that already exists is left
-byte-identical and reported as `kept`, which makes a second run a no-op.
-
 ### Consuming a catalog
 
-```
-$ ambit init
-created ambit.yml
-next: add a catalog under `catalogs`, then `requires` entries, then `ambit install`
-```
-
-The scaffold declares no catalog and selects nothing, so `ambit install` installs nothing until you
-point it at one. Add a catalog and say what to take from it:
+The scaffold selects nothing, so `ambit install` installs nothing until you point it at a catalog.
+Add one and say what to take from it:
 
 ```yaml
 version: 1
@@ -108,6 +119,38 @@ artifacts (5)
   .claude/skills              skills-link     link
   .mcp.json                   harness-config  -
 ```
+
+### Checking it in CI
+
+`ambit validate` is the check worth running on every push: it reads every catalog the project lists —
+including the project's own `skills/`, `mcps/` and `hooks/` — and reports every `requires` entry that
+matches nothing, every `requires` cycle, and every item whose declared name disagrees with its path.
+Catching those here is the point. A broken catalog otherwise fails for whoever installs it next, which
+is never the person who broke it.
+
+`ambit init` deliberately scaffolds no workflow — a project is routinely an existing application, and
+writing into its `.github/workflows/` is presumptuous. Paste this into
+`.github/workflows/ambit.yml` instead:
+
+```yaml
+name: ambit
+on: [push, pull_request]
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the project
+        uses: actions/checkout@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Validate
+        run: npx --yes @nebulab/ambit validate
+```
+
+Add `ambit status --check` beside it to fail on drift between `ambit.lock` and what is installed, or
+`ambit install --frozen` to fail when resolution would rewrite the lock.
 
 ## Concepts
 
@@ -432,28 +475,28 @@ refused, with the same message and exit code.
 
 ### Consumer commands
 
-| Command                                               | What it does                                                                                                                      |
-| ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `ambit init`                                          | Scaffold an `ambit.yml`. Refuses a directory that already has one, `--dry-run` included, and does not create a missing directory. |
-| `ambit dump-catalog`                                  | Dump the merged catalog: every catalog the project lists, merged with its own declarations.                                       |
-| `ambit resolve [--explain]`                           | Compute the bundle and print it.                                                                                                  |
-| `ambit why <kind:name>`                               | Explain why one item is in the bundle, as a chain. The subject declares its namespace, as everything that names an item does.     |
-| `ambit install [--frozen] [--adopt] [--copy\|--link]` | Resolve, write `ambit.lock`, materialize the bundle, prune what left it.                                                          |
-| `ambit status [--check]`                              | Compare what is installed against what resolve produces. `--check` exits 5 on drift.                                              |
-| `ambit prune`                                         | Remove owned artifacts not in the current bundle.                                                                                 |
-| `ambit clean`                                         | Remove everything ambit owns.                                                                                                     |
-| `ambit validate`                                      | Validate everything this project configures, for CI. One catalog on its own is `ambit catalog validate`.                          |
-| `ambit doctor`                                        | Check preconditions, the lock, ownership, drift, materialization mode, and harness limits.                                        |
+| Command                                               | What it does                                                                                                                                                                                                             |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ambit init`                                          | Scaffold `ambit.yml`, `skills/`, `mcps/` and `hooks/`, and a live `catalogs:` entry naming the project itself. Refuses a directory that already holds a config, `--dry-run` included, and does not create a missing one. |
+| `ambit dump-catalog`                                  | Dump the merged catalog: every catalog the project lists, merged with its own declarations.                                                                                                                              |
+| `ambit resolve [--explain]`                           | Compute the bundle and print it.                                                                                                                                                                                         |
+| `ambit why <kind:name>`                               | Explain why one item is in the bundle, as a chain. The subject declares its namespace, as everything that names an item does.                                                                                            |
+| `ambit install [--frozen] [--adopt] [--copy\|--link]` | Resolve, write `ambit.lock`, materialize the bundle, prune what left it.                                                                                                                                                 |
+| `ambit status [--check]`                              | Compare what is installed against what resolve produces. `--check` exits 5 on drift.                                                                                                                                     |
+| `ambit prune`                                         | Remove owned artifacts not in the current bundle.                                                                                                                                                                        |
+| `ambit clean`                                         | Remove everything ambit owns.                                                                                                                                                                                            |
+| `ambit validate`                                      | Validate everything this project configures, for CI. One catalog on its own is `ambit catalog validate`.                                                                                                                 |
+| `ambit doctor`                                        | Check preconditions, the lock, ownership, drift, materialization mode, and harness limits.                                                                                                                               |
 
 ### Catalog commands
 
 ```
-ambit catalog init                              scaffold a catalog repo
 ambit catalog validate                          validate this catalog on its own terms, for CI
 ```
 
 Nothing here writes into a catalog's items. A catalog is Markdown and YAML in a git repo, and it is
-maintained the way the rest of the repo is: with an editor, and with `ambit catalog validate` in CI.
+maintained the way the rest of the repo is: with an editor, and with a validate step in CI.
+Scaffolding one is `ambit init`, since every project is a catalog.
 
 ### Exit codes
 

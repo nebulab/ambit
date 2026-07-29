@@ -196,7 +196,7 @@ Per §_A skill's `requires` has the same expressive power_.
 
 ## 8. `ambit init` absorbs `catalog init`
 
-- [ ] One command scaffolds both halves, and `editor.ts` dies with the last mutator.
+- [x] One command scaffolds both halves, and `editor.ts` dies with the last mutator.
 
 Per §_`ambit init` scaffolds both halves_.
 
@@ -235,6 +235,8 @@ Per §_`ambit validate` validates the catalog too, and `ambit catalog` goes_.
   from** — which must fire only for a catalog that _has items_, or it would fail `validate` on every
   freshly initialized project.
 - `src/authoring/` is deleted as a directory. Assert nothing outside `src/cli/` ever imported from it.
+  > done in task 8: `catalog validate` reads `src/resolution/validate.ts`, never `src/authoring/`, so
+  > removing `editor.ts` and `init.ts` emptied the directory outright.
 
 **Slice** — a catalog repo lists itself and `ambit validate` checks it, with no `catalog` in the surface.
 

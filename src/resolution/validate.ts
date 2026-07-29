@@ -31,12 +31,7 @@
  */
 import path from "node:path";
 
-import type {
-  CatalogOverlay,
-  CatalogParseOptions,
-  MergedCatalog,
-  MergedSkill,
-} from "../model/catalog.js";
+import type { CatalogParseOptions, MergedCatalog, MergedSkill } from "../model/catalog.js";
 import {
   loadCatalogs,
   mergeCatalogs,
@@ -295,8 +290,9 @@ export interface ValidateOptions {
 }
 
 /**
- * Validates a merged catalog. Pure, so every authoring command can check its own result before
- * writing it without touching the disk twice.
+ * Validates a merged catalog. Pure: it reads the parsed catalog and nothing else, so both callers —
+ * a project's whole configuration and one catalog directory on its own — reach it having each
+ * touched the disk once.
  */
 export function validateCatalog(
   merged: MergedCatalog,
@@ -356,21 +352,16 @@ export async function validateProject(context: SourceContext): Promise<Validatio
  * @param root the catalog root, absolute. Its basename names the catalog in problems; the name and
  *   the synthesized `source` appear nowhere in the report, which is what keeps the output free of
  *   machine paths.
- * @param overlay files an in-flight edit would write, read instead of what is on disk. This is how an
- *   authoring mutation checks its own result before writing it.
  * @throws {AmbitError} exit 2 if the directory is not a catalog, or does not parse.
  */
-export async function validateCatalogDirectory(
-  root: string,
-  overlay?: CatalogOverlay,
-): Promise<ValidationReport> {
+export async function validateCatalogDirectory(root: string): Promise<ValidationReport> {
   const parsed: ValidationProblem[] = [];
   const catalog = await parseCatalogDirectory(
     path.basename(root),
     `path:${root}`,
     root,
     undefined,
-    { ...collector(parsed), ...(overlay !== undefined && { overlay }) },
+    collector(parsed),
   );
 
   return validateCatalog(mergeCatalogs([catalog]), { parsed });
