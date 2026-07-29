@@ -49,34 +49,7 @@ catalogs:
 
 skills:
   - luma
-  - name: readwise-cli
-    source: https://github.com/readwiseio/readwise-skills
-    path: skills/readwise-cli
-
-mcps:
-  - name: custom
-    transport:
-      stdio:
-        command: npx
-        args: ["-y", "some-server"]
-    expects: [{ env: SOME_TOKEN }]
-  - name: remote
-    tags: [function.sales]
-    transport:
-      http:
-        url: https://api.close.com/mcp
-        headers:
-          Authorization: "Bearer \${CLOSE_API_KEY}"
-    expects: [{ env: CLOSE_API_KEY }]
-
-hooks:
-  - name: format-on-write
-    event: PostToolUse
-    matcher: "Edit|Write"
-    type: command
-    command: npm run format
-    timeout: 60
-    expects: [{ env: SOME_TOKEN }]
+  - readwise-cli
 `;
 
 describe("project config", () => {
@@ -94,11 +67,6 @@ describe("project config", () => {
           ["luma", 18],
           ["readwise-cli", 19],
         ]),
-        mcpLines: new Map([
-          ["custom", 24],
-          ["remote", 30],
-        ]),
-        hookLines: new Map([["format-on-write", 40]]),
       },
       harnesses: ["claude"],
       scopes: ["core", "function.engineering", "project.vision-group"],
@@ -106,45 +74,7 @@ describe("project config", () => {
         { name: "company", source: "git@github.com:acme/skills.git", ref: "a1b2c3d4" },
         { name: "personal", source: "git@github.com:jane/skills-private.git", ref: "main" },
       ],
-      skills: [
-        { kind: "catalog", name: "luma" },
-        {
-          kind: "source",
-          name: "readwise-cli",
-          source: "https://github.com/readwiseio/readwise-skills",
-          path: "skills/readwise-cli",
-        },
-      ],
-      mcps: [
-        {
-          name: "custom",
-          tags: [],
-          transport: { kind: "stdio", command: "npx", args: ["-y", "some-server"] },
-          expects: [{ kind: "env", name: "SOME_TOKEN" }],
-        },
-        {
-          name: "remote",
-          tags: ["function.sales"],
-          transport: {
-            kind: "http",
-            url: "https://api.close.com/mcp",
-            headers: { Authorization: "Bearer ${CLOSE_API_KEY}" },
-          },
-          expects: [{ kind: "env", name: "CLOSE_API_KEY" }],
-        },
-      ],
-      hooks: [
-        {
-          name: "format-on-write",
-          tags: [],
-          event: "PostToolUse",
-          matcher: "Edit|Write",
-          type: "command",
-          command: "npm run format",
-          timeout: 60,
-          expects: [{ kind: "env", name: "SOME_TOKEN" }],
-        },
-      ],
+      skills: ["luma", "readwise-cli"],
     });
   });
 
@@ -155,15 +85,11 @@ describe("project config", () => {
         file: FILE,
         scopeLines: new Map(),
         skillLines: new Map(),
-        mcpLines: new Map(),
-        hookLines: new Map(),
       },
       harnesses: DEFAULT_HARNESSES,
       scopes: [],
       catalogs: [],
       skills: [],
-      mcps: [],
-      hooks: [],
     });
   });
 
@@ -179,28 +105,14 @@ describe("project config", () => {
         ["function.sales", 4],
       ]),
       skillLines: new Map(),
-      mcpLines: new Map(),
-      hookLines: new Map(),
     });
   });
 
-  it("records the line each `skills` and `mcps` entry was written on", () => {
+  it("records the line each `skills` entry was written on", () => {
     // The same reason scopes carry theirs: an explicit skill no catalog provides is
     // rejected long after this parse, and the error still has to name the line.
     const config = parseProjectConfig(
-      [
-        "version: 1",
-        "skills:",
-        "  - house-style",
-        "  - name: two",
-        "    source: path:../two",
-        "mcps:",
-        "  - name: three",
-        "    transport:",
-        "      stdio:",
-        "        command: three-mcp",
-        "",
-      ].join("\n"),
+      ["version: 1", "skills:", "  - house-style", "  - two", ""].join("\n"),
       FILE,
     );
 
@@ -208,33 +120,6 @@ describe("project config", () => {
       new Map([
         ["house-style", 3],
         ["two", 4],
-      ]),
-    );
-    expect(config.origin.mcpLines).toEqual(new Map([["three", 7]]));
-  });
-
-  it("records the line each `hooks` entry was written on", () => {
-    const config = parseProjectConfig(
-      [
-        "version: 1",
-        "hooks:",
-        "  - name: one",
-        "    event: SessionStart",
-        "    type: command",
-        "    command: one.sh",
-        "  - name: two",
-        "    event: Stop",
-        "    type: command",
-        "    command: two.sh",
-        "",
-      ].join("\n"),
-      FILE,
-    );
-
-    expect(config.origin.hookLines).toEqual(
-      new Map([
-        ["one", 3],
-        ["two", 7],
       ]),
     );
   });
@@ -281,7 +166,7 @@ describe("project config", () => {
 
       expect(error.format()).toContain(`unknown key "scope" (${FILE} line 2)`);
       expect(error.format()).toContain(
-        "accepted keys: catalogs, harnesses, hooks, mcps, scopes, skills, version",
+        "accepted keys: catalogs, harnesses, scopes, skills, version",
       );
     });
 
@@ -323,141 +208,76 @@ describe("project config", () => {
     });
 
     it("rejects two `skills` entries naming the same skill, naming both lines", () => {
-      // Resolution looks each name up once, so a repeat is never a merge — and a bare name beside
-      // a mapping for the same name is two answers to which source provides it.
-      const error = rejection(
-        "version: 1\nskills:\n  - a.b\n  - name: a.b\n    source: path:../a\n",
-      );
+      // Resolution looks each name up once, so a repeat is never a merge.
+      const error = rejection("version: 1\nskills:\n  - a.b\n  - a.b\n");
 
       expect(error.format()).toContain(`duplicate skills entry "a.b" (${FILE} line 4)`);
       expect(error.format()).toContain("first declared on line 3");
     });
+  });
 
-    it("rejects two `mcps` entries defining the same server", () => {
+  /**
+   * The three forms that used to put a definition in `ambit.yml` itself.
+   *
+   * Every one of them is a hard break with no compatibility reader, so the refusal *is* the migration
+   * path — which means each message has to carry both halves of the move: the file the definition goes
+   * into, and the `catalogs:` entry that makes the file reachable.
+   */
+  describe("inline definitions, refused", () => {
+    it("refuses a top-level `mcps`, naming the file and the catalog entry", () => {
       const error = rejection(
-        [
-          "version: 1",
-          "mcps:",
-          "  - name: x",
-          "    transport:",
-          "      stdio:",
-          "        command: one",
-          "  - name: x",
-          "    transport:",
-          "      stdio:",
-          "        command: two",
-          "",
-        ].join("\n"),
+        "version: 1\nmcps:\n  - name: x\n    transport:\n      stdio:\n        command: npx\n",
       );
 
-      expect(error.format()).toContain(`duplicate mcps entry "x" (${FILE} line 7)`);
-      expect(error.format()).toContain("define each server once");
+      expect(error.format()).toContain(`top-level \`mcps\` is gone (${FILE} line 2)`);
+      expect(error.format()).toContain(
+        "an MCP server is defined by a file of its own: move each entry to `mcps/<name>.yml`",
+      );
+      expect(error.format()).toContain(
+        "then list this project as a catalog: `- name: local` with `source: path:.`",
+      );
     });
 
-    it("rejects two `hooks` entries defining the same hook", () => {
+    it("refuses a top-level `hooks`, naming the file and the catalog entry", () => {
       const error = rejection(
-        [
-          "version: 1",
-          "hooks:",
-          "  - name: x",
-          "    event: SessionStart",
-          "    type: command",
-          "    command: one.sh",
-          "  - name: x",
-          "    event: Stop",
-          "    type: command",
-          "    command: two.sh",
-          "",
-        ].join("\n"),
+        "version: 1\nhooks:\n  - name: x\n    event: Stop\n    type: command\n    command: x.sh\n",
       );
 
-      expect(error.format()).toContain(`duplicate hooks entry "x" (${FILE} line 7)`);
-      expect(error.format()).toContain("define each hook once");
+      expect(error.format()).toContain(`top-level \`hooks\` is gone (${FILE} line 2)`);
+      expect(error.format()).toContain(
+        "a hook is defined by a file of its own: move each entry to `hooks/<name>/HOOK.yml`",
+      );
+      expect(error.format()).toContain(
+        "then list this project as a catalog: `- name: local` with `source: path:.`",
+      );
     });
 
-    it("rejects an inline hook that says it ships a script, which it has nowhere to put", () => {
-      // The one hook rule this surface adds of its own: `type: script` is legal in a catalog and
-      // impossible here, because the script lives in a directory `ambit.yml` does not have.
+    it("refuses them ahead of the unknown-key check, which would call one a typo", () => {
+      // `mcps` is not in the accepted set any more, so `rejectUnknownKeys` would fire first and say
+      // the wrong thing — that the key is misspelled, rather than that its contents moved.
+      expect(rejection("version: 1\nmcps: []\n").format()).not.toContain("unknown key");
+    });
+
+    it("refuses a `skills` entry carrying its own source, naming both rewrites", () => {
       const error = rejection(
-        "version: 1\nhooks:\n  - name: x\n    event: Stop\n    type: script\n    command: guard.sh\n",
+        "version: 1\nskills:\n  - name: readwise-cli\n    source: path:../extra\n",
       );
 
       expect(error.format()).toContain(
-        `hook "x" cannot ship a script from ${FILE} (${FILE} line 5)`,
+        `a \`skills\` entry is a name, not a definition (${FILE} line 4)`,
       );
       expect(error.format()).toContain(
-        "say `type: command`, or move the hook into a catalog at `hooks/<name>/HOOK.yml`",
+        "list the source in `catalogs:` under a name of its own, and leave the bare name in `skills:`",
       );
+      expect(error.format()).toContain("or move the skill into this project's own `skills/`");
     });
 
-    it("names the `hooks` entry's key path when the hook itself is malformed", () => {
-      // The entity parser is shared with `HOOK.yml`, so the only thing this surface adds is where
-      // in the config the offending value sits.
-      expect(
-        rejection("version: 1\nhooks:\n  - name: x\n    event: Stop\n    type: command\n").format(),
-      ).toContain('missing required key "hooks[0].command"');
-    });
-
-    it("rejects an unknown hook event, listing the supported set", () => {
-      const error = rejection(
-        "version: 1\nhooks:\n  - name: x\n    event: OnSave\n    type: command\n    command: x.sh\n",
-      );
-
-      expect(error.format()).toContain(`unknown hook event "OnSave" (${FILE} line 4)`);
-      expect(error.format()).toContain("supported events: SessionStart");
-    });
-
-    it("rejects an unknown key inside a skill entry", () => {
-      expect(
-        rejection(
-          "version: 1\nskills:\n  - name: s\n    source: a/b\n    dir: skills/s\n",
-        ).format(),
-      ).toContain('unknown key "skills[0].dir"');
-    });
-
-    it("requires a source on a mapping skill entry", () => {
+    it("refuses a mapping `skills` entry that names no source either", () => {
+      // Positioned at the entry itself when there is no `source` key to point at, so the message
+      // still names a line rather than the file alone.
       expect(rejection("version: 1\nskills:\n  - name: s\n").format()).toContain(
-        'missing required key "skills[0].source"',
+        `a \`skills\` entry is a name, not a definition (${FILE} line 3)`,
       );
-    });
-
-    it("rejects a transport naming no kind", () => {
-      const error = rejection("version: 1\nmcps:\n  - name: x\n    transport: {}\n");
-
-      expect(error.format()).toContain("`transport` names no transport kind");
-      expect(error.format()).toContain("supported kinds: http, stdio");
-    });
-
-    it("rejects a transport naming two kinds", () => {
-      const error = rejection(
-        [
-          "version: 1",
-          "mcps:",
-          "  - name: x",
-          "    transport:",
-          "      stdio:",
-          "        command: npx",
-          "      http:",
-          "        url: https://x.invalid",
-          "",
-        ].join("\n"),
-      );
-
-      expect(error.format()).toContain("`transport` names 2 transport kinds: http, stdio");
-    });
-
-    it("rejects an unrecognized transport kind", () => {
-      const error = rejection(
-        "version: 1\nmcps:\n  - name: x\n    transport:\n      sse:\n        url: https://x.invalid\n",
-      );
-
-      expect(error.format()).toContain('unknown transport kind "sse"');
-    });
-
-    it("requires a command for a stdio transport", () => {
-      expect(
-        rejection("version: 1\nmcps:\n  - name: x\n    transport:\n      stdio: {}\n").format(),
-      ).toContain('missing required key "mcps[0].transport.stdio.command"');
     });
   });
 

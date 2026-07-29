@@ -52,16 +52,14 @@ const CLAUDE_SETTINGS = ".claude/settings.json";
 const FIGMA_VAR = "ACME_FIGMA_TOKEN";
 const SCOPED_VAR = "SCOPED_API_KEY";
 
-/** The inline hook the harness cases declare, and the variable one of them has it want. */
+/** The hook the harness cases put in the catalog, and the variable one of them has it want. */
 const HOOK = "notify";
 const HOOK_VAR = "NOTIFY_WEBHOOK";
 
-const HOOK_LINES: readonly string[] = [
-  `  - name: ${HOOK}`,
-  "    event: Stop",
-  "    type: command",
-  "    command: ./bin/notify",
-];
+/** A tag nothing in the fixture carries, so holding it selects that hook and nothing else. */
+const HOOK_TAG = "harness.cases";
+
+const HOOK_LINES: readonly string[] = ["event: Stop", "type: command", "command: ./bin/notify"];
 
 /** What a healthy project reports: every check named, and both finding lists explicitly empty. */
 const HEALTHY_REPORT = [
@@ -100,17 +98,28 @@ scopes: ${list}
 }
 
 /**
- * A profile holding no scopes, the `harnesses` given, and `hooks` as written — `[]` for a project
- * that configures a harness and selects no hook at all.
+ * A profile configuring `harnesses` whose bundle holds exactly one hook — or none, for `hooks: []`,
+ * the case about a project that configures a harness and selects no hook at all.
  *
- * The hooks are inline rather than out of the fixture catalog, which holds none: a hook needs no
- * catalog to reach a bundle, and what these cases are about is the harness the project configures.
+ * The hook is written into the catalog copy this test owns, carrying a tag the fixture uses nowhere
+ * else, and the project holds that tag alone. That is the only way to declare a hook, so what these
+ * cases are about stays the harness the project configures rather than where the hook came from.
+ *
+ * @param hooks the hook's `HOOK.yml` lines beyond its `name` and its tag; empty writes no hook.
  */
 async function writeHookProfile(
   harnesses: readonly string[],
   hooks: readonly string[] = HOOK_LINES,
 ): Promise<void> {
-  const declared = hooks.length === 0 ? " []" : `\n${hooks.join("\n")}`;
+  if (hooks.length > 0) {
+    const dir = path.join(catalogDir, "hooks", HOOK);
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      path.join(dir, "HOOK.yml"),
+      [`name: ${HOOK}`, `tags: [${HOOK_TAG}]`, ...hooks, ""].join("\n"),
+      "utf8",
+    );
+  }
   await writeFile(
     path.join(projectDir, "ambit.yml"),
     `version: 1
@@ -118,8 +127,7 @@ catalogs:
   - name: ${CATALOG_NAME}
     source: path:../catalog
 harnesses: [${harnesses.join(", ")}]
-scopes: []
-hooks:${declared}
+scopes: ${hooks.length === 0 ? "[]" : `[${HOOK_TAG}]`}
 `,
     "utf8",
   );
@@ -491,12 +499,12 @@ describe("ambit doctor on a project installed with `--copy`", () => {
 
 /**
  * A hook's `env:` expectation is the fourth route into the one check that reads the environment, and it
- * is the only one of the four with nothing in a config file behind it: a `${VAR}` in a hook's `command`
- * is left for the shell the harness spawns, so the declaration is all there is to report.
+ * is the only one of the four with nothing in a harness config file behind it: a `${VAR}` in a hook's
+ * `command` is left for the shell the harness spawns, so the declaration is all there is to report.
  */
 describe("ambit doctor on a hook's `expects`", () => {
   beforeEach(async () => {
-    await writeHookProfile(["claude"], [...HOOK_LINES, `    expects: [{ env: ${HOOK_VAR} }]`]);
+    await writeHookProfile(["claude"], [...HOOK_LINES, `expects: [{ env: ${HOOK_VAR} }]`]);
     vi.stubEnv(HOOK_VAR, undefined);
     expect((await cli("install")).code).toBe(ExitCode.Success);
   });

@@ -8,11 +8,8 @@
 import { stat } from "node:fs/promises";
 import path from "node:path";
 
+import type { AmbitError } from "../errors.js";
 import { at, configError } from "../errors.js";
-import type { HookEntity } from "./hook-entity.js";
-import { parseHookEntity } from "./hook-entity.js";
-import type { McpEntity } from "./mcp-entity.js";
-import { parseMcpEntity } from "./mcp-entity.js";
 import type { PositionedString } from "./yaml.js";
 import { YamlMapping, parseYamlMapping, readYamlMapping } from "./yaml.js";
 
@@ -30,17 +27,8 @@ export const DEFAULT_HARNESSES: readonly string[] = ["claude"];
  */
 export const CONFIG_FILENAMES = ["ambit.yml", "ambit.yaml"] as const;
 
-const CONFIG_KEYS = [
-  "catalogs",
-  "harnesses",
-  "hooks",
-  "mcps",
-  "scopes",
-  "skills",
-  "version",
-] as const;
+const CONFIG_KEYS = ["catalogs", "harnesses", "scopes", "skills", "version"] as const;
 const CATALOG_KEYS = ["name", "ref", "source"] as const;
-const SKILL_KEYS = ["name", "path", "ref", "source"] as const;
 
 /** A catalog to fetch and parse. */
 export interface CatalogRef {
@@ -50,24 +38,69 @@ export interface CatalogRef {
   readonly ref?: string;
 }
 
-/** A skill named for lookup in the configured catalogs. */
-export interface CatalogSkillRequest {
-  readonly kind: "catalog";
-  readonly name: string;
+/**
+ * The second half of every rewrite below.
+ *
+ * A definition lives in a file, and a file is only reachable through a catalog — so wherever a
+ * definition used to sit in `ambit.yml`, moving it takes two steps, and the second one is always this
+ * one. The catalog that holds a project's own files is the project.
+ */
+const SELF_CATALOG_ADVICE =
+  "then list this project as a catalog: `- name: local` with `source: path:.`";
+
+/**
+ * The keys that used to carry a definition in `ambit.yml`, with the file each entry moves into.
+ *
+ * Kept only so their presence can be refused. {@link YamlMapping.rejectUnknownKeys} would already
+ * stop a config that still writes one, but its message says *unknown key* and lists the accepted
+ * set — which reads as a typo, and leaves a reader holding a definition that used to work with no
+ * idea where it went. The rewrite is two lines, so it is stated.
+ */
+const REMOVED_INLINE_KEYS: readonly {
+  readonly key: string;
+  /** How the message names one of the entries. */
+  readonly subject: string;
+  /** Where one of them lives now, relative to the catalog root. */
+  readonly file: string;
+}[] = [
+  { key: "mcps", subject: "an MCP server", file: "mcps/<name>.yml" },
+  { key: "hooks", subject: "a hook", file: "hooks/<name>/HOOK.yml" },
+];
+
+/**
+ * Refuses a top-level `mcps:` or `hooks:`, naming the file the definitions move into.
+ *
+ * Runs before {@link YamlMapping.rejectUnknownKeys} for the reason above: the generic message would
+ * fire first and say the wrong thing.
+ */
+function assertNoInlineDefinitions(root: YamlMapping): void {
+  for (const removed of REMOVED_INLINE_KEYS) {
+    if (!root.has(removed.key)) continue;
+    throw root.keyError(removed.key, `top-level \`${removed.key}\` is gone`, [
+      `${removed.subject} is defined by a file of its own: move each entry to \`${removed.file}\``,
+      SELF_CATALOG_ADVICE,
+    ]);
+  }
 }
 
-/** A skill declared with its own source, which need not be a full catalog. */
-export interface SourceSkillRequest {
-  readonly kind: "source";
-  readonly name: string;
-  readonly source: string;
-  readonly ref?: string;
-  /** Overrides the name→path convention within the source. */
-  readonly path?: string;
+/**
+ * The refusal for a `skills` entry that is a mapping rather than a bare name.
+ *
+ * The mapping form carried the skill's own `source`, so a project could name one skill out of a
+ * directory that was not a catalog at all. What replaces it is listing that directory in `catalogs:`
+ * and leaving the bare name here — the same two steps every other definition takes, since a catalog
+ * with one skill in it is a catalog.
+ *
+ * Positioned at `source` because that is the key that made the entry a definition; a mapping without
+ * one is refused here too, and {@link YamlMapping.lineOf} falls back to the entry's own line.
+ */
+function removedSourceSkill(entry: YamlMapping): AmbitError {
+  return entry.keyError("source", "a `skills` entry is a name, not a definition", [
+    "a skill is defined by a file: `skills/<name>/SKILL.md`, in the catalog that ships it",
+    "list the source in `catalogs:` under a name of its own, and leave the bare name in `skills:`",
+    `or move the skill into this project's own \`skills/\`, ${SELF_CATALOG_ADVICE}`,
+  ]);
 }
-
-/** An entry of `skills`: a bare name, or a mapping carrying its own source. */
-export type SkillRequest = CatalogSkillRequest | SourceSkillRequest;
 
 /**
  * Where the config came from, and where inside it the values live that a later stage judges.
@@ -84,10 +117,6 @@ export interface ConfigOrigin {
   readonly scopeLines: ReadonlyMap<string, number>;
   /** 1-based line each `skills` entry was written on, keyed by skill name. */
   readonly skillLines: ReadonlyMap<string, number>;
-  /** 1-based line each `mcps` entry was written on, keyed by server name. */
-  readonly mcpLines: ReadonlyMap<string, number>;
-  /** 1-based line each `hooks` entry was written on, keyed by hook name. */
-  readonly hookLines: ReadonlyMap<string, number>;
 }
 
 /** A parsed, validated `ambit.yml`. */
@@ -106,18 +135,14 @@ export interface ProjectConfig {
    * the lock lists catalogs as inputs.
    */
   readonly catalogs: readonly CatalogRef[];
-  /** Skills wanted regardless of scope. */
-  readonly skills: readonly SkillRequest[];
-  /** Servers defined inline rather than in a catalog. */
-  readonly mcps: readonly McpEntity[];
-  /** Hooks defined inline rather than in a catalog. */
-  readonly hooks: readonly HookEntity[];
+  /** Names of skills wanted regardless of scope, each provided by one of the catalogs above. */
+  readonly skills: readonly string[];
 }
 
 /**
  * Records the names one config list has used, rejecting a repeat and naming both lines.
  *
- * Every list in `ambit.yml` is keyed by `name`, and every later stage looks each name up exactly
+ * Every list in `ambit.yml` is keyed by a name, and every later stage looks each name up exactly
  * once — so a repeat is never a merge, always a mistake, and refusing it here is what lets
  * resolution treat the lists as maps.
  *
@@ -170,83 +195,16 @@ function parseCatalogs(root: YamlMapping): readonly CatalogRef[] {
   return catalogs;
 }
 
-function parseSourceSkill(entry: YamlMapping): SourceSkillRequest {
-  entry.rejectUnknownKeys(SKILL_KEYS);
-  const ref = entry.optionalString("ref");
-  const within = entry.optionalString("path");
-  return {
-    kind: "source",
-    name: entry.requireString("name"),
-    source: entry.requireString("source"),
-    ...(ref !== undefined && { ref }),
-    ...(within !== undefined && { path: within }),
-  };
-}
-
-function parseSkills(root: YamlMapping): Positioned<SkillRequest> {
+function parseSkills(root: YamlMapping): Positioned<string> {
   const track = nameTracker(root.file, "skills entry", "list each skill once");
-  const entries: SkillRequest[] = [];
+  const entries: string[] = [];
   const lines = new Map<string, number>();
-
-  const add = (request: SkillRequest, line: number | undefined): void => {
-    track(request.name, line);
-    if (line !== undefined) lines.set(request.name, line);
-    entries.push(request);
-  };
 
   for (const entry of root.optionalEntryList("skills") ?? []) {
-    if (entry instanceof YamlMapping) add(parseSourceSkill(entry), entry.lineOf("name"));
-    else add({ kind: "catalog", name: entry.value }, entry.line);
-  }
-
-  return { entries, lines };
-}
-
-function parseMcps(root: YamlMapping): Positioned<McpEntity> {
-  const track = nameTracker(root.file, "mcps entry", "define each server once");
-  const entries: McpEntity[] = [];
-  const lines = new Map<string, number>();
-
-  for (const entry of root.optionalMappingList("mcps") ?? []) {
-    const entity = parseMcpEntity(entry);
-    const line = entry.lineOf("name");
-    track(entity.name, line);
-    if (line !== undefined) lines.set(entity.name, line);
-    entries.push(entity);
-  }
-
-  return { entries, lines };
-}
-
-/**
- * Refuses an inline hook that says it ships a script.
- *
- * A `type: script` hook runs a file its own directory holds, and a hook declared in `ambit.yml` has no
- * directory — there is nowhere to put the script and nothing for ambit to materialize. Refused here
- * rather than in the shared parser because it is a fact about *where* the hook was written, which the
- * parser cannot see: the same document under `hooks/<name>/HOOK.yml` is perfectly legal.
- */
-function assertNotScript(entry: YamlMapping, entity: HookEntity): void {
-  if (entity.type !== "script") return;
-
-  throw entry.keyError("type", `hook "${entity.name}" cannot ship a script from ${entry.file}`, [
-    "a script lives in the hook's own directory, and a hook declared here has none",
-    "say `type: command`, or move the hook into a catalog at `hooks/<name>/HOOK.yml`",
-  ]);
-}
-
-function parseHooks(root: YamlMapping): Positioned<HookEntity> {
-  const track = nameTracker(root.file, "hooks entry", "define each hook once");
-  const entries: HookEntity[] = [];
-  const lines = new Map<string, number>();
-
-  for (const entry of root.optionalMappingList("hooks") ?? []) {
-    const entity = parseHookEntity(entry);
-    assertNotScript(entry, entity);
-    const line = entry.lineOf("name");
-    track(entity.name, line);
-    if (line !== undefined) lines.set(entity.name, line);
-    entries.push(entity);
+    if (entry instanceof YamlMapping) throw removedSourceSkill(entry);
+    track(entry.value, entry.line);
+    if (entry.line !== undefined) lines.set(entry.value, entry.line);
+    entries.push(entry.value);
   }
 
   return { entries, lines };
@@ -268,6 +226,7 @@ function scopeLines(scopes: readonly PositionedString[]): ReadonlyMap<string, nu
 
 /** Validates a config mapping, whatever it was read from. */
 function fromMapping(root: YamlMapping): ProjectConfig {
+  assertNoInlineDefinitions(root);
   root.rejectUnknownKeys(CONFIG_KEYS);
 
   const version = root.requireInteger("version");
@@ -285,8 +244,6 @@ function fromMapping(root: YamlMapping): ProjectConfig {
   const scopes = root.optionalPositionedStringList("scopes") ?? [];
   const catalogs = parseCatalogs(root);
   const skills = parseSkills(root);
-  const mcps = parseMcps(root);
-  const hooks = parseHooks(root);
 
   return {
     version,
@@ -294,15 +251,11 @@ function fromMapping(root: YamlMapping): ProjectConfig {
       file: root.file,
       scopeLines: scopeLines(scopes),
       skillLines: skills.lines,
-      mcpLines: mcps.lines,
-      hookLines: hooks.lines,
     },
     harnesses,
     scopes: scopes.map((entry) => entry.value),
     catalogs,
     skills: skills.entries,
-    mcps: mcps.entries,
-    hooks: hooks.entries,
   };
 }
 

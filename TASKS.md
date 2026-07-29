@@ -110,7 +110,7 @@ Per §_Collision moves from selection to materialization_.
 
 ## 4. Delete inline definitions
 
-- [ ] Every definition lives in a file: no top-level `mcps:`, no top-level `hooks:`, no `skills:` entry carrying a `source`.
+- [x] Every definition lives in a file: no top-level `mcps:`, no top-level `hooks:`, no `skills:` entry carrying a `source`.
 
 Per §_Every definition lives in a file_.
 

@@ -26,7 +26,7 @@ import type { PlannedSkillDir } from "../../src/harness/adapter.js";
 import { claude } from "../../src/harness/definitions.js";
 import { adapterFor, SHARED_HOOKS_DIR, SHARED_SKILLS_DIR } from "../../src/harness/profile.js";
 import { arrayEntryKey, managedKey } from "../../src/model/documents/index.js";
-import { loadCatalogs, mergeCatalogs, mergeConfigEntities } from "../../src/model/catalog.js";
+import { loadCatalogs, mergeCatalogs } from "../../src/model/catalog.js";
 import { loadProjectConfig } from "../../src/model/config.js";
 import { ExitCode } from "../../src/errors.js";
 import {
@@ -106,7 +106,7 @@ let projectDir: string;
 /**
  * Points the project at the fixture catalog and gives it `scopes`.
  *
- * @param extra further top-level config lines, `skills` and `mcps` blocks among them.
+ * @param extra further top-level config lines, a `skills` block among them.
  */
 async function writeProfile(
   scopes: readonly string[],
@@ -273,8 +273,7 @@ afterEach(async () => {
 async function bundleFor(): Promise<Bundle> {
   const context: SourceContext = { projectDir, env: process.env };
   const config = await loadProjectConfig(projectDir);
-  const catalogs = mergeCatalogs(await loadCatalogs(config, context));
-  return resolveBundle(config, await mergeConfigEntities(catalogs, config, context));
+  return resolveBundle(config, mergeCatalogs(await loadCatalogs(config, context)));
 }
 
 describe("the Claude adapter's plan", () => {
@@ -908,39 +907,79 @@ describe(".gitignore", () => {
 });
 
 /**
- * Spec §4.8 end to end: what a project names outright is materialized like anything else, and the
- * `source` form does not need a catalog behind it.
+ * A project that ships items of its own, end to end: `source: path:.` names the project as a catalog,
+ * and its `skills/` and `mcps/` are read exactly as any other catalog's.
+ *
+ * This is the whole of what replaced inline definitions, so it is asserted at the surface where the
+ * difference would show — what is installed, and what state records — rather than at resolution. The
+ * second catalog is the fixture, so the project's own items are merged beside somebody else's rather
+ * than being all there is.
  */
-describe("explicitly declared skills and servers", () => {
-  const READWISE = "readwise-cli";
+describe("a project as its own catalog", () => {
+  const OWN_SKILL = "readwise-cli";
+  const OWN_TAG = "own";
 
-  it("installs a skill from its own source and an inline server, holding no scopes", async () => {
-    const source = path.join(root, "extra", "skills", READWISE);
-    await mkdir(source, { recursive: true });
+  /** Points the project at the fixture catalog *and* at itself, holding `own`. */
+  async function writeSelfCatalogProfile(): Promise<void> {
     await writeFile(
-      path.join(source, "SKILL.md"),
-      `---\nname: ${READWISE}\n---\n\n# readwise\n`,
+      path.join(projectDir, "ambit.yml"),
+      [
+        "version: 1",
+        "catalogs:",
+        `  - name: ${CATALOG_NAME}`,
+        "    source: path:../catalog",
+        "  - name: local",
+        "    source: path:.",
+        `scopes: [${OWN_TAG}]`,
+        "",
+      ].join("\n"),
       "utf8",
     );
+  }
 
-    await writeProfile([], undefined, [
-      "skills:",
-      `  - name: ${READWISE}`,
-      "    source: path:../extra",
-      "mcps:",
-      "  - name: custom",
-      "    transport:",
-      "      stdio:",
-      "        command: custom-mcp",
-    ]);
+  /** Writes one of the project's own files, relative to the project root. */
+  async function writeOwnFile(relative: string, body: string): Promise<void> {
+    const target = path.join(projectDir, relative);
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeFile(target, body, "utf8");
+  }
 
+  beforeEach(async () => {
+    await writeOwnFile(
+      `skills/${OWN_SKILL}/SKILL.md`,
+      [
+        "---",
+        `name: ${OWN_SKILL}`,
+        "ambit:",
+        `  tags: [${OWN_TAG}]`,
+        "---",
+        "",
+        "# readwise",
+        "",
+      ].join("\n"),
+    );
+    await writeOwnFile(
+      "mcps/custom.yml",
+      [
+        "name: custom",
+        `tags: [${OWN_TAG}]`,
+        "transport:",
+        "  stdio:",
+        "    command: custom-mcp",
+        "",
+      ].join("\n"),
+    );
+    await writeSelfCatalogProfile();
+  });
+
+  it("installs the project's own skill and server, and records both", async () => {
     const result = await cli("install");
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
-    expect(await installedSkills()).toEqual([READWISE]);
+    expect(await installedSkills()).toEqual([OWN_SKILL]);
     expect(await readMcpConfig()).toEqual({ mcpServers: { custom: { command: "custom-mcp" } } });
     expect(parseState(await readStateFile(), STATE_FILENAME).artifacts).toEqual([
-      { path: `${SKILLS_DIR}/${READWISE}`, kind: "skill-dir", mode: "link" },
+      { path: `${SKILLS_DIR}/${OWN_SKILL}`, kind: "skill-dir", mode: "link" },
       { path: CLAUDE_LINK, kind: "skills-link", mode: "link" },
       {
         path: MCP_FILE,
@@ -949,6 +988,23 @@ describe("explicitly declared skills and servers", () => {
         managedKeys: ["mcpServers.custom"],
       },
     ]);
+  });
+
+  it("links the skill to the project's own directory, not to a copy of it", async () => {
+    await cli("install");
+
+    // A `path:` catalog has no cache entry, so the link resolves back into the working tree — which
+    // is what makes editing a skill you publish yourself take effect without reinstalling.
+    expect(await linkAt(`${SKILLS_DIR}/${OWN_SKILL}`)).toBe(
+      path.relative(path.join(projectDir, SKILLS_DIR), path.join(projectDir, "skills", OWN_SKILL)),
+    );
+  });
+
+  it("names the catalog `local`, since that is what the config called it", async () => {
+    const bundle = await bundleFor();
+
+    expect(bundle.skills.map((skill) => skill.catalog)).toEqual(["local"]);
+    expect(bundle.mcps.map((mcp) => mcp.catalog)).toEqual(["local"]);
   });
 });
 

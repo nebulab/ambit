@@ -21,7 +21,7 @@
  * there — no catalog provides it, or nothing selects it — call for different fixes.
  */
 import type { MergedCatalog, MergedHook, MergedMcp, MergedSkill } from "../../model/catalog.js";
-import { loadCatalogs, mergeCatalogs, mergeConfigEntities } from "../../model/catalog.js";
+import { loadCatalogs, mergeCatalogs } from "../../model/catalog.js";
 import type { CommandHandler } from "../commands.js";
 import { jsonRequested, sourceContextOf } from "../commands.js";
 import type { ProjectConfig } from "../../model/config.js";
@@ -221,8 +221,7 @@ export const whyHandler: CommandHandler = async (ctx) => {
 
   const context = sourceContextOf(ctx);
   const config = await loadProjectConfig(context.projectDir);
-  const catalogs = mergeCatalogs(await loadCatalogs(config, context));
-  const merged = await mergeConfigEntities(catalogs, config, context);
+  const merged = mergeCatalogs(await loadCatalogs(config, context));
   const bundle = resolveBundle(config, merged);
 
   const item = locate(name, bundle, merged, config);

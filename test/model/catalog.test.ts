@@ -389,6 +389,46 @@ transport:
     expect(error.detail.join("\n")).toContain('declares the name "other"');
   });
 
+  /**
+   * The transport rules, read through the file that is now the only place a server can be written.
+   *
+   * They were asserted through `ambit.yml`'s inline `mcps` while that existed, which was the shorter
+   * document to write; `mcps/<name>.yml` is the same parser and the same messages, minus the key path
+   * a config entry prefixed them with.
+   */
+  const TRANSPORTS: readonly [label: string, body: string, expected: string][] = [
+    ["names no kind", "transport: {}\n", "`transport` names no transport kind"],
+    [
+      "names two kinds",
+      "transport:\n  stdio:\n    command: npx\n  http:\n    url: https://x.invalid\n",
+      "`transport` names 2 transport kinds: http, stdio",
+    ],
+    [
+      "names a kind ambit does not have",
+      "transport:\n  sse:\n    url: https://x.invalid\n",
+      'unknown transport kind "sse"',
+    ],
+    [
+      "gives a stdio transport no command",
+      "transport:\n  stdio: {}\n",
+      'missing required key "transport.stdio.command"',
+    ],
+  ];
+
+  for (const [label, body, expected] of TRANSPORTS) {
+    it(`rejects an MCP entity whose transport ${label}`, async () => {
+      await writeCatalogFile("mcps/broken.yml", `name: broken\n${body}`);
+
+      expect((await rejection()).format()).toContain(expected);
+    });
+  }
+
+  it("lists the transport kinds it does have when one is missing", async () => {
+    await writeCatalogFile("mcps/broken.yml", "name: broken\ntransport: {}\n");
+
+    expect((await rejection()).format()).toContain("supported kinds: http, stdio");
+  });
+
   it("rejects one MCP name defined by two files", async () => {
     await cp(path.join(catalogDir, "mcps/fixture.yml"), path.join(catalogDir, "mcps/fixture.yaml"));
 
@@ -870,33 +910,6 @@ describe("catalog hooks", () => {
         command: "npx jane-notify",
       }),
     ]);
-  });
-
-  it("refuses an inline hook a catalog already provides, since a name means one thing", async () => {
-    await writeCatalogFile(
-      HOOK_FILE,
-      document(HOOK_NAME, ["event: Stop", "type: command", "command: npx x"]),
-    );
-    await writeConfig(
-      [
-        "version: 1",
-        "catalogs:",
-        `  - name: ${CATALOG_NAME}`,
-        "    source: path:../catalog",
-        "hooks:",
-        `  - name: ${HOOK_NAME}`,
-        "    event: Stop",
-        "    type: command",
-        "    command: npx mine",
-        "",
-      ].join("\n"),
-    );
-
-    const result = await cli("resolve");
-    expect(result.code).toBe(ExitCode.Resolution);
-    expect(result.stderr).toContain(
-      `hook "${HOOK_NAME}" is also provided by catalog "${CATALOG_NAME}" (ambit.yml line 6)`,
-    );
   });
 });
 

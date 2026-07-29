@@ -78,7 +78,7 @@ function hookJson(hook: MergedHook): Readonly<Record<string, unknown>> {
     event: hook.event,
     expects: hook.expects.map((item) => ({ kind: item.kind, name: item.name })),
     ...(hook.matcher !== undefined && { matcher: hook.matcher }),
-    ...(hook.path !== undefined && { path: hook.path }),
+    path: hook.path,
     tags: hook.tags,
     ...(hook.timeout !== undefined && { timeout: hook.timeout }),
     type: hook.type,

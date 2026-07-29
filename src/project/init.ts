@@ -53,8 +53,8 @@ const BLOCKS: readonly ScaffoldBlock[] = [
       "ambit project config. `ambit install` reads this file, resolves a bundle of skills and",
       "MCP servers from it, and writes that bundle into each harness listed below.",
       "",
-      "`version` is the only required key. Two more exist for what a catalog cannot cover:",
-      "`skills`, for a skill from outside any catalog, and `mcps`, for a server defined inline.",
+      "`version` is the only required key. Every definition lives in a file a catalog holds, so a",
+      "project that ships a skill, a server or a hook of its own lists itself as one.",
     ],
   },
   {

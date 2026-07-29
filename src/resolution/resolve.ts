@@ -14,11 +14,10 @@
  *
  * Nothing else is implicit: no scope is reserved, and a project selects exactly the scopes it
  * lists, expanded downward — a catalog's skills, servers and hooks all come down that route.
- * Alongside it, a project may name skills and servers outright, and declare servers and hooks of its
- * own: those are selected whatever their tags, since asking for something by
- * name is already the decision that scopes exist to make. Everything selected either way is
- * then closed over `requires`, so a skill can carry its dependencies into a bundle that would never
- * have selected them.
+ * Alongside it, a project may name skills outright, and those are selected whatever their tags, since
+ * asking for something by name is already the decision that scopes exist to make. Everything selected
+ * either way is then closed over `requires`, so a skill can carry its dependencies into a bundle that
+ * would never have selected them.
  *
  * Two catalogs may provide one name, and the merged catalog holds both copies — a bundle holds at
  * most one. A selection that reached both is refused, because harness layout is flat and externally
@@ -557,13 +556,6 @@ function selectedByScope(selecting: ReadonlySet<string>, tags: readonly string[]
   return tags.some((tag) => selecting.has(tag));
 }
 
-/** The names a config selects outright, by kind. */
-interface ExplicitNames {
-  readonly skills: ReadonlySet<string>;
-  readonly mcps: ReadonlySet<string>;
-  readonly hooks: ReadonlySet<string>;
-}
-
 /**
  * The error for a `skills` entry naming a skill nothing provides.
  *
@@ -576,36 +568,40 @@ export function unknownExplicitSkill(name: string, config: ProjectConfig): Ambit
     `unknown skill "${name}" ${at(config.origin.file, config.origin.skillLines.get(name))}`,
     [
       "`skills` lists it, but no catalog provides a skill with that name",
-      "correct the name, configure the catalog that has it, or give the entry its own `source`",
+      "correct the name, or configure the catalog that has it",
     ],
   );
 }
 
 /**
- * The skills, servers and hooks config names outright, whatever tags they carry.
+ * The skills a config names outright, whatever tags they carry.
  *
- * A `skills` entry carrying its own `source`, and every inline `mcps` and `hooks` entry, were folded
- * into `merged` before resolution (see `mergeConfigEntities`), so both `skills` forms resolve by name
- * here and neither needs a case of its own. What is collected here is only which *names* the config
- * asked for by writing them down, which is what makes their reason `explicit`.
+ * Skills only: `skills` is the one list of names a project config holds, so a server or a hook is
+ * reached by a held scope or by `requires` and never by being written down.
  *
  * @throws {AmbitError} exit 3 for a name nothing provides.
  */
-function explicitNames(config: ProjectConfig, merged: MergedCatalog): ExplicitNames {
+function explicitNames(config: ProjectConfig, merged: MergedCatalog): ReadonlySet<string> {
   const provided = new Set(merged.skills.map((skill) => skill.name));
 
   // Sorted, so which of several unknown names is reported first depends on the names alone rather
   // than on the order the config happens to list them in.
-  for (const name of sortedUnique(config.skills.map((request) => request.name))) {
+  for (const name of sortedUnique(config.skills)) {
     if (!provided.has(name)) throw unknownExplicitSkill(name, config);
   }
 
-  return {
-    skills: new Set(config.skills.map((request) => request.name)),
-    mcps: new Set(config.mcps.map((entity) => entity.name)),
-    hooks: new Set(config.hooks.map((entity) => entity.name)),
-  };
+  return new Set(config.skills);
 }
+
+/**
+ * No name was written down: what the two namespaces a config cannot name outright pass for
+ * `explicit`.
+ *
+ * A constant rather than a fresh set per call, and named rather than inlined, so the call sites read
+ * as the claim {@link explicitNames} makes rather than as an empty collection somebody forgot to
+ * fill.
+ */
+const NOTHING_EXPLICIT: ReadonlySet<string> = new Set();
 
 /** Constant, since an explicit reason has nothing to say beyond its own kind. */
 const EXPLICIT: SelectionReason = { kind: "explicit" };
@@ -692,6 +688,8 @@ function requiredByReason(
  * staying true — and a project that named something outright wants to hear that, not to be told
  * about a scope it could delete without losing the item.
  *
+ * @param explicit the names the config wrote down, which is {@link NOTHING_EXPLICIT} for every
+ *   namespace but skills.
  * @param selected the selected skills, which is what a `requires` edge can come from.
  * @throws {AmbitError} exit 1 for an item none of the three routes accounts for.
  */
@@ -799,9 +797,8 @@ export function explainSelection(bundle: Bundle, item: BundleItem): readonly Rea
  * report the same answer, and so a bundle that cannot account for an item fails at resolution
  * instead of at whichever surface happens to ask first.
  *
- * @param merged the catalogs, with the project's own declarations already folded in — a `skills`
- *   entry carrying a `source`, inline `mcps`, and inline `hooks` — as `mergeConfigEntities` does, so
- *   every namespace resolves by name here and no surface needs a case of its own.
+ * @param merged every configured catalog, which is where every definition is: a project that ships
+ *   items of its own lists itself as a catalog, so all three namespaces arrive here the same way.
  * @throws {AmbitError} exit 3 for a held scope nothing declares, an explicit skill nothing provides,
  *   a requirement no catalog provides, a `requires` cycle, or one name selected from two catalogs.
  */
@@ -814,22 +811,18 @@ export function resolveBundle(config: ProjectConfig, merged: MergedCatalog): Bun
   const explicit = explicitNames(config, merged);
 
   // All three seed lists stay in the merged catalog's order, being filters of it, so how something
-  // was selected cannot change where it lands in the bundle. The third one means a catalog hook is
-  // reached by scope exactly as a server is, and an inline one — folded in as explicit — is selected
-  // whatever tags it carries.
+  // was selected cannot change where it lands in the bundle. Only the first consults `explicit`:
+  // `skills` is the one list of names a config holds, so a server and a hook are reached by a held
+  // scope alone — or, below, by something that requires them.
   //
   // Selection is per copy, not per name: a held scope reaching two catalogs' copies of one name
   // selects both, which is what makes the collision the project's to resolve rather than ambit's.
   const selection = closeOverRequires(
     merged.skills.filter(
-      (skill) => explicit.skills.has(skill.name) || selectedByScope(selecting, skill.tags),
+      (skill) => explicit.has(skill.name) || selectedByScope(selecting, skill.tags),
     ),
-    merged.mcps.filter(
-      (mcp) => explicit.mcps.has(mcp.name) || selectedByScope(selecting, mcp.tags),
-    ),
-    merged.hooks.filter(
-      (hook) => explicit.hooks.has(hook.name) || selectedByScope(selecting, hook.tags),
-    ),
+    merged.mcps.filter((mcp) => selectedByScope(selecting, mcp.tags)),
+    merged.hooks.filter((hook) => selectedByScope(selecting, hook.tags)),
     merged,
   );
 
@@ -849,9 +842,9 @@ export function resolveBundle(config: ProjectConfig, merged: MergedCatalog): Bun
       ...hooks.map((hook) => hook.expects),
     ]),
     reasons: {
-      skills: selectionReasons(skills, "skill", explicit.skills, selecting, held, skills),
-      mcps: selectionReasons(mcps, "mcp", explicit.mcps, selecting, held, skills),
-      hooks: selectionReasons(hooks, "hook", explicit.hooks, selecting, held, skills),
+      skills: selectionReasons(skills, "skill", explicit, selecting, held, skills),
+      mcps: selectionReasons(mcps, "mcp", NOTHING_EXPLICIT, selecting, held, skills),
+      hooks: selectionReasons(hooks, "hook", NOTHING_EXPLICIT, selecting, held, skills),
     },
   };
 }

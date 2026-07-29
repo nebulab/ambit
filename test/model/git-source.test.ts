@@ -278,27 +278,6 @@ describe("a catalog fetched from git", () => {
       "local",
     ]);
   });
-
-  it("installs a skill from a git source with no catalog behind it", async () => {
-    await writeFile(
-      path.join(gitProject, "ambit.yml"),
-      `version: 1
-scopes: []
-skills:
-  - name: ${CORE_SKILL}
-    source: ${fixture.url}
-    ref: "${fixture.tag}"
-`,
-      "utf8",
-    );
-
-    const result = await cli(gitProject, "install");
-    expect(result.code, result.stderr).toBe(ExitCode.Success);
-
-    expect(Object.keys(await installed(gitProject))).toContain(
-      `${SKILLS_DIR}/${CORE_SKILL}/SKILL.md`,
-    );
-  });
 });
 
 /**
@@ -328,31 +307,6 @@ describe("the lock a git source writes", () => {
 
     const entry = (await lock(gitProject)).requireMapping("skills").requireMapping(CORE_SKILL);
     expect(entry.requireString("catalog")).toBe(CATALOG_NAME);
-    expect(entry.requireString("commit")).toBe(fixture.commit);
-  });
-
-  it("pins a skill carrying its own source, which has no catalog entry to inherit from", async () => {
-    await writeFile(
-      path.join(gitProject, "ambit.yml"),
-      `version: 1
-scopes: []
-skills:
-  - name: ${CORE_SKILL}
-    source: ${fixture.url}
-    ref: "${fixture.tag}"
-`,
-      "utf8",
-    );
-
-    const result = await cli(gitProject, "install");
-    expect(result.code, result.stderr).toBe(ExitCode.Success);
-
-    const document = await lock(gitProject);
-    expect(document.requireMapping("catalogs").keys()).toEqual([]);
-    const entry = document.requireMapping("skills").requireMapping(CORE_SKILL);
-    // No catalog provided it, so the column that would name one names the source, exactly as
-    // `resolve --json` reports it.
-    expect(entry.requireString("catalog")).toBe(fixture.url);
     expect(entry.requireString("commit")).toBe(fixture.commit);
   });
 
@@ -471,24 +425,6 @@ describe("--offline", () => {
     );
     // The online path would have tried a fetch before deciding, and said so.
     expect(result.stderr).not.toContain("cannot fetch");
-  });
-
-  it("exits 4 naming a skill whose own source is not cached", async () => {
-    await writeFile(
-      path.join(gitProject, "ambit.yml"),
-      `version: 1
-scopes: []
-skills:
-  - name: ${CORE_SKILL}
-    source: ${fixture.url}
-`,
-      "utf8",
-    );
-
-    const result = await cli(gitProject, "install", "--offline");
-
-    expect(result.code).toBe(ExitCode.Network);
-    expect(result.stderr).toContain(`skill "${CORE_SKILL}" is not in the cache`);
   });
 
   it("has nothing to say about a catalog read from a directory", async () => {

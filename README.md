@@ -147,42 +147,33 @@ catalogs:
     source: git@github.com:jane/skills-private.git
     ref: main
 
-# Extra skills, regardless of scope. A string is a name looked up in the configured
-# catalogs; a mapping declares a skill from a source that isn't a full catalog.
+# Extra skills, regardless of scope. Each entry names a skill one of the catalogs
+# above provides; a name nothing provides is an error, not a silent miss.
 skills:
   - luma
-  - name: readwise-cli
-    source: https://github.com/readwiseio/readwise-skills
-    path: skills/readwise-cli # optional; overrides the name→path convention
-
-# Ad-hoc MCP servers not defined in any catalog. Same shape as a catalog MCP entity.
-mcps:
-  - name: custom
-    transport:
-      stdio:
-        command: npx
-        args: ["-y", "some-server"]
-    expects:
-      - env: SOME_TOKEN
-
-# Ad-hoc hooks not defined in any catalog. Same shape as a catalog hook, minus the
-# shipped script: an inline hook has no directory, so `type` must be `command`.
-hooks:
-  - name: session-notes
-    event: SessionStart
-    type: command
-    command: cat NOTES.md
 ```
 
-| Field       | Type                    | Required | Notes                                                                                                                                            |
-| ----------- | ----------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `version`   | int                     | yes      | Must be `1`.                                                                                                                                     |
-| `harnesses` | string[]                | no       | Any of `claude`, `codex`, `cursor`, `opencode`, `vscode`. Default `[claude]`. An unknown name is an error naming the five.                       |
-| `scopes`    | string[]                | no       | Held scopes, exactly as listed. Nothing is added implicitly. Absent or empty means nothing is selected by scope, only explicit `skills` entries. |
-| `catalogs`  | list of maps            | no       | `name`, `source`, `ref?`. `name` unique.                                                                                                         |
-| `skills`    | list of strings or maps | no       | String: a name from a catalog. Map: `name`, `source`, `ref?`, `path?`.                                                                           |
-| `mcps`      | list of maps            | no       | Inline server definitions, in the shape below.                                                                                                   |
-| `hooks`     | list of maps            | no       | Inline hook definitions, in the shape below.                                                                                                     |
+Every definition lives in a file a catalog holds: a skill in `skills/<name>/SKILL.md`, a server in
+`mcps/<name>.yml`, a hook in `hooks/<name>/HOOK.yml`. A project that ships one of its own puts it
+there and lists **itself** as a catalog:
+
+```yaml
+catalogs:
+  - name: local
+    source: path:. # this project's own skills/, mcps/, hooks/
+```
+
+A top-level `mcps:` or `hooks:`, or a `skills:` entry carrying its own `source`, is refused rather
+than ignored, naming both halves of the rewrite: the file to move the definition into, and the
+`catalogs:` entry that makes it reachable.
+
+| Field       | Type         | Required | Notes                                                                                                                                            |
+| ----------- | ------------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `version`   | int          | yes      | Must be `1`.                                                                                                                                     |
+| `harnesses` | string[]     | no       | Any of `claude`, `codex`, `cursor`, `opencode`, `vscode`. Default `[claude]`. An unknown name is an error naming the five.                       |
+| `scopes`    | string[]     | no       | Held scopes, exactly as listed. Nothing is added implicitly. Absent or empty means nothing is selected by scope, only explicit `skills` entries. |
+| `catalogs`  | list of maps | no       | `name`, `source`, `ref?`. `name` unique.                                                                                                         |
+| `skills`    | string[]     | no       | Names of skills the configured catalogs provide. A name nothing provides is an error.                                                            |
 
 **Source formats:** `owner/repo`, `owner/repo@ref` (GitHub shorthand), `https://github.com/owner/repo`,
 `git@host:owner/repo.git`, `git:<any-git-url>`, `path:./relative/dir`. A `@ref` shorthand that
@@ -312,8 +303,6 @@ The script is materialized to `.agents/hooks/<name>/`, and the command each harn
 there — only the first word is rewritten, so the arguments arrive untouched.
 
 A `type: script` hook naming a file the directory does not hold is an error listing what it does hold.
-A hook declared inline in `ambit.yml` has no directory, so it must be `type: command`.
-
 `${VAR}` in a `command` is left exactly as written, unlike an MCP transport's: the harness spawns a
 shell, so it already means the right thing.
 
@@ -350,7 +339,7 @@ scope over as a tag on the items that declared it.
    or begins with `s + "."`. A held scope whose whole subtree is empty → exit 3, suggesting the
    nearest declared tag by edit distance.
 6. **Select by scope.** Any skill, MCP or hook with at least one declared tag in the expanded set.
-7. **Add explicit entries** from the config's `skills`, `mcps` and `hooks`.
+7. **Add explicit entries** from the config's `skills` — names, whatever tags the skills carry.
 8. **Close over `requires`** to a fixpoint. Each entry declares its own namespace, so a `mcp:` entry
    resolves against MCP entities, a `hook:` entry against hooks, and a `skill:` entry against skills —
    nothing is read off the name. Servers and hooks are leaves: neither carries `requires`. Unresolvable

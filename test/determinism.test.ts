@@ -121,30 +121,20 @@ const CORE_SKILL = "company-context";
 const HELD_SCOPES = ["core", "function.engineering", "project.acme"];
 
 /**
- * The hooks the project declares inline, and the one `why` is asked about below.
+ * Three hooks written into the catalog copy this file owns, and the one `why` is asked about below.
  *
- * Inline in `ambit.yml` rather than in the fixture catalog, because a hook needs no catalog to reach a
- * bundle and every surface in the table reads the project. Three of them, arranged so both orderings a
- * hook config file has are non-trivial: two share an event, so an array's own order has to come from
- * the bundle, and the event keys are written in an order that is not the order the names sort in.
+ * Beyond the three the fixture ships, and arranged so both orderings a hook config file has are
+ * non-trivial: two share an event, so an array's own order has to come from the bundle, and the event
+ * keys are written in an order that is not the order the names sort in. Every one carries `core`, which
+ * the project holds.
  */
-const INLINE_HOOKS: readonly string[] = [
-  "  - name: guard",
-  "    event: PreToolUse",
-  "    matcher: Bash",
-  "    type: command",
-  "    command: ./bin/guard",
-  "  - name: trace",
-  "    event: PreToolUse",
-  "    type: command",
-  "    command: ./bin/trace",
-  "  - name: notify",
-  "    event: Stop",
-  "    type: command",
-  "    command: ./bin/notify",
-];
+const EXTRA_HOOKS: Readonly<Record<string, readonly string[]>> = {
+  guard: ["event: PreToolUse", "matcher: Bash", "type: command", "command: ./bin/guard"],
+  trace: ["event: PreToolUse", "type: command", "command: ./bin/trace"],
+  notify: ["event: Stop", "type: command", "command: ./bin/notify"],
+};
 
-const INLINE_HOOK = "guard";
+const EXTRA_HOOK = "guard";
 
 /** The fixture's two credentials, stubbed so no surface depends on the developer's environment. */
 const ENV_STUBS: Readonly<Record<string, string>> = {
@@ -178,7 +168,7 @@ const SURFACES: readonly Surface[] = [
   { argv: ["why", CORE_SKILL], dir: "project" },
   { argv: ["why", CORE_SKILL, "--json"], dir: "project" },
   { argv: ["why", "mcp.fixture"], dir: "project" },
-  { argv: ["why", `hook.${INLINE_HOOK}`], dir: "project" },
+  { argv: ["why", `hook.${EXTRA_HOOK}`], dir: "project" },
   { argv: ["status"], dir: "project" },
   { argv: ["status", "--json"], dir: "project" },
   { argv: ["validate"], dir: "project" },
@@ -210,7 +200,7 @@ let projectDir: string;
 let installed: Record<string, string>;
 let fixture: Record<string, string>;
 
-/** Points a project at a sibling `catalog/` directory and holds every scope the fixture registers. */
+/** Points a project at a sibling `catalog/` directory and holds every scope the fixture declares. */
 async function writeProfile(dir: string): Promise<void> {
   await writeFile(
     path.join(dir, "ambit.yml"),
@@ -220,11 +210,22 @@ catalogs:
     source: path:../catalog
 scopes:
 ${HELD_SCOPES.map((scope) => `  - ${scope}`).join("\n")}
-hooks:
-${INLINE_HOOKS.join("\n")}
 `,
     "utf8",
   );
+}
+
+/** Adds {@link EXTRA_HOOKS} to the catalog, each tagged `core` so the project's scopes reach it. */
+async function writeExtraHooks(dir: string): Promise<void> {
+  for (const [name, lines] of Object.entries(EXTRA_HOOKS)) {
+    const target = path.join(dir, "hooks", name);
+    await mkdir(target, { recursive: true });
+    await writeFile(
+      path.join(target, "HOOK.yml"),
+      [`name: ${name}`, "tags: [core]", ...lines, ""].join("\n"),
+      "utf8",
+    );
+  }
 }
 
 /** Runs the CLI, collecting both streams. */
@@ -286,6 +287,7 @@ beforeAll(async () => {
   catalogDir = path.join(root, "catalog");
   projectDir = path.join(root, "project");
   await buildFixtureCatalog(catalogDir);
+  await writeExtraHooks(catalogDir);
   await mkdir(projectDir, { recursive: true });
   await writeProfile(projectDir);
 

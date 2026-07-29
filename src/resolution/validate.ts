@@ -21,12 +21,10 @@
  * `missingRequirement`, `cycleError`, `unknownExplicitSkill` — so a problem reads identically
  * whether it was listed here or raised there, and neither can drift into its own phrasing.
  *
- * Two boundaries are deliberate. A catalog that does not **parse** is still exit 2 at the first
+ * One boundary is deliberate. A catalog that does not **parse** is still exit 2 at the first
  * error: there is no useful semantic report about a document ambit cannot read. The one exception is
  * a skill whose `name` disagrees with its path — which is collected instead,
  * because the path already answers what the skill is called (see {@link CatalogParseOptions}).
- * Likewise a project whose config collides with a catalog still fails one problem at a time: that is
- * a refusal to build a merged view, and there is nothing to validate without one.
  */
 import path from "node:path";
 
@@ -40,7 +38,6 @@ import {
   copiesByName,
   loadCatalogs,
   mergeCatalogs,
-  mergeConfigEntities,
   parseCatalogDirectory,
   qualifiedName,
 } from "../model/catalog.js";
@@ -263,7 +260,7 @@ function configProblems(
   }
 
   const provided = new Set(merged.skills.map((skill) => skill.name));
-  for (const name of sortedUnique(config.skills.map((request) => request.name))) {
+  for (const name of sortedUnique(config.skills)) {
     if (provided.has(name)) continue;
     problems.push(problem("unknown-skill", unknownExplicitSkill(name, config)));
   }
@@ -317,25 +314,22 @@ function collector(parsed: ValidationProblem[]): CatalogParseOptions {
 }
 
 /**
- * Validates everything a project configures: every catalog it lists, its own declarations, and its
- * own held scopes.
+ * Validates everything a project configures: every catalog it lists, and its own held scopes and
+ * `skills` entries.
  *
- * Runs the same pipeline `resolve` does, minus resolution itself — a project's `skills` entries and
- * inline `mcps` are folded in, so a `requires` edge to something the config defined resolves here
- * exactly as it would there.
+ * Runs the same pipeline `resolve` does, minus resolution itself — one merged catalog, built the one
+ * way there is to build one, so every finding here is a finding `resolve` would raise.
  *
  * @param context where sources resolve from, `--offline` included, so this adds no place that could
  *   forget it.
  * @throws {AmbitError} exit 2 for a missing or malformed config, an unresolvable source, or a
- *   catalog that does not parse; exit 3 for a config declaration a catalog also provides; exit 4 if a
- *   fetch fails.
+ *   catalog that does not parse; exit 4 if a fetch fails.
  */
 export async function validateProject(context: SourceContext): Promise<ValidationReport> {
   const parsed: ValidationProblem[] = [];
 
   const config = await loadProjectConfig(context.projectDir);
-  const catalogs = mergeCatalogs(await loadCatalogs(config, context, collector(parsed)));
-  const merged = await mergeConfigEntities(catalogs, config, context);
+  const merged = mergeCatalogs(await loadCatalogs(config, context, collector(parsed)));
 
   return validateCatalog(merged, { config, parsed });
 }

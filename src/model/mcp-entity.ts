@@ -1,8 +1,9 @@
 /**
  * MCP entity parsing.
  *
- * The same shape appears in two places — `mcps/<name>.yml` in a catalog, and inline `mcps`
- * entries in `ambit.yml` — so one parser serves both.
+ * One shape, one place it can be written: `mcps/<name>.yml` in a catalog. A project that defines a
+ * server of its own lists itself as a catalog and puts it there, so this parser has one caller and no
+ * variant to reconcile.
  */
 import type { Expectation } from "./expectation.js";
 import { parseExpectations } from "./expectation.js";

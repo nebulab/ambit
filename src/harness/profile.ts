@@ -298,20 +298,16 @@ export function skippedHooks(
  * installed for a harness that was told the hook was skipped. A project on opencode alone therefore
  * acquires no `.agents/hooks` at all, which is the same answer it gets about the config file.
  *
- * `catalogRoot` and `path` are read rather than asserted, and their absence reads as "nothing to
- * materialize". They are present for exactly the hooks a catalog declares, which is exactly the hooks
- * that can ship a script: an inline hook has no directory for one to sit in, and `type: script` is
- * refused for it when the config parses. Two facts, one conclusion — and the conclusion is safe from
- * whichever of them a reader reaches first.
+ * `type` is the whole test: every hook comes out of a catalog directory, so `catalogRoot` and `path`
+ * are always there to build the source from, and what a `command` hook lacks is bytes rather than a
+ * location for them.
  */
 function planHookDir(
   profile: HarnessProfile,
   hook: MergedHook,
   project: ProjectPaths,
 ): PlannedHookDir | undefined {
-  if (hook.type !== "script" || hook.catalogRoot === undefined || hook.path === undefined) {
-    return undefined;
-  }
+  if (hook.type !== "script") return undefined;
   if (hookArrayFor(profile, hook) === undefined) return undefined;
 
   const relative = `${SHARED_HOOKS_DIR}/${hook.name}`;

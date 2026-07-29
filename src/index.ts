@@ -27,9 +27,7 @@ export {
   copiesByName,
   hookCommand,
   loadCatalogs,
-  loadSourceSkill,
   mergeCatalogs,
-  mergeConfigEntities,
   parseCatalogDirectory,
   qualifiedName,
   resolveCatalogRoot,
@@ -57,14 +55,7 @@ export {
   loadProjectConfig,
   parseProjectConfig,
 } from "./model/config.js";
-export type {
-  CatalogRef,
-  CatalogSkillRequest,
-  ConfigOrigin,
-  ProjectConfig,
-  SkillRequest,
-  SourceSkillRequest,
-} from "./model/config.js";
+export type { CatalogRef, ConfigOrigin, ProjectConfig } from "./model/config.js";
 export {
   DIGEST_LENGTH,
   DOCUMENT_FORMATS,

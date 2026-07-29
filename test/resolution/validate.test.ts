@@ -504,24 +504,33 @@ describe("ambit validate: the project's own config", () => {
     ]);
   });
 
-  it("accepts a skill the config declares with its own source", async () => {
-    const extra = path.join(root, "extra", "skills", "readwise-cli");
-    await mkdir(extra, { recursive: true });
+  it("checks the project's own `skills/` when the project lists itself as a catalog", async () => {
+    // The replacement for a `skills` entry that carried its own `source`: a project that publishes
+    // something is a catalog, so `validate` reads it with no special case — and a broken skill it
+    // ships is a finding like any other, whether the project selects it or not.
+    await writeSkill("readwise-cli", ["requires: [{skill: absent-skill}]"], projectDir);
     await writeFile(
-      path.join(extra, "SKILL.md"),
-      ["---", "name: readwise-cli", "---", "", "# fixture", ""].join("\n"),
+      path.join(projectDir, "ambit.yml"),
+      [
+        "version: 1",
+        "catalogs:",
+        `  - name: ${CATALOG_NAME}`,
+        "    source: path:../catalog",
+        "  - name: local",
+        "    source: path:.",
+        "scopes: [core]",
+        "",
+      ].join("\n"),
       "utf8",
-    );
-    await writeProfile(
-      ["core"],
-      ["skills:", "  - name: readwise-cli", "    source: path:../extra"],
     );
 
     const result = await cli("validate");
 
-    // Folded into the merged catalog, so it is not an unknown name.
-    expect(result.code, result.stderr).toBe(ExitCode.Success);
+    expect(result.code).toBe(ExitCode.Resolution);
     expect(result.stdout).toContain(`checked ${FIXTURE_SKILLS + 1} skills`);
+    expect(result.stdout).toContain(
+      'unresolvable requirement "skill:absent-skill" (skills/readwise-cli/SKILL.md)',
+    );
   });
 
   it("reports nothing about a held scope some configured catalog's items declare", async () => {

@@ -17,12 +17,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { buildFixtureCatalog } from "../../scripts/fixture-catalog.js";
-import {
-  loadCatalogs,
-  mergeCatalogs,
-  mergeConfigEntities,
-  skillNameFromPath,
-} from "../../src/model/catalog.js";
+import { loadCatalogs, mergeCatalogs, skillNameFromPath } from "../../src/model/catalog.js";
 import type { ProjectConfig } from "../../src/model/config.js";
 import { loadProjectConfig } from "../../src/model/config.js";
 import { AmbitError, ExitCode } from "../../src/errors.js";
@@ -70,8 +65,8 @@ let projectDir: string;
 /**
  * Points the project at the fixture catalog and gives it `scopes`.
  *
- * @param extra further top-level config lines — `skills`, `mcps` and `hooks` blocks — appended
- *   after the scopes list, so the line each held scope sits on does not depend on them.
+ * @param extra further top-level config lines — a `skills` block — appended after the scopes list,
+ *   so the line each held scope sits on does not depend on them.
  */
 async function writeProfile(
   scopes: readonly string[],
@@ -212,26 +207,6 @@ function writtenHooks(resolved: Bundle): readonly string[] {
   return resolved.hooks.map((hook) => hook.name).filter((name) => !FIXTURE_HOOKS.includes(name));
 }
 
-/**
- * Writes a skill into a directory that is not a catalog — one loose skill, no `mcps/` — which is what
- * a `skills` entry carrying its own `source` points at.
- *
- * @param within the skill's directory inside the source.
- */
-async function writeSourceSkill(
-  within: string,
-  name: string,
-  annotations: readonly string[] = [],
-): Promise<void> {
-  const target = path.join(root, "extra", within, "SKILL.md");
-  await mkdir(path.dirname(target), { recursive: true });
-  await writeFile(
-    target,
-    ["---", `name: ${name}`, ...ambitBlock(annotations), "---", "", "# fixture", ""].join("\n"),
-    "utf8",
-  );
-}
-
 /** What source resolution reads from outside its arguments; every source here is a local path. */
 function context(): SourceContext {
   return { projectDir, env: process.env };
@@ -241,8 +216,7 @@ function context(): SourceContext {
 async function bundle(scopes: readonly string[], extra: readonly string[] = []): Promise<Bundle> {
   await writeProfile(scopes, extra);
   const config = await loadProjectConfig(projectDir);
-  const catalogs = mergeCatalogs(await loadCatalogs(config, context()));
-  return resolveBundle(config, await mergeConfigEntities(catalogs, config, context()));
+  return resolveBundle(config, mergeCatalogs(await loadCatalogs(config, context())));
 }
 
 /** Runs the CLI against the project, collecting stdout and stderr. */
@@ -372,15 +346,11 @@ describe("unknown-scope suggestions", () => {
         file: "ambit.yml",
         scopeLines: new Map(),
         skillLines: new Map(),
-        mcpLines: new Map(),
-        hookLines: new Map(),
       },
       harnesses: ["claude"],
       scopes,
       catalogs: [],
       skills: [],
-      mcps: [],
-      hooks: [],
     };
   }
 
@@ -572,8 +542,7 @@ describe("the requires closure", () => {
     await writeTwoCatalogProfile("personal", ["core"]);
 
     const config = await loadProjectConfig(projectDir);
-    const catalogs = mergeCatalogs(await loadCatalogs(config, context()));
-    const resolved = resolveBundle(config, await mergeConfigEntities(catalogs, config, context()));
+    const resolved = resolveBundle(config, mergeCatalogs(await loadCatalogs(config, context())));
 
     expect(resolved.skills.find((skill) => skill.name === "remote-dep")?.catalog).toBe("personal");
   });
@@ -779,18 +748,18 @@ describe("requirement cycles", () => {
 });
 
 /**
- * Spec §4.8: a project can name a skill or a server outright, and it is selected whatever its
- * scopes — asking for something by name is already the decision scope selection exists to make.
+ * Spec §4.8: a project can name a skill outright, and it is selected whatever its tags — asking for
+ * something by name is already the decision scope selection exists to make.
  *
- * The `source` form points at a directory that is deliberately *not* a catalog, since that is the
- * case the form exists for: a plain skills repo nobody annotated.
+ * `skills` is the only list of names a config holds. A server or a hook is reached by a held scope or
+ * by `requires`, and the two forms that let a project define one of its own — a `skills` entry with a
+ * `source`, and top-level `mcps`/`hooks` — are refused, since every definition lives in a file that a
+ * catalog holds. The refusals are asserted end to end here because the exit code is what a user meets;
+ * their wording is `config.test.ts`'s.
  */
-describe("explicit skills and inline servers", () => {
+describe("explicitly named skills", () => {
   /** `writeProfile` puts the first `extra` line here, after the four-line preamble and `scopes`. */
   const FIRST_EXTRA_LINE = 6;
-
-  const SOURCE = "path:../extra";
-  const READWISE = "readwise-cli";
 
   it("selects a bare name from a catalog, whatever scopes it declares", async () => {
     const explicit = await bundle([], ["skills:", `  - ${ENGINEERING_SKILL}`]);
@@ -814,83 +783,6 @@ describe("explicit skills and inline servers", () => {
     expect(both.skills.map((skill) => skill.name)).toEqual([ENGINEERING_SKILL, FRONTEND_SKILL]);
   });
 
-  it("loads a skill from its own source, by the name→path convention", async () => {
-    await writeSourceSkill(`skills/${READWISE}`, READWISE, ["expects: [{ env: READWISE_TOKEN }]"]);
-
-    const explicit = await bundle(
-      [],
-      ["skills:", `  - name: ${READWISE}`, `    source: ${SOURCE}`],
-    );
-
-    expect(explicit.skills).toHaveLength(1);
-    expect(explicit.skills[0]).toMatchObject({
-      name: READWISE,
-      path: `skills/${READWISE}`,
-      // No catalog provided it, so the origin column names the source it came from instead.
-      catalog: SOURCE,
-    });
-    expect(explicit.expects.env).toEqual(["READWISE_TOKEN"]);
-  });
-
-  it("takes a `path` that overrides the convention, even outside `skills/`", async () => {
-    await writeSourceSkill("bundled/tool", "custom-tool");
-
-    const explicit = await bundle(
-      [],
-      ["skills:", "  - name: custom-tool", `    source: ${SOURCE}`, "    path: bundled/tool"],
-    );
-
-    expect(explicit.skills.map((skill) => skill.path)).toEqual(["bundled/tool"]);
-  });
-
-  it("closes a source skill over `requires` against the catalogs too", async () => {
-    await writeSourceSkill(`skills/${READWISE}`, READWISE, [`requires: [{skill: ${CORE_SKILL}}]`]);
-
-    const explicit = await bundle(
-      [],
-      ["skills:", `  - name: ${READWISE}`, `    source: ${SOURCE}`],
-    );
-
-    expect(explicit.skills.map((skill) => skill.name)).toEqual([CORE_SKILL, READWISE]);
-  });
-
-  it("selects an inline server whatever scopes it declares", async () => {
-    const explicit = await bundle(
-      [],
-      [
-        "mcps:",
-        "  - name: custom",
-        "    transport:",
-        "      stdio:",
-        "        command: custom-mcp",
-        "    expects: [{ env: CUSTOM_TOKEN }]",
-      ],
-    );
-
-    expect(explicit.mcps).toHaveLength(1);
-    expect(explicit.mcps[0]).toMatchObject({ name: "custom", catalog: "ambit.yml" });
-    expect(explicit.expects.env).toEqual(["CUSTOM_TOKEN"]);
-  });
-
-  it("lets a catalog skill's `requires` reach an inline server", async () => {
-    // The point of folding config's declarations into the merged catalog: one namespace, so a
-    // requirement does not care which surface defined its target.
-    await writeSkill("inline", ["tags: [core]", "requires: [{mcp: custom}]"]);
-
-    const explicit = await bundle(
-      ["core"],
-      [
-        "mcps:",
-        "  - name: custom",
-        "    transport:",
-        "      stdio:",
-        "        command: custom-mcp",
-      ],
-    );
-
-    expect(explicit.mcps.map((mcp) => mcp.name)).toEqual(["custom"]);
-  });
-
   it("exits 3 for a bare name no catalog provides, naming it and its line", async () => {
     await writeProfile([], ["skills:", "  - absent-skill"]);
 
@@ -901,7 +793,9 @@ describe("explicit skills and inline servers", () => {
       `unknown skill "absent-skill" (ambit.yml line ${FIRST_EXTRA_LINE + 1})`,
     );
     expect(result.stderr).toContain("no catalog provides a skill with that name");
-    expect(result.stderr).toContain("give the entry its own `source`");
+    // The advice is two options, both of which are things a consumer can do: nothing lets an entry
+    // bring a definition of its own any more.
+    expect(result.stderr).toContain("correct the name, or configure the catalog that has it");
   });
 
   it("reports the same unknown name however the config orders the list", async () => {
@@ -915,71 +809,6 @@ describe("explicit skills and inline servers", () => {
     expect(second.stderr).toContain('unknown skill "alpha.absent"');
   });
 
-  it("exits 3 rather than letting a source override a catalog skill of the same name", async () => {
-    await writeSourceSkill("skills/company-context", CORE_SKILL);
-    await writeProfile([], ["skills:", `  - name: ${CORE_SKILL}`, `    source: ${SOURCE}`]);
-
-    const result = await cli("resolve");
-
-    expect(result.code).toBe(ExitCode.Resolution);
-    expect(result.stderr).toContain(
-      `skill "${CORE_SKILL}" is also provided by catalog "${CATALOG_NAME}"`,
-    );
-    expect(result.stderr).toContain("drop `source` to take the catalog's copy");
-  });
-
-  it("exits 3 rather than letting an inline server override a catalog one", async () => {
-    await writeProfile(
-      [],
-      ["mcps:", "  - name: fixture", "    transport:", "      stdio:", "        command: mine"],
-    );
-
-    const result = await cli("resolve");
-
-    expect(result.code).toBe(ExitCode.Resolution);
-    expect(result.stderr).toContain(
-      `MCP server "fixture" is also provided by catalog "${CATALOG_NAME}"`,
-    );
-  });
-
-  it("exits 2 when the source holds no such skill directory", async () => {
-    await writeSourceSkill("skills/something-else", "something-else");
-    await writeProfile([], ["skills:", `  - name: ${READWISE}`, `    source: ${SOURCE}`]);
-
-    const result = await cli("resolve");
-
-    expect(result.code).toBe(ExitCode.Config);
-    expect(result.stderr).toContain(`skill "${READWISE}" is not in its source (ambit.yml line 7)`);
-    expect(result.stderr).toContain(`has no skills/${READWISE}/SKILL.md`);
-    expect(result.stderr).toContain("add `path:` naming the skill's directory");
-  });
-
-  it("exits 2 for a source in no recognized format", async () => {
-    await writeProfile([], ["skills:", `  - name: ${READWISE}`, "    source: ../extra"]);
-
-    const result = await cli("resolve");
-
-    expect(result.code).toBe(ExitCode.Config);
-    expect(result.stderr).toContain(
-      `skill "${READWISE}" has an unrecognized source (ambit.yml line 7)`,
-    );
-  });
-
-  it("exits 2 when the frontmatter name disagrees with the name it is declared under", async () => {
-    await writeSourceSkill(`skills/${READWISE}`, "something-else");
-    await writeProfile([], ["skills:", `  - name: ${READWISE}`, `    source: ${SOURCE}`]);
-
-    const result = await cli("resolve");
-
-    expect(result.code).toBe(ExitCode.Config);
-    expect(result.stderr).toContain(
-      'skill name "something-else" does not match the name it is declared under',
-    );
-    expect(result.stderr).toContain(`ambit.yml lists it as "${READWISE}"`);
-    // Which source the offending SKILL.md is in, since its path is relative to one.
-    expect(result.stderr).toContain(`in skill source "${SOURCE}"`);
-  });
-
   it("exits 2 for two `skills` entries naming the same skill", async () => {
     await writeProfile([], ["skills:", `  - ${CORE_SKILL}`, `  - ${CORE_SKILL}`]);
 
@@ -989,89 +818,54 @@ describe("explicit skills and inline servers", () => {
     expect(result.stderr).toContain(`duplicate skills entry "${CORE_SKILL}" (ambit.yml line 8)`);
     expect(result.stderr).toContain("first declared on line 7");
   });
-});
 
-/**
- * A hook a project declares in `ambit.yml` is selected because it was declared: there is no scope
- * route into it and nothing requires it, so `explicit` is the only reason it can carry — the same
- * story an inline `mcps` entry has.
- */
-describe("inline hooks", () => {
-  const HOOK_NAME = "format-on-write";
+  it("exits 2 for a `skills` entry carrying its own source, naming the rewrite", async () => {
+    await writeProfile([], ["skills:", "  - name: readwise-cli", "    source: path:../extra"]);
 
-  /** A hook declaring a scope nothing holds, so being declared is doing all the work. */
-  const HOOK: readonly string[] = [
-    "hooks:",
-    `  - name: ${HOOK_NAME}`,
-    "    tags: [function.sales]",
-    "    event: PostToolUse",
-    '    matcher: "Edit|Write"',
-    "    type: command",
-    "    command: npm run format",
-    "    expects: [{ env: HOOK_TOKEN }]",
-  ];
+    const result = await cli("resolve");
 
-  /** `hooks` lines for a name per hook, each on `Stop` and shipping nothing. */
-  function hooks(names: readonly string[]): readonly string[] {
-    return [
-      "hooks:",
-      ...names.flatMap((name) => [
-        `  - name: ${name}`,
+    expect(result.code).toBe(ExitCode.Config);
+    expect(result.stderr).toContain("a `skills` entry is a name, not a definition");
+    expect(result.stderr).toContain("list the source in `catalogs:` under a name of its own");
+  });
+
+  it("exits 2 for a top-level `mcps`, naming the file the definition moves into", async () => {
+    await writeProfile(
+      [],
+      [
+        "mcps:",
+        "  - name: custom",
+        "    transport:",
+        "      stdio:",
+        "        command: custom-mcp",
+      ],
+    );
+
+    const result = await cli("resolve");
+
+    expect(result.code).toBe(ExitCode.Config);
+    expect(result.stderr).toContain("top-level `mcps` is gone");
+    expect(result.stderr).toContain("move each entry to `mcps/<name>.yml`");
+    expect(result.stderr).toContain("`- name: local` with `source: path:.`");
+  });
+
+  it("exits 2 for a top-level `hooks`, naming the file the definition moves into", async () => {
+    await writeProfile(
+      [],
+      [
+        "hooks:",
+        "  - name: notify",
         "    event: Stop",
         "    type: command",
-        `    command: ${name}.sh`,
-      ]),
-    ];
-  }
-
-  it("selects a declared hook whatever scopes it names, and reports it as explicit", async () => {
-    const inline = await bundle([], HOOK);
-
-    expect(inline.hooks.map((hook) => hook.name)).toEqual([HOOK_NAME]);
-    expect(inline.hooks[0]).toMatchObject({ event: "PostToolUse", matcher: "Edit|Write" });
-    expect(inline.reasons.hooks.get(HOOK_NAME)).toEqual({ kind: "explicit" });
-  });
-
-  it("unions a hook's `expects` into the bundle's, as a server's is", async () => {
-    // A hook that cannot see its credential is as broken as a server that cannot, and `doctor`
-    // reads the one list.
-    expect((await bundle([], HOOK)).expects.env).toEqual(["HOOK_TOKEN"]);
-  });
-
-  it("sorts hooks by name, whatever order the config lists them in", async () => {
-    const written = await bundle([], hooks(["zeta", "alpha"]));
-
-    expect(written.hooks.map((hook) => hook.name)).toEqual(["alpha", "zeta"]);
-    expect([...written.reasons.hooks.keys()]).toEqual(["alpha", "zeta"]);
-  });
-
-  it("lists a hook with its origin and its event, and its reason under `--explain`", async () => {
-    await writeProfile([], HOOK);
-
-    // The origin column is the config file itself: that is where a reader goes to change an inline
-    // hook, and it is what a catalog hook's column names instead.
-    expect((await cli("resolve")).stdout).toContain(
-      `hooks (1)\n  ${HOOK_NAME}  ambit.yml  PostToolUse`,
+        "    command: ./notify",
+      ],
     );
-    expect((await cli("resolve", "--explain")).stdout).toContain(
-      `${HOOK_NAME}  ambit.yml  PostToolUse  explicit`,
-    );
-  });
 
-  it("keys a hook by name in JSON, carrying the event and nothing machine-specific", async () => {
-    await writeProfile([], HOOK);
+    const result = await cli("resolve");
 
-    const plain = JSON.parse((await cli("resolve", "--json")).stdout) as {
-      hooks: Record<string, { catalog: string; event: string; reason?: string }>;
-    };
-    expect(plain.hooks).toEqual({
-      [HOOK_NAME]: { catalog: "ambit.yml", event: "PostToolUse" },
-    });
-
-    const explained = JSON.parse((await cli("resolve", "--explain", "--json")).stdout) as {
-      hooks: Record<string, { reason?: string }>;
-    };
-    expect(explained.hooks[HOOK_NAME]?.reason).toBe("explicit");
+    expect(result.code).toBe(ExitCode.Config);
+    expect(result.stderr).toContain("top-level `hooks` is gone");
+    expect(result.stderr).toContain("move each entry to `hooks/<name>/HOOK.yml`");
   });
 });
 
@@ -1191,26 +985,6 @@ describe("hooks reached through `requires`", () => {
 
     expect(writtenHooks(await bundle(["core"]))).toEqual([]);
   });
-
-  it("satisfies a requirement from an inline hook, and still calls that one explicit", async () => {
-    // An inline `hooks` entry is folded into the merged catalog, so a `requires` edge resolves against
-    // it exactly as against a catalog's — and being named outright is the shorter true answer, which
-    // is the precedence every namespace's reason follows.
-    await writeSkill("risky", ["tags: [core]", "requires: [{hook: declared}]"]);
-    const inline = await bundle(
-      ["core"],
-      [
-        "hooks:",
-        "  - name: declared",
-        "    event: Stop",
-        "    type: command",
-        "    command: npx notify",
-      ],
-    );
-
-    expect(writtenHooks(inline)).toEqual(["declared"]);
-    expect(inline.reasons.hooks.get("declared")).toEqual({ kind: "explicit" });
-  });
 });
 
 /**
@@ -1271,21 +1045,6 @@ describe("selection reasons", () => {
     expect(both.reasons.skills.get(ENGINEERING_SKILL)).toEqual({ kind: "explicit" });
     // The scope route is still the only thing that reached the nested skill.
     expect(both.reasons.skills.get(FRONTEND_SKILL)).toMatchObject({ kind: "scope" });
-  });
-
-  it("reports an inline server as explicit", async () => {
-    const inline = await bundle(
-      [],
-      [
-        "mcps:",
-        "  - name: custom",
-        "    transport:",
-        "      stdio:",
-        "        command: custom-mcp",
-      ],
-    );
-
-    expect(inline.reasons.mcps.get("custom")).toEqual({ kind: "explicit" });
   });
 
   it("explains every item it selected, leaving nothing unaccounted for", async () => {

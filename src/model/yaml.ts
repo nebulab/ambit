@@ -258,8 +258,12 @@ export class YamlMapping {
   }
 
   /**
-   * A sequence whose items are each a string or a mapping — the shape `ambit.yml`'s `skills`
-   * uses, where a bare name is shorthand for the full mapping.
+   * A sequence whose items are each a string or a mapping — the shape `ambit.yml`'s `skills` reads,
+   * where only the string form is legal.
+   *
+   * The mapping form is handed back rather than rejected here so its caller can refuse it with the
+   * rewrite it needs: `skills` once accepted an entry carrying its own `source`, and *must be a
+   * string* would read as a typo rather than as a form that was removed.
    *
    * The string form carries its line for the same reason
    * {@link YamlMapping.optionalPositionedStringList} does: an explicit skill no catalog provides

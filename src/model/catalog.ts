@@ -20,15 +20,15 @@
  * or a git repository fetched into the cache — is `sources.ts`'s job, so parsing is identical
  * whichever a catalog came from.
  *
- * A project can also declare a skill, a server or a hook itself, and those are folded into the
- * same merged namespace here rather than handled beside it — see {@link mergeConfigEntities} — so
- * resolution has exactly one place to look a name up.
+ * Every definition ambit reads arrives this way. A project that ships a skill, a server or a hook of
+ * its own puts it in `skills/`, `mcps/` or `hooks/` and lists itself as a catalog, so there is one
+ * kind of thing to merge and resolution has exactly one place to look a name up.
  */
 import { readdir, stat } from "node:fs/promises";
 import path from "node:path";
 
-import type { CatalogRef, ConfigOrigin, ProjectConfig, SourceSkillRequest } from "./config.js";
-import { AmbitError, at, configError, resolutionError } from "../errors.js";
+import type { CatalogRef, ProjectConfig } from "./config.js";
+import { AmbitError, at, configError } from "../errors.js";
 import type { HookEntity } from "./hook-entity.js";
 import { commandProgram, parseHookEntity, scriptReference } from "./hook-entity.js";
 import type { McpEntity } from "./mcp-entity.js";
@@ -37,7 +37,7 @@ import type { Expectation } from "./expectation.js";
 import { parseExpectations } from "./expectation.js";
 import type { Requirement } from "./requirement.js";
 import { parseRequirements } from "./requirement.js";
-import type { ResolvedSource, SourceContext, SourceRequest } from "./sources.js";
+import type { ResolvedSource, SourceContext } from "./sources.js";
 import { resolveSource } from "./sources.js";
 import type { YamlMapping } from "./yaml.js";
 import {
@@ -213,11 +213,12 @@ export interface Catalog {
 export interface MergedSkill extends CatalogSkill {
   readonly catalog: string;
   /**
-   * The commit the skill's bytes came from, when its source has one: a catalog skill inherits its
-   * catalog's, and a `source` skill carries its own. Absent for a `path:` source.
+   * The commit the skill's bytes came from, inherited from its catalog. Absent for a `path:` source,
+   * which has no revision.
    *
-   * Recorded per skill rather than left to the catalog entry alone because a `source` skill has no
-   * catalog entry to inherit from, and pinning it is the whole point of the lock.
+   * Recorded per skill rather than left to the catalog entry alone because pinning the bytes is the
+   * whole point of the lock, and every surface that writes one reads the item rather than looking its
+   * catalog up again.
    */
   readonly commit?: string;
   /**
@@ -234,11 +235,10 @@ export interface MergedMcp extends McpEntity {
   /**
    * The file that defines it inside that catalog, catalog-relative — see {@link CatalogMcp.file}.
    *
-   * Absent for an entity a project declares inline in its `ambit.yml`, which has no
-   * document of its own. There is nothing to invent in that case: `catalog` already names the config
-   * file, which is where a reader goes to change it, so an error still has a real file to cite.
+   * Always present: every definition lives in a file, so there is no server without a document to
+   * cite, and nothing downstream has to invent a location for one.
    */
-  readonly file?: string;
+  readonly file: string;
 }
 
 /**
@@ -253,19 +253,18 @@ export interface MergedHook extends HookEntity {
   /**
    * The hook directory inside that catalog, catalog-relative.
    *
-   * Absent for a hook a project declares inline in its `ambit.yml`, which has no directory of its own
-   * — the same argument {@link MergedMcp.file} makes: `catalog` already names the config file, which
-   * is where a reader goes to change it.
+   * Always present, for the reason {@link MergedMcp.file} is: a hook is a directory holding
+   * `HOOK.yml`, and there is no other way to declare one.
    */
-  readonly path?: string;
+  readonly path: string;
   /** The commit the hook's bytes came from, when its catalog has one — see {@link MergedSkill.commit}. */
   readonly commit?: string;
   /**
    * Absolute path to that catalog's root on disk, so materialization can find the script without
-   * looking the catalog up again. Absent for an inline hook, and deliberately absent from every
-   * output surface: it is machine-specific.
+   * looking the catalog up again. Deliberately absent from every output surface: it is
+   * machine-specific.
    */
-  readonly catalogRoot?: string;
+  readonly catalogRoot: string;
 }
 
 /**
@@ -895,180 +894,6 @@ export async function loadCatalogs(
   return catalogs;
 }
 
-/** Where a skill sits inside a source that follows the catalog convention. */
-function skillPathFromName(name: string): string {
-  return `${SKILLS_DIRNAME}/${name.replaceAll(".", "/")}`;
-}
-
-/**
- * Loads one skill declared with its own `source` rather than through a catalog.
- *
- * A source need not be a catalog: only the one skill directory is read, nothing else in the source is
- * scanned, and `path` may point anywhere inside it. What the skill declares still counts —
- * `requires` is closed over as usual — so an explicit entry can carry dependencies with it.
- *
- * The config's `name` is authoritative, since it is what resolution, `requires`, and the installed
- * directory all use; a frontmatter `name` that disagrees is an error for the same reason a catalog
- * skill's must match its path.
- *
- * @param origin where the config's `skills` entry was written, so errors can cite the line.
- * @throws {AmbitError} exit 2 for a source ambit cannot read, a skill directory that is not there,
- *   malformed frontmatter, or a `name` that disagrees with the config's; exit 4 if a fetch fails.
- */
-export async function loadSourceSkill(
-  request: SourceSkillRequest,
-  context: SourceContext,
-  origin: ConfigOrigin,
-): Promise<MergedSkill> {
-  const subject = `skill "${request.name}"`;
-  const where = at(origin.file, origin.skillLines.get(request.name));
-  const source: SourceRequest = {
-    source: request.source,
-    ...(request.ref !== undefined && { ref: request.ref }),
-    subject,
-    where,
-  };
-  const { root, commit } = await resolveSource(source, context);
-
-  const directory = request.path ?? skillPathFromName(request.name);
-  const file = `${directory}/${SKILL_FILENAME}`;
-
-  if (!(await isFile(path.join(root, file)))) {
-    throw configError(`${subject} is not in its source ${where}`, [
-      `${root} has no ${file}`,
-      request.path === undefined
-        ? "add `path:` naming the skill's directory within the source"
-        : "correct `path`, or point `source` at the directory that holds it",
-    ]);
-  }
-
-  try {
-    const mapping = await readFrontmatterMapping(path.join(root, file), file);
-    const declared = mapping.requireString("name");
-    if (declared !== request.name) {
-      throw mapping.keyError(
-        "name",
-        `skill name "${declared}" does not match the name it is declared under`,
-        [`${origin.file} lists it as "${request.name}"`, "correct one of the two so they agree"],
-      );
-    }
-
-    return {
-      name: request.name,
-      path: directory,
-      ...skillAnnotations(mapping),
-      // No catalog provided it, so the column that would name one names the source instead: with
-      // `path` it locates the skill, and it is how the config refers to it.
-      catalog: request.source,
-      ...(commit !== undefined && { commit }),
-      catalogRoot: root,
-    };
-  } catch (error) {
-    throw inSource(`skill source "${request.source}"`, root, error);
-  }
-}
-
-/**
- * The error for a config declaration a catalog already provides.
- *
- * Spec §3.1 describes both surfaces as being for things no catalog defines, so a collision means
- * one of the two declarations is a mistake — and which one ambit cannot know, so it refuses rather
- * than letting either quietly win.
- *
- * @param provider the catalog named in the message. Where several provide the name, this is the
- *   first in catalog order, because the merged lists are sorted by name and then catalog — the
- *   message names one of them and stays the same message on the next run.
- */
-function declarationConflict(
-  kind: string,
-  name: string,
-  provider: string,
-  where: string,
-  advice: string,
-): AmbitError {
-  return resolutionError(`${kind} "${name}" is also provided by catalog "${provider}" ${where}`, [
-    `catalog "${provider}" already defines "${name}", and a name means one thing`,
-    advice,
-  ]);
-}
-
-/**
- * Folds a project's own declarations into the merged catalog: `skills` entries carrying their own
- * `source`, inline `mcps`, and inline `hooks`.
- *
- * They join the same namespace rather than sitting beside it, so resolution has exactly one place
- * to look a name up — which also lets a catalog skill's `requires` reach a server the project
- * defined inline.
- *
- * @throws {AmbitError} exit 2 for a skill source that cannot be read; exit 3 for a name a catalog
- *   already provides; exit 4 if a fetch fails.
- */
-export async function mergeConfigEntities(
-  merged: MergedCatalog,
-  config: ProjectConfig,
-  context: SourceContext,
-): Promise<MergedCatalog> {
-  const skills = [...merged.skills];
-  const mcps = [...merged.mcps];
-  const hooks = [...merged.hooks];
-
-  for (const request of config.skills) {
-    if (request.kind !== "source") continue;
-    const provider = merged.skills.find((skill) => skill.name === request.name);
-    if (provider !== undefined) {
-      throw declarationConflict(
-        "skill",
-        request.name,
-        provider.catalog,
-        at(config.origin.file, config.origin.skillLines.get(request.name)),
-        "drop `source` to take the catalog's copy, or rename one of the two",
-      );
-    }
-    skills.push(await loadSourceSkill(request, context, config.origin));
-  }
-
-  for (const entity of config.mcps) {
-    const provider = merged.mcps.find((mcp) => mcp.name === entity.name);
-    if (provider !== undefined) {
-      throw declarationConflict(
-        "MCP server",
-        entity.name,
-        provider.catalog,
-        at(config.origin.file, config.origin.mcpLines.get(entity.name)),
-        "remove the `mcps` entry to take the catalog's, or rename one of the two",
-      );
-    }
-    // Defined in the config itself, so that is what the origin column says: it is where a reader
-    // goes to change it, and it carries no path of its own.
-    mcps.push({ ...entity, catalog: config.origin.file });
-  }
-
-  for (const entity of config.hooks) {
-    const provider = merged.hooks.find((hook) => hook.name === entity.name);
-    if (provider !== undefined) {
-      throw declarationConflict(
-        "hook",
-        entity.name,
-        provider.catalog,
-        at(config.origin.file, config.origin.hookLines.get(entity.name)),
-        "remove the `hooks` entry to take the catalog's, or rename one of the two",
-      );
-    }
-    // `type: script` was already refused for an inline hook when the config parsed, so whatever
-    // arrives here is a command line and needs no directory.
-    hooks.push({ ...entity, catalog: config.origin.file });
-  }
-
-  // Re-sorted the way the merge sorts, so a config-declared item lands among the catalogs' items
-  // rather than at the end, and the whole list keeps one order.
-  return {
-    ...merged,
-    skills: byNameThenCatalog(skills),
-    mcps: byNameThenCatalog(mcps),
-    hooks: byNameThenCatalog(hooks),
-  };
-}
-
 /**
  * Merges catalogs into one namespace per kind, keeping every catalog's copy of every name.
  *
@@ -1082,9 +907,8 @@ export async function mergeConfigEntities(
  * Refusing a selection is a different thing from refusing a catalog: a name two catalogs ship costs
  * nothing until a project asks for both.
  *
- * A config-declared skill or server colliding with a catalog is deliberately *not* this: that is an
- * error, not a collision over a harness path, because both config surfaces are for things no catalog
- * defines. See {@link mergeConfigEntities}.
+ * Every item in the result came out of a catalog directory, since that is the only place a definition
+ * can be written — so there is nothing to fold in beside these lists, and no item without a file.
  */
 export function mergeCatalogs(catalogs: readonly Catalog[]): MergedCatalog {
   const skills: MergedSkill[] = [];
