@@ -252,33 +252,7 @@ export {
 } from "./harness/env.js";
 export type { EnvRefStyle } from "./harness/env.js";
 
-// ── authoring — the `ambit catalog …` command family ──────────────────────────────────────────
-export {
-  annotate,
-  annotationDirname,
-  annotationSubject,
-  assertReferenceRefs,
-} from "./authoring/annotate.js";
-export type {
-  AnnotateOptions,
-  AnnotateResult,
-  AnnotatedItem,
-  AnnotatedKind,
-  AnnotatedList,
-  AnnotationEdit,
-} from "./authoring/annotate.js";
-export {
-  AUDIT_FINDING_KINDS,
-  auditCatalog,
-  auditCatalogDirectory,
-  isTidy,
-} from "./authoring/audit.js";
-export type {
-  AuditCounts,
-  AuditFinding,
-  AuditFindingKind,
-  AuditReport,
-} from "./authoring/audit.js";
+// ── authoring — what `ambit catalog init` writes ──────────────────────────────────────────────
 export {
   CatalogDocument,
   applyCatalogEdit,
@@ -297,15 +271,6 @@ export type {
   EditResult,
   EditedFile,
 } from "./authoring/editor.js";
-export { newHook, removeHook, unknownHook } from "./authoring/hook.js";
-export type {
-  HookDeclaration,
-  HookEdit,
-  HookNewOptions,
-  HookNewResult,
-  HookRemoveResult,
-  HookSummary,
-} from "./authoring/hook.js";
 export {
   CATALOG_INIT_SCOPE,
   CATALOG_KEEP_FILENAME,
@@ -315,35 +280,6 @@ export {
   scaffoldCatalog,
 } from "./authoring/init.js";
 export type { CatalogInitOptions, CatalogInitResult } from "./authoring/init.js";
-export { mcpDocumentFile, mcpTarget, newMcp, removeMcp, unknownMcp } from "./authoring/mcp.js";
-export type {
-  McpEdit,
-  McpNewOptions,
-  McpNewResult,
-  McpRemoveResult,
-  McpSummary,
-} from "./authoring/mcp.js";
-export { addScope, assertRegisteredScopes, removeScope, renameScope } from "./authoring/scope.js";
-export type {
-  ScopeAddResult,
-  ScopeEdit,
-  ScopeRemoveResult,
-  ScopeRename,
-  ScopeRenameResult,
-} from "./authoring/scope.js";
-export { newSkill, removeSkill, renameSkill, unknownSkill } from "./authoring/skill.js";
-export type {
-  SkillAnnotations,
-  SkillEdit,
-  SkillNewOptions,
-  SkillNewResult,
-  SkillRemoveResult,
-  SkillRename,
-  SkillRenameResult,
-  SkillSummary,
-} from "./authoring/skill.js";
-export { buildScopeTree, flattenScopeTree, scopeTree, selectionSize } from "./authoring/tree.js";
-export type { ScopeNode, ScopeSelection } from "./authoring/tree.js";
 
 // ── project — act on a consuming project ──────────────────────────────────────────────────────
 export { cleanProject, pruneProject } from "./project/clean.js";
@@ -432,8 +368,6 @@ export {
   dryRunRequested,
   jsonRequested,
   offlineRequested,
-  optionList,
-  positional,
   projectDirOf,
   sourceContextOf,
 } from "./cli/commands.js";

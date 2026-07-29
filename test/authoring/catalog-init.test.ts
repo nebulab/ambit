@@ -2,8 +2,8 @@
  * `ambit catalog init`: the scaffolded catalog.
  *
  * Three claims carry this suite. The first is that the scaffold is a *catalog* — it parses, and
- * `ambit catalog validate` passes against it, which is what makes `catalog scope add` and
- * `catalog skill new` able to start from it. The second is that it is a function of nothing: two runs into two differently
+ * `ambit catalog validate` passes against it, so the first thing an author writes into it by hand is
+ * written into something that already checks out. The second is that it is a function of nothing: two runs into two differently
  * named directories produce byte-identical trees, so the scaffold cannot pick up a machine path or a
  * timestamp. The third is about what it refuses: an existing `scopes.yml` means the directory already
  * holds a catalog and nothing is written, while a directory that merely has a README is the ordinary
@@ -56,7 +56,7 @@ interface CliResult {
   stderr: string;
 }
 
-/** Runs the CLI exactly as given. Authoring commands take `--catalog`, never `--project`. */
+/** Runs the CLI exactly as given. A `catalog` subcommand takes `--catalog`, never `--project`. */
 async function invoke(...argv: readonly string[]): Promise<CliResult> {
   const out: string[] = [];
   const err: string[] = [];
@@ -212,7 +212,7 @@ describe("ambit catalog init", () => {
         "kept (0)",
         "  (none)",
         "",
-        "next: register your scopes with `ambit catalog scope add`, then add a skill with `ambit catalog skill new`",
+        "next: register your scopes in `scopes.yml`, then add a skill in `skills/<name>/SKILL.md` — see `README.md`",
       ].join("\n"),
     );
   });

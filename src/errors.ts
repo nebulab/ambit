@@ -12,7 +12,7 @@ export const ExitCode = {
   Network: 4,
   /** Drift detected (`status --check`, `install --frozen`). */
   Drift: 5,
-  /** A health check found something: `doctor` failures, or `catalog audit --check` findings. */
+  /** A health check found something: `doctor` failures. */
   Doctor: 6,
 } as const;
 

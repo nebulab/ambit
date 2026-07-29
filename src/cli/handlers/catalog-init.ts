@@ -20,9 +20,15 @@ import { diffSection } from "../diff.js";
 import { ExitCode } from "../../errors.js";
 import { printSections, section } from "../output.js";
 
-/** The one thing left to do: a catalog with no skills installs nothing. */
+/**
+ * The one thing left to do: a catalog with no skills installs nothing.
+ *
+ * It names the files rather than a command, because there is no command: a catalog is Markdown and
+ * YAML, and an author has an editor. `README.md` is in the scaffold, so the next step after that one
+ * is written down where the person who runs this will be looking.
+ */
 const NEXT_STEP =
-  "next: register your scopes with `ambit catalog scope add`, then add a skill with `ambit catalog skill new`";
+  "next: register your scopes in `scopes.yml`, then add a skill in `skills/<name>/SKILL.md` — see `README.md`";
 
 function toJson(result: CatalogInitResult): Readonly<Record<string, unknown>> {
   return {

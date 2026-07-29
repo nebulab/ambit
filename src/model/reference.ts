@@ -28,13 +28,12 @@
  * names the skill above and `mcp:sentry` names the server, with no string a reader could write that
  * means both.
  *
- * One grammar, everywhere a name is taken from a person: an entry of either list, an `--add-requires`
- * or `--add-expects` value, and the subject of `ambit why` or `ambit catalog annotate` all say which
- * kind they mean, and none of them will guess. A bare name is refused with the spellings of what was
- * typed ({@link parseSubject}) rather than resolved against the catalog, because a rule that holds only
- * while a name happens to be unique is a rule nobody can rely on — and because half of these callers
- * have no catalog to resolve against: `--remove-requires` must be able to name the dangling entry whose
- * target has already gone, which is the whole reason to run it.
+ * One grammar, everywhere a name is taken from a person: an entry of either list, and the subject of
+ * `ambit why`, all say which kind they mean, and none of them will guess. A bare name is refused with
+ * the spellings of what was typed ({@link parseSubject}) rather than resolved against the catalog,
+ * because a rule that holds only while a name happens to be unique is a rule nobody can rely on — and
+ * because a dangling entry has nothing to resolve against: `ambit why` and a `requires` naming
+ * something that has gone both have to be able to say the name back.
  *
  * Everything here is parameterized by a {@link ReferenceGrammar}, which is the list's closed set of
  * kinds and the handful of words a message about one of them needs. That is what keeps the two lists
@@ -229,9 +228,9 @@ export function isReference(grammar: ReferenceGrammar, text: string): boolean {
 /**
  * The thing a command's subject argument names.
  *
- * Every command that takes a subject takes it the same way — `ambit why`, `ambit catalog annotate` — so
- * the grammar is explained in the same words wherever it is met, and there is one rule to learn rather
- * than one per command.
+ * A subject is taken the same way wherever one is taken — `ambit why` is the command that takes one —
+ * so the grammar is explained in the same words as the lists it shares, and there is one rule to learn
+ * rather than one per surface.
  *
  * Every spelling of what was typed is offered rather than one of them assumed: a bare name names none
  * of the kinds in particular, and guessing is what this format exists to stop.

@@ -51,7 +51,7 @@ Two intermediate states are deliberately odd and deliberately short-lived:
 
 ## 1. Delete the authoring mutation commands
 
-- [ ] Every command that writes into a catalog, minus the two that need a home first.
+- [x] Every command that writes into a catalog, minus the two that need a home first.
 
 Per §_The authoring CLI goes_. Gone: `catalog scope add|rm|mv`, `catalog skill new|rm|mv`,
 `catalog mcp new|rm`, `catalog hook new|rm`, `catalog annotate`, `catalog tree`, `catalog audit`, and

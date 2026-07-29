@@ -7,14 +7,17 @@
  * to be additive and ignored. Spec §7 calls that "the guarantee most likely to rot", which is why it
  * is checked by running the real tool instead of by reasoning about it.
  *
- * The claim is asserted against ambit's own answer rather than a hand-written list: for each catalog,
- * `parseCatalogDirectory` says which skills are there, and dotagents must install exactly that set,
+ * The claim is asserted against ambit's own answer rather than a hand-written list:
+ * `parseCatalogDirectory` says which skills the catalog holds, and dotagents must install exactly that set,
  * under exactly the names ambit derives from the paths, with each `SKILL.md` byte-identical to the
  * source. So a frontmatter key that made another parser choke, an `mcps/` entity mistaken for a
  * skill, or a nested skill directory another tool cannot see all fail here.
  *
- * Two catalogs, because the promise covers what ambit *writes* as well as what it reads: the
- * hand-written fixture, and one authored by `ambit catalog init` plus `ambit catalog skill new`.
+ * One catalog, the hand-written fixture. There were two, the second authored by ambit itself — but
+ * nothing writes a skill into a catalog any more, so there is no ambit-written `SKILL.md` left for a
+ * second case to hand to dotagents. The fixture declares `scopes`, `requires` and `expects` between
+ * its skills, which is the whole of what ambit adds to a frontmatter block, so one case still covers
+ * every key another tool's parser could choke on.
  *
  * **This is the one test allowed to reach the network** (nothing else in the
  * suite may follow it). Two consequences are deliberate. `@sentry/dotagents` is left unpinned, since
@@ -32,9 +35,6 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 
 import { buildFixtureCatalog } from "../scripts/fixture-catalog.js";
 import { SKILL_FILENAME, parseCatalogDirectory } from "../src/model/catalog.js";
-import { CATALOG_INIT_SCOPE } from "../src/authoring/init.js";
-import { ExitCode } from "../src/errors.js";
-import { run } from "../src/cli/program.js";
 
 /** Unpinned on purpose: the promise is about whatever dotagents currently ships. */
 const DOTAGENTS_PACKAGE = "@sentry/dotagents";
@@ -158,17 +158,6 @@ function firstLines(text: string): string {
     .join("\n");
 }
 
-/** Runs one authoring command against the catalog under test, asserting it succeeded. */
-async function author(...argv: readonly string[]): Promise<void> {
-  const err: string[] = [];
-  const code = await run([...argv, "--catalog", CATALOG_DIRNAME], {
-    cwd: project,
-    stdout: () => {},
-    stderr: (line) => err.push(line),
-  });
-  expect(code, `${argv.join(" ")}: ${err.join("\n")}`).toBe(ExitCode.Success);
-}
-
 /**
  * Installs the catalog inside the project with dotagents and asserts the whole outcome: it
  * succeeded, it found exactly the skills ambit finds under exactly the names ambit derives, and it
@@ -239,44 +228,6 @@ describe("dotagents compatibility", () => {
       if (unavailable !== undefined) return ctx.skip();
 
       await buildFixtureCatalog(path.join(project, CATALOG_DIRNAME));
-      await expectInstallable();
-    },
-    CASE_TIMEOUT_MS,
-  );
-
-  it(
-    "installs every skill in a catalog authored by `catalog init` and `catalog skill new`",
-    async (ctx) => {
-      if (unavailable !== undefined) return ctx.skip();
-
-      await author("catalog", "init");
-      await author(
-        "catalog",
-        "skill",
-        "new",
-        "company-context",
-        "--description",
-        "Canonical context about Acme",
-        "--scope",
-        CATALOG_INIT_SCOPE,
-      );
-      // The second skill carries every extra frontmatter key ambit writes, since those keys are
-      // exactly what another tool's parser could choke on.
-      await author(
-        "catalog",
-        "skill",
-        "new",
-        "acme-brief",
-        "--description",
-        "The Acme engagement brief",
-        "--scope",
-        CATALOG_INIT_SCOPE,
-        "--requires",
-        "skill:company-context",
-        "--expects",
-        "env:ACME_FIGMA_TOKEN",
-      );
-
       await expectInstallable();
     },
     CASE_TIMEOUT_MS,

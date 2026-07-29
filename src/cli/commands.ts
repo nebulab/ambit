@@ -6,7 +6,7 @@ import { AmbitError, ExitCode } from "../errors.js";
 import type { SourceContext } from "../model/sources.js";
 
 /**
- * What a command acts on. Consumer commands read a project's `ambit.yml`; authoring commands read a
+ * What a command acts on. Consumer commands read a project's `ambit.yml`; a catalog command reads a
  * catalog root, which has no `ambit.yml` at all.
  */
 export type CommandSubject = "project" | "catalog";
@@ -20,7 +20,7 @@ export type CommandSubject = "project" | "catalog";
  *
  * The subject decides the directory flag, because the two are the same flag in different clothes:
  * `--project <dir>` names a project, `--catalog <dir>` names a catalog root, and both default to the
- * cwd. An authoring command also drops `--offline`: it reads one directory on disk, resolves no
+ * cwd. A catalog command also drops `--offline`: it reads one directory on disk, resolves no
  * source, and so has neither a fetch to refuse nor a cache to fall back to.
  *
  * `--quiet` and `--no-color` are deliberately absent. Both were accepted here and read nowhere: ambit
@@ -49,20 +49,6 @@ function dryRunOption(): Option {
   return new Option("--dry-run", "print the plan without touching disk");
 }
 
-/**
- * A flag that may be given more than once, collecting its values in the order given —
- * `--scope a --scope b` rather than `--scope a,b`, because a scope name can hold a comma far more
- * easily than an argv entry can.
- *
- * The value is absent rather than `[]` when the flag never appeared, so a handler can tell "no
- * entries asked for" from "an empty list asked for".
- */
-function repeatable(flags: string, description: string): Option {
-  return new Option(flags, description).argParser<readonly string[] | undefined>(
-    (value, previous) => [...(previous ?? []), value],
-  );
-}
-
 export interface CommandSpec {
   readonly name: string;
   readonly summary: string;
@@ -85,13 +71,16 @@ export interface CommandSpec {
 }
 
 /**
- * The catalog-authoring surface: every command whose subject is one catalog directory, grouped under
- * the noun they all act on.
+ * The catalog surface: every command whose subject is one catalog directory, grouped under the noun
+ * they both act on.
  *
- * Nothing a consumer reaches for lives here, which is what makes the group uniform. Every command
- * takes `--catalog <dir>`, none takes `--offline` — a catalog directory is read off disk and resolves
- * no source — and every mutation takes `--dry-run`, since authoring rule 6 promises a diff and no
- * writes.
+ * Nothing a consumer reaches for lives here, which is what makes the group uniform. Both commands
+ * take `--catalog <dir>`, neither takes `--offline` — a catalog directory is read off disk and
+ * resolves no source — and a mutation takes `--dry-run`, so a write can be previewed as a diff.
+ *
+ * Nothing under this word writes into a catalog's items any more: an author has an editor, and a
+ * second way to produce Markdown and YAML cost more than it saved. What is left is scaffolding a
+ * catalog and checking one.
  *
  * Dumping the *merged* catalog is deliberately not one of them. That view is several catalogs plus one
  * `ambit.yml`, which no catalog directory contains, so it is `ambit dump-catalog` at the top level:
@@ -106,178 +95,12 @@ const CATALOG_SUBCOMMANDS: readonly CommandSpec[] = [
     mutating: true,
   },
   {
-    name: "tree",
-    summary: "the scope tree, and what each scope selects",
-    subject: "catalog",
-  },
-  {
-    name: "audit",
-    summary: "find dead scopes and unreachable items",
-    subject: "catalog",
-    options: [new Option("--check", "exit 6 when anything was found")],
-  },
-  {
     // The mirror of `ambit validate`, and a separate command from it for the reason the group exists:
     // the two check different subjects. This one reads one catalog directory and nothing else — no
     // `ambit.yml`, no other catalog, no cache — which is exactly what a catalog repo's CI has.
     name: "validate",
     summary: "validate this catalog on its own terms, for CI",
     subject: "catalog",
-  },
-  {
-    name: "scope",
-    summary: "maintain scopes.yml",
-    subcommands: [
-      {
-        name: "add",
-        summary: "register a scope",
-        args: [["<name>", "scope name"]],
-        subject: "catalog",
-        mutating: true,
-        // Mandatory, but through a `CommandRule` rather than `.makeOptionMandatory()`: Commander's own
-        // refusal reads `error: required option '--description <text>' not specified`, which names no
-        // file and gives no next step. `catalogScopeAddRule` refuses it before the handler runs, in
-        // the standard error shape.
-        options: [new Option("--description <text>", "what the scope means")],
-      },
-      {
-        name: "rm",
-        summary: "unregister a scope nothing declares",
-        args: [["<name>", "scope name"]],
-        subject: "catalog",
-        mutating: true,
-      },
-      {
-        name: "mv",
-        summary: "rename a scope and every descendant",
-        args: [
-          ["<old>", "the scope to rename"],
-          ["<new>", "its new name"],
-        ],
-        subject: "catalog",
-        mutating: true,
-      },
-    ],
-  },
-  {
-    name: "skill",
-    summary: "maintain a skill directory",
-    subcommands: [
-      {
-        name: "new",
-        summary: "create a skill directory and its SKILL.md",
-        args: [["<name>", "skill name"]],
-        subject: "catalog",
-        mutating: true,
-        options: [
-          new Option("--description <text>", "what the skill is for"),
-          repeatable("--scope <scope>", "a scope the skill is selected by"),
-          repeatable("--requires <kind:name>", "something the skill needs, in one namespace"),
-          repeatable("--expects <kind:name>", "a precondition the skill has, in one kind"),
-        ],
-      },
-      {
-        name: "rm",
-        summary: "delete a skill nothing requires",
-        args: [["<name>", "skill name"]],
-        subject: "catalog",
-        mutating: true,
-      },
-      {
-        name: "mv",
-        summary: "rename a skill, rewriting every `requires` that names it",
-        args: [
-          ["<old>", "the skill to rename"],
-          ["<new>", "its new name"],
-        ],
-        subject: "catalog",
-        mutating: true,
-      },
-    ],
-  },
-  {
-    name: "mcp",
-    summary: "maintain an MCP entity",
-    subcommands: [
-      {
-        name: "new",
-        summary: "create an MCP entity, with exactly one transport",
-        args: [["<name>", "server name"]],
-        subject: "catalog",
-        mutating: true,
-        // Exactly one of `--stdio`/`--http`, and no flag belonging to the other kind — a rule rather
-        // than `.conflicts()`, which can say nothing about *neither* flag and would name neither the
-        // file nor the supported kinds. `catalogMcpNewRule` refuses all of it before the handler runs.
-        options: [
-          new Option("--stdio <command>", "spawn this command as the server"),
-          repeatable("--arg <arg>", "an argument for the stdio command"),
-          new Option("--http <url>", "reach the server over http"),
-          repeatable("--header <key=value>", "a header for the http transport"),
-          repeatable("--expects <kind:name>", "a precondition the server has, in one kind"),
-        ],
-      },
-      {
-        name: "rm",
-        summary: "delete an MCP entity nothing requires",
-        args: [["<name>", "server name"]],
-        subject: "catalog",
-        mutating: true,
-      },
-    ],
-  },
-  {
-    name: "hook",
-    summary: "maintain a hook directory",
-    subcommands: [
-      {
-        name: "new",
-        summary: "create a hook directory and its HOOK.yml",
-        args: [["<name>", "hook name"]],
-        subject: "catalog",
-        mutating: true,
-        // `--event` is mandatory and names one of a fixed set, and exactly one of `--command` and
-        // `--script` has to be given — all through `catalogHookNewRule` rather than
-        // `.makeOptionMandatory()` or `.conflicts()`, neither of which names a file, lists the
-        // supported events, or explains what the two flags choose between.
-        options: [
-          new Option("--event <event>", "the harness event the hook fires on"),
-          new Option("--command <command>", "a command line the harness runs as written"),
-          new Option("--script <path>", "a script the hook ships, relative to its own directory"),
-          new Option(
-            "--matcher <tool>",
-            "a tool-name filter, for a PreToolUse or PostToolUse hook",
-          ),
-          new Option("--description <text>", "what the hook does"),
-          new Option("--timeout <seconds>", "how long the harness waits for it"),
-          repeatable("--expects <kind:name>", "a precondition the hook has, in one kind"),
-        ],
-      },
-      {
-        name: "rm",
-        summary: "delete a hook nothing requires",
-        args: [["<name>", "hook name"]],
-        subject: "catalog",
-        mutating: true,
-      },
-    ],
-  },
-  {
-    name: "annotate",
-    summary: "change a skill, MCP or hook's scopes, requires, or expects",
-    args: [["<kind:name>", "`skill:<name>`, `mcp:<name>`, or `hook:<name>`"]],
-    subject: "catalog",
-    mutating: true,
-    // At least one flag, and never one entry both added and removed — `catalogAnnotateRule`, since
-    // both are about the *values* two repeatable flags collected rather than about which flags
-    // appeared, which is not a shape Commander's own primitives can state.
-    options: [
-      repeatable("--add-scope <scope>", "add a scope"),
-      repeatable("--remove-scope <scope>", "remove a scope"),
-      repeatable("--add-requires <kind:name>", "add a requirement"),
-      repeatable("--remove-requires <kind:name>", "remove a requirement"),
-      repeatable("--add-expects <kind:name>", "add a precondition"),
-      repeatable("--remove-expects <kind:name>", "remove a precondition"),
-    ],
   },
 ];
 
@@ -288,7 +111,6 @@ const CATALOG_SUBCOMMANDS: readonly CommandSpec[] = [
  */
 export const COMMAND_SPECS: readonly CommandSpec[] = [
   { name: "init", summary: "scaffold an ambit.yml", mutating: true },
-  { name: "scopes", summary: "list registered scopes with descriptions" },
   { name: "dump-catalog", summary: "dump the merged catalog" },
   {
     name: "resolve",
@@ -327,8 +149,8 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
   // subject rather than the same command under a flag.
   { name: "validate", summary: "validate everything this project configures, for CI" },
   { name: "doctor", summary: "check preconditions, drift, ownership" },
-  // Last, because it is the whole of the authoring surface and no consumer reaches into it.
-  { name: "catalog", summary: "author and maintain a catalog", subcommands: CATALOG_SUBCOMMANDS },
+  // Last, because it is the whole of the catalog surface and no consumer reaches into it.
+  { name: "catalog", summary: "scaffold and check a catalog", subcommands: CATALOG_SUBCOMMANDS },
 ];
 
 export type CommandOptions = Readonly<Record<string, unknown>>;
@@ -348,11 +170,15 @@ export type CommandHandler = (ctx: CommandContext) => Promise<ExitCode> | ExitCo
  * ({@link buildCommand} attaches it as a `preAction` hook).
  *
  * It exists for the rules Commander's own primitives cannot state without giving up the message:
- * `.makeOptionMandatory()` says `error: required option '--description <text>' not specified`, and
- * `.conflicts()` can say nothing at all about a *missing* transport, where every error has to
- * name the offending file, name the offending identifier, and give one concrete next step. A rule is
- * declared with its command like any of them and throws one of ambit's own errors, so the refusal is
- * Commander's to make and the message stays what §6 requires.
+ * `.makeOptionMandatory()` says `error: required option '--description <text>' not specified`, which
+ * names no file and gives no next step, where every error has to name the offending file, name the
+ * offending identifier, and give one concrete next step. A rule is declared with its command like any
+ * of them and throws one of ambit's own errors, so the refusal is Commander's to make and the message
+ * stays what §6 requires.
+ *
+ * No command declares one today: the four that did belonged to the catalog mutators, and went with
+ * them, so `RULES` in `src/cli/program.ts` is empty. This is the seam a command whose flags need a
+ * refusal Commander cannot word hangs off.
  *
  * It reads argv and nothing else — a rule that touched disk or printed would be a handler — and it runs
  * before the handler, so the handler is only ever entered on an invocation the rule accepted.
@@ -368,7 +194,7 @@ export function projectDirOf(ctx: CommandContext): string {
 }
 
 /**
- * The catalog directory an authoring command acts on: `--catalog` if given, otherwise the cwd.
+ * The catalog directory a catalog command acts on: `--catalog` if given, otherwise the cwd.
  *
  * The mirror of {@link projectDirOf}, and separate from it on purpose: a catalog is not a project and
  * has no `ambit.yml`, so a command reads exactly one of the two and the flag it accepts says
@@ -377,36 +203,6 @@ export function projectDirOf(ctx: CommandContext): string {
 export function catalogDirOf(ctx: CommandContext): string {
   const given = ctx.options.catalog;
   return typeof given === "string" ? path.resolve(ctx.cwd, given) : ctx.cwd;
-}
-
-/**
- * A positional argument Commander has already required.
- *
- * @param index its position, from zero.
- * @param usage how the command is invoked, for the message nobody should see.
- * @throws {AmbitError} exit 1 — unreachable through the CLI, and a clearer failure than `undefined`
- *   reaching a mutation if a caller ever wires a handler up by hand.
- */
-export function positional(ctx: CommandContext, index: number, usage: string): string {
-  const value = ctx.args[index];
-  if (value !== undefined) return value;
-
-  throw new AmbitError(ExitCode.Internal, `\`${usage}\` was given too few arguments`, [
-    `argument ${index + 1} is missing`,
-    `run \`${usage}\``,
-  ]);
-}
-
-/**
- * The values of a {@link repeatable} flag, in argv order.
- *
- * `undefined` when the flag never appeared, which is deliberately not the same as an empty list: a
- * handler can tell "no entries asked for" from "an empty list asked for".
- */
-export function optionList(ctx: CommandContext, name: string): readonly string[] | undefined {
-  const given = ctx.options[name];
-  if (!Array.isArray(given)) return undefined;
-  return given.filter((value): value is string => typeof value === "string");
 }
 
 /** Whether `--json` was requested. */
@@ -442,7 +238,7 @@ export function sourceContextOf(ctx: CommandContext): SourceContext {
 }
 
 /**
- * Handlers, keyed by the words a user types: `"install"`, `"catalog scope add"`. Absent means
+ * Handlers, keyed by the words a user types: `"install"`, `"catalog validate"`. Absent means
  * declared-but-unimplemented.
  */
 export type CommandHandlers = Readonly<Record<string, CommandHandler>>;
@@ -475,7 +271,7 @@ function contextOf(
  * travels out without being dressed up as an error.
  *
  * `trail` is the enclosing group's words, so a nested command finds its handler and names itself in
- * an error by the whole invocation (`catalog scope add`) rather than by the leaf. That whole
+ * an error by the whole invocation (`catalog validate`) rather than by the leaf. That whole
  * invocation is also the key its handler and its rule are filed under.
  *
  * @throws {AmbitError} exit 1 when the command is declared in the surface but has no handler yet, and
@@ -502,7 +298,7 @@ export function buildCommand(
   if (spec.mutating) command.addOption(dryRunOption());
   // A group takes no flags of its own: there is nothing for `--json` to shape when the answer is a
   // usage message, and a group holding a flag its children also hold is a flag the group silently
-  // eats — which is how `ambit catalog` came to answer to `--project` while `ambit catalog tree`
+  // eats — which is how `ambit catalog` came to answer to `--project` while `ambit catalog validate`
   // answered to `--catalog`.
   if (acts) for (const option of globalOptions(spec)) command.addOption(option);
 

@@ -46,8 +46,8 @@ import { AmbitError, ExitCode, at, resolutionError } from "../errors.js";
 /**
  * What separates a scope from its children.
  *
- * Exported because authoring reads it too: renaming a scope renames its subtree, so `catalog scope mv`
- * has to cut a name apart exactly where expansion joins one.
+ * Named rather than inlined because expansion joins names with it and {@link inSubtree} cuts them
+ * apart on it, and the two have to agree on where a scope ends.
  */
 export const SCOPE_SEPARATOR = ".";
 
@@ -136,8 +136,8 @@ function sortedUnique(values: readonly string[]): readonly string[] {
  * `function.engineering` swallow the unrelated sibling `function.engineering-legacy`, which reads
  * as a hierarchy to string comparison and to nobody else.
  *
- * Exported for `catalog scope mv`, which renames exactly the scopes a held one would reach: the two
- * answers have to be the same answer, or a rename would change what holding the scope selects.
+ * One test rather than a prefix check at each call site, so expansion and the reason a held scope
+ * reached an item cannot disagree about what a subtree is.
  */
 export function inSubtree(held: string, candidate: string): boolean {
   return candidate === held || candidate.startsWith(`${held}${SCOPE_SEPARATOR}`);

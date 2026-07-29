@@ -69,8 +69,8 @@ export const HOOK_FILENAME = "HOOK.yml";
 /**
  * MCP entity extensions, in preference order. One stem carrying both is an error.
  *
- * Exported because an authoring command that edits an existing entity has to find the file the
- * author actually wrote, not the one ambit would have written (see `mcpDocumentFile`).
+ * Both are read because both are what an author may have written; `.yml` is the one ambit names in a
+ * refusal, since a message telling someone to rename a file has to pick one.
  */
 export const MCP_EXTENSIONS: readonly string[] = [".yml", ".yaml"];
 
@@ -88,12 +88,10 @@ const SCOPE_KEYS = ["description"] as const;
 export const AMBIT_FRONTMATTER_KEY = "ambit";
 
 /**
- * The keys ambit reads under {@link AMBIT_FRONTMATTER_KEY}, in the order the format tabulates them —
- * which is also the order `catalog annotate` reports them in, so the report reads like the format's
- * own documentation.
+ * The keys ambit reads under {@link AMBIT_FRONTMATTER_KEY}, in the order the format tabulates them, so
+ * a message about one of them reads like the format's own documentation.
  *
- * Lives here rather than beside the command that edits them because this is where they are *read*:
- * one list, so the parser and the writer cannot drift apart on what an annotation is.
+ * One list, in the layer that reads them, so nothing can drift apart on what an annotation is.
  */
 export const ANNOTATION_KEYS = ["scopes", "requires", "expects"] as const;
 

@@ -10,8 +10,8 @@
  *
  * Three decisions a reader would otherwise have to reverse-engineer:
  *
- * - **Every write goes through the editor** ({@link applyCatalogEdit}), like every other authoring
- *   mutation, so the scaffold gets atomic writes, the root check, `--dry-run`, and — the one that
+ * - **Every write goes through the editor** ({@link applyCatalogEdit}), which is what gives the
+ *   scaffold atomic writes, the root check, `--dry-run`, and — the one that
  *   matters — validation of the *result*: a scaffold that would not pass `ambit catalog validate` is
  *   not written. The directories are therefore created by writing the `.gitkeep` files inside them,
  *   which is also what makes them survive the first commit; git tracks no empty directory, and a
@@ -180,18 +180,16 @@ users.
 
 ## Maintaining the catalog
 
-    ambit catalog scope add <name> --description <text>   register a scope
-    ambit catalog skill new <name> --scope <scope>        create a skill
-    ambit catalog mcp new <name> --stdio <command>        define an MCP server
-    ambit catalog hook new <name> --event <event>         define a hook
-    ambit catalog tree                                    see what each scope selects
-    ambit catalog audit                                   find dead scopes and unreachable items
+A catalog is Markdown and YAML, so it is maintained with an editor. Register a scope in
+\`${SCOPES_FILENAME}\`, add a skill by writing \`${SKILLS_DIRNAME}/<name>/${SKILL_FILENAME}\`, a server by writing
+\`${MCPS_DIRNAME}/<name>.yml\`, a hook by writing \`${HOOKS_DIRNAME}/<name>/${HOOK_FILENAME}\`.
+
     ambit catalog validate                                check the whole catalog
 
-Every command up there that changes a file takes \`--dry-run\`, which prints the diff it would write
-and touches nothing. Each acts on the current directory unless given \`--catalog <dir>\`.
-
-\`ambit catalog validate\` is what \`${CATALOG_WORKFLOW_FILENAME}\` runs in CI.
+That is what catches the mistakes hand-editing makes: a scope a skill declares that nothing
+registered, a \`requires\` that resolves to nothing, a cycle, a skill whose name disagrees with its
+path. It acts on the current directory unless given \`--catalog <dir>\`, and it is what
+\`${CATALOG_WORKFLOW_FILENAME}\` runs in CI.
 `;
 
 /**

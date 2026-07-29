@@ -1326,7 +1326,7 @@ describe("ambit why", () => {
     );
   });
 
-  it("refuses a bare name, in the words `catalog annotate` refuses one", async () => {
+  it("refuses a bare name, in the words every list that names an item refuses one", async () => {
     await writeProfile(["core"]);
 
     const result = await cli("why", CORE_SKILL);

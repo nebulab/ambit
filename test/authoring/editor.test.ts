@@ -1,5 +1,5 @@
 /**
- * The catalog editor — the guarantees every later mutation inherits.
+ * The catalog editor — the guarantees a catalog mutation inherits.
  *
  * Two claims carry this suite, and both are about bytes rather than about behaviour. The first is
  * fidelity: a catalog is hand-maintained, so an edit that reformats a comment, reorders a key, or

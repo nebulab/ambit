@@ -31,7 +31,8 @@ npx @nebulab/ambit --help
 
 ### Authoring a catalog
 
-A catalog is a plain git repo. Scaffold one, register your scopes, then add skills, servers and hooks:
+A catalog is a plain git repo. Scaffold one, then write its scopes, skills, servers and hooks with
+your editor:
 
 ```
 $ ambit catalog init --catalog acme-skills
@@ -46,33 +47,13 @@ created (6)
 kept (0)
   (none)
 
-next: register your scopes with `ambit catalog scope add`, then add a skill with `ambit catalog skill new`
+next: register your scopes in `scopes.yml`, then add a skill in `skills/<name>/SKILL.md` — see `README.md`
 ```
 
-```
-$ ambit catalog scope add function.engineering --description "Building and shipping software"
-registered (1)
-  function.engineering  Building and shipping software
-
-files (1)
-  scopes.yml
-```
-
-```
-$ ambit catalog skill new code-review \
-    --description "How we review code" \
-    --scope function.engineering \
-    --requires skill:house-style
-created (1)
-  code-review  How we review code
-
-files (1)
-  skills/code-review/SKILL.md  created
-
-next: write the skill's instructions in skills/code-review/SKILL.md
-```
-
-ambit writes the file and maintains its frontmatter; the instructions are yours.
+Register a scope in `scopes.yml`, add a skill by writing `skills/<name>/SKILL.md`, a server by
+writing `mcps/<name>.yml`, a hook by writing `hooks/<name>/HOOK.yml`. Every format is documented
+below, and `ambit catalog validate` checks the result. There is no command that writes into a
+catalog: it is Markdown and YAML, and you have an editor.
 
 `ambit catalog init` creates the root directory if it is missing, and scaffolds a GitHub Actions
 workflow that runs `ambit catalog validate`. It refuses a directory that already has a `scopes.yml`.
@@ -106,7 +87,6 @@ catalogs:
 Then:
 
 ```
-$ ambit scopes                 # what the catalog offers, and what this project holds
 $ ambit resolve --explain      # what you would get, and why
 $ ambit install                # write the lock, materialize the bundle, prune what left it
 ```
@@ -390,18 +370,10 @@ Holding `function.engineering` selects things scoped `function.engineering` _and
 `function.engineering.frontend`. Holding `function.engineering.frontend` selects only that subtree; it
 does **not** reach up to `function.engineering`.
 
-That rule is the whole resolver, so the shape of your scope tree is load-bearing:
-
-```
-$ ambit catalog tree
-scopes (3)
-  core                             1 direct  0 inherited  The universal floor — what everyone here needs
-  function.engineering             1 direct  1 inherited  Building and shipping software
-    function.engineering.frontend  1 direct  0 inherited  Browser-side work
-```
-
-A project holding `function.engineering` gets both engineering skills, one directly and one inherited
-from the child scope:
+That rule is the whole resolver, so the shape of your scope tree is load-bearing. Given a catalog
+registering `core`, `function.engineering` and `function.engineering.frontend`, a project holding
+`function.engineering` gets both engineering skills, one directly and one inherited from the child
+scope:
 
 ```
 $ ambit resolve --explain
@@ -430,15 +402,15 @@ skills (1)
 
 ### Global flags
 
-| Flag              | Notes                                                                                                                     |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `--project <dir>` | The project to act on. Default: cwd. On consumer commands.                                                                |
-| `--catalog <dir>` | The catalog root to act on. Default: cwd. On authoring commands.                                                          |
-| `--json`          | Machine-readable output. Every command supports it.                                                                       |
-| `--offline`       | Resolve from the cache alone. On consumer commands only: an authoring command reads one directory and resolves no source. |
-| `--dry-run`       | On mutating commands: report what would happen and touch nothing.                                                         |
-| `--help`          | Usage for the program or for any command, at any depth, on stdout at exit 0.                                              |
-| `--version`       | Print the ambit version. Program-level.                                                                                   |
+| Flag              | Notes                                                                                                                  |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `--project <dir>` | The project to act on. Default: cwd. On consumer commands.                                                             |
+| `--catalog <dir>` | The catalog root to act on. Default: cwd. On catalog commands.                                                         |
+| `--json`          | Machine-readable output. Every command supports it.                                                                    |
+| `--offline`       | Resolve from the cache alone. On consumer commands only: a catalog command reads one directory and resolves no source. |
+| `--dry-run`       | On mutating commands: report what would happen and touch nothing.                                                      |
+| `--help`          | Usage for the program or for any command, at any depth, on stdout at exit 0.                                           |
+| `--version`       | Print the ambit version. Program-level.                                                                                |
 
 `--dry-run` still checks ownership and `--frozen`: a preview of an install that would be refused is
 refused, with the same message and exit code.
@@ -448,7 +420,6 @@ refused, with the same message and exit code.
 | Command                                               | What it does                                                                                                                      |
 | ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
 | `ambit init`                                          | Scaffold an `ambit.yml`. Refuses a directory that already has one, `--dry-run` included, and does not create a missing directory. |
-| `ambit scopes`                                        | List the merged registry with descriptions, marking which scopes this project holds.                                              |
 | `ambit dump-catalog`                                  | Dump the merged catalog: every catalog the project lists, merged with its own declarations.                                       |
 | `ambit resolve [--explain]`                           | Compute the bundle and print it.                                                                                                  |
 | `ambit why <kind:name>`                               | Explain why one item is in the bundle, as a chain. The subject declares its namespace, as everything that names an item does.     |
@@ -459,48 +430,27 @@ refused, with the same message and exit code.
 | `ambit validate`                                      | Validate everything this project configures, for CI. One catalog on its own is `ambit catalog validate`.                          |
 | `ambit doctor`                                        | Check preconditions, the lock, ownership, drift, materialization mode, and harness limits.                                        |
 
-### Authoring commands
+### Catalog commands
 
 ```
 ambit catalog init                              scaffold a catalog repo
-ambit catalog tree [--json]                     the scope tree, and what each scope selects
-ambit catalog audit [--check]                   find dead scopes and unreachable items
 ambit catalog validate                          validate this catalog on its own terms, for CI
-
-ambit catalog scope add <name> --description <text>
-ambit catalog scope rm <name>
-ambit catalog scope mv <old> <new>
-
-ambit catalog skill new <name> [--description <text>] [--scope <s>…]
-                               [--requires <kind:name>…] [--expects <kind:name>…]
-ambit catalog skill rm <name>
-ambit catalog skill mv <old> <new>
-
-ambit catalog mcp new <name> (--stdio <command> [--arg <a>…] | --http <url> [--header <k=v>…])
-                             [--expects <kind:name>…]
-ambit catalog mcp rm <name>
-
-ambit catalog hook new <name> --event <event> (--command <cmd> | --script <path>) [--matcher <tool>]
-                              [--description <text>] [--timeout <seconds>] [--expects <kind:name>…]
-ambit catalog hook rm <name>
-
-ambit catalog annotate <kind:name>
-                              [--add-scope <s>…]            [--remove-scope <s>…]
-                              [--add-requires <kind:name>…] [--remove-requires <kind:name>…]
-                              [--add-expects <kind:name>…]  [--remove-expects <kind:name>…]
 ```
+
+Nothing here writes into a catalog's items. A catalog is Markdown and YAML in a git repo, and it is
+maintained the way the rest of the repo is: with an editor, and with `ambit catalog validate` in CI.
 
 ### Exit codes
 
-| Code | Meaning                                                                              |
-| ---- | ------------------------------------------------------------------------------------ |
-| 0    | Success                                                                              |
-| 1    | Unexpected internal error                                                            |
-| 2    | Config or ownership error                                                            |
-| 3    | Resolution error: unknown scope, missing requirement, cycle, name conflict           |
-| 4    | Network or cache error                                                               |
-| 5    | Drift detected (`status --check`, `install --frozen`)                                |
-| 6    | A health check found something (`doctor` failures, `catalog audit --check` findings) |
+| Code | Meaning                                                                    |
+| ---- | -------------------------------------------------------------------------- |
+| 0    | Success                                                                    |
+| 1    | Unexpected internal error                                                  |
+| 2    | Config or ownership error                                                  |
+| 3    | Resolution error: unknown scope, missing requirement, cycle, name conflict |
+| 4    | Network or cache error                                                     |
+| 5    | Drift detected (`status --check`, `install --frozen`)                      |
+| 6    | A health check found something (`doctor` failures)                         |
 
 A usage error (an unknown flag, a missing argument) is exit 2 at any depth.
 
@@ -522,8 +472,8 @@ error: refusing to overwrite unowned path
        move it aside, or run `ambit install --adopt` to take ownership
 ```
 
-`validate`, `status --check`, `doctor` and `catalog audit --check` _report_ rather than throw: findings
-go to stdout, so `--json` stays parseable, and the non-zero code travels out beside a full report.
+`validate`, `status --check` and `doctor` _report_ rather than throw: findings go to stdout, so
+`--json` stays parseable, and the non-zero code travels out beside a full report.
 
 ## Development
 

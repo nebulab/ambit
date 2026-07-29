@@ -4,7 +4,7 @@
  * Every case runs against the fixture catalog, mutated in place for the malformed ones, so the
  * subject is the same tree the rest of the suite resolves against.
  */
-import { cp, mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -186,7 +186,7 @@ async function invoke(
 }
 
 /**
- * Runs the CLI against the project under test. Authoring commands take `--catalog` instead and so
+ * Runs the CLI against the project under test. A `catalog` subcommand takes `--catalog` instead and so
  * cannot go through here — use `invoke` for those.
  */
 async function cli(...argv: readonly string[]): Promise<CliResult> {
@@ -920,7 +920,7 @@ describe("catalog hooks", () => {
 
 /**
  * Spec §6, "Catalog authoring": `catalog` is a command group, and only that — every command under it
- * maintains one catalog directory and takes `--catalog <dir>`.
+ * acts on one catalog directory and takes `--catalog <dir>`.
  *
  * It had a default action once, `dump`, which made bare `ambit catalog` the consumer command that reads
  * a project's `ambit.yml`. That put two subjects under one word: the group answered to `--project`
@@ -932,8 +932,11 @@ describe("catalog hooks", () => {
  * behaviour is its own suite's.
  */
 describe("ambit catalog as a command group", () => {
-  /** Every subcommand of `catalog`. */
-  const SUBCOMMANDS = ["init", "tree", "audit", "validate", "scope", "skill", "mcp", "annotate"];
+  /**
+   * Every subcommand of `catalog`. Two, since nothing writes into a catalog's items any more: one
+   * scaffolds a catalog and one checks it.
+   */
+  const SUBCOMMANDS = ["init", "validate"];
 
   /**
    * A command's usage, read by running `--help` through the CLI. That is only testable in-process
@@ -969,7 +972,7 @@ describe("ambit catalog as a command group", () => {
     expect(result.stderr).toContain("too many arguments for 'catalog'");
   });
 
-  it("lists every authoring subcommand in `ambit catalog --help`", async () => {
+  it("lists every catalog subcommand in `ambit catalog --help`", async () => {
     const help = await usage("catalog");
 
     for (const name of SUBCOMMANDS) expect(help).toContain(`\n  ${name} `);
@@ -978,7 +981,7 @@ describe("ambit catalog as a command group", () => {
   it("gives every command under `catalog` the catalog flag and no project flag", async () => {
     // The two directories are different subjects, not the same one under two names: a catalog has no
     // `ambit.yml` to read. `--offline` is absent for the same reason — there is no source to resolve.
-    for (const name of ["init", "tree", "audit", "validate"]) {
+    for (const name of SUBCOMMANDS) {
       const help = await usage("catalog", name);
 
       expect(help, name).toContain("--catalog <dir>");
@@ -995,12 +998,11 @@ describe("ambit catalog as a command group", () => {
   });
 
   it("prints its usage for a group, which has no action of its own", async () => {
-    for (const group of [["catalog"], ["catalog", "scope"]]) {
-      const result = await invoke(group);
+    // `catalog` is the only group left, its two children both being leaves.
+    const result = await invoke(["catalog"]);
 
-      expect(result.code, result.stderr).toBe(ExitCode.Success);
-      expect(result.stdout).toContain(`Usage: ambit ${group.join(" ")}`);
-    }
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+    expect(result.stdout).toContain("Usage: ambit catalog");
 
     // And the group takes none of the flags its children do, rather than silently eating them.
     const help = await usage("catalog");
@@ -1013,13 +1015,13 @@ describe("ambit catalog as a command group", () => {
     // Every command the surface declares is now built, so the guard is asserted against a program built
     // with one handler removed rather than against a gap in the surface: this is what a later task
     // adding a spec before its behaviour must see, instead of a command that silently succeeds.
-    const withoutTree = Object.fromEntries(
-      Object.entries(HANDLERS).filter(([key]) => key !== "catalog tree"),
+    const withoutValidate = Object.fromEntries(
+      Object.entries(HANDLERS).filter(([key]) => key !== "catalog validate"),
     );
-    const result = await invoke(["catalog", "tree", "--catalog", catalogDir], withoutTree);
+    const result = await invoke(["catalog", "validate", "--catalog", catalogDir], withoutValidate);
 
     expect(result.code, result.stderr).toBe(ExitCode.Internal);
-    expect(result.stderr).toContain(`command "catalog tree" is not implemented yet`);
+    expect(result.stderr).toContain(`command "catalog validate" is not implemented yet`);
     expect(result.stdout).toBe("");
   });
 });
@@ -1031,43 +1033,51 @@ describe("ambit catalog as a command group", () => {
  *
  * A subcommand added with `addCommand` inherits neither of the two settings that make that true, so
  * before A30 every case here wrote to the real stderr and called `process.exit`, taking the test worker
- * with it. That is why they are asserted two levels down rather than only for a top-level command:
- * `catalog scope add` is the depth nothing can reach by inheriting from the program alone.
+ * with it. That is why the first three are asserted below the top level rather than only for a
+ * top-level command: `catalog init` is the depth nothing can reach by inheriting from the program
+ * alone. Nothing under `catalog` takes a positional any more, so the missing-argument case is
+ * `ambit why`'s, at the top level.
  */
 describe("usage errors below the top level", () => {
-  const NESTED = ["catalog", "scope", "add"];
+  /** A directory `catalog init` would scaffold into, so a refused run can be shown to have written nothing. */
+  let fresh: string;
 
-  it("returns an exit code for an unknown flag on a nested subcommand", async () => {
-    const before = await readFile(path.join(catalogDir, "scopes.yml"), "utf8");
-    const result = await invoke([
-      ...NESTED,
-      "person.jane",
-      "--descriptoin",
-      "Jane's own things",
-      "--catalog",
-      catalogDir,
-    ]);
-
-    expect(result.code).toBe(ExitCode.Config);
-    expect(result.stderr).toContain("error: unknown option '--descriptoin'");
-    // Commander's suggestion is half of what makes the message useful, and it reaches the reader only
-    // through ambit's own writer.
-    expect(result.stderr).toContain("--description");
-    expect(result.stdout).toBe("");
-    // Refused before the handler ran, so the mutation it named did not happen.
-    expect(await readFile(path.join(catalogDir, "scopes.yml"), "utf8")).toBe(before);
+  beforeEach(async () => {
+    fresh = path.join(root, "fresh");
+    await mkdir(fresh, { recursive: true });
   });
 
-  it("returns an exit code for a missing argument on a nested subcommand", async () => {
-    const result = await invoke([...NESTED, "--description", "Jane's own things"]);
+  it("returns an exit code for an unknown flag on a nested subcommand", async () => {
+    const result = await invoke(["catalog", "init", "--dry-runn", "--catalog", fresh]);
 
     expect(result.code).toBe(ExitCode.Config);
-    expect(result.stderr).toContain("error: missing required argument 'name'");
+    expect(result.stderr).toContain("error: unknown option '--dry-runn'");
+    // Commander's suggestion is half of what makes the message useful, and it reaches the reader only
+    // through ambit's own writer.
+    expect(result.stderr).toContain("--dry-run");
+    expect(result.stdout).toBe("");
+    // Refused before the handler ran, so the scaffold it named did not happen.
+    expect(await readdir(fresh)).toEqual([]);
+  });
+
+  it("prints a nested subcommand's usage on `--help`, at exit 0", async () => {
+    const result = await invoke(["catalog", "validate", "--help"]);
+
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+    expect(result.stdout).toContain("Usage: ambit catalog validate");
+    expect(result.stderr).toBe("");
+  });
+
+  it("returns an exit code for a missing argument", async () => {
+    const result = await invoke(["why", "--project", projectDir]);
+
+    expect(result.code).toBe(ExitCode.Config);
+    expect(result.stderr).toContain("error: missing required argument 'kind:name'");
     expect(result.stdout).toBe("");
   });
 
   it("returns an exit code for an unknown flag on a top-level command", async () => {
-    const result = await invoke(["scopes", "--nope"]);
+    const result = await invoke(["status", "--nope"]);
 
     expect(result.code).toBe(ExitCode.Config);
     expect(result.stderr).toContain("error: unknown option '--nope'");
@@ -1079,32 +1089,24 @@ describe("usage errors below the top level", () => {
     // suppress and no color to disable. Rejecting them is the intended behaviour — a script passing
     // `--quiet` should hear that ambit cannot honour it, not be silently ignored.
     for (const flag of ["--quiet", "--no-color"]) {
-      const result = await invoke(["scopes", flag]);
+      const result = await invoke(["status", flag]);
 
       expect(result.code).toBe(ExitCode.Config);
       expect(result.stderr).toContain(`error: unknown option '${flag}'`);
       expect(result.stdout).toBe("");
     }
   });
-
-  it("prints a nested subcommand's usage on `--help`, at exit 0", async () => {
-    const result = await invoke([...NESTED, "--help"]);
-
-    expect(result.code, result.stderr).toBe(ExitCode.Success);
-    expect(result.stdout).toContain("Usage: ambit catalog scope add");
-    expect(result.stderr).toBe("");
-  });
 });
 
 /**
- * The flag rules Commander runs before it dispatches (`RULES` in `src/cli/program.ts`): the three rules
- * `.makeOptionMandatory()` and `.conflicts()` cannot state without giving up the message shape
- * required, declared with the command as a `preAction` hook instead of enforced by the handler that follows.
+ * The flag-rule seam Commander runs before it dispatches (`RULES` in `src/cli/program.ts`): a rule
+ * declared with its command as a `preAction` hook, for the refusals `.makeOptionMandatory()` and
+ * `.conflicts()` cannot word without giving up the message shape required.
  *
- * Each case runs against a wiring whose handler would succeed and only record that it was reached, so
- * what is asserted is that the refusal arrived *before* the handler — the whole of what moving the rule
- * onto Commander changed — while the wording each rule produces stays pinned where it always was, in
- * `test/catalog-scope.test.ts`, `test/catalog-mcp.test.ts` and `test/catalog-annotate.test.ts`.
+ * `RULES` is empty — the four rules that filled it belonged to the catalog mutators and went with them —
+ * so what is pinned here is the mechanism rather than any command's wording: a rule refuses *before*
+ * the handler, and it runs once, for the command it belongs to. Each case therefore injects its own
+ * rule, which is also how the seam would be exercised by a command that acquires one.
  */
 describe("the flag rules Commander enforces before a handler runs", () => {
   /** A wiring in which one command's handler succeeds, doing nothing but recording the visit. */
@@ -1122,76 +1124,42 @@ describe("the flag rules Commander enforces before a handler runs", () => {
     };
   }
 
-  it("refuses `scope add` with no description before the handler, naming the registry", async () => {
-    const stubbed = stub("catalog scope add");
-
-    const result = await invoke(
-      ["catalog", "scope", "add", "person.jane", "--catalog", catalogDir],
-      stubbed.handlers,
-    );
-
-    expect(result.code).toBe(ExitCode.Config);
-    expect(result.stderr).toContain('scope "person.jane" needs a description (scopes.yml)');
-    expect(result.stderr).toContain("--description");
-    expect(stubbed.reached()).toBe(false);
+  it("declares no rule, every command's flags being ones Commander can refuse itself", () => {
+    expect(Object.keys(RULES)).toEqual([]);
   });
 
-  it("refuses `mcp new` naming no transport before the handler, naming its file", async () => {
-    const stubbed = stub("catalog mcp new");
+  it("refuses before the handler, in ambit's own message shape", async () => {
+    const stubbed = stub("catalog validate");
+    const rules: CommandRules = {
+      "catalog validate": () => {
+        throw new AmbitError(ExitCode.Config, "refused by a rule (scopes.yml)", [
+          "do something else",
+        ]);
+      },
+    };
 
     const result = await invoke(
-      ["catalog", "mcp", "new", "notes", "--catalog", catalogDir],
+      ["catalog", "validate", "--catalog", catalogDir],
       stubbed.handlers,
+      rules,
     );
 
     expect(result.code).toBe(ExitCode.Config);
-    expect(result.stderr).toContain('MCP server "notes" names no transport (mcps/notes.yml)');
-    expect(result.stderr).toContain("supported kinds: http, stdio");
-    expect(stubbed.reached()).toBe(false);
-  });
-
-  it("refuses an `annotate` contradiction before the handler, naming both flags", async () => {
-    const stubbed = stub("catalog annotate");
-
-    const result = await invoke(
-      [
-        "catalog",
-        "annotate",
-        `skill:${CORE_SKILL}`,
-        "--add-scope",
-        "core",
-        "--remove-scope",
-        "core",
-        "--catalog",
-        catalogDir,
-      ],
-      stubbed.handlers,
-    );
-
-    expect(result.code).toBe(ExitCode.Config);
-    expect(result.stderr).toContain(
-      "`--add-scope core` and `--remove-scope core` contradict each other (skills)",
-    );
+    expect(result.stderr).toContain("refused by a rule (scopes.yml)");
+    expect(result.stderr).toContain("do something else");
     expect(stubbed.reached()).toBe(false);
   });
 
   it("dispatches to the handler once a rule accepts the flags it was given", async () => {
-    // The control on the three above: a hook that refused everything, or one wired to the wrong key,
-    // would pass them all and fail here.
-    const stubbed = stub("catalog scope add");
+    // The control on the case above: a hook wired to the wrong key, or one that refused everything,
+    // would pass that one and fail here.
+    const stubbed = stub("catalog validate");
+    const rules: CommandRules = { "catalog validate": () => {} };
 
     const result = await invoke(
-      [
-        "catalog",
-        "scope",
-        "add",
-        "person.jane",
-        "--description",
-        "Jane's own things",
-        "--catalog",
-        catalogDir,
-      ],
+      ["catalog", "validate", "--catalog", catalogDir],
       stubbed.handlers,
+      rules,
     );
 
     expect(result.code, result.stderr).toBe(ExitCode.Success);
@@ -1205,12 +1173,12 @@ describe("the flag rules Commander enforces before a handler runs", () => {
     // further up.
     const seen: (string | undefined)[] = [];
     const rules: CommandRules = {
-      "catalog tree": (ctx) => {
+      "catalog validate": (ctx) => {
         seen.push(typeof ctx.options.catalog === "string" ? ctx.options.catalog : undefined);
       },
     };
 
-    const result = await invoke(["catalog", "tree", "--catalog", catalogDir], HANDLERS, rules);
+    const result = await invoke(["catalog", "validate", "--catalog", catalogDir], HANDLERS, rules);
 
     expect(result.code, result.stderr).toBe(ExitCode.Success);
     expect(seen).toEqual([catalogDir]);

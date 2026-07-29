@@ -2,10 +2,11 @@
  * Rendering a catalog edit as a diff — what `--dry-run` shows instead of
  * writing.
  *
- * It lives beside the editor rather than inside any one command because every authoring mutation owes
- * the same promise, and a per-command renderer is a per-command chance for two previews of the same
- * edit to look different. {@link applyCatalogEdit} already returns each change with the bytes the file
- * holds now, which is everything needed here.
+ * It lives beside the editor rather than inside the one command that previews an edit
+ * (`ambit catalog init`) because the promise belongs to the edit rather than to the command making it,
+ * and a per-command renderer is a per-command chance for two previews of the same edit to look
+ * different. {@link applyCatalogEdit} already returns each change with the bytes the file holds now,
+ * which is everything needed here.
  *
  * This is a **reading aid, not a patch**. It is line-oriented and deliberately says nothing about a
  * missing final newline or about bytes inside a line, so it must not be fed to `git apply`; the bytes
@@ -42,9 +43,9 @@ export function changeKindOf(change: EditedFile): ChangeKind {
 /**
  * What happened to a directory, in one phrase.
  *
- * Exported because a command's own report says the same thing about the same operation, and two
- * wordings for one move is exactly the drift this module exists to prevent. The trailing `/` is what
- * tells a reader the path is a directory rather than an oddly named file.
+ * Named rather than inlined so a report that says the same thing about the same operation says it in
+ * these words, since two wordings for one move is exactly the drift this module exists to prevent. The
+ * trailing `/` is what tells a reader the path is a directory rather than an oddly named file.
  */
 export function treeChangeSummary(tree: CatalogTreeChange): string {
   return tree.to === null ? "removed" : `moved to ${tree.to}/`;

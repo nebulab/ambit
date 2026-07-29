@@ -4,7 +4,7 @@
  * Spec §4 makes determinism a requirement rather than a preference — sort every collection before
  * iterating, never depend on object key order, never emit a timestamp, never let filesystem read
  * order reach output — and each earlier task asserted its own corner of it: `ambit.lock`'s bytes,
- * `resolve --explain --json`, the two catalog reports, both scaffolds. This file is the systematic
+ * `resolve --explain --json`, the catalog report, both scaffolds. This file is the systematic
  * version. One table lists every surface ambit prints; every surface is run twice, then run again
  * with every directory listing permuted, and the bytes must not move. **Adding a command means
  * adding a row to `SURFACES`** — that is the whole of extending this file.
@@ -18,7 +18,7 @@
  * the ones this file reads.
  *
  * Nothing in the surface table writes, so the whole table shares one installed project; the
- * "wrote nothing" case is what pins that, and it is the reason the three `--dry-run` previews are
+ * "wrote nothing" case is what pins that, and it is the reason the `--dry-run` previews are
  * safe to list beside the read-only commands.
  *
  * One thing the table cannot do on its own: every surface in it is sorted twice over — a catalog's
@@ -146,23 +146,6 @@ const INLINE_HOOKS: readonly string[] = [
 
 const INLINE_HOOK = "guard";
 
-/**
- * The `catalog hook new` invocation the two authoring rows below preview.
- *
- * Under `--dry-run` it writes nothing, which is what makes it safe beside the read-only surfaces — and
- * what it prints is a whole `HOOK.yml` as a diff, so a document ambit emits is pinned here too.
- */
-const AUTHORED_HOOK: readonly string[] = [
-  "catalog",
-  "hook",
-  "new",
-  "audit-trail",
-  "--event",
-  "SessionEnd",
-  "--command",
-  "npx --yes @acme/audit-trail",
-];
-
 /** The fixture's two credentials, stubbed so no surface depends on the developer's environment. */
 const ENV_STUBS: Readonly<Record<string, string>> = {
   SCOPED_API_KEY: "determinism-scoped-key",
@@ -178,17 +161,14 @@ interface Surface {
 }
 
 /**
- * Every surface whose bytes this file pins, consumer and authoring alike.
+ * Every surface whose bytes this file pins.
  *
  * Text and `--json` are separate rows on purpose: they are two renderings, and only one of them is
- * covered by the goldens. The `--dry-run` rows are here because a preview is a report — the
+ * covered by the goldens. The three `--dry-run` rows are here because a preview is a report — the
  * one surface of a mutating command that prints without writing, and the one nothing else asserts
- * twice. Three of them preview a project's install, prune and clean; the last two preview an authoring
- * write, whose diff is a document ambit emits rather than one it read.
+ * twice. They preview a project's install, prune and clean.
  */
 const SURFACES: readonly Surface[] = [
-  { argv: ["scopes"], dir: "project" },
-  { argv: ["scopes", "--json"], dir: "project" },
   { argv: ["dump-catalog"], dir: "project" },
   { argv: ["dump-catalog", "--json"], dir: "project" },
   { argv: ["resolve"], dir: "project" },
@@ -211,13 +191,7 @@ const SURFACES: readonly Surface[] = [
   { argv: ["prune", "--dry-run", "--json"], dir: "project" },
   { argv: ["clean", "--dry-run"], dir: "project" },
   { argv: ["clean", "--dry-run", "--json"], dir: "project" },
-  { argv: ["catalog", "tree"], dir: "catalog" },
-  { argv: ["catalog", "tree", "--json"], dir: "catalog" },
-  { argv: ["catalog", "audit"], dir: "catalog" },
-  { argv: ["catalog", "audit", "--json"], dir: "catalog" },
   { argv: ["catalog", "validate"], dir: "catalog" },
-  { argv: [...AUTHORED_HOOK, "--dry-run"], dir: "catalog" },
-  { argv: [...AUTHORED_HOOK, "--dry-run", "--json"], dir: "catalog" },
 ];
 
 /** What a surface printed, whole: two streams and the code, since all three have to be stable. */
