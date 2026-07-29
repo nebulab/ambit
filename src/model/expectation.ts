@@ -1,16 +1,17 @@
 /**
  * What an `expects` entry names: a fact about the world that has to be true for the thing to work.
  *
- * `expects` is not `requires` with a different vocabulary. A requirement is **resolved** — it names a
- * catalog item, it is looked up, it joins the bundle, and one nothing provides fails the install at exit
- * 3. An expectation is **checked** — nothing provides it, no two catalogs can offer competing
+ * `expects` is not `requires` with a different vocabulary. A requirement is **resolved** — it selects
+ * catalog items by pattern, they join the bundle, and an entry that selects nothing fails the install at
+ * exit 3. An expectation is **checked** — nothing provides it, no two catalogs can offer competing
  * copies of it, it cannot expect anything back and it cannot cycle. `doctor` asks the world about it, and a world that says no leaves
  * the install alone and fails at exit 6.
  *
  * ```yaml
  * ambit:
- *   requires: # resolved into the bundle; exit 3 if unsatisfiable
- *     - mcp: close
+ *   requires: # resolved into the bundle; exit 3 if it matches nothing
+ *     - name: close
+ *       capabilities: [mcps]
  *   expects: # checked by `doctor`; exit 6 if unsatisfied
  *     - env: CLOSE_API_KEY
  * ```
@@ -23,7 +24,8 @@
  *
  * Unlike `requires`, this is the one annotation every kind of catalog entity carries: a skill reads
  * variables at runtime, a server reads its own credentials, and a hook's command reads whatever the
- * shell the harness spawns hands it. The spelling is `reference.ts`'s, shared with `requires`.
+ * shell the harness spawns hands it. It is also the last list written as one-key `<kind>: <name>`
+ * mappings — `reference.ts`' grammar, which `requires` left when it started selecting by pattern.
  */
 import type { Reference, ReferenceGrammarOf } from "./reference.js";
 import {

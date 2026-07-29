@@ -51,9 +51,15 @@ function skillJson(skill: MergedSkill): Readonly<Record<string, unknown>> {
     ...(skill.description !== undefined && { description: skill.description }),
     expects: skill.expects.map((item) => ({ kind: item.kind, name: item.name })),
     path: skill.path,
-    // Each entry keeps its two halves apart, as the document writes them: a consumer filtering for
-    // what a skill pulls in should not have to re-derive a namespace from a name.
-    requires: skill.requires.map((item) => ({ kind: item.kind, name: item.name })),
+    // Each entry keeps its parts apart, as the document writes them: a consumer filtering for what a
+    // skill pulls in should not have to re-parse a pattern or re-derive which field it matches. No
+    // `catalog` key, because a catalog's own entry carries no qualifier — it resolves within the
+    // catalog this record is already keyed by.
+    requires: skill.requires.map((entry) => ({
+      capabilities: entry.capabilities,
+      field: entry.field,
+      pattern: entry.pattern,
+    })),
     tags: skill.tags,
   };
 }

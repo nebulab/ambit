@@ -255,9 +255,12 @@ export class CatalogDocument {
   }
 
   /**
-   * Sets `path` to a list of references — a `requires` or an `expects` — each written as the one-key
-   * mapping that declares its kind. The same layout and ordering stance
+   * Sets `path` to a list of references — an `expects` — each written as the one-key mapping that
+   * declares its kind. The same layout and ordering stance
    * {@link CatalogDocument.setStringList} takes.
+   *
+   * `expects` is the last list written that way. A `requires` entry selects by pattern and is a
+   * two-key mapping, so it is not a reference and cannot be written here.
    */
   setReferenceList(path: readonly string[], values: readonly Reference[]): void {
     this.edit.setMappingList(

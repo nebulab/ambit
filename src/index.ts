@@ -139,19 +139,8 @@ export {
   sortedUniqueReferences,
 } from "./model/reference.js";
 export type { Reference, ReferenceGrammar, ReferenceGrammarOf } from "./model/reference.js";
-export {
-  ITEM_KINDS,
-  KIND_NOUNS,
-  REQUIRES,
-  formatRequirement,
-  isRequirementReference,
-  parseRequirement,
-  parseRequirements,
-  requirementYaml,
-  sameRequirement,
-  sortedUniqueRequirements,
-} from "./model/requirement.js";
-export type { ItemKind, Requirement } from "./model/requirement.js";
+export { ITEM_KINDS, ITEM_REFERENCE, KIND_NOUNS } from "./model/requirement.js";
+export type { ItemKind } from "./model/requirement.js";
 export {
   CAPABILITIES,
   CAPABILITIES_KEY,
@@ -195,13 +184,17 @@ export {
   assertNoCollisions,
   closeOverRequires,
   cycleError,
+  entryCatalog,
   entryPosition,
   explainSelection,
   formatReason,
   isSelected,
   matchesAnything,
-  missingRequirement,
+  matchesOwnCatalog,
   reasonOf,
+  requiredEntries,
+  requiredItems,
+  requirerPosition,
   resolveBundle,
   selectingEntry,
   skillFile,

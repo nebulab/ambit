@@ -190,40 +190,54 @@ name: close-crm
 description: "Calls the Close CRM REST API…"
 ambit:
   tags: [function.sales]
-  requires: # resolved into the bundle; exit 3 if unsatisfiable
-    - skill: company-context
-    - mcp: close
+  requires: # resolved into the bundle; exit 3 if an entry matches nothing
+    - name: company-context
+      capabilities: [skills]
+    - tag: guards
+      capabilities: [hooks]
   expects: # checked by `doctor`; exit 6 if unsatisfied
     - env: CLOSE_API_KEY
 ---
 ```
 
-| Key              | Type     | Required | Notes                                                                                                                                |
-| ---------------- | -------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `ambit`          | map      | no       | Every annotation below. Absent means the skill declares nothing.                                                                     |
-| `ambit.tags`     | string[] | no       | Free-form labels a `tag:` entry selects on. Absent or empty: reachable by a `name:` entry or a `requires` edge, and by nothing else. |
-| `ambit.requires` | map[]    | no       | One entry per requirement, each a single key naming its namespace: `skill:`, `mcp:`, or `hook:`.                                     |
-| `ambit.expects`  | map[]    | no       | One entry per precondition, each a single key naming its kind. Today: `env:`.                                                        |
+| Key              | Type     | Required | Notes                                                                                                                                                                      |
+| ---------------- | -------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ambit`          | map      | no       | Every annotation below. Absent means the skill declares nothing.                                                                                                           |
+| `ambit.tags`     | string[] | no       | Free-form labels a `tag:` entry selects on. Absent or empty: reachable by a `name:` entry or a `requires` edge, and by nothing else.                                       |
+| `ambit.requires` | map[]    | no       | Each entry: exactly one of `name`/`tag` carrying a **bare** pattern, plus a non-empty `capabilities`. Resolved within this catalog. An entry matching nothing is an error. |
+| `ambit.expects`  | map[]    | no       | One entry per precondition, each a single key naming its kind. Today: `env:`.                                                                                              |
 
-A `requires` entry **declares** its namespace instead of encoding it in the name. The three namespaces
-are flat and independent, so a skill at `skills/mcp/sentry/SKILL.md` is legitimately named `mcp.sentry`
-— under a prefix convention that skill can never be required, and `mcp.sentry` silently resolves to a
-server of the same name instead. Each entry is therefore one key, exactly as an MCP entity's
-`transport` is: `skill:`, `mcp:`, or `hook:`, and never two of them.
+**A skill's `requires` is a project's `requires` minus the qualifier.** Same two declared keys, same
+glob rules, so a skill can say _everything tagged `guards`, as hooks_ as readily as a project can. The
+qualifier is refused rather than optional: the alias belongs to the consumer's `catalogs:`, and the same
+catalog is `company` in one project and `acme` in the next. So a bare pattern resolves **within the
+catalog that ships the requiring skill** — a catalog is self-contained, and can only require what it
+ships.
 
-Where only a string will do — a flag's value, a command's subject — the same pair is written
-`<kind>:<name>`: `--add-requires mcp:close`, `ambit why skill:mcp.sentry`. One grammar, everywhere a
-name is taken from a person: nothing guesses a namespace, so a bare name is refused rather than
-resolved against whatever the catalog happens to hold today.
+Three consequences worth knowing. A catalog's `requires` cannot reach another catalog's skill, however
+plainly the merged view holds a match. A wildcard is live: adding `skills/core/internal-notes` to a
+catalog grows a dependency for every skill requiring `name: core.*`, at install, with no message —
+accepted, and silent. And a pattern that matches the requiring skill **itself** is a one-step cycle, so
+`core.a` cannot require `name: core.*` — which is why the cycle refusal names the entry that closed the
+loop and the file it is in.
+
+The spelling before this one — `- skill: company-context`, one key naming a namespace — is refused
+rather than read, naming the entry it becomes: `- { name: "company-context", capabilities: [skills] }`.
+
+Where only a string will do — `ambit why skill:mcp.sentry`, `ambit why mcp:sentry` — an item is named
+`<kind>:<name>`. Nothing guesses a namespace there either: a bare name is refused rather than resolved
+against whatever the catalog happens to hold today, because `skills/mcp/sentry/SKILL.md` is legitimately
+the skill `mcp.sentry` and an MCP entity called `sentry` is a different thing one namespace over.
 
 #### `requires` vs. `expects`
 
-They share that grammar and nothing else. **`requires` is resolved**: every entry names a catalog item,
-resolution closes over it to a fixpoint, and an entry nothing provides fails the install at exit 3
-rather than leaving a bundle missing what a skill said it could not work without. **`expects` is
-checked**: nothing provides an environment variable, so there is no lookup, no collision, no cycle
-and nothing to close over. `ambit doctor` asks the machine, and a machine that says no fails at exit 6 with
-the install left exactly as it was.
+**`requires` is resolved**: every entry selects catalog items, resolution closes over them to a
+fixpoint, and an entry that selects nothing fails the install at exit 3 rather than leaving a bundle
+missing what a skill said it could not work without. **`expects` is checked**: nothing provides an
+environment variable, so there is no lookup, no collision, no cycle and nothing to close over. `ambit
+doctor` asks the machine, and a machine that says no fails at exit 6 with the install left exactly as it
+was. `expects` is also the last list written as one-key `<kind>: <name>` mappings, which `requires` left
+when it started selecting by pattern.
 
 That is why they are two lists rather than one with four kinds. Each has one algebra, one exit code,
 and one answer to _why does this entry fail my install and that one doesn't_.
@@ -344,10 +358,12 @@ scope over as a tag on the items that declared it.
 6. **Select by entry.** Any skill, MCP or hook whose capability the entry names, whose catalog it
    qualified, and whose `name` or `tag` its pattern matches. An exact name is a pattern with no
    wildcard, so naming one item and globbing a prefix are one operator.
-7. **Close over `requires`** to a fixpoint. Each entry declares its own namespace, so a `mcp:` entry
-   resolves against MCP entities, a `hook:` entry against hooks, and a `skill:` entry against skills —
-   nothing is read off the name. Servers and hooks are leaves: neither carries `requires`. Unresolvable
-   → exit 3 naming the requirer and the missing target. A cycle → exit 3 printing the full cycle path.
+7. **Close over `requires`** to a fixpoint. A skill's entry is the same grammar minus the qualifier, so
+   it may glob and may match on `tag`, and it is resolved **within the catalog that ships the skill** —
+   a catalog can only require what it ships. An entry that selects nothing → exit 3, the same finding a
+   project entry earns, naming the entry and the `SKILL.md` it is written in. Servers and hooks are
+   leaves: neither carries `requires`. A cycle → exit 3 printing the full path, plus the entry that
+   closed it and its file.
 8. **Union `expects`** across every selected skill, server and hook, grouped by kind. Nothing is
    resolved here: an expectation names no catalog item, so the union is the list `doctor` later
    checks the machine against.
@@ -464,7 +480,8 @@ error: `requires` entry "tag:company/function.enginering" matches nothing (ambit
 
 error: requirement cycle
        alpha → beta → gamma → alpha
-       break the cycle by removing one `requires` edge
+       closed by `name:alpha` in skills/gamma/SKILL.md
+       break the cycle by removing one `requires` entry
 
 error: refusing to overwrite unowned path
        .agents/skills/close-crm exists but ambit did not create it

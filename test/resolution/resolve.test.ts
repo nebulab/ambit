@@ -149,6 +149,23 @@ async function writeMcp(name: string, annotations: readonly string[] = []): Prom
 }
 
 /**
+ * One entry of a skill's own `requires`, **unqualified** — the spelling a catalog demands, since the
+ * alias in `catalogs:` belongs to the consumer and a catalog author cannot write it.
+ *
+ * By exact name, which is a pattern with no wildcard: most cases here are about what the closure does
+ * with an edge rather than about what a glob reaches, and `pattern.test.ts` owns the matcher. The
+ * cases that *are* about a pattern inside a catalog write one out.
+ */
+function needs(capability: string, name: string): string {
+  return `{ name: "${name}", capabilities: [${capability}] }`;
+}
+
+/** A skill's whole `requires` list as one annotation line, from {@link needs} entries. */
+function requires(...entries: readonly string[]): string {
+  return `requires: [${entries.join(", ")}]`;
+}
+
+/**
  * The annotation lines as §3.2 nests them: under a top-level `ambit:`, indented with it.
  *
  * Callers still pass `tags:` and `requires:` as they are tabulated, so a fixture reads like the
@@ -541,8 +558,8 @@ describe("the requires closure", () => {
   });
 
   it("follows a requirement of a requirement, to fixpoint", async () => {
-    await writeSkill("chain-a", ["tags: [core]", "requires: [{skill: chain-b}]"]);
-    await writeSkill("chain-b", ["requires: [{skill: chain-c}]"]);
+    await writeSkill("chain-a", ["tags: [core]", requires(needs("skills", "chain-b"))]);
+    await writeSkill("chain-b", [requires(needs("skills", "chain-c"))]);
     await writeSkill("chain-c", []);
 
     expect((await bundle([entry("tag", "core")])).skills.map((skill) => skill.name)).toEqual([
@@ -554,8 +571,11 @@ describe("the requires closure", () => {
   });
 
   it("treats a requirement two skills share as a diamond, not a cycle", async () => {
-    await writeSkill("diamond-left", ["tags: [core]", "requires: [{skill: diamond-shared}]"]);
-    await writeSkill("diamond-right", ["tags: [core]", "requires: [{skill: diamond-shared}]"]);
+    await writeSkill("diamond-left", ["tags: [core]", requires(needs("skills", "diamond-shared"))]);
+    await writeSkill("diamond-right", [
+      "tags: [core]",
+      requires(needs("skills", "diamond-shared")),
+    ]);
     await writeSkill("diamond-shared", []);
 
     const resolved = await bundle([entry("tag", "core")]);
@@ -566,46 +586,51 @@ describe("the requires closure", () => {
   });
 
   it("selects a required skill exactly once, however many skills require it", async () => {
-    await writeSkill("twice-left", ["tags: [core]", "requires: [{mcp: fixture}]"]);
-    await writeSkill("twice-right", ["tags: [core]", "requires: [{mcp: fixture}]"]);
+    await writeSkill("twice-left", ["tags: [core]", requires(needs("mcps", "fixture"))]);
+    await writeSkill("twice-right", ["tags: [core]", requires(needs("mcps", "fixture"))]);
 
     expect((await bundle([entry("tag", "core")])).mcps.map((mcp) => mcp.name)).toEqual(["fixture"]);
   });
 
-  it("pulls in every catalog's copy of a required name, and refuses the collision", async () => {
-    // A `requires` entry names a name and says nothing about which catalog holds it. With no
-    // precedence left there is nothing to choose with, so both copies join the selection and the
-    // project hears about it — taking the first is the silent drop this branch deleted.
-    await writeSkill("needs-shared", ["tags: [core]", "requires: [{skill: shared-dep}]"]);
+  it("takes the requiring catalog's copy of a name two catalogs ship", async () => {
+    // A name two catalogs ship is not ambiguous to a requirer, because the entry never leaves its own
+    // catalog: `company`'s skill gets `company`'s copy and `personal`'s is not selected at all. So the
+    // closure cannot pull one name in twice, and there is no collision here to refuse.
+    await writeSkill("needs-shared", ["tags: [core]", requires(needs("skills", "shared-dep"))]);
     await writeSkill("shared-dep", []);
     await writeSkillIn("personal", "shared-dep", []);
-    await writeTwoCatalogProfile("personal", [entry("tag", "core")]);
-
-    const result = await cli("resolve");
-
-    expect(result.code).toBe(ExitCode.Resolution);
-    expect(result.stderr).toContain('skill "shared-dep" is selected from more than one catalog');
-    expect(result.stderr).toContain(`provided by: ${CATALOG_NAME}, personal`);
-  });
-
-  it("follows a required name into a second catalog when only one copy exists", async () => {
-    // The other half of the case above: reaching across catalogs is what a `requires` edge does
-    // today, and one copy of the name is one selection — no collision, no refusal.
-    await writeSkill("needs-remote", ["tags: [core]", "requires: [{skill: remote-dep}]"]);
-    await writeSkillIn("personal", "remote-dep", []);
-    await writeTwoCatalogProfile("personal", [entry("tag", "core")]);
+    await writeTwoCatalogProfile("personal", [entry("tag", `${CATALOG_NAME}/core`)]);
 
     const config = await loadProjectConfig(projectDir);
     const resolved = resolveBundle(config, mergeCatalogs(await loadCatalogs(config, context())));
 
-    expect(resolved.skills.find((skill) => skill.name === "remote-dep")?.catalog).toBe("personal");
+    expect(
+      resolved.skills.filter((skill) => skill.name === "shared-dep").map((skill) => skill.catalog),
+    ).toEqual([CATALOG_NAME]);
+  });
+
+  it("refuses a collision two project entries reach, the only way one arises now", async () => {
+    // Collision is a project's ask, not a catalog's: both catalogs ship `house-style`, both entries
+    // select a copy, and the two would materialize to one harness path.
+    await writeSkill("house-style", ["tags: [core]"]);
+    await writeSkillIn("personal", "house-style", ["tags: [core]"]);
+    await writeTwoCatalogProfile("personal", [
+      entry("tag", `${CATALOG_NAME}/core`, ["skills"]),
+      entry("tag", "personal/core", ["skills"]),
+    ]);
+
+    const result = await cli("resolve");
+
+    expect(result.code).toBe(ExitCode.Resolution);
+    expect(result.stderr).toContain('skill "house-style" is selected from more than one catalog');
+    expect(result.stderr).toContain(`provided by: ${CATALOG_NAME}, personal`);
   });
 
   it("leaves a broken skill nobody selected alone, so one bad entry blocks no one", async () => {
     // Spec §4's validation split: `resolve` hard-validates the selected closure only. This skill
     // declares no scope, so nothing reaches it and its dangling requirement is `validate`'s
     // business (A23), not this bundle's.
-    await writeSkill("broken-unselected", ["requires: [{skill: absent-skill}]"]);
+    await writeSkill("broken-unselected", [requires(needs("skills", "absent-skill"))]);
 
     const result = await cli("resolve");
 
@@ -613,95 +638,188 @@ describe("the requires closure", () => {
   });
 });
 
-describe("unresolvable requirements", () => {
-  it("exits 3 naming the requirer, the missing skill, and the file the edge is in", async () => {
-    await writeSkill("broken-dangling", ["tags: [core]", "requires: [{skill: absent-skill}]"]);
+/**
+ * A `requires` entry inside a catalog that reaches nothing, which is the one refusal a `requires` list
+ * earns at either altitude — the same finding a project's own entry earns, named the same way.
+ *
+ * The old *unresolvable requirement* is gone with the lookup it described: a requirement no longer
+ * names a name that either is or is not there, so what these cases pin is which catalog was searched,
+ * which namespaces, and the file the entry is written in.
+ */
+describe("`requires` entries that reach nothing", () => {
+  it("exits 3 naming the entry, the catalog searched, and the file the edge is in", async () => {
+    await writeSkill("broken-dangling", [
+      "tags: [core]",
+      requires(needs("skills", "absent-skill")),
+    ]);
 
     const result = await cli("resolve");
 
     expect(result.code).toBe(ExitCode.Resolution);
     expect(result.stderr).toContain(
-      'unresolvable requirement "skill:absent-skill" (skills/broken-dangling/SKILL.md)',
+      '`requires` entry "name:absent-skill" matches nothing (skills/broken-dangling/SKILL.md)',
     );
-    expect(result.stderr).toContain('broken-dangling requires a skill named "absent-skill"');
+    expect(result.stderr).toContain(
+      `no skill in catalog "${CATALOG_NAME}" has a name matching "absent-skill"`,
+    );
   });
 
-  it("names the MCP entity, and the namespace the entry declared, for an `mcp:` target", async () => {
-    await writeSkill("broken-dangling-mcp", ["tags: [core]", "requires: [{mcp: absent}]"]);
+  it("names the MCP namespace, and only it, for a `[mcps]` entry", async () => {
+    await writeSkill("broken-dangling-mcp", ["tags: [core]", requires(needs("mcps", "absent"))]);
 
     const result = await cli("resolve");
 
     expect(result.code).toBe(ExitCode.Resolution);
-    expect(result.stderr).toContain('unresolvable requirement "mcp:absent"');
-    expect(result.stderr).toContain('requires an MCP entity named "absent"');
-    expect(result.stderr).toContain("mcps/");
+    expect(result.stderr).toContain('`requires` entry "name:absent" matches nothing');
+    expect(result.stderr).toContain(`no MCP server in catalog "${CATALOG_NAME}"`);
   });
 
-  it("names the hook, and the namespace the entry declared, for a `hook:` target", async () => {
-    await writeSkill("broken-dangling-hook", ["tags: [core]", "requires: [{hook: absent}]"]);
+  it("names the hook namespace, and only it, for a `[hooks]` entry", async () => {
+    await writeSkill("broken-dangling-hook", ["tags: [core]", requires(needs("hooks", "absent"))]);
 
     const result = await cli("resolve");
 
     expect(result.code).toBe(ExitCode.Resolution);
     expect(result.stderr).toContain(
-      'unresolvable requirement "hook:absent" (skills/broken-dangling-hook/SKILL.md)',
+      '`requires` entry "name:absent" matches nothing (skills/broken-dangling-hook/SKILL.md)',
     );
-    expect(result.stderr).toContain('requires a hook named "absent"');
-    expect(result.stderr).toContain("add it under hooks/ in a catalog");
+    expect(result.stderr).toContain(`no hook in catalog "${CATALOG_NAME}"`);
   });
 
-  it("does not accept a skill of that name for a requirement in another namespace", async () => {
-    // A `hook:` entry names the hook namespace, and a skill called `absent` is not in it — or the
-    // key would be decoration.
+  it("does not accept a skill of that name for an entry that names only hooks", async () => {
+    // `capabilities: [hooks]` names the hook namespace, and a skill called `absent` is not in it — or
+    // the key would be decoration.
     await writeSkill("absent", ["tags: [core]"]);
-    await writeSkill("broken-wrong-namespace", ["tags: [core]", "requires: [{hook: absent}]"]);
+    await writeSkill("broken-wrong-namespace", [
+      "tags: [core]",
+      requires(needs("hooks", "absent")),
+    ]);
 
     const result = await cli("resolve");
 
     expect(result.code).toBe(ExitCode.Resolution);
-    expect(result.stderr).toContain('unresolvable requirement "hook:absent"');
+    expect(result.stderr).toContain('`requires` entry "name:absent" matches nothing');
   });
 
-  it("refuses a `requires` entry written as a bare string, naming all three spellings", async () => {
-    // The pre-namespace shape. Refused at parse time rather than read as a skill, because
-    // `mcp.absent` was always two claims at once and picking one is what this format removed.
+  it("says another catalog's copy does not satisfy it, so a catalog stays self-contained", async () => {
+    // The tightening: the merged view plainly holds `remote-only`, and `company`'s skill still cannot
+    // require it. A catalog author cannot write a consumer's alias, so a bare pattern means this
+    // catalog — and reaching across used to depend on which catalogs a project happened to list.
+    await writeSkill("needs-across", ["tags: [core]", requires(needs("skills", "remote-only"))]);
+    await writeSkillIn("personal", "remote-only");
+    await writeTwoCatalogProfile("personal", [entry("tag", `${CATALOG_NAME}/core`)]);
+
+    const result = await cli("resolve");
+
+    expect(result.code).toBe(ExitCode.Resolution);
+    expect(result.stderr).toContain('`requires` entry "name:remote-only" matches nothing');
+    expect(result.stderr).toContain(
+      "a catalog's own `requires` resolves within that catalog, which can only require what it ships",
+    );
+  });
+
+  it("takes a wildcard inside a catalog, reaching every sibling under a prefix", async () => {
+    // The point of one grammar at both altitudes: a skill can say *everything under `dep.`* exactly as
+    // a project can, and it is one entry rather than one per sibling.
+    await writeSkill("wide", ["tags: [core]", requires(needs("skills", "dep.*"))]);
+    await writeSkill("dep.one", []);
+    await writeSkill("dep.two", []);
+
+    const selected = await bundle([entry("tag", "core", ["skills"])]);
+
+    expect(selected.skills.map((skill) => skill.name)).toEqual([
+      CORE_SKILL,
+      "dep.one",
+      "dep.two",
+      "wide",
+    ]);
+  });
+
+  it("takes a tag entry inside a catalog, and its capability list is obeyed", async () => {
+    await writeHook("guard-tagged", [
+      "tags: [guards]",
+      "event: PreToolUse",
+      "matcher: Bash",
+      "type: command",
+      "command: npx guard",
+    ]);
+    await writeSkill("guarded", ["tags: [core]", requires(needs("hooks", "*"))]);
+
+    const required = await bundle([entry("tag", "core", ["skills"])]);
+
+    // Every hook the catalog ships, and no skill or server: `capabilities` is what bounds a wildcard.
+    expect(required.hooks.map((hook) => hook.name)).toEqual([
+      "acme-standup",
+      "guard-secrets",
+      "guard-tagged",
+      CORE_HOOK,
+    ]);
+    expect(required.mcps).toEqual([]);
+  });
+
+  it("refuses a `requires` entry written as a bare string, naming both things it fails to say", async () => {
+    // A plain list of names is the shape a reader reaches for, and it says neither which field it
+    // matches nor which capabilities it selects — the two declarations this grammar is made of.
     await writeSkill("legacy", ["tags: [core]", "requires: [mcp.absent]"]);
 
     const result = await cli("resolve");
 
     expect(result.code).toBe(ExitCode.Config);
-    expect(result.stderr).toContain('`requires` entry "mcp.absent" names no namespace');
-    expect(result.stderr).toContain("`- mcp: absent`");
-    expect(result.stderr).toContain("`- skill: mcp.absent`");
+    expect(result.stderr).toContain('`requires` entry "mcp.absent" is not a mapping');
+    expect(result.stderr).toContain("says neither which field it matches");
+    expect(result.stderr).toContain('- { name: "mcp.absent", capabilities: [skills] }');
   });
 
-  it("refuses an entry naming two namespaces at once", async () => {
-    await writeSkill("greedy", ["tags: [core]", "requires: [{mcp: a, hook: b}]"]);
+  it("refuses the `<namespace>: <name>` spelling, naming the entry it becomes", async () => {
+    // The pre-pattern shape, and the whole of the migration path: no compatibility reader, one
+    // refusal that prints the rewrite.
+    await writeSkill("legacy", ["tags: [core]", "requires: [{ mcp: absent }]"]);
 
     const result = await cli("resolve");
 
     expect(result.code).toBe(ExitCode.Config);
-    expect(result.stderr).toContain("a `requires` entry names 2 namespaces: hook, mcp");
+    expect(result.stderr).toContain(
+      "`requires` entry names the namespace `mcp`, which an entry no longer does",
+    );
+    expect(result.stderr).toContain('- { name: "absent", capabilities: [mcps] }');
   });
 
-  it("refuses an entry whose one key is not a namespace", async () => {
-    await writeSkill("typo", ["tags: [core]", "requires: [{skil: a}]"]);
+  it("names the qualifier as refused for a catalog entry that writes one", async () => {
+    // A catalog author cannot write the alias, so an address that carries one is exit 2 rather than a
+    // pattern quietly resolved against a guess.
+    await writeSkill("qualified", [
+      "tags: [core]",
+      `requires: [{ name: "${CATALOG_NAME}/${CORE_SKILL}", capabilities: [skills] }]`,
+    ]);
 
     const result = await cli("resolve");
 
     expect(result.code).toBe(ExitCode.Config);
-    expect(result.stderr).toContain('unknown namespace "skil" in a `requires` entry');
+    expect(result.stderr).toContain(
+      `\`requires\` entry "${CATALOG_NAME}/${CORE_SKILL}" names a catalog, which a catalog's own \`requires\` may not`,
+    );
+  });
+
+  it("refuses an entry whose one key is neither a field nor a namespace", async () => {
+    await writeSkill("typo", ["tags: [core]", "requires: [{ skil: a }]"]);
+
+    const result = await cli("resolve");
+
+    expect(result.code).toBe(ExitCode.Config);
+    expect(result.stderr).toContain('unknown key "ambit.requires[0].skil"');
+    expect(result.stderr).toContain("accepted keys: capabilities, name, tag");
   });
 });
 
 /**
- * `expects` borrows `requires`' spelling, so the shape errors are the same errors in the other
- * vocabulary — which is the point of sharing the grammar, and what these cases pin.
+ * `expects` is the last list written as one-key `<kind>: <name>` mappings — `requires` left that
+ * spelling when it started selecting by pattern — so the shape errors here are what the grammar
+ * `reference.ts` still serves refuses.
  *
  * The one thing deliberately *not* here is a resolution failure: an expectation names nothing a
- * catalog could provide, so there is no unresolvable entry to write and no cycle to close. That is
- * `doctor`'s question, and the split is exactly this: everything below fails at parse time, and a
- * variable the machine does not have fails nowhere until the machine is asked.
+ * catalog could provide, so there is no entry to write that could reach nothing and no cycle to close.
+ * That is `doctor`'s question, and the split is exactly this: everything below fails at parse time, and
+ * a variable the machine does not have fails nowhere until the machine is asked.
  */
 describe("`expects` entries", () => {
   it("refuses an entry written as a bare string, naming the spelling it wanted", async () => {
@@ -754,21 +872,22 @@ describe("`expects` entries", () => {
 
 describe("requirement cycles", () => {
   it("exits 3 printing the whole path, not just the fact of a cycle", async () => {
-    await writeSkill("cycle-a", ["tags: [core]", "requires: [{skill: cycle-b}]"]);
-    await writeSkill("cycle-b", ["requires: [{skill: cycle-c}]"]);
-    await writeSkill("cycle-c", ["requires: [{skill: cycle-a}]"]);
+    await writeSkill("cycle-a", ["tags: [core]", requires(needs("skills", "cycle-b"))]);
+    await writeSkill("cycle-b", [requires(needs("skills", "cycle-c"))]);
+    await writeSkill("cycle-c", [requires(needs("skills", "cycle-a"))]);
 
     const result = await cli("resolve");
 
     expect(result.code).toBe(ExitCode.Resolution);
     expect(result.stderr).toContain("requirement cycle");
     expect(result.stderr).toContain("cycle-a → cycle-b → cycle-c → cycle-a");
-    expect(result.stderr).toContain("skills/cycle-a/SKILL.md");
-    expect(result.stderr).toContain("break the cycle by removing one `requires` edge");
+    // The closing edge, which is the actionable half: the entry, and the file it is written in.
+    expect(result.stderr).toContain("closed by `name:cycle-a` in skills/cycle-c/SKILL.md");
+    expect(result.stderr).toContain("break the cycle by removing one `requires` entry");
   });
 
   it("reports a skill that requires itself as the one-step cycle it is", async () => {
-    await writeSkill("cycle-self", ["tags: [core]", "requires: [{skill: cycle-self}]"]);
+    await writeSkill("cycle-self", ["tags: [core]", requires(needs("skills", "cycle-self"))]);
 
     const result = await cli("resolve");
 
@@ -777,9 +896,9 @@ describe("requirement cycles", () => {
   });
 
   it("reports a cycle reached only through a requirement, not just one held directly", async () => {
-    await writeSkill("cycle-entry", ["tags: [core]", "requires: [{skill: cycle-b}]"]);
-    await writeSkill("cycle-b", ["requires: [{skill: cycle-c}]"]);
-    await writeSkill("cycle-c", ["requires: [{skill: cycle-b}]"]);
+    await writeSkill("cycle-entry", ["tags: [core]", requires(needs("skills", "cycle-b"))]);
+    await writeSkill("cycle-b", [requires(needs("skills", "cycle-c"))]);
+    await writeSkill("cycle-c", [requires(needs("skills", "cycle-b"))]);
 
     const result = await cli("resolve");
 
@@ -788,12 +907,18 @@ describe("requirement cycles", () => {
   });
 
   it("names the same cycle whatever order a `requires` list is written in", async () => {
-    await writeSkill("cycle-a", ["tags: [core]", "requires: [{skill: cycle-b}, {skill: cycle-c}]"]);
-    await writeSkill("cycle-b", ["requires: [{skill: cycle-a}]"]);
-    await writeSkill("cycle-c", ["requires: [{skill: cycle-a}]"]);
+    await writeSkill("cycle-a", [
+      "tags: [core]",
+      requires(needs("skills", "cycle-b"), needs("skills", "cycle-c")),
+    ]);
+    await writeSkill("cycle-b", [requires(needs("skills", "cycle-a"))]);
+    await writeSkill("cycle-c", [requires(needs("skills", "cycle-a"))]);
     const first = await cli("resolve");
 
-    await writeSkill("cycle-a", ["tags: [core]", "requires: [{skill: cycle-c}, {skill: cycle-b}]"]);
+    await writeSkill("cycle-a", [
+      "tags: [core]",
+      requires(needs("skills", "cycle-c"), needs("skills", "cycle-b")),
+    ]);
     const second = await cli("resolve");
 
     expect(first.stderr).toContain("cycle-a → cycle-b → cycle-a");
@@ -1017,7 +1142,7 @@ describe("hooks reached through `requires`", () => {
   });
 
   it("pulls a hook in behind the skill that requires it, and names the requirer", async () => {
-    await writeSkill("risky", ["tags: [core]", `requires: [{hook: ${HOOK_NAME}}]`]);
+    await writeSkill("risky", ["tags: [core]", requires(needs("hooks", HOOK_NAME))]);
 
     const required = await bundle([entry("tag", "core")]);
 
@@ -1029,14 +1154,14 @@ describe("hooks reached through `requires`", () => {
   });
 
   it("unions a required hook's `expects`, so the closure feeds the credential list too", async () => {
-    await writeSkill("risky", ["tags: [core]", `requires: [{hook: ${HOOK_NAME}}]`]);
+    await writeSkill("risky", ["tags: [core]", requires(needs("hooks", HOOK_NAME))]);
 
     expect((await bundle([entry("tag", "core")])).expects.env).toContain("GUARD_TOKEN");
   });
 
   it("reaches a hook down a chain, not only from a skill an entry selected", async () => {
-    await writeSkill("chain-leaf", [`requires: [{hook: ${HOOK_NAME}}]`]);
-    await writeSkill("chain-root", ["tags: [core]", "requires: [{skill: chain-leaf}]"]);
+    await writeSkill("chain-leaf", [requires(needs("hooks", HOOK_NAME))]);
+    await writeSkill("chain-root", ["tags: [core]", requires(needs("skills", "chain-leaf"))]);
 
     const required = await bundle([entry("tag", "core")]);
 
@@ -1050,7 +1175,7 @@ describe("hooks reached through `requires`", () => {
   it("leaves the hook out when nothing selected requires it", async () => {
     // The same catalog, the same hook: what differs is that the requiring skill is not selected, so
     // the edge exists and reaches nothing.
-    await writeSkill("risky", ["tags: [project.acme]", `requires: [{hook: ${HOOK_NAME}}]`]);
+    await writeSkill("risky", ["tags: [project.acme]", requires(needs("hooks", HOOK_NAME))]);
 
     expect(writtenHooks(await bundle([entry("tag", "core")]))).toEqual([]);
   });
@@ -1105,8 +1230,8 @@ describe("selection reasons", () => {
   });
 
   it("names the first requirer by name, not the first the closure happened to walk", async () => {
-    await writeSkill("twice-left", ["tags: [core]", "requires: [{mcp: fixture}]"]);
-    await writeSkill("twice-right", ["tags: [core]", "requires: [{mcp: fixture}]"]);
+    await writeSkill("twice-left", ["tags: [core]", requires(needs("mcps", "fixture"))]);
+    await writeSkill("twice-right", ["tags: [core]", requires(needs("mcps", "fixture"))]);
 
     expect((await bundle([entry("tag", "core")])).reasons.mcps.get("fixture")).toEqual({
       kind: "required-by",
@@ -1314,7 +1439,7 @@ describe("ambit why", () => {
       "type: command",
       "command: npx guard",
     ]);
-    await writeSkill("risky", ["tags: [core]", "requires: [{hook: guard}]"]);
+    await writeSkill("risky", ["tags: [core]", requires(needs("hooks", "guard"))]);
     await writeProfile([entry("tag", "core")]);
 
     const result = await cli("why", "hook:guard");

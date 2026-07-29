@@ -245,14 +245,16 @@ describe("catalog parsing", () => {
     });
   });
 
-  it("carries `requires` through, each entry naming its own namespace", async () => {
+  it("carries `requires` through as pattern entries, unqualified", async () => {
     const catalog = await parseCatalogDirectory(CATALOG_NAME, "path:../catalog", catalogDir);
 
-    // In the order the fixture wrote them: a `requires` list is the author's, not a sorted one.
+    // In the order the fixture wrote them: a `requires` list is the author's, not a sorted one. No
+    // `catalog` on any entry — a catalog author cannot write a consumer's alias, and the entry
+    // resolves within this catalog.
     expect(catalog.skills.find((skill) => skill.name === "acme-brief")?.requires).toEqual([
-      { kind: "skill", name: "company-context" },
-      { kind: "mcp", name: "fixture" },
-      { kind: "hook", name: "acme-standup" },
+      { field: "name", pattern: "company-context", capabilities: ["skills"] },
+      { field: "name", pattern: "fixture", capabilities: ["mcps"] },
+      { field: "name", pattern: "acme-standup", capabilities: ["hooks"] },
     ]);
   });
 
@@ -582,9 +584,9 @@ describe("ambit dump-catalog", () => {
           expects: [],
           path: "skills/acme-brief",
           requires: [
-            { kind: "skill", name: "company-context" },
-            { kind: "mcp", name: "fixture" },
-            { kind: "hook", name: "acme-standup" },
+            { capabilities: ["skills"], field: "name", pattern: "company-context" },
+            { capabilities: ["mcps"], field: "name", pattern: "fixture" },
+            { capabilities: ["hooks"], field: "name", pattern: "acme-standup" },
           ],
           tags: ["project.acme"],
         },

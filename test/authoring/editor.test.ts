@@ -58,7 +58,8 @@ allowed-tools: [Read, Grep]
 ambit:
   tags: [core]
   requires:
-    - skill: company-context
+    - name: company-context
+      capabilities: [skills]
   expects:
     - env: CLOSE_API_KEY
 ---
@@ -95,6 +96,33 @@ async function snapshot(): Promise<Record<string, string>> {
   };
   await walk(catalogDir, "");
   return files;
+}
+
+/**
+ * A skill an edit would create whose own `requires` reaches nothing, for the cases about a result that
+ * does not validate.
+ *
+ * A whole new file rather than a mutation of an existing one, because the two cases below are about
+ * the *result* being judged and not about which change broke it — and a `requires` entry is a two-key
+ * mapping the document editor has no setter for, `setReferenceList` being the `<kind>: <name>` shape
+ * `expects` still has.
+ */
+function brokenSkill(name: string): { file: string; text: string } {
+  return {
+    file: skillDocumentPath(name),
+    text: [
+      "---",
+      `name: ${name}`,
+      "ambit:",
+      "  requires:",
+      "    - name: absent-skill",
+      "      capabilities: [skills]",
+      "---",
+      "",
+      "# fixture",
+      "",
+    ].join("\n"),
+  };
 }
 
 /** Runs `body`, asserting it was rejected with `code`. */
@@ -181,6 +209,17 @@ describe("the catalog editor: round-tripping", () => {
     // first survives a re-parse under §3.0, which rejects an explicit null.
     expect(document.text()).toContain("requires: []\n");
     expect(document.text()).not.toContain("requires:\n");
+  });
+
+  it("writes an `expects` list as the one-key mappings that grammar has", async () => {
+    await write(ANNOTATED_SKILL_PATH, ANNOTATED_SKILL);
+    const document = await CatalogDocument.open(catalogDir, ANNOTATED_SKILL_PATH);
+
+    document.setReferenceList(["ambit", "expects"], [{ kind: "env", name: "OTHER_KEY" }]);
+
+    // `expects` is the last list written in the `<kind>: <name>` shape; `requires` selects by pattern
+    // and is a two-key mapping this setter deliberately cannot write.
+    expect(document.text()).toContain("    - env: OTHER_KEY\n");
   });
 
   it("appends to a nested mapping without touching the comment above the file", async () => {
@@ -298,7 +337,7 @@ describe("the catalog editor: writing", () => {
     // requires a skill the catalog does not hold, and it is the same edit that adds it.
     await write(
       ANNOTATED_SKILL_PATH,
-      ANNOTATED_SKILL.replace("- skill: company-context", "- skill: pipeline"),
+      ANNOTATED_SKILL.replace("- name: company-context", "- name: pipeline"),
     );
     const skill = await CatalogDocument.open(catalogDir, ANNOTATED_SKILL_PATH);
     skill.setStringList(["ambit", "tags"], ["core", "function.sales"]);
@@ -412,36 +451,27 @@ describe("the catalog editor: refusals", () => {
     expect(await snapshot()).toEqual(before);
   });
 
-  it("refuses a write whose result would not validate, leaving the file byte-identical", async () => {
+  it("refuses a write whose result would not validate, leaving every file byte-identical", async () => {
     await write(ANNOTATED_SKILL_PATH, ANNOTATED_SKILL);
     const document = await CatalogDocument.open(catalogDir, ANNOTATED_SKILL_PATH);
-    document.setReferenceList(["ambit", "requires"], [{ kind: "skill", name: "absent-skill" }]);
+    document.setStringList(["ambit", "tags"], ["core", "function.sales"]);
 
     const error = await rejection(
-      () => applyCatalogEdit(catalogDir, [document.change()]),
+      () => applyCatalogEdit(catalogDir, [document.change(), brokenSkill("broken-one")]),
       ExitCode.Resolution,
     );
 
     expect(error.message).toBe("refusing to write: the result would not validate");
     expect(error.detail).toContain(
-      `unresolvable requirement "skill:absent-skill" (${ANNOTATED_SKILL_PATH})`,
+      '`requires` entry "name:absent-skill" matches nothing (skills/broken-one/SKILL.md)',
     );
+    // The whole edit is judged, so the half that was fine is not written either.
     expect(await read(ANNOTATED_SKILL_PATH)).toBe(ANNOTATED_SKILL);
   });
 
   it("says how many problems it found, and where the whole report is", async () => {
-    await write(ANNOTATED_SKILL_PATH, ANNOTATED_SKILL);
-    const document = await CatalogDocument.open(catalogDir, ANNOTATED_SKILL_PATH);
-    document.setReferenceList(
-      ["ambit", "requires"],
-      [
-        { kind: "skill", name: "one-absent" },
-        { kind: "skill", name: "two-absent" },
-      ],
-    );
-
     const error = await rejection(
-      () => applyCatalogEdit(catalogDir, [document.change()]),
+      () => applyCatalogEdit(catalogDir, [brokenSkill("broken-one"), brokenSkill("broken-two")]),
       ExitCode.Resolution,
     );
 
@@ -451,8 +481,8 @@ describe("the catalog editor: refusals", () => {
     );
   });
 
-  it("refuses a removal that would leave a requirement dangling", async () => {
-    // `acme-brief` requires `mcp: fixture`, so deleting the entity breaks the catalog
+  it("refuses a removal that would leave a `requires` entry reaching nothing", async () => {
+    // `acme-brief` requires the `fixture` server, so deleting the entity breaks the catalog
     // even though the file itself is unreferenced from anywhere else.
     const file = mcpDocumentPath("fixture");
     const before = await read(file);
@@ -463,7 +493,7 @@ describe("the catalog editor: refusals", () => {
     );
 
     expect(error.detail).toContain(
-      `unresolvable requirement "mcp:fixture" (skills/acme-brief/SKILL.md)`,
+      '`requires` entry "name:fixture" matches nothing (skills/acme-brief/SKILL.md)',
     );
     expect(await read(file)).toBe(before);
   });

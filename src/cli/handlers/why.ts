@@ -44,7 +44,7 @@ import {
 } from "../../resolution/resolve.js";
 import { CAPABILITY_OF_KIND, REQUIRES_KEY, entryYaml } from "../../model/pattern.js";
 import { parseSubject } from "../../model/reference.js";
-import { REQUIRES } from "../../model/requirement.js";
+import { ITEM_REFERENCE } from "../../model/requirement.js";
 
 /** How an item is named in messages, one entry per namespace so a fourth is a type error. */
 const SUBJECTS: Readonly<Record<ItemKind, string>> = {
@@ -169,7 +169,7 @@ function locate(
   config: ProjectConfig,
 ): BundleItem {
   const item = parseSubject<ItemKind>(
-    REQUIRES,
+    ITEM_REFERENCE,
     name,
     `\`why ${name}\` does not say what to explain`,
   );

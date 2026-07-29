@@ -13,21 +13,26 @@
  *
  * Three things follow, and all three are the point:
  *
- * - **A pattern matching nothing is exit 3** ({@link assertEntriesMatch}). A typo'd or stale entry
- *   that quietly selected nothing would leave a bundle missing exactly what the config went out of
- *   its way to ask for, and nobody would notice until the agent behaved oddly weeks later.
- * - **An address is qualified.** Every project entry names the catalog it selects from, so which
- *   copy of a name is being asked for never depends on the order `catalogs:` happens to list them
- *   in. A tag entry still reaches whatever the author labelled, so a new skill tagged for engineers
- *   arrives with no consumer edit — the author's push survives, without a registry.
+ * - **A pattern matching nothing is exit 3** ({@link assertEntriesMatch} for a project's entries,
+ *   {@link closeOverRequires} for a skill's own). A typo'd or stale entry that quietly selected
+ *   nothing would leave a bundle missing exactly what the config went out of its way to ask for, and
+ *   nobody would notice until the agent behaved oddly weeks later. One finding at both altitudes:
+ *   {@link unmatchedEntryError}.
+ * - **An address is qualified in a project, and bare in a catalog.** Every project entry names the
+ *   catalog it selects from, so which copy of a name is being asked for never depends on the order
+ *   `catalogs:` happens to list them in; a catalog's own entry cannot name one, so it resolves within
+ *   that catalog and a catalog can only require what it ships. A tag entry still reaches whatever the
+ *   author labelled, so a new skill tagged for engineers arrives with no consumer edit — the author's
+ *   push survives, without a registry.
  * - **A reason is the entry.** Every selected item carries either the entry that selected it or the
  *   skill that required it, and nothing else: two cases, so a reader gets an answer rather than a
  *   list of possibilities. The lock records the reason too, so it has to be part of resolution
  *   rather than a reporting afterthought.
  *
- * Everything selected is then closed over `requires` — a skill's own, which is still a list of
- * `<kind>:<name>` references — so a skill can carry its dependencies into a bundle that would never
- * have selected them.
+ * Everything selected is then closed over `requires` — a skill's own, written in the same entry
+ * grammar minus the qualifier — so a skill can carry its dependencies into a bundle that would never
+ * have selected them. One grammar at both altitudes, so a skill can say *everything tagged `guards`,
+ * as hooks* as readily as a project can, and a catalog's entry resolves within its own catalog.
  *
  * Two catalogs may provide one name, and the merged catalog holds both copies — a bundle holds at
  * most one. A selection that reached both is refused, because harness layout is flat and externally
@@ -36,13 +41,7 @@
  * everything reading the merged catalog keys on `<catalog>/<name>`.
  */
 import type { MergedCatalog, MergedHook, MergedMcp, MergedSkill } from "../model/catalog.js";
-import {
-  HOOKS_DIRNAME,
-  MCPS_DIRNAME,
-  SKILL_FILENAME,
-  copiesByName,
-  qualifiedName,
-} from "../model/catalog.js";
+import { SKILL_FILENAME, qualifiedName } from "../model/catalog.js";
 import type { ProjectConfig } from "../model/config.js";
 import type { ExpectationSet } from "../model/expectation.js";
 import { unionExpectations } from "../model/expectation.js";
@@ -53,17 +52,11 @@ import {
   entryYaml,
   formatEntry,
   matches,
+  uniqueEntries,
 } from "../model/pattern.js";
 import type { Reference } from "../model/reference.js";
-import type { ItemKind, Requirement } from "../model/requirement.js";
-import {
-  ITEM_KINDS,
-  KIND_NOUNS,
-  formatRequirement,
-  requirementYaml,
-  sameRequirement,
-  sortedUniqueRequirements,
-} from "../model/requirement.js";
+import type { ItemKind } from "../model/requirement.js";
+import { ITEM_KINDS } from "../model/requirement.js";
 import { AmbitError, ExitCode, at, resolutionError } from "../errors.js";
 
 /**
@@ -232,11 +225,6 @@ function capabilityNouns(entry: PatternEntry): string {
   );
 }
 
-/** How a message names the catalog an entry is confined to, qualified or not. */
-function withinCatalog(entry: PatternEntry): string {
-  return entry.catalog === undefined ? "any configured catalog" : `catalog "${entry.catalog}"`;
-}
-
 /** The concrete next step for an entry that matched nothing, in the terms of the field it matches. */
 function unmatchedAdvice(entry: PatternEntry): string {
   return entry.field === "tag"
@@ -245,9 +233,14 @@ function unmatchedAdvice(entry: PatternEntry): string {
 }
 
 /**
- * The error for a `requires` entry no item satisfies — the successor to the unknown-scope refusals,
- * and now literal: an entry that selects nothing is a mistake, whether it names one item or globs a
- * whole prefix.
+ * The error for a `requires` entry no item satisfies — **one finding at both altitudes** a `requires`
+ * list is written at.
+ *
+ * A project's entry and a skill's own are the same grammar asking the same question, so an entry that
+ * selects nothing is one mistake with one message, whether it names one item or globs a whole prefix,
+ * and whether it was written in `ambit.yml` or in a `SKILL.md`. There is nothing left of the old
+ * *unresolvable requirement* to keep separate: a requirement no longer names a name that either is or
+ * is not there, it is a pattern, and a pattern that matched nothing is this.
  *
  * A qualifier no catalog answers to is called out separately, because it is a different mistake with
  * a different fix, and because it is the one a reader is most likely to have made on purpose: the
@@ -255,14 +248,20 @@ function unmatchedAdvice(entry: PatternEntry): string {
  * literally named `*`, and a message claiming that catalog holds nothing matching the rest of the
  * address would be answering the wrong question.
  *
- * Exported because two surfaces reject an entry — resolution, on the first offender, and validation,
- * on every one of them — and the message must read identically from both.
+ * Exported because three surfaces reject an entry — the project check and the closure, each on the
+ * first offender, and validation on every one of them — and the message must read identically from
+ * all of them.
  *
+ * @param within the catalog the entry resolves in. A project's entry names it, qualification being
+ *   mandatory there ({@link entryCatalog}); a skill's own cannot, so it is the catalog that holds the
+ *   requiring skill and only the caller knows which that is. Either way it is exactly *one* catalog:
+ *   "whichever one happens to hold a match" is the config-order dependence this addressing removed.
  * @param where the `(file line N)` suffix, as {@link at} renders it.
  * @param catalogs every catalog the config listed, in config order.
  */
 export function unmatchedEntryError(
   entry: PatternEntry,
+  within: string,
   where: string,
   catalogs: readonly string[],
 ): AmbitError {
@@ -284,9 +283,31 @@ export function unmatchedEntryError(
 
   const field = entry.field === "tag" ? "declares a tag matching" : "has a name matching";
   return resolutionError(summary, [
-    `no ${capabilityNouns(entry)} in ${withinCatalog(entry)} ${field} "${entry.pattern}"`,
+    `no ${capabilityNouns(entry)} in catalog "${within}" ${field} "${entry.pattern}"`,
+    // An entry carrying no qualifier is a catalog's own, by construction of the two spellings — so
+    // this is the one line the project altitude never prints, and the one the catalog altitude needs:
+    // another catalog holding a match is not an answer, however plainly it holds one.
+    ...(catalog === undefined
+      ? [
+          `a catalog's own \`${REQUIRES_KEY}\` resolves within that catalog, which can only require what it ships`,
+        ]
+      : []),
     unmatchedAdvice(entry),
   ]);
+}
+
+/**
+ * The catalog a project's `requires` entry selects from.
+ *
+ * Non-optional, unlike {@link PatternEntry.catalog}: a project config is parsed as `"qualified"`, so
+ * an entry that named no alias was refused at parse and cannot reach here. The assertion records that
+ * rather than inventing a fallback whose message could never be true — an unqualified project entry
+ * does not mean *any catalog*, it means a config that did not load.
+ *
+ * Exported so validation and resolution name the same catalog in the same words.
+ */
+export function entryCatalog(entry: PatternEntry): string {
+  return entry.catalog!;
 }
 
 /**
@@ -309,7 +330,12 @@ export function assertEntriesMatch(config: ProjectConfig, merged: MergedCatalog)
 
   for (const entry of entries) {
     if (matchesAnything(entry, merged)) continue;
-    throw unmatchedEntryError(entry, entryPosition(config, entry), merged.catalogs);
+    throw unmatchedEntryError(
+      entry,
+      entryCatalog(entry),
+      entryPosition(config, entry),
+      merged.catalogs,
+    );
   }
 }
 
@@ -334,42 +360,129 @@ export function skillFile(skill: MergedSkill): string {
   return `${skill.path}/${SKILL_FILENAME}`;
 }
 
-/** Where a missing member of each namespace is added, as the last line of an error says. */
-const WHERE_TO_ADD: Readonly<Record<ItemKind, string>> = {
-  skill: "add it to a catalog",
-  mcp: `add it under ${MCPS_DIRNAME}/ in a catalog`,
-  hook: `add it under ${HOOKS_DIRNAME}/ in a catalog`,
-};
+/**
+ * Where a skill's `requires` entry was written, as {@link at} renders it.
+ *
+ * The file, and no line. A catalog's annotations are parsed long before an entry is judged and nothing
+ * keeps the line one sat on — unlike a project's, which `ConfigOrigin` records because a config is the
+ * document a reader has open. The file is enough to act on: a `requires` list is a handful of lines
+ * under one key, and the entry is quoted in the message.
+ *
+ * Exported so validation positions a catalog's entry exactly as the closure does.
+ */
+export function requirerPosition(skill: MergedSkill): string {
+  return at(skillFile(skill), undefined);
+}
 
 /**
- * The error for a `requires` entry no catalog can satisfy.
+ * A skill's `requires` list, deduplicated and in an order of its own.
  *
- * Both halves of the edge are named — the requirer and the target — because either could be the
- * mistake: a skill may have been renamed, or the requirement misspelled. The namespace is named
- * outright rather than left to be read off a prefix, since that is what the entry itself now says.
+ * Deduplication is literal ({@link uniqueEntries}) and exact only: `tag: x` over `[skills, mcps]`
+ * does not absorb `tag: x` over `[skills]`, even though everything the second selects the first
+ * selects too. Selection is a union either way, so a redundant entry costs nothing; what the dedupe
+ * buys is that a list saying one thing twice raises one problem rather than two.
+ *
+ * Ordered by {@link entryYaml} rather than kept as the author wrote it, so which of several problems
+ * in one list is reported does not depend on the order they happened to write them in. `entryYaml`
+ * and not {@link formatEntry}, because the latter drops the capability list and two entries that
+ * differ only there would tie.
+ *
+ * Exported so validation walks a skill's list exactly as the closure does.
  */
-export function missingRequirement(requirer: MergedSkill, target: Requirement): AmbitError {
-  return resolutionError(
-    `unresolvable requirement "${formatRequirement(target)}" (${skillFile(requirer)})`,
-    [
-      `${requirer.name} requires ${KIND_NOUNS[target.kind]} named "${target.name}", which no catalog provides`,
-      `${WHERE_TO_ADD[target.kind]}, or remove the \`${requirementYaml(target)}\` entry`,
-    ],
+export function requiredEntries(skill: MergedSkill): readonly PatternEntry[] {
+  return [...uniqueEntries(skill.requires)].sort((a, b) => compare(entryYaml(a), entryYaml(b)));
+}
+
+/**
+ * Every item one of a skill's `requires` entries selects: matched against the catalog that skill came
+ * from, and against nothing else.
+ *
+ * **A catalog is self-contained.** An entry written inside one resolves within it, so `core.*` in
+ * `company`'s `skills/x/SKILL.md` reaches `company`'s items and no other catalog's. That is a
+ * deliberate tightening: this walk used to look a required *name* up in the merged catalog, so a
+ * catalog's `requires` could reach a sibling catalog's skill — which worked by accident, depended on
+ * which catalogs a given project happened to list and in what order, and let a catalog claim a
+ * dependency it does not ship. A catalog author cannot write a consumer's alias, so the only honest
+ * reading of a bare pattern inside a catalog is *my own catalog*.
+ *
+ * The locality is enforced here and not by {@link matches}, which skips its catalog test for an entry
+ * carrying no qualifier: an unqualified entry does not know which catalog it was written in, so the
+ * rule can only live with whoever offers it items.
+ *
+ * In the merged catalog's order, being a filter of it, so nothing downstream depends on the order a
+ * walk discovered things in.
+ *
+ * Exported so validation follows a skill's edges exactly as the closure does — its cycle hunt walks
+ * every skill in the catalog rather than only the selected ones, and must not disagree about where an
+ * edge goes.
+ */
+export function requiredItems(
+  entry: PatternEntry,
+  requirer: MergedSkill,
+  merged: MergedCatalog,
+): Selection {
+  const own = (catalog: string): boolean => catalog === requirer.catalog;
+
+  return {
+    skills: merged.skills.filter(
+      (skill) => own(skill.catalog) && matches(entry, patternItem("skill", skill)),
+    ),
+    mcps: merged.mcps.filter((mcp) => own(mcp.catalog) && matches(entry, patternItem("mcp", mcp))),
+    hooks: merged.hooks.filter(
+      (hook) => own(hook.catalog) && matches(entry, patternItem("hook", hook)),
+    ),
+  };
+}
+
+/** Whether a selection holds nothing at all, in any namespace. */
+function isEmpty(selection: Selection): boolean {
+  return (
+    selection.skills.length === 0 && selection.mcps.length === 0 && selection.hooks.length === 0
   );
 }
 
 /**
- * The error for a `requires` cycle, printing the whole path rather than the mere fact
- * of one — the offending edge is only obvious once a reader can see the loop closing.
+ * Whether a skill's `requires` entry selects anything the skill's own catalog ships.
+ *
+ * The catalog-side counterpart of {@link matchesAnything}, and the same judgement: an entry that
+ * selects nothing is a mistake. Exported because validation asks it of every entry in a catalog while
+ * the closure asks it of the ones a selected skill declares.
+ */
+export function matchesOwnCatalog(
+  entry: PatternEntry,
+  requirer: MergedSkill,
+  merged: MergedCatalog,
+): boolean {
+  return !isEmpty(requiredItems(entry, requirer, merged));
+}
+
+/**
+ * The error for a `requires` cycle: the whole path, and the edge that closed it.
+ *
+ * The path is what makes a loop visible at all — which member of it is *the* problem is a choice, and
+ * printing one name would make that choice ambit's rather than the reader's. What a path of names
+ * cannot say is where to go and edit, so one line names the entry that closed the loop and the file it
+ * is written in.
+ *
+ * Only that edge. An entry is a field, a pattern and a capability list, and a path annotated with one
+ * per step is unreadable; the closing edge is the actionable half, because removing it removes the
+ * loop. It matters more now than it did when a requirement named a name: a pattern can close a loop
+ * without naming anything in it — a skill matching its own `core.*` is a one-step cycle — and the only
+ * way to see that is to be shown the entry.
  *
  * @param cycle the skill names around the loop, opening and closing on the same name.
- * @param head the skill the printed path opens on, whose file holds the loop's first edge.
+ * @param requirer the skill whose `requires` closed the loop, and whose file holds the entry.
+ * @param entry that entry.
  */
-export function cycleError(cycle: readonly string[], head: MergedSkill): AmbitError {
+export function cycleError(
+  cycle: readonly string[],
+  requirer: MergedSkill,
+  entry: PatternEntry,
+): AmbitError {
   return resolutionError("requirement cycle", [
     cycle.join(" → "),
-    `each step is a \`requires\` entry, the first in ${skillFile(head)}`,
-    "break the cycle by removing one `requires` edge",
+    `closed by \`${formatEntry(entry)}\` in ${skillFile(requirer)}`,
+    `break the cycle by removing one \`${REQUIRES_KEY}\` entry`,
   ]);
 }
 
@@ -383,20 +496,40 @@ export function cycleError(cycle: readonly string[], head: MergedSkill): AmbitEr
  * plausible-looking broken one. A hook comes down the same route for the same reason: a skill whose
  * instructions are unsafe without its guard carries the guard.
  *
+ * **The closure is set-valued.** A skill's `requires` entry is the project's entry minus the
+ * qualifier — it may glob, and it may match on `tag` — so one entry answers with a *set* of items
+ * rather than with the single name a `<kind>:<name>` reference used to look up. There is no map to
+ * `get` from, and so no *missing* to report: there is an entry that matched nothing, which is exactly
+ * the finding the project altitude raises about its own entries ({@link unmatchedEntryError}). What
+ * that buys is that everything a project can say about a catalog, a skill inside one can say too, in
+ * the same words — *everything tagged `guards`, as hooks* is one entry at either altitude.
+ *
  * Only skills carry `requires` (neither MCP entities nor hooks have such a key), so the graph walked
  * here is skill → skill, with both other namespaces as leaves.
  *
- * A requirement names a name, and several catalogs may provide it — so **every copy joins the
- * selection**, not one of them. There is nothing left to choose with: config order settles nothing,
- * and taking the first copy would be the precedence this design deleted, reintroduced where nobody
- * could see it. Two copies both selected is then {@link assertNoCollisions}'s refusal, which is loud
- * and names both catalogs.
+ * Each entry resolves within the requiring skill's own catalog — see {@link requiredItems} for why,
+ * and for what that tightens.
+ *
+ * **Accepted cost, deliberately.** A wildcard `requires` means a catalog author adding a skill
+ * changes what an unrelated skill pulls in: add `skills/core/internal-notes`, and every skill
+ * requiring `name: core.*` grows a dependency, at install, with no message anywhere. It is the same
+ * class of hazard as the collision {@link assertNoCollisions} refuses, and it is silent where that one
+ * is loud. It is recorded rather than fixed, because the only fixes are worse — forbidding wildcards
+ * inside a catalog would leave a catalog less expressive than the project consuming it, and a
+ * per-item acknowledgement is a registry by another name.
+ *
+ * One consequence of that expressiveness is worth stating outright: a pattern matches the requiring
+ * skill itself if it can, and a skill that requires itself is a one-step cycle. So `core.a` cannot
+ * require `name: core.*`. That is not special-cased — the cycle refusal survives this change, and
+ * exempting the requirer would be inventing a rule the addressing scheme does not have — and it is why
+ * {@link cycleError} names the entry that closed the loop.
  *
  * @param skills the roots — what the project's entries selected, in the merged catalog's order.
  * @param mcps MCP entities the project's entries already selected.
  * @param hooks hooks the project's entries already selected.
- * @param merged what requirements resolve against.
- * @throws {AmbitError} exit 3 for a requirement no catalog provides, or a cycle.
+ * @param merged what requirements resolve against, one catalog of it at a time.
+ * @throws {AmbitError} exit 3 for a `requires` entry that matches nothing in its own catalog, or a
+ *   cycle.
  */
 export function closeOverRequires(
   skills: readonly MergedSkill[],
@@ -404,10 +537,6 @@ export function closeOverRequires(
   hooks: readonly MergedHook[],
   merged: MergedCatalog,
 ): Selection {
-  const skillCopies = copiesByName(merged.skills);
-  const mcpCopies = copiesByName(merged.mcps);
-  const hookCopies = copiesByName(merged.hooks);
-
   // Addresses rather than names throughout: one catalog's copy of a name being selected says nothing
   // about another's, so a set of names would silently treat the two as one item.
   const chosenSkills = new Set<string>();
@@ -425,42 +554,37 @@ export function closeOverRequires(
     const address = qualifiedName(skill);
     if (closed.has(address)) return;
 
-    const opened = path.findIndex((entry) => qualifiedName(entry) === address);
-    // The printed path is names, which is what an author reads in a `requires` list; the walk's own
-    // bookkeeping is addresses, so two catalogs' copies of one name are two nodes rather than a
-    // cycle between them.
-    if (opened !== -1) {
-      throw cycleError(
-        [...path.slice(opened), skill].map((entry) => entry.name),
-        skill,
-      );
-    }
-
     path.push(skill);
     chosenSkills.add(address);
 
-    // Sorted and deduplicated, so which of several problems in one `requires` list is reported
-    // does not depend on the order its author happened to write them in.
-    for (const target of sortedUniqueRequirements(skill.requires)) {
+    for (const entry of requiredEntries(skill)) {
+      const required = requiredItems(entry, skill, merged);
+      if (isEmpty(required)) {
+        throw unmatchedEntryError(entry, skill.catalog, requirerPosition(skill), merged.catalogs);
+      }
+
       // Both leaf namespaces end the walk: nothing an entity or a hook declares reaches anything
       // else, so joining the selection is all there is to do.
-      if (target.kind === "mcp") {
-        const required = mcpCopies.get(target.name);
-        if (required === undefined) throw missingRequirement(skill, target);
-        for (const copy of required) chosenMcps.add(qualifiedName(copy));
-        continue;
-      }
+      for (const mcp of required.mcps) chosenMcps.add(qualifiedName(mcp));
+      for (const hook of required.hooks) chosenHooks.add(qualifiedName(hook));
 
-      if (target.kind === "hook") {
-        const required = hookCopies.get(target.name);
-        if (required === undefined) throw missingRequirement(skill, target);
-        for (const copy of required) chosenHooks.add(qualifiedName(copy));
-        continue;
+      for (const next of required.skills) {
+        // Checked at the call site rather than on entry to `follow`, because this is the only place
+        // that knows which entry the edge came from — and the cycle error names it.
+        //
+        // The printed path is names, which is what an author reads in a `requires` list; the walk's
+        // own bookkeeping is addresses, so two catalogs' copies of one name are two nodes rather than
+        // a cycle between them.
+        const opened = path.findIndex((seen) => qualifiedName(seen) === qualifiedName(next));
+        if (opened !== -1) {
+          throw cycleError(
+            [...path.slice(opened), next].map((seen) => seen.name),
+            skill,
+            entry,
+          );
+        }
+        follow(next);
       }
-
-      const required = skillCopies.get(target.name);
-      if (required === undefined) throw missingRequirement(skill, target);
-      for (const copy of required) follow(copy);
     }
 
     path.pop();
@@ -561,19 +685,25 @@ function unexplainable(item: BundleItem, problem: string): AmbitError {
 }
 
 /**
- * The `required-by` reason for an item: the first selected skill that requires it.
+ * The `required-by` reason for an item: the first selected skill whose `requires` matches it.
+ *
+ * The test is {@link matches} rather than an equality — a `requires` entry is a pattern, and the
+ * question *did this skill ask for that item?* is the same question selection asks, one altitude down.
+ * Only a skill from the item's own catalog can be the answer, because that is as far as a catalog's
+ * `requires` reaches.
  *
  * Recovered from the closure's result rather than recorded during its walk, so which requirer is
- * named depends only on the names — `selected` is in name order — and not on the order the
- * depth-first walk happened to reach the item. Several skills requiring one thing is normal, and
- * any of them is a true answer.
+ * named depends only on the names — `selected` arrives in name order, then catalog — and not on the
+ * order the depth-first walk happened to reach the item. Several skills requiring one thing is normal,
+ * and any of them is a true answer, so a tie-break only has to be a function of the inputs.
  */
 function requiredByReason(
-  item: BundleItem,
+  item: PatternItem,
   selected: readonly MergedSkill[],
 ): SelectionReason | undefined {
-  const requirer = selected.find((skill) =>
-    skill.requires.some((requirement) => sameRequirement(requirement, item)),
+  const requirer = selected.find(
+    (skill) =>
+      skill.catalog === item.catalog && skill.requires.some((entry) => matches(entry, item)),
   );
   return requirer === undefined ? undefined : { kind: "required-by", requirer: requirer.name };
 }
@@ -605,7 +735,9 @@ function selectionReasons(
     const target: BundleItem = { kind, name: item.name };
     const entry = selectingEntry(entries, kind, item);
     const reason: SelectionReason | undefined =
-      entry === undefined ? requiredByReason(target, selected) : { kind: "selected", entry };
+      entry === undefined
+        ? requiredByReason(patternItem(kind, item), selected)
+        : { kind: "selected", entry };
 
     if (reason === undefined) {
       throw unexplainable(

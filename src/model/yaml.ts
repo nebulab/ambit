@@ -838,8 +838,8 @@ export class EditableYaml {
   }
 
   /**
-   * Sets `path` to a sequence of one-key mappings — the shape a skill's `requires` has, where each
-   * entry declares the namespace its name is in.
+   * Sets `path` to a sequence of one-key mappings — the shape a skill's `expects` has, where each
+   * entry declares the kind of precondition its value is.
    *
    * Keeps the author's layout on the same terms {@link EditableYaml.setStringList} does, since the
    * decision is about the sequence and not about what its items are.

@@ -1,23 +1,20 @@
 /**
- * The `<kind>:<name>` grammar, and the machinery both lists written in it share.
+ * The `<kind>:<name>` grammar, and the machinery everything written in it shares.
  *
- * A skill declares two lists, and they are different operators wearing one spelling. `requires` is
- * **resolved** — every entry is a catalog item that joins the bundle, and one nothing provides fails the
- * install. `expects` is **checked** — every entry is a fact about the world `doctor` asks about, and one
- * the world does not satisfy leaves the install alone and fails `doctor`. Two algebras, two exit codes,
- * two stories; see `requirement.ts` and `expectation.ts` for each.
+ * It used to be shared by two lists a skill declares, `requires` and `expects` — different operators
+ * wearing one spelling. It is not any more: a `requires` entry selects **by pattern**, so it names a
+ * field, a glob and a set of capabilities rather than a kind and a name, and it lives in `pattern.ts`.
+ * What is left written this way is `expects` (`expectation.ts`) and the subject of `ambit why`, whose
+ * vocabulary of item kinds is `requirement.ts`.
  *
- * What they share is how an entry is *written*, and that is this module. An entry declares which kind it
- * is rather than encoding it in a prefix of the name, because a name cannot say: a catalog's three
- * namespaces are flat and independent, so a skill at `skills/mcp/sentry/SKILL.md` is legitimately named
- * `mcp.sentry` and so is an MCP entity called `sentry` reached one namespace over. In a document that is
- * a one-key mapping, the same discriminator an MCP entity's `transport` uses:
+ * An entry declares which kind it is rather than encoding it in a prefix of the name, because a name
+ * cannot say: a catalog's three namespaces are flat and independent, so a skill at
+ * `skills/mcp/sentry/SKILL.md` is legitimately named `mcp.sentry` and so is an MCP entity called
+ * `sentry` reached one namespace over. In a document that is a one-key mapping, the same discriminator
+ * an MCP entity's `transport` uses:
  *
  * ```yaml
  * ambit:
- *   requires:
- *     - skill: company-context
- *     - mcp: sentry
  *   expects:
  *     - env: SENTRY_TOKEN
  * ```
@@ -28,17 +25,15 @@
  * names the skill above and `mcp:sentry` names the server, with no string a reader could write that
  * means both.
  *
- * One grammar, everywhere a name is taken from a person: an entry of either list, and the subject of
- * `ambit why`, all say which kind they mean, and none of them will guess. A bare name is refused with
- * the spellings of what was typed ({@link parseSubject}) rather than resolved against the catalog,
- * because a rule that holds only while a name happens to be unique is a rule nobody can rely on — and
- * because a dangling entry has nothing to resolve against: `ambit why` and a `requires` naming
- * something that has gone both have to be able to say the name back.
+ * Nothing here guesses. A bare name is refused with the spellings of what was typed
+ * ({@link parseSubject}) rather than resolved against the catalog, because a rule that holds only while
+ * a name happens to be unique is a rule nobody can rely on — and because the subject of a question may
+ * name something that has gone, which still has to be said back.
  *
- * Everything here is parameterized by a {@link ReferenceGrammar}, which is the list's closed set of
- * kinds and the handful of words a message about one of them needs. That is what keeps the two lists
- * from drifting into two grammars: adding `bin:` to `expects` is a line in one array, and every error,
- * every flag and every writer follows it.
+ * Everything here is parameterized by a {@link ReferenceGrammar}: the closed set of kinds, and the
+ * handful of words a message about one of them needs. That parameterization was worth it while two
+ * lists were written this way; it now has two callers, only one of which reads a *list*, so whether it
+ * still pays for itself is an open question — see `requirement.ts`.
  */
 import { at, configError } from "../errors.js";
 import type { AmbitError } from "../errors.js";
@@ -50,9 +45,8 @@ export const KIND_SEPARATOR = ":";
 /**
  * One member of one kind: which kind, and the name inside it.
  *
- * The shape an entry parses to, and — for a `requires` entry — the shape resolution identifies a bundle
- * item by. One type rather than two, because it is one question, and two would let a requirement name
- * something no bundle item could be.
+ * The shape an entry parses to, and — over the item kinds — the shape resolution identifies a bundle
+ * item by, since a bundle item is exactly one item of one namespace.
  */
 export interface Reference<Kind extends string = string> {
   readonly kind: Kind;
@@ -60,17 +54,17 @@ export interface Reference<Kind extends string = string> {
 }
 
 /**
- * What one list's kinds are, and the words a message about one of them is written in.
+ * What one vocabulary's kinds are, and the words a message about one of them is written in.
  *
- * Wording is data here rather than a string in each error, because the two lists say the same things
+ * Wording is data here rather than a string in each error, because the callers say the same things
  * about different vocabularies — an entry that names no kind, one that names two, one whose kind is not
- * in the set — and writing those messages twice is how the two grammars would come to disagree about
- * what they accept.
+ * in the set — and writing those messages twice is how one grammar would come to disagree with itself
+ * about what it accepts.
  */
 export interface ReferenceGrammar {
-  /** The key the list is written under: `requires`, `expects`. */
+  /** The key the list is written under: `expects`. */
   readonly key: string;
-  /** How one entry is named in a sentence, article included: `` a `requires` entry ``. */
+  /** How one entry is named in a sentence, article included: `` an `expects` entry ``. */
   readonly entry: string;
   /** What one kind is, singular then plural: `namespace`/`namespaces`, `precondition`/`preconditions`. */
   readonly noun: string;

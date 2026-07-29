@@ -54,6 +54,7 @@ import { at, configError } from "../errors.js";
 import type { AmbitError } from "../errors.js";
 import { CATALOG_SEPARATOR } from "./catalog.js";
 import type { ItemKind } from "./requirement.js";
+import { ITEM_KINDS } from "./requirement.js";
 import { YamlMapping } from "./yaml.js";
 import type { PositionedString } from "./yaml.js";
 
@@ -122,7 +123,8 @@ export type PatternField = (typeof PATTERN_FIELDS)[number];
  *   write a qualifier correctly: the alias belongs to the consumer's config, and the same catalog is
  *   `company` in one project and `acme` in the next. So a skill's `requires` names its siblings
  *   unqualified and resolves within its own catalog, which is what makes a catalog self-contained —
- *   it can only require what it ships.
+ *   it can only require what it ships. That is a deliberate tightening on what a requirement used to
+ *   reach; the argument is with the closure that enforces it, in `resolution/resolve.ts`.
  *
  * A qualifier where it is refused, and a missing one where it is required, are both exit 2 naming
  * the key and the line, rather than a value quietly resolved against a guess.
@@ -345,12 +347,19 @@ function isCapability(value: string): value is Capability {
 }
 
 /**
+ * Stands in for a catalog alias a refusal has no way to know.
+ *
+ * Literal rather than guessed: the alias is the reader's to pick, it appears in their own
+ * `catalogs:`, and proposing a particular one would be a guess dressed as advice.
+ */
+const ALIAS_PLACEHOLDER = "<catalog>";
+
+/**
  * The example every refusal that has an address to work with ends on.
  *
  * Written in the spelling the document being read demands, so a catalog author is never shown a
  * qualifier they cannot write, and a project is never shown a bare pattern it would refuse in turn.
- * `<catalog>` stands in literally when the reader has not written one: the alias is theirs to pick
- * and proposing a particular one would be a guess.
+ * {@link ALIAS_PLACEHOLDER} stands in where the reader has written no alias.
  */
 function example(field: PatternField, address: string, addressing: Addressing): string {
   const bare = address.split(CATALOG_SEPARATOR).pop()!;
@@ -359,7 +368,7 @@ function example(field: PatternField, address: string, addressing: Addressing): 
       ? bare
       : address.includes(CATALOG_SEPARATOR)
         ? address
-        : `<catalog>${CATALOG_SEPARATOR}${address}`;
+        : `${ALIAS_PLACEHOLDER}${CATALOG_SEPARATOR}${address}`;
   return `write it as \`${entryYaml({ field, pattern: shown, capabilities: ["skills"] })}\``;
 }
 
@@ -546,12 +555,44 @@ function parseCapabilities(
 }
 
 /**
+ * The `<kind>: <name>` spelling a `requires` list had before it selected by pattern, refused with the
+ * entry each of its members becomes.
+ *
+ * `- skill: company-context` is a one-key mapping this grammar would otherwise reject as holding an
+ * unknown key, which reads as a typo and leaves the reader holding a list that used to work. So it
+ * gets a refusal of its own, and the refusal carries the rewrite, because the rewrite is mechanical:
+ * the namespace becomes the entry's single capability, and the name becomes the pattern, an exact
+ * name being a pattern with no wildcard.
+ *
+ * Checked before {@link YamlMapping.rejectUnknownKeys}, and before the field count, for the same
+ * reason: both of those messages describe the grammar to somebody who is not writing in it yet.
+ */
+function assertNotNamespaceEntry(entry: YamlMapping, addressing: Addressing): void {
+  const kind = ITEM_KINDS.find((candidate) => entry.has(candidate));
+  if (kind === undefined) return;
+
+  const name = entry.requireString(kind);
+  const pattern =
+    addressing === "qualified" ? `${ALIAS_PLACEHOLDER}${CATALOG_SEPARATOR}${name}` : name;
+
+  throw entry.keyError(
+    kind,
+    `\`${REQUIRES_KEY}\` entry names the namespace \`${kind}\`, which an entry no longer does`,
+    [
+      `an entry declares a field to match (${FIELD_LIST}) and the capabilities to match it against (${CAPABILITY_LIST})`,
+      `write it as \`${entryYaml({ field: "name", pattern, capabilities: [CAPABILITY_OF_KIND[kind]] })}\``,
+    ],
+  );
+}
+
+/**
  * Parses one `requires` entry: a two-key mapping naming a field and its capabilities.
  *
- * Unknown keys are refused first, so a typo'd `tags:` reads as the typo it is rather than as an
- * entry that declares no field.
+ * The pre-pattern spelling is refused first, then unknown keys, so a typo'd `tags:` reads as the typo
+ * it is rather than as an entry that declares no field.
  */
 function parseEntry(entry: YamlMapping, addressing: Addressing): PatternEntry {
+  assertNotNamespaceEntry(entry, addressing);
   entry.rejectUnknownKeys([...PATTERN_FIELDS, CAPABILITIES_KEY]);
 
   const declared = PATTERN_FIELDS.filter((candidate) => entry.has(candidate));

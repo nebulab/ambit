@@ -368,6 +368,38 @@ describe("refusing a malformed entry", () => {
     expect(error.format()).toContain("one entry per field");
   });
 
+  it("refuses the `<namespace>: <name>` spelling, naming the entry it becomes", () => {
+    // The pre-pattern shape, and the whole of the migration path: no compatibility reader, one
+    // refusal carrying the rewrite. The namespace becomes the single capability, and the name becomes
+    // an exact pattern.
+    const error = rejection(`requires:\n  - skill: company-context\n`, "unqualified");
+    expect(error.message).toContain("names the namespace `skill`, which an entry no longer does");
+    expect(error.message).toContain("line 2");
+    expect(error.format()).toContain("`name`, `tag`");
+    expect(error.format()).toContain("skills, mcps, hooks");
+    expect(error.format()).toContain(`- { name: "company-context", capabilities: [skills] }`);
+  });
+
+  it("maps each namespace onto its own capability, and qualifies the rewrite in a project", () => {
+    expect(rejection(`requires:\n  - mcp: sentry\n`, "unqualified").format()).toContain(
+      `- { name: "sentry", capabilities: [mcps] }`,
+    );
+    expect(rejection(`requires:\n  - hook: block-rm\n`, "unqualified").format()).toContain(
+      `- { name: "block-rm", capabilities: [hooks] }`,
+    );
+    // A project's rewrite has to carry a qualifier, and the alias is the reader's to pick.
+    expect(rejection(`requires:\n  - skill: house-style\n`, "qualified").format()).toContain(
+      `- { name: "<catalog>/house-style", capabilities: [skills] }`,
+    );
+  });
+
+  it("refuses the old spelling ahead of the unknown-key message, which reads as a typo", () => {
+    // `- skill: x` is an unknown key to this grammar, and *unknown key* is exactly the wrong thing to
+    // tell somebody holding a list that used to work.
+    const error = rejection(`requires:\n  - skill: x\n    capabilities: [skills]\n`, "unqualified");
+    expect(error.message).toContain("names the namespace `skill`");
+  });
+
   it("refuses an unknown key before complaining about anything else", () => {
     const error = rejection(
       `requires:\n  - tags: "c/a"\n    capabilities: [skills]\n`,

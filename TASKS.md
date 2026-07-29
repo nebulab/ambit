@@ -177,7 +177,7 @@ Per §_Proposal_, §_Addressing: qualified in a project, unqualified in a catalo
 
 ## 7. A skill's `requires` has the same expressive power
 
-- [ ] A catalog's `requires` is task 5's entry minus the qualifier, and the closure goes set-valued.
+- [x] A catalog's `requires` is task 5's entry minus the qualifier, and the closure goes set-valued.
 
 Per §_A skill's `requires` has the same expressive power_.
 

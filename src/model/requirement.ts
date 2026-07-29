@@ -1,59 +1,42 @@
 /**
- * What a `requires` entry names: a catalog item that joins the bundle behind whatever required it.
+ * The three namespaces a bundle item can be in, and the `<kind>:<name>` grammar that names one.
  *
- * `requires` is a **closure** operator. `closeOverRequires` walks skill → skill to a fixpoint, pulling
- * every named item into the selection whether or not the project's own entries would have selected it. Its three
- * kinds are exactly the three catalog namespaces, and an entry nothing can satisfy is exit 3 naming the
- * catalog that should have provided it — the install refuses rather than producing a bundle that is
- * missing the half a skill said it could not work without.
+ * This module used to be the whole of what a `requires` entry was: a namespace and a name, looked up
+ * in a map, one item per entry. It is not that any more. A `requires` entry selects **by pattern** —
+ * a field to match, a glob to match it with, and the capabilities to match it against — so it answers
+ * with a set rather than with a name, and it lives in `pattern.ts` together with the matcher and the
+ * addressing rules. Nothing here parses a `requires` list.
  *
- * That is the whole of what separates it from `expects`, its sibling in `expectation.ts`: an expectation
- * is looked up nowhere, is provided by no catalog, cannot require anything back and cannot cycle. It is
- * checked, not resolved. The two lists share a spelling and nothing else, and the spelling lives in
- * `reference.ts`.
+ * What survives is the vocabulary, and it survives because a *bundle item* is still one item of one
+ * namespace, which is a different thing from the question an entry asks. {@link ITEM_KINDS} is that
+ * vocabulary — the order every report lists the three in — and {@link ITEM_REFERENCE} is the grammar
+ * for the one surface left that takes an item's identity from a person as a string: `ambit why`'s
+ * subject, `ambit why mcp:sentry`.
  *
- * ```yaml
- * ambit:
- *   requires:
- *     - skill: company-context
- *     - mcp: sentry
- *     - hook: block-rm
- * ```
+ * The declaration is mandatory there for the reason it was mandatory in a document. A catalog's
+ * namespaces are flat and independent, so a skill at `skills/mcp/sentry/SKILL.md` is legitimately
+ * named `mcp.sentry` and so is an MCP entity called `sentry` one namespace over. `skill:mcp.sentry`
+ * and `mcp:sentry` are different questions, both askable, and a bare name is refused rather than
+ * resolved against whatever the catalog happens to hold today.
+ *
+ * That leaves `reference.ts` with two callers rather than three — this one and `expects` — and only
+ * `expects` still reads a *list* through it. Whether the generic `ReferenceGrammar` parameterization
+ * still pays for itself at that size is an open question, and a real one: `ReferenceGrammar.guess`
+ * already has no grammar setting it, having existed for the bare-entry refusal a `requires` list
+ * needed.
  */
-import type { Reference, ReferenceGrammarOf } from "./reference.js";
-import {
-  KIND_SEPARATOR,
-  formatReference,
-  isReference,
-  parseReference,
-  parseReferenceList,
-  referenceYaml,
-  sameReference,
-  sortedUniqueReferences,
-} from "./reference.js";
-import type { YamlMapping } from "./yaml.js";
-
-export { KIND_SEPARATOR };
+import type { ReferenceGrammarOf } from "./reference.js";
 
 /**
- * The namespaces a requirement can name, in the order every report lists them.
+ * The namespaces a bundle item can be in, in the order every report lists them.
  *
- * Exported as a list because three surfaces enumerate it: the error for an entry that names no
- * namespace, the error for one that names something else, and the lookup a bare name takes.
+ * Exported as a list because several surfaces enumerate it: the refusal for a `why` subject naming no
+ * namespace, the one for a subject naming something else, and every report that groups by namespace.
  */
 export const ITEM_KINDS = ["skill", "mcp", "hook"] as const;
 
 /** Which of the bundle's namespaces a name belongs to. */
 export type ItemKind = (typeof ITEM_KINDS)[number];
-
-/**
- * One item of one namespace: which namespace, and the name inside it.
- *
- * The shape a `requires` entry parses to, and the shape resolution identifies a bundle item by — one
- * type rather than two, because it is one question, and two would let a requirement name something no
- * bundle item could be.
- */
-export type Requirement = Reference<ItemKind>;
 
 /** What a namespace is called in a message about one of its members. */
 export const KIND_NOUNS: Readonly<Record<ItemKind, string>> = {
@@ -63,73 +46,24 @@ export const KIND_NOUNS: Readonly<Record<ItemKind, string>> = {
 };
 
 /**
- * The prefix spelling a bare entry was most likely reaching for.
+ * How one bundle item is named where only a string will do, and the words a refusal about one uses.
  *
- * Only a proposal, and only ever an extra line in a refusal: `mcp.sentry` written as a plain string
- * could always have meant either the server `sentry` or a skill of that exact name, which is the
- * ambiguity the mapping form exists to remove.
+ * `namespace` rather than `capability` because this names one member of one namespace — `mcp:sentry`
+ * is the server, singular — where a `requires` entry's `capabilities: [mcps]` names a whole
+ * namespace to search. The two vocabularies are bridged by `CAPABILITY_OF_KIND` in `pattern.ts`.
  */
-function guessNamespace(value: string): Requirement | undefined {
-  if (value.startsWith("mcp.")) return { kind: "mcp", name: value.slice("mcp.".length) };
-  if (value.startsWith("hook.")) return { kind: "hook", name: value.slice("hook.".length) };
-  return undefined;
-}
-
-/** How a `requires` entry is written, and the words a refusal about one uses. */
-export const REQUIRES: ReferenceGrammarOf<ItemKind> = {
+export const ITEM_REFERENCE: ReferenceGrammarOf<ItemKind> = {
+  // `key`, `entry` and `plural` describe a *list* written in this grammar under a document key, and
+  // this vocabulary no longer has one: `parseSubject` reads `kinds`, `noun`, `missing`, `named` and
+  // `members`, and nothing else. Left as the words a `requires` list used rather than invented, so
+  // the table still reads against `EXPECTS`' — and see the module header for what that says about
+  // `ReferenceGrammar`.
   key: "requires",
-  entry: "a `requires` entry",
+  entry: "an item reference",
   noun: "namespace",
   plural: "namespaces",
   missing: "which namespace it is in",
   named: "item",
   kinds: ITEM_KINDS,
   members: KIND_NOUNS,
-  guess: guessNamespace,
 };
-
-/** How a requirement is written where only a string will do — `mcp:sentry`. */
-export function formatRequirement(item: Requirement): string {
-  return formatReference(item);
-}
-
-/** How a requirement is written in a document, for a message telling someone to write one. */
-export function requirementYaml(item: Requirement): string {
-  return referenceYaml(item);
-}
-
-/** Whether two requirements name the same thing. */
-export function sameRequirement(a: Requirement, b: Requirement): boolean {
-  return sameReference(a, b);
-}
-
-/** A requirement list sorted and deduplicated, so it groups by namespace and then by name. */
-export function sortedUniqueRequirements(items: readonly Requirement[]): readonly Requirement[] {
-  return sortedUniqueReferences(items);
-}
-
-/**
- * The requirement a `<kind>:<name>` string names.
- *
- * @param where the `(file line N)` suffix for a refusal, or `""` when the caller has no file to cite.
- * @throws {AmbitError} exit 2 when no kind is given, or the kind is not one of {@link ITEM_KINDS}.
- */
-export function parseRequirement(text: string, where = ""): Requirement {
-  return parseReference(REQUIRES, text, where);
-}
-
-/** Whether a string is written as a namespaced reference at all — a known kind, then the separator. */
-export function isRequirementReference(text: string): boolean {
-  return isReference(REQUIRES, text);
-}
-
-/**
- * Parses a skill's `requires`: a sequence of one-key mappings, each naming a namespace and a name.
- *
- * @param mapping the block the key sits in — a skill's `ambit:`.
- * @throws {AmbitError} exit 2 for an entry that is not a mapping, one that names no namespace or
- *   several, or one whose value is not a string.
- */
-export function parseRequirements(mapping: YamlMapping): readonly Requirement[] {
-  return parseReferenceList(REQUIRES, mapping);
-}

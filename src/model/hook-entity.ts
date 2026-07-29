@@ -51,7 +51,7 @@ export interface HookEntity {
   readonly description?: string;
   /**
    * Declared tags: free-form labels, registered nowhere, that a consumer can select on. Empty means
-   * reachable only via `requires` or an explicit listing.
+   * reachable by a `name:` entry or a `requires` edge, and by nothing else.
    */
   readonly tags: readonly string[];
   readonly event: HookEvent;

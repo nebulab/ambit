@@ -74,6 +74,22 @@ ${extra.map((line) => `${line}\n`).join("")}`,
 }
 
 /**
+ * One entry of a skill's own `requires`, **unqualified** — the spelling a catalog demands, since the
+ * alias in `catalogs:` belongs to the consumer and a catalog author cannot write it.
+ *
+ * By exact name, a pattern with no wildcard, because what these cases are about is which edges the
+ * report finds rather than what a glob reaches.
+ */
+function needs(capability: string, name: string): string {
+  return `{ name: "${name}", capabilities: [${capability}] }`;
+}
+
+/** A skill's whole `requires` list as one annotation line, from {@link needs} entries. */
+function requires(...entries: readonly string[]): string {
+  return `requires: [${entries.join(", ")}]`;
+}
+
+/**
  * The annotation lines as §3.2 nests them: under a top-level `ambit:`, indented with it.
  *
  * Callers still pass `tags:` and `requires:` as they are tabulated, so a fixture reads like the
@@ -258,7 +274,7 @@ describe("ambit validate", () => {
  */
 describe("ambit validate: requirements and cycles", () => {
   it("reports a dangling requirement `resolve` deliberately ignores", async () => {
-    await writeSkill("broken-unselected", ["requires: [{skill: absent-skill}]"]);
+    await writeSkill("broken-unselected", [requires(needs("skills", "absent-skill"))]);
 
     const resolved = await cli("resolve");
     const validated = await cli("validate");
@@ -266,23 +282,25 @@ describe("ambit validate: requirements and cycles", () => {
     expect(resolved.code, resolved.stderr).toBe(ExitCode.Success);
     expect(validated.code).toBe(ExitCode.Resolution);
     expect(validated.stdout).toContain(
-      'unresolvable requirement "skill:absent-skill" (skills/broken-unselected/SKILL.md)',
+      '`requires` entry "name:absent-skill" matches nothing (skills/broken-unselected/SKILL.md)',
     );
-    expect(validated.stdout).toContain('broken-unselected requires a skill named "absent-skill"');
+    expect(validated.stdout).toContain(
+      `no skill in catalog "${CATALOG_NAME}" has a name matching "absent-skill"`,
+    );
   });
 
-  it("reports a missing MCP entity by its bare name", async () => {
-    await writeSkill("broken-unselected", ["requires: [{mcp: absent}]"]);
+  it("reports an entry that reaches no MCP entity, naming the namespace it asked for", async () => {
+    await writeSkill("broken-unselected", [requires(needs("mcps", "absent"))]);
 
     const found = await report("validate");
 
     expect(found.problems).toHaveLength(1);
-    expect(found.problems[0]?.kind).toBe("unresolvable-requirement");
-    expect(found.problems[0]?.detail[0]).toContain('an MCP entity named "absent"');
+    expect(found.problems[0]?.kind).toBe("unmatched-pattern");
+    expect(found.problems[0]?.detail[0]).toContain('no MCP server in catalog "company"');
   });
 
   it("reports a missing hook by its bare name", async () => {
-    await writeSkill("broken-unselected", ["requires: [{hook: absent}]"]);
+    await writeSkill("broken-unselected", [requires(needs("hooks", "absent"))]);
 
     const resolved = await cli("resolve");
     const found = await report("validate");
@@ -291,31 +309,30 @@ describe("ambit validate: requirements and cycles", () => {
     // edge and only `validate` reports it.
     expect(resolved.code, resolved.stderr).toBe(ExitCode.Success);
     expect(found.problems).toHaveLength(1);
-    expect(found.problems[0]?.kind).toBe("unresolvable-requirement");
-    expect(found.problems[0]?.detail[0]).toContain('a hook named "absent"');
-    expect(found.problems[0]?.detail[1]).toContain("hooks/");
+    expect(found.problems[0]?.kind).toBe("unmatched-pattern");
+    expect(found.problems[0]?.detail[0]).toContain('no hook in catalog "company"');
   });
 
-  it("resolves a `hook:` requirement against the hooks a catalog provides", async () => {
+  it("resolves a `[hooks]` requirement against the hooks a catalog provides", async () => {
     await writeHook("guard", ["event: Stop", "type: command", "command: npx notify"]);
-    await writeSkill("well-formed", ["requires: [{hook: guard}]"]);
+    await writeSkill("well-formed", [requires(needs("hooks", "guard"))]);
 
     expect((await report("validate")).problems).toEqual([]);
   });
 
   it("follows no edge out of a hook when hunting cycles, since a hook has no `requires`", async () => {
     // A hook named like a skill in the cycle would send a one-step walk round it twice; the entry
-    // declares its namespace, so the edge simply ends.
+    // declares its capabilities, so the edge reaches the hook and stops there.
     await writeHook("cycle-a", ["event: Stop", "type: command", "command: npx notify"]);
-    await writeSkill("cycle-a", ["requires: [{hook: cycle-a}]"]);
+    await writeSkill("cycle-a", [requires(needs("hooks", "cycle-a"))]);
 
     expect((await report("validate")).problems).toEqual([]);
   });
 
   it("reports a cycle among skills nothing selects, printing the whole path", async () => {
-    await writeSkill("cycle-a", ["requires: [{skill: cycle-b}]"]);
-    await writeSkill("cycle-b", ["requires: [{skill: cycle-c}]"]);
-    await writeSkill("cycle-c", ["requires: [{skill: cycle-a}]"]);
+    await writeSkill("cycle-a", [requires(needs("skills", "cycle-b"))]);
+    await writeSkill("cycle-b", [requires(needs("skills", "cycle-c"))]);
+    await writeSkill("cycle-c", [requires(needs("skills", "cycle-a"))]);
 
     const resolved = await cli("resolve");
     const validated = await cli("validate");
@@ -324,14 +341,15 @@ describe("ambit validate: requirements and cycles", () => {
     expect(validated.code).toBe(ExitCode.Resolution);
     expect(validated.stdout).toContain("requirement cycle");
     expect(validated.stdout).toContain("cycle-a → cycle-b → cycle-c → cycle-a");
-    expect(validated.stdout).toContain("break the cycle by removing one `requires` edge");
+    expect(validated.stdout).toContain("closed by `name:cycle-a` in skills/cycle-c/SKILL.md");
+    expect(validated.stdout).toContain("break the cycle by removing one `requires` entry");
   });
 
   it("reports two independent cycles as two problems", async () => {
-    await writeSkill("one-a", ["requires: [{skill: one-b}]"]);
-    await writeSkill("one-b", ["requires: [{skill: one-a}]"]);
-    await writeSkill("two-a", ["requires: [{skill: two-b}]"]);
-    await writeSkill("two-b", ["requires: [{skill: two-a}]"]);
+    await writeSkill("one-a", [requires(needs("skills", "one-b"))]);
+    await writeSkill("one-b", [requires(needs("skills", "one-a"))]);
+    await writeSkill("two-a", [requires(needs("skills", "two-b"))]);
+    await writeSkill("two-b", [requires(needs("skills", "two-a"))]);
 
     const found = await report("validate");
 
@@ -342,10 +360,10 @@ describe("ambit validate: requirements and cycles", () => {
   });
 
   it("reports one loop once, however many skills lead into it", async () => {
-    await writeSkill("entry-left", ["requires: [{skill: cycle-a}]"]);
-    await writeSkill("entry-right", ["requires: [{skill: cycle-b}]"]);
-    await writeSkill("cycle-a", ["requires: [{skill: cycle-b}]"]);
-    await writeSkill("cycle-b", ["requires: [{skill: cycle-a}]"]);
+    await writeSkill("entry-left", [requires(needs("skills", "cycle-a"))]);
+    await writeSkill("entry-right", [requires(needs("skills", "cycle-b"))]);
+    await writeSkill("cycle-a", [requires(needs("skills", "cycle-b"))]);
+    await writeSkill("cycle-b", [requires(needs("skills", "cycle-a"))]);
 
     const found = await report("validate");
 
@@ -354,23 +372,20 @@ describe("ambit validate: requirements and cycles", () => {
   });
 
   it("reports a dangling requirement and a cycle from one run", async () => {
-    await writeSkill("broken-dangling", ["requires: [{skill: absent-skill}]"]);
-    await writeSkill("cycle-a", ["requires: [{skill: cycle-b}]"]);
-    await writeSkill("cycle-b", ["requires: [{skill: cycle-a}]"]);
+    await writeSkill("broken-dangling", [requires(needs("skills", "absent-skill"))]);
+    await writeSkill("cycle-a", [requires(needs("skills", "cycle-b"))]);
+    await writeSkill("cycle-b", [requires(needs("skills", "cycle-a"))]);
 
     const found = await report("validate");
 
-    expect(found.problems.map((problem) => problem.kind)).toEqual([
-      "unresolvable-requirement",
-      "cycle",
-    ]);
+    expect(found.problems.map((problem) => problem.kind)).toEqual(["unmatched-pattern", "cycle"]);
   });
 });
 
 describe("ambit validate: name↔path agreement", () => {
   it("lists a mismatch as a problem instead of stopping the run at it", async () => {
     await writeMisnamedSkill("misnamed-thing", "wrong-name");
-    await writeSkill("broken-dangling", ["requires: [{skill: absent-skill}]"]);
+    await writeSkill("broken-dangling", [requires(needs("skills", "absent-skill"))]);
 
     const validated = await cli("validate");
     const found = await report("validate");
@@ -379,7 +394,7 @@ describe("ambit validate: name↔path agreement", () => {
     // The mismatch alone would be exit 2 anywhere else; here it is one entry of a longer list.
     expect(found.problems.map((problem) => problem.kind)).toEqual([
       "name-mismatch",
-      "unresolvable-requirement",
+      "unmatched-pattern",
     ]);
     expect(found.problems[0]?.message).toContain('skill name "wrong-name" does not match its path');
     expect(found.problems[0]?.detail).toEqual([
@@ -393,7 +408,7 @@ describe("ambit validate: name↔path agreement", () => {
     // Continuing past the mismatch is only worth anything if the rest of the skill is still checked,
     // and the path is the name every other tool would have installed it under.
     await writeMisnamedSkill("misnamed-thing", "wrong-name");
-    await writeSkill("needs-it", ["requires: [{skill: misnamed-thing}]"]);
+    await writeSkill("needs-it", [requires(needs("skills", "misnamed-thing"))]);
 
     const found = await report("validate");
 
@@ -467,17 +482,36 @@ describe("ambit validate: a name two catalogs provide", () => {
   });
 
   it("reports a broken skill once per copy, because two copies are two documents", async () => {
-    const dangling = ["requires:", "  - skill: absent"];
+    const dangling = [requires(needs("skills", "absent"))];
     await writeSkill("dangling", dangling);
     await writeSkill("dangling", dangling, path.join(root, SECOND));
 
     const found = await report("validate");
-    const problems = found.problems.filter((problem) => problem.message.includes("skill:absent"));
+    const problems = found.problems.filter((problem) => problem.message.includes("name:absent"));
 
     expect(problems).toHaveLength(2);
     expect(new Set(problems.map((problem) => problem.kind))).toEqual(
-      new Set(["unresolvable-requirement"]),
+      new Set(["unmatched-pattern"]),
     );
+  });
+
+  it("does not let one catalog's copy satisfy the other's `requires`", async () => {
+    // The tightening a bare pattern inside a catalog buys: `personal` ships `needed`, `company` does
+    // not, and `company`'s skill asking for it is unsatisfied however plainly the merged view holds a
+    // match. A catalog can only require what it ships.
+    await writeSkill("needs-across", [requires(needs("skills", "needed"))]);
+    await writeSkill("needed", [], path.join(root, SECOND));
+
+    const found = await report("validate");
+
+    expect(found.problems.map((problem) => problem.message)).toEqual([
+      '`requires` entry "name:needed" matches nothing (skills/needs-across/SKILL.md)',
+    ]);
+    expect(found.problems[0]?.detail).toEqual([
+      `no skill in catalog "${CATALOG_NAME}" has a name matching "needed"`,
+      "a catalog's own `requires` resolves within that catalog, which can only require what it ships",
+      "correct the pattern, add the item to a catalog, or remove the entry",
+    ]);
   });
 });
 
@@ -513,7 +547,7 @@ describe("ambit validate: the project's own config", () => {
     // The replacement for a `skills` entry that carried its own `source`: a project that publishes
     // something is a catalog, so `validate` reads it with no special case — and a broken skill it
     // ships is a finding like any other, whether the project selects it or not.
-    await writeSkill("readwise-cli", ["requires: [{skill: absent-skill}]"], projectDir);
+    await writeSkill("readwise-cli", [requires(needs("skills", "absent-skill"))], projectDir);
     await writeFile(
       path.join(projectDir, "ambit.yml"),
       [
@@ -535,7 +569,7 @@ describe("ambit validate: the project's own config", () => {
     expect(result.code).toBe(ExitCode.Resolution);
     expect(result.stdout).toContain(`checked ${FIXTURE_SKILLS + 1} skills`);
     expect(result.stdout).toContain(
-      'unresolvable requirement "skill:absent-skill" (skills/readwise-cli/SKILL.md)',
+      '`requires` entry "name:absent-skill" matches nothing (skills/readwise-cli/SKILL.md)',
     );
   });
 
@@ -548,7 +582,7 @@ describe("ambit validate: the project's own config", () => {
 
 describe("ambit validate output", () => {
   it("emits the problem list as JSON, with the verdict and what was checked", async () => {
-    await writeSkill("broken-thing", ["requires: [{skill: absent-skill}]"]);
+    await writeSkill("broken-thing", [requires(needs("skills", "absent-skill"))]);
 
     const result = await cli("validate", "--json");
 
@@ -562,11 +596,13 @@ describe("ambit validate output", () => {
       problems: [
         {
           detail: [
-            'broken-thing requires a skill named "absent-skill", which no catalog provides',
-            "add it to a catalog, or remove the `- skill: absent-skill` entry",
+            `no skill in catalog "${CATALOG_NAME}" has a name matching "absent-skill"`,
+            "a catalog's own `requires` resolves within that catalog, which can only require what it ships",
+            "correct the pattern, add the item to a catalog, or remove the entry",
           ],
-          kind: "unresolvable-requirement",
-          message: 'unresolvable requirement "skill:absent-skill" (skills/broken-thing/SKILL.md)',
+          kind: "unmatched-pattern",
+          message:
+            '`requires` entry "name:absent-skill" matches nothing (skills/broken-thing/SKILL.md)',
         },
       ],
       valid: false,
@@ -602,7 +638,7 @@ describe("ambit validate output", () => {
   });
 
   it("prints each problem's detail indented under its summary", async () => {
-    await writeSkill("broken-thing", ["requires: [{skill: absent-skill}]"]);
+    await writeSkill("broken-thing", [requires(needs("skills", "absent-skill"))]);
 
     const result = await cli("validate");
 
@@ -611,15 +647,16 @@ describe("ambit validate output", () => {
         `checked ${FIXTURE_SKILLS + 1} skills, ${FIXTURE_MCPS} mcps, ${FIXTURE_HOOKS} hooks`,
         "",
         "problems (1)",
-        '  unresolvable requirement "skill:absent-skill" (skills/broken-thing/SKILL.md)',
-        '      broken-thing requires a skill named "absent-skill", which no catalog provides',
-        "      add it to a catalog, or remove the `- skill: absent-skill` entry",
+        '  `requires` entry "name:absent-skill" matches nothing (skills/broken-thing/SKILL.md)',
+        `      no skill in catalog "${CATALOG_NAME}" has a name matching "absent-skill"`,
+        "      a catalog's own `requires` resolves within that catalog, which can only require what it ships",
+        "      correct the pattern, add the item to a catalog, or remove the entry",
       ].join("\n"),
     );
   });
 
   it("emits byte-identical JSON on a second run, and carries no machine paths", async () => {
-    await writeSkill("broken-thing", ["requires: [{skill: absent-skill}]"]);
+    await writeSkill("broken-thing", [requires(needs("skills", "absent-skill"))]);
 
     const first = await cli("validate", "--json");
     const second = await cli("validate", "--json");

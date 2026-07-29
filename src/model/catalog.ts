@@ -35,8 +35,8 @@ import type { McpEntity } from "./mcp-entity.js";
 import { parseMcpEntity } from "./mcp-entity.js";
 import type { Expectation } from "./expectation.js";
 import { parseExpectations } from "./expectation.js";
-import type { Requirement } from "./requirement.js";
-import { parseRequirements } from "./requirement.js";
+import type { PatternEntry } from "./pattern.js";
+import { parseEntries } from "./pattern.js";
 import type { ResolvedSource, SourceContext } from "./sources.js";
 import { resolveSource } from "./sources.js";
 import type { YamlMapping } from "./yaml.js";
@@ -148,14 +148,18 @@ export interface CatalogSkill {
   readonly description?: string;
   /**
    * Declared tags: free-form labels, registered nowhere and described nowhere, that a consumer can
-   * select on. Empty means reachable only via `requires` or an explicit listing.
+   * select on. Empty means reachable by a `name:` entry or a `requires` edge, and by nothing else.
    */
   readonly tags: readonly string[];
   /**
-   * What this skill pulls into a bundle with it, each entry naming its own namespace — see
-   * {@link Requirement}. In the order the author wrote them.
+   * What this skill pulls into a bundle with it: a `requires` list in the same entry grammar a
+   * project selects with, minus the qualifier — see {@link PatternEntry}. In the order the author
+   * wrote them.
+   *
+   * Unqualified, and therefore confined to this catalog: the alias belongs to the consumer's config,
+   * so a catalog author cannot write one, and a catalog can only require what it ships.
    */
-  readonly requires: readonly Requirement[];
+  readonly requires: readonly PatternEntry[];
   /**
    * What must be true of the world for this skill to work, each entry naming its own kind — see
    * {@link Expectation}. In the order the author wrote them.
@@ -574,7 +578,9 @@ function skillAnnotations(mapping: YamlMapping): Omit<CatalogSkill, "name" | "pa
   return {
     ...(description !== undefined && { description }),
     tags: ambit?.optionalStringList("tags") ?? [],
-    requires: ambit === undefined ? [] : parseRequirements(ambit),
+    // Unqualified: a catalog author cannot write a consumer's alias, so the pattern stands alone and
+    // the entry resolves within this catalog.
+    requires: ambit === undefined ? [] : parseEntries(ambit, "unqualified"),
     expects: ambit === undefined ? [] : parseExpectations(ambit),
   };
 }

@@ -72,10 +72,15 @@ name: acme-brief
 description: The Acme engagement brief — scope, contacts, and conventions.
 ambit:
   tags: [project.acme]
+  # Unqualified, because a catalog author cannot write a consumer's alias — so each entry resolves
+  # within this catalog. Exact names here: a pattern with no wildcard is one item, exactly.
   requires:
-    - skill: company-context
-    - mcp: fixture
-    - hook: acme-standup
+    - name: company-context
+      capabilities: [skills]
+    - name: fixture
+      capabilities: [mcps]
+    - name: acme-standup
+      capabilities: [hooks]
 ---
 
 # Acme engagement brief
