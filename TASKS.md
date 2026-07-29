@@ -129,7 +129,7 @@ Closes #37 and PR #38 as a side effect — both are entirely about inline hooks.
 
 ## 5. The glob matcher and the entry grammar
 
-- [ ] `src/model/pattern.ts`, pure, wired to nothing.
+- [x] `src/model/pattern.ts`, pure, wired to nothing.
 
 Per §_The entry grammar: field, pattern, capabilities_ and §_Glob rules_.
 
