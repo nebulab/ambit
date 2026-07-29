@@ -62,7 +62,7 @@ const EXPECTED_FILES = [
   "hooks/guard-secrets/guard.sh",
   "hooks/session-notes/HOOK.yml",
   "mcps/fixture.yml",
-  "mcps/scoped.yml",
+  "mcps/tagged.yml",
   "skills/company-context/SKILL.md",
   "skills/design-tokens/SKILL.md",
   "skills/code-review/SKILL.md",
@@ -113,7 +113,7 @@ describe("fixture catalog", () => {
         declared.add(tag);
       }
     }
-    for (const entity of [...["mcps/fixture.yml", "mcps/scoped.yml"], ...HOOK_PATHS]) {
+    for (const entity of [...["mcps/fixture.yml", "mcps/tagged.yml"], ...HOOK_PATHS]) {
       const parsed = parse(await readFile(path.join(dir, entity), "utf8")) as { tags?: string[] };
       for (const tag of parsed.tags ?? []) declared.add(tag);
     }
@@ -182,27 +182,27 @@ describe("fixture catalog", () => {
 
   it("defines a requires-only stdio server and a tagged http server", async () => {
     const required = parse(await readFile(path.join(dir, "mcps/fixture.yml"), "utf8"));
-    const scoped = parse(await readFile(path.join(dir, "mcps/scoped.yml"), "utf8"));
+    const tagged = parse(await readFile(path.join(dir, "mcps/tagged.yml"), "utf8"));
 
     expect(required).toEqual({
       name: "fixture",
       transport: { stdio: { command: "npx", args: ["-y", "@acme/fixture-mcp"] } },
       expects: [{ env: "FIXTURE_API_KEY" }],
     });
-    expect(scoped).toEqual({
-      name: "scoped",
+    expect(tagged).toEqual({
+      name: "tagged",
       tags: ["function.engineering"],
       transport: {
         http: {
           url: "https://mcp.invalid/fixture",
-          headers: { Authorization: "Bearer ${SCOPED_API_KEY}" },
+          headers: { Authorization: "Bearer ${TAGGED_API_KEY}" },
         },
       },
-      expects: [{ env: "SCOPED_API_KEY" }],
+      expects: [{ env: "TAGGED_API_KEY" }],
     });
 
     // `transport` is the discriminator, so it must never carry more or less than one kind.
-    for (const entity of [required, scoped] as { transport: Record<string, unknown> }[]) {
+    for (const entity of [required, tagged] as { transport: Record<string, unknown> }[]) {
       expect(Object.keys(entity.transport)).toHaveLength(1);
     }
   });
@@ -263,7 +263,7 @@ describe("fixture catalog", () => {
   });
 
   it("names each MCP entity after its filename stem", async () => {
-    for (const file of ["mcps/fixture.yml", "mcps/scoped.yml"]) {
+    for (const file of ["mcps/fixture.yml", "mcps/tagged.yml"]) {
       const entity = parse(await readFile(path.join(dir, file), "utf8")) as { name: string };
       expect(entity.name).toBe(path.posix.basename(file, ".yml"));
     }

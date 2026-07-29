@@ -72,10 +72,10 @@ import type { SourceContext } from "../model/sources.js";
  * reaches nothing in the catalog that ships it. Both are already resolution errors — `validate` is
  * where every offender is listed at once instead of one per run.
  *
- * One kind covers what used to be three, `unknown-scope`, `unknown-skill` and
- * `unresolvable-requirement`, because there is one grammar now: an exact name is a pattern with no
- * wildcard, so a misspelled name, a stale glob and a dangling requirement are the same finding, and
- * the message names which entry and which file it is about.
+ * One kind covers what used to be three — a selector naming nothing the catalogs offered, an explicit
+ * name naming no skill, and a requirement naming neither — because there is one grammar now: an exact
+ * name is a pattern with no wildcard, so a misspelled name, a stale glob and a dangling requirement
+ * are the same finding, and the message names which entry and which file it is about.
  *
  * `unselected-catalog` is the one finding whose subject is the config alone rather than any document
  * in a catalog — see {@link unselectedCatalogProblems} for why it is the check that catches a typo'd

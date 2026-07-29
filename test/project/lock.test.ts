@@ -160,7 +160,7 @@ describe("ambit.lock", () => {
         `    catalog: ${CATALOG_NAME}`,
         `    reason: tag:${CATALOG_NAME}/core`,
         "mcps:",
-        "  scoped:",
+        "  tagged:",
         `    catalog: ${CATALOG_NAME}`,
         `    reason: tag:${CATALOG_NAME}/function.engineering`,
         "skills:",

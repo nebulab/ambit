@@ -44,9 +44,10 @@ export const HANDLERS: CommandHandlers = {
  * was given, before it is dispatched (`buildCommand` hangs each one off its command as a `preAction`
  * hook).
  *
- * Empty, and honestly so. The four rules that lived here belonged to the catalog mutators — a scope
- * needing a description, a server needing exactly one transport, an annotation contradicting itself —
- * and went when those commands did. No command left has a flag shape Commander cannot word a refusal
+ * Empty, and honestly so. The four rules that lived here belonged to the commands that wrote into a
+ * catalog — one about a label needing a description, one about a server needing exactly one transport,
+ * one about an annotation contradicting itself — and went when those commands did. Nothing writes into
+ * a catalog now, and no command left has a flag shape Commander cannot word a refusal
  * for: `install`'s `--copy`/`--link` is on `.conflicts()`, whose wording for two flags that cannot
  * appear together is already the whole of what there is to say.
  */

@@ -60,15 +60,15 @@ const CORE_SKILL = "company-context";
 const ENGINEERING_SKILL = "code-review";
 const FRONTEND_SKILL = "design-tokens";
 
-/** The fixture's scope-matched http server, and the one only `requires` reaches. */
-const SCOPED_MCP = "scoped";
+/** The fixture's tag-matched http server, and the one only `requires` reaches. */
+const TAGGED_MCP = "tagged";
 const FIXTURE_MCP = "fixture";
 
-/** The variable the scoped server interpolates into its `Authorization` header. */
-const SCOPED_KEY_VAR = "SCOPED_API_KEY";
+/** The variable the tagged server interpolates into its `Authorization` header. */
+const TAGGED_KEY_VAR = "TAGGED_API_KEY";
 
 /**
- * The fixture's two scope-matched hooks, the directory one of them ships and the file they share.
+ * The fixture's two tag-matched hooks, the directory one of them ships and the file they share.
  *
  * `core` selects an inline-command hook and `function.engineering` one shipping a script, so the
  * default profile's bundle plans a config file and a materialized directory besides the skills. The
@@ -264,11 +264,11 @@ beforeEach(async () => {
   await buildFixtureCatalog(catalogDir);
   await mkdir(projectDir, { recursive: true });
   // `function.engineering` also selects its nested frontend child, so this profile is three
-  // skills — and the `scoped` MCP server, which declares that same scope.
+  // skills — and the `tagged` MCP server, which declares that same tag.
   await writeProfile(["core", "function.engineering", "function.engineering.*"]);
   // What lands in `.mcp.json` depends on the environment, so every test pins it rather
   // than inheriting whatever the developer's shell exports.
-  vi.stubEnv(SCOPED_KEY_VAR, undefined);
+  vi.stubEnv(TAGGED_KEY_VAR, undefined);
 });
 
 afterEach(async () => {
@@ -409,7 +409,7 @@ describe("ambit install", () => {
           path: MCP_FILE,
           kind: "harness-config",
           format: "json",
-          managedKeys: [`mcpServers.${SCOPED_MCP}`],
+          managedKeys: [`mcpServers.${TAGGED_MCP}`],
         },
       ],
     });
@@ -482,7 +482,7 @@ describe("ambit install", () => {
         { kind: "hook-dir", mode: "link", path: HOOK_DIR },
         { kind: "skills-link", mode: "link", path: CLAUDE_LINK },
         // No `format`: a report shows what a reader needs, and the path already says which it is.
-        { kind: "harness-config", managedKeys: [`mcpServers.${SCOPED_MCP}`], path: MCP_FILE },
+        { kind: "harness-config", managedKeys: [`mcpServers.${TAGGED_MCP}`], path: MCP_FILE },
         {
           kind: "harness-config",
           managedKeys: [ENGINEERING_HOOK_KEY, CORE_HOOK_KEY],
@@ -621,13 +621,13 @@ describe("how a skill's source reaches its target", () => {
 });
 
 describe(".mcp.json", () => {
-  /** The scoped server matches this profile by scope; `fixture` only arrives via `requires`. */
+  /** The tagged server matches this profile by tag; `fixture` only arrives via `requires`. */
   const BOTH_SERVERS = ["function.engineering", "function.engineering.*", "project.acme"];
 
-  const SCOPED_SERVER = {
+  const TAGGED_SERVER = {
     type: "http",
     url: "https://mcp.invalid/fixture",
-    headers: { Authorization: `Bearer \${${SCOPED_KEY_VAR}}` },
+    headers: { Authorization: `Bearer \${${TAGGED_KEY_VAR}}` },
   };
 
   /** stdio servers carry an `env` map so the harness passes each declared variable to the process. */
@@ -637,15 +637,15 @@ describe(".mcp.json", () => {
     env: { FIXTURE_API_KEY: "${FIXTURE_API_KEY}" },
   };
 
-  it("holds exactly the scope-matched server and the requires-only one", async () => {
+  it("holds exactly the tag-matched server and the requires-only one", async () => {
     await writeProfile(BOTH_SERVERS);
 
     const result = await cli("install");
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
-    // Both transport kinds at once: `fixture` is stdio, `scoped` is http.
+    // Both transport kinds at once: `fixture` is stdio, `tagged` is http.
     expect(await readMcpConfig()).toEqual({
-      mcpServers: { [FIXTURE_MCP]: FIXTURE_SERVER, [SCOPED_MCP]: SCOPED_SERVER },
+      mcpServers: { [FIXTURE_MCP]: FIXTURE_SERVER, [TAGGED_MCP]: TAGGED_SERVER },
     });
   });
 
@@ -658,13 +658,13 @@ describe(".mcp.json", () => {
   });
 
   it("writes a `${VAR}` reference rather than the value, even with the variable set", async () => {
-    vi.stubEnv(SCOPED_KEY_VAR, "s3cret");
+    vi.stubEnv(TAGGED_KEY_VAR, "s3cret");
 
     await cli("install");
 
     // The credential stays in the environment. Resolving it here would put a live token into a file
     // ambit deliberately does not gitignore, and make the output differ per machine.
-    expect(await readMcpConfig()).toEqual({ mcpServers: { [SCOPED_MCP]: SCOPED_SERVER } });
+    expect(await readMcpConfig()).toEqual({ mcpServers: { [TAGGED_MCP]: TAGGED_SERVER } });
     expect(await readMcpFile()).not.toContain("s3cret");
   });
 
@@ -672,11 +672,11 @@ describe(".mcp.json", () => {
     await cli("install");
     const unset = await readMcpFile();
 
-    vi.stubEnv(SCOPED_KEY_VAR, "s3cret");
+    vi.stubEnv(TAGGED_KEY_VAR, "s3cret");
     await cli("install");
 
     expect(await readMcpFile()).toBe(unset);
-    expect(unset).toContain(`Bearer \${${SCOPED_KEY_VAR}}`);
+    expect(unset).toContain(`Bearer \${${TAGGED_KEY_VAR}}`);
   });
 
   it("omits `args` and `headers` a server does not declare", async () => {
@@ -714,7 +714,7 @@ describe(".mcp.json", () => {
 
     const document = await readMcpConfig();
     expect(document).toEqual({
-      mcpServers: { handmade, [FIXTURE_MCP]: FIXTURE_SERVER, [SCOPED_MCP]: SCOPED_SERVER },
+      mcpServers: { handmade, [FIXTURE_MCP]: FIXTURE_SERVER, [TAGGED_MCP]: TAGGED_SERVER },
       extra: { kept: true },
     });
     // Keys already in the file keep their position; ambit's are appended.
@@ -722,7 +722,7 @@ describe(".mcp.json", () => {
     expect(Object.keys(document.mcpServers as object)).toEqual([
       "handmade",
       FIXTURE_MCP,
-      SCOPED_MCP,
+      TAGGED_MCP,
     ]);
   });
 
@@ -741,7 +741,7 @@ describe(".mcp.json", () => {
       path: MCP_FILE,
       kind: "harness-config",
       format: "json",
-      managedKeys: [`mcpServers.${FIXTURE_MCP}`, `mcpServers.${SCOPED_MCP}`],
+      managedKeys: [`mcpServers.${FIXTURE_MCP}`, `mcpServers.${TAGGED_MCP}`],
     });
   });
 
@@ -1151,7 +1151,7 @@ describe("ambit install --dry-run", () => {
         { kind: "skill-dir", path: `${SKILLS_DIR}/${ENGINEERING_SKILL}` },
         { kind: "skill-dir", path: `${SKILLS_DIR}/${FRONTEND_SKILL}` },
         { kind: "harness-config", managedKeys: [ENGINEERING_HOOK_KEY], path: CLAUDE_SETTINGS },
-        { kind: "harness-config", managedKeys: [`mcpServers.${SCOPED_MCP}`], path: MCP_FILE },
+        { kind: "harness-config", managedKeys: [`mcpServers.${TAGGED_MCP}`], path: MCP_FILE },
       ],
       skills: [CORE_SKILL],
       skipped: [],
@@ -1200,12 +1200,12 @@ describe("ownership", () => {
     await writeFile(path.join(target, "notes.md"), STRAY, "utf8");
   }
 
-  /** A `.mcp.json` whose `scoped` key collides with the one the fixture's server would write. */
+  /** A `.mcp.json` whose `tagged` key collides with the one the fixture's server would write. */
   async function writeUnownedServer(): Promise<string> {
     const contents = `${JSON.stringify(
       {
         mcpServers: {
-          [SCOPED_MCP]: { command: "node", args: ["./scoped.js"] },
+          [TAGGED_MCP]: { command: "node", args: ["./tagged.js"] },
           kept: { command: "keep" },
         },
       },
@@ -1277,7 +1277,7 @@ describe("ownership", () => {
 
     expect(result.code).toBe(ExitCode.Config);
     expect(result.stderr).toContain("refusing to overwrite unowned key");
-    expect(result.stderr).toContain(`"mcpServers.${SCOPED_MCP}" in ${MCP_FILE}`);
+    expect(result.stderr).toContain(`"mcpServers.${TAGGED_MCP}" in ${MCP_FILE}`);
     expect(result.stderr).toContain(`remove it from ${MCP_FILE}`);
     expect(await readMcpFile()).toBe(contents);
     expect(await pathExists(SKILLS_DIR)).toBe(false);
@@ -1312,10 +1312,10 @@ describe("ownership", () => {
     const document = await readMcpConfig();
     expect(document).toEqual({
       mcpServers: {
-        [SCOPED_MCP]: {
+        [TAGGED_MCP]: {
           type: "http",
           url: "https://mcp.invalid/fixture",
-          headers: { Authorization: `Bearer \${${SCOPED_KEY_VAR}}` },
+          headers: { Authorization: `Bearer \${${TAGGED_KEY_VAR}}` },
         },
         kept: { command: "keep" },
       },
@@ -1324,7 +1324,7 @@ describe("ownership", () => {
       parseState(await readStateFile(), STATE_FILENAME).artifacts.find(
         (artifact) => artifact.path === MCP_FILE,
       )?.managedKeys,
-    ).toEqual([`mcpServers.${SCOPED_MCP}`]);
+    ).toEqual([`mcpServers.${TAGGED_MCP}`]);
   });
 
   it("needs `--adopt` only once: the second install owns what the first adopted", async () => {
@@ -1411,7 +1411,7 @@ describe("pruning", () => {
       { path: `${SKILLS_DIR}/${ENGINEERING_SKILL}`, kind: "skill-dir" },
       { path: `${SKILLS_DIR}/${FRONTEND_SKILL}`, kind: "skill-dir" },
       { path: CLAUDE_SETTINGS, kind: "harness-config", managedKeys: [ENGINEERING_HOOK_KEY] },
-      { path: MCP_FILE, kind: "harness-config", managedKeys: [`mcpServers.${SCOPED_MCP}`] },
+      { path: MCP_FILE, kind: "harness-config", managedKeys: [`mcpServers.${TAGGED_MCP}`] },
     ]);
   });
 
@@ -1423,9 +1423,9 @@ describe("pruning", () => {
     const result = await cli("install");
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
-    // `scoped` still matches by scope; `fixture` only ever arrived through the project skill's
+    // `tagged` still matches by tag; `fixture` only ever arrived through the project skill's
     // `requires`, which this profile no longer selects.
-    expect(Object.keys((await readMcpConfig()).mcpServers as object)).toEqual([SCOPED_MCP]);
+    expect(Object.keys((await readMcpConfig()).mcpServers as object)).toEqual([TAGGED_MCP]);
     expect(parseState(await readStateFile(), STATE_FILENAME).artifacts).toEqual([
       { path: HOOK_DIR, kind: "hook-dir", mode: "link" },
       { path: `${SKILLS_DIR}/${ENGINEERING_SKILL}`, kind: "skill-dir", mode: "link" },
@@ -1442,7 +1442,7 @@ describe("pruning", () => {
         path: MCP_FILE,
         kind: "harness-config",
         format: "json",
-        managedKeys: [`mcpServers.${SCOPED_MCP}`],
+        managedKeys: [`mcpServers.${TAGGED_MCP}`],
       },
     ]);
   });
@@ -1545,7 +1545,7 @@ describe("pruning", () => {
           // `.mcp.json` alone: rewriting every config file's keys would put keys naming no section
           // into the settings file too, and ownership would refuse before pruning got a look.
           artifact.kind === "harness-config" && artifact.path === MCP_FILE
-            ? { ...artifact, managedKeys: [`mcpServers.${SCOPED_MCP}`, SCOPED_MCP] }
+            ? { ...artifact, managedKeys: [`mcpServers.${TAGGED_MCP}`, TAGGED_MCP] }
             : artifact,
         ),
       }),
@@ -1555,7 +1555,7 @@ describe("pruning", () => {
     const result = await cli("install");
 
     expect(result.code).toBe(ExitCode.Config);
-    expect(result.stderr).toContain(`cannot prune "${SCOPED_MCP}" from ${MCP_FILE}`);
+    expect(result.stderr).toContain(`cannot prune "${TAGGED_MCP}" from ${MCP_FILE}`);
   });
 });
 

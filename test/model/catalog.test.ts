@@ -65,7 +65,7 @@ async function rejection(): Promise<AmbitError> {
 
 /**
  * Builds a catalog beside the fixture that deliberately collides with it: the same core skill and the
- * same `scoped` server, plus a skill of its own so the merge has something only one catalog provides.
+ * same `tagged` server, plus a skill of its own so the merge has something only one catalog provides.
  *
  * @param name the catalog's directory, which is also the name config gives it.
  */
@@ -93,8 +93,8 @@ async function writeCollidingCatalog(name: string): Promise<void> {
       "# notes",
       "",
     ].join("\n"),
-    "mcps/scoped.yml": [
-      "name: scoped",
+    "mcps/tagged.yml": [
+      "name: tagged",
       "tags: [function.engineering]",
       "transport:",
       "  stdio:",
@@ -215,7 +215,7 @@ describe("catalog parsing", () => {
       "company-context",
       "design-tokens",
     ]);
-    expect(catalog.mcps.map((mcp) => mcp.name)).toEqual(["fixture", "scoped"]);
+    expect(catalog.mcps.map((mcp) => mcp.name)).toEqual(["fixture", "tagged"]);
   });
 
   it("derives each skill's name and path from its directory", async () => {
@@ -265,10 +265,10 @@ describe("catalog parsing", () => {
       command: "npx",
       args: ["-y", "@acme/fixture-mcp"],
     });
-    expect(catalog.mcps.find((mcp) => mcp.name === "scoped")?.transport).toEqual({
+    expect(catalog.mcps.find((mcp) => mcp.name === "tagged")?.transport).toEqual({
       kind: "http",
       url: "https://mcp.invalid/fixture",
-      headers: { Authorization: "Bearer ${SCOPED_API_KEY}" },
+      headers: { Authorization: "Bearer ${TAGGED_API_KEY}" },
     });
   });
 
@@ -517,7 +517,7 @@ describe("ambit dump-catalog", () => {
     expect(result.code).toBe(ExitCode.Success);
     expect(JSON.parse(result.stdout)).toEqual({
       catalogs: [CATALOG_NAME],
-      // The fixture's three: one a held scope reaches, one shipping a script, and one tagged nothing.
+      // The fixture's three: one a `tag: core` entry reaches, one shipping a script, and one tagged nothing.
       hooks: {
         [`${CATALOG_NAME}/acme-standup`]: {
           catalog: CATALOG_NAME,
@@ -579,7 +579,7 @@ describe("ambit dump-catalog", () => {
         },
         [`${CATALOG_NAME}/acme-brief`]: {
           catalog: CATALOG_NAME,
-          description: "The Acme engagement brief — scope, contacts, and conventions.",
+          description: "The Acme engagement brief — remit, contacts, and conventions.",
           expects: [],
           path: "skills/acme-brief",
           requires: [
@@ -597,14 +597,14 @@ describe("ambit dump-catalog", () => {
           tags: [],
           transport: { kind: "stdio", command: "npx", args: ["-y", "@acme/fixture-mcp"] },
         },
-        [`${CATALOG_NAME}/scoped`]: {
+        [`${CATALOG_NAME}/tagged`]: {
           catalog: CATALOG_NAME,
-          expects: [{ kind: "env", name: "SCOPED_API_KEY" }],
+          expects: [{ kind: "env", name: "TAGGED_API_KEY" }],
           tags: ["function.engineering"],
           transport: {
             kind: "http",
             url: "https://mcp.invalid/fixture",
-            headers: { Authorization: "Bearer ${SCOPED_API_KEY}" },
+            headers: { Authorization: "Bearer ${TAGGED_API_KEY}" },
           },
         },
       },
@@ -1273,7 +1273,7 @@ describe("multi-catalog merge", () => {
     expect(
       view.skills.filter((skill) => skill.name === CORE_SKILL).map((skill) => skill.catalog),
     ).toEqual([CATALOG_NAME, SECOND]);
-    expect(view.mcps.filter((mcp) => mcp.name === "scoped").map((mcp) => mcp.catalog)).toEqual([
+    expect(view.mcps.filter((mcp) => mcp.name === "tagged").map((mcp) => mcp.catalog)).toEqual([
       CATALOG_NAME,
       SECOND,
     ]);
@@ -1300,11 +1300,11 @@ describe("multi-catalog merge", () => {
       mcps: Record<string, { catalog: string; transport: Record<string, unknown> }>;
     };
 
-    expect(dumped.mcps[`${CATALOG_NAME}/scoped`]).toMatchObject({
+    expect(dumped.mcps[`${CATALOG_NAME}/tagged`]).toMatchObject({
       catalog: CATALOG_NAME,
       transport: { kind: "http" },
     });
-    expect(dumped.mcps[`${SECOND}/scoped`]).toMatchObject({
+    expect(dumped.mcps[`${SECOND}/tagged`]).toMatchObject({
       catalog: SECOND,
       transport: { kind: "stdio", command: `${SECOND}-mcp` },
     });
@@ -1344,7 +1344,7 @@ describe("multi-catalog merge", () => {
   });
 
   it("refuses a selected MCP server two catalogs provide, as it does a skill", async () => {
-    // `function.engineering` reaches the `scoped` server in both catalogs, and no skill twice — so
+    // `function.engineering` reaches the `tagged` server in both catalogs, and no skill twice — so
     // this is the namespace the refusal is reported for.
     await writeCollidingCatalog(SECOND);
     await writeCatalogOrder(
@@ -1355,7 +1355,7 @@ describe("multi-catalog merge", () => {
     const result = await cli("resolve");
 
     expect(result.code).toBe(ExitCode.Resolution);
-    expect(result.stderr).toContain('MCP server "scoped" is selected from more than one catalog');
+    expect(result.stderr).toContain('MCP server "tagged" is selected from more than one catalog');
   });
 
   it("resolves normally, with no whose-copy column, when one copy is selected", async () => {

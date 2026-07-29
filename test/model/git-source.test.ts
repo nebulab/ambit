@@ -39,11 +39,11 @@ const CATALOG_NAME = "company";
 const CORE_SKILL = "company-context";
 const SKILLS_DIR = ".agents/skills";
 
-/** Selects three skills and the `scoped` server, so the comparison covers every artifact kind. */
+/** Selects three skills and the `tagged` server, so the comparison covers every artifact kind. */
 const TAGS: readonly string[] = ["core", "function.engineering", "function.engineering.*"];
 
-/** The variable the scoped server interpolates into a header; pinned so the file is predictable. */
-const SCOPED_KEY_VAR = "SCOPED_API_KEY";
+/** The variable the tagged server interpolates into a header; pinned so the file is predictable. */
+const TAGGED_KEY_VAR = "TAGGED_API_KEY";
 
 let root: string;
 let cacheDir: string;
@@ -163,7 +163,7 @@ beforeEach(async () => {
   // The cache is machine-wide, so every test points it somewhere disposable rather than
   // writing into the developer's real one.
   vi.stubEnv("XDG_CACHE_HOME", cacheDir);
-  vi.stubEnv(SCOPED_KEY_VAR, undefined);
+  vi.stubEnv(TAGGED_KEY_VAR, undefined);
 
   catalogDir = path.join(root, "catalog");
   await buildFixtureCatalog(catalogDir);

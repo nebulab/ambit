@@ -33,7 +33,7 @@ const ENGINEERING_SKILL = "code-review";
 const FRONTEND_SKILL = "design-tokens";
 const PROJECT_SKILL = "acme-brief";
 
-/** The fixture's two scope-selected hooks, in the sections they appear in — both names 13 wide. */
+/** The fixture's two tag-selected hooks, in the sections they appear in — both names 13 wide. */
 const CORE_HOOK = "session-notes";
 const ENGINEERING_HOOK = "guard-secrets";
 
@@ -44,7 +44,7 @@ const GOLDEN_DIR = path.join(
   "resolve",
 );
 
-/** Every namespace, which is what a held scope used to reach in one stroke. */
+/** Every namespace, which is what a `tag:` entry usually wants in one stroke. */
 const ALL: readonly string[] = ["skills", "mcps", "hooks"];
 
 /**
@@ -76,10 +76,10 @@ function entry(
 /**
  * The profile matrix: one `requires` list each, with a golden file.
  *
- * The two `function.engineering` profiles hold two entries where a held scope held one, and that is
- * the grammar being honest rather than a wart: `function.engineering` and `function.engineering.*`
- * are different patterns, and the second is what reaches the nested `frontend` label the subtree
- * rule used to reach silently.
+ * The two `function.engineering` profiles hold two entries where one label would once have done, and
+ * that is the grammar being honest rather than a wart: `function.engineering` and
+ * `function.engineering.*` are different patterns, and only the second reaches the nested `frontend`
+ * label. A dot is a character, not a level, so a pattern says what it takes.
  */
 const PROFILES: readonly { readonly name: string; readonly requires: readonly string[] }[] = [
   { name: "empty", requires: [] },
@@ -396,7 +396,7 @@ describe("glob rules in selection", () => {
     const everything = await bundle([entry("name", "*")]);
 
     expect(everything.skills).toHaveLength(8);
-    expect(everything.mcps.map((mcp) => mcp.name)).toEqual(["fixture", "scoped"]);
+    expect(everything.mcps.map((mcp) => mcp.name)).toEqual(["fixture", "tagged"]);
   });
 
   it("matches an exact name and nothing else when the pattern holds no wildcard", async () => {
@@ -510,19 +510,19 @@ describe("selection by pattern", () => {
       (
         await bundle([entry("tag", "function.engineering"), entry("tag", "function.engineering.*")])
       ).mcps.map((mcp) => mcp.name),
-    ).toEqual(["scoped"]);
+    ).toEqual(["tagged"]);
     expect((await bundle([entry("tag", "core")])).mcps).toEqual([]);
   });
 
   it("unions `expects` across everything the list selected", async () => {
-    // ACME_FIGMA_TOKEN comes from the nested frontend skill, SCOPED_API_KEY from the server the
+    // ACME_FIGMA_TOKEN comes from the nested frontend skill, TAGGED_API_KEY from the server the
     // broader entry selects, so one list must produce both.
     const wide = await bundle([
       entry("tag", "function.engineering"),
       entry("tag", "function.engineering.*"),
     ]);
 
-    expect(wide.expects.env).toEqual(["ACME_FIGMA_TOKEN", "SCOPED_API_KEY"]);
+    expect(wide.expects.env).toEqual(["ACME_FIGMA_TOKEN", "TAGGED_API_KEY"]);
   });
 
   it("selects an item once when two entries both reach it", async () => {
@@ -539,19 +539,20 @@ describe("selection by pattern", () => {
 
 /**
  * Spec §4.9: the closure is what makes a skill's dependencies travel with it. The fixture's
- * project skill is the case the spec cares about — it requires a skill and a server that no held
- * scope of its own would ever select — and the graph shapes around it (chain, diamond, cycle) are
+ * project skill is the case the spec cares about — it requires a skill and a server that no entry
+ * selecting the project skill itself would reach — and the graph shapes around it (chain, diamond,
+ * cycle) are
  * written into the catalog per test.
  */
 describe("the requires closure", () => {
-  it("pulls in a required skill and MCP server that match by no held scope", async () => {
+  it("pulls in a required skill and MCP server that no entry in the profile matches", async () => {
     const project = await bundle([entry("tag", "project.acme")]);
 
     expect(project.skills.map((skill) => skill.name)).toEqual([PROJECT_SKILL, CORE_SKILL]);
     expect(project.mcps.map((mcp) => mcp.name)).toEqual(["fixture"]);
   });
 
-  it("unions `expects` over what the closure added, not only what scope selected", async () => {
+  it("unions `expects` over what the closure added, not only what an entry selected", async () => {
     // FIXTURE_API_KEY belongs to the server only `requires` can reach, so a bundle that lists the
     // server without its credential would send `doctor` looking at the wrong thing.
     expect((await bundle([entry("tag", "project.acme")])).expects.env).toEqual(["FIXTURE_API_KEY"]);
@@ -628,8 +629,8 @@ describe("the requires closure", () => {
 
   it("leaves a broken skill nobody selected alone, so one bad entry blocks no one", async () => {
     // Spec §4's validation split: `resolve` hard-validates the selected closure only. This skill
-    // declares no scope, so nothing reaches it and its dangling requirement is `validate`'s
-    // business (A23), not this bundle's.
+    // declares no tags and no entry names it, so nothing reaches it and its dangling requirement is
+    // `validate`'s business (A23), not this bundle's.
     await writeSkill("broken-unselected", [requires(needs("skills", "absent-skill"))]);
 
     const result = await cli("resolve");
@@ -1097,7 +1098,7 @@ describe("catalog hooks", () => {
   });
 
   it("leaves a hook declaring no tags out of every tag-selected bundle", async () => {
-    await writeHook("unscoped", ["event: Stop", "type: command", "command: npx notify"]);
+    await writeHook("untagged", ["event: Stop", "type: command", "command: npx notify"]);
 
     const everything = await bundle([
       entry("tag", "core"),
@@ -1210,7 +1211,7 @@ describe("selection reasons", () => {
       kind: "selected",
       entry: { pattern: "function.engineering.*" },
     });
-    expect(wide.reasons.mcps.get("scoped")).toMatchObject({
+    expect(wide.reasons.mcps.get("tagged")).toMatchObject({
       kind: "selected",
       entry: { field: "tag", pattern: "function.engineering" },
     });
@@ -1295,7 +1296,7 @@ describe("ambit resolve --explain", () => {
         `  ${FRONTEND_SKILL.padEnd(CORE_SKILL.length)}  ${CATALOG_NAME}  tag:${CATALOG_NAME}/function.engineering.*`,
         "",
         "mcps (1)",
-        `  scoped  ${CATALOG_NAME}  tag:${CATALOG_NAME}/function.engineering`,
+        `  tagged  ${CATALOG_NAME}  tag:${CATALOG_NAME}/function.engineering`,
         "",
         "hooks (2)",
         `  ${ENGINEERING_HOOK}  ${CATALOG_NAME}  PreToolUse    tag:${CATALOG_NAME}/function.engineering`,
@@ -1303,7 +1304,7 @@ describe("ambit resolve --explain", () => {
         "",
         "expects (2)",
         "  env  ACME_FIGMA_TOKEN",
-        "  env  SCOPED_API_KEY",
+        "  env  TAGGED_API_KEY",
       ].join("\n"),
     );
   });
@@ -1328,12 +1329,12 @@ describe("ambit resolve --explain", () => {
 });
 
 /**
- * Spec §6: `ambit why <name>` prints the chain from a held scope to the item. The chain matters more
+ * Spec §6: `ambit why <name>` prints the chain from a `requires` entry to the item. The chain matters more
  * than the reason — `required-by:x` only moves the question up a level — so the assertions are on
  * the whole path, not on the last link.
  */
 describe("ambit why", () => {
-  it("prints the one-link chain of something a held scope selected outright", async () => {
+  it("prints the one-link chain of something an entry selected outright", async () => {
     await writeProfile([entry("tag", "core")]);
 
     const result = await cli("why", `skill:${CORE_SKILL}`);
@@ -1692,7 +1693,7 @@ describe("ambit resolve", () => {
         `  ${FRONTEND_SKILL.padEnd(CORE_SKILL.length)}  ${CATALOG_NAME}`,
         "",
         "mcps (1)",
-        `  scoped  ${CATALOG_NAME}`,
+        `  tagged  ${CATALOG_NAME}`,
         "",
         "hooks (2)",
         `  ${ENGINEERING_HOOK}  ${CATALOG_NAME}  PreToolUse`,
@@ -1700,7 +1701,7 @@ describe("ambit resolve", () => {
         "",
         "expects (2)",
         "  env  ACME_FIGMA_TOKEN",
-        "  env  SCOPED_API_KEY",
+        "  env  TAGGED_API_KEY",
       ].join("\n"),
     );
   });

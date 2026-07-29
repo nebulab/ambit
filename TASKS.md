@@ -291,7 +291,7 @@ decision here rather than dictating one, so make it and record it in the code's 
 
 ## 11. Documentation
 
-- [ ] The README, the package description, and the fixture catalog.
+- [x] The README, the package description, and the fixture catalog.
 
 - The README is rewritten for tags and pattern addressing: the `requires` grammar and why both keys
   are declared, the glob rules including `core.*` excluding `core`, qualified-versus-unqualified

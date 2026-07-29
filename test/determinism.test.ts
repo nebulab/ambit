@@ -143,7 +143,7 @@ const EXTRA_HOOK = "guard";
 
 /** The fixture's two credentials, stubbed so no surface depends on the developer's environment. */
 const ENV_STUBS: Readonly<Record<string, string>> = {
-  SCOPED_API_KEY: "determinism-scoped-key",
+  TAGGED_API_KEY: "determinism-tagged-key",
   FIXTURE_API_KEY: "determinism-fixture-key",
 };
 

@@ -94,7 +94,7 @@ interface ChildResult {
  * Runs `npx @sentry/dotagents <args>`, reporting how it went instead of throwing so a failure is an
  * assertion naming the command's own output rather than a stack trace.
  *
- * The cache and user-scope directories are redirected into a temporary tree, because dotagents
+ * The cache and user-level install directories are redirected into a temporary tree, because dotagents
  * defaults them under `$HOME` and a test that writes there is a test that changed the machine.
  */
 async function dotagents(args: readonly string[], cwd: string): Promise<ChildResult> {

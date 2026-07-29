@@ -1,10 +1,10 @@
 /**
  * The glob matcher and the `requires` entry grammar.
  *
- * Nothing imports `pattern.ts` yet — selection still runs on held scopes — so these tests are the
- * module's only caller and the only place its refusals are pinned. Each malformed case asserts the
- * {@link AmbitError} code the CLI turns into an exit status (exit 2 for every grammar problem) and
- * that the message names the key and the line, which is the whole contract a later refusal inherits.
+ * Resolution and validation both go through this module, but this is the only place its refusals are
+ * pinned directly rather than through a command. Each malformed case asserts the {@link AmbitError}
+ * code the CLI turns into an exit status (exit 2 for every grammar problem) and that the message names
+ * the key and the line, which is the whole contract every refusal above it inherits.
  */
 import { describe, expect, it } from "vitest";
 

@@ -81,7 +81,7 @@ let projectDir: string;
  * Points a project at itself as its only catalog, and gives it `hooks` to ship.
  *
  * Each hook is tagged `core`, which the project then holds, so shipping it is what puts it in the
- * bundle — and a project declaring none holds nothing, since a held scope no item declares is exit 3.
+ * bundle — and a project declaring none holds nothing, since an entry no item matches is exit 3.
  *
  * `hooks/` is rebuilt from scratch on every call, because the cases that narrow a declaration have to
  * *remove* a hook rather than leave its document beside a config that no longer selects it.

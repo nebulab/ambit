@@ -9,7 +9,7 @@
  *
  * Environment variables are stubbed per test rather than in `beforeEach`, since which of them are set
  * is the subject of the first check. The fixture's `function.engineering.frontend` skill declares
- * `ACME_FIGMA_TOKEN` and its `scoped` server declares `SCOPED_API_KEY`, which it also interpolates
+ * `ACME_FIGMA_TOKEN` and its `tagged` server declares `TAGGED_API_KEY`, which it also interpolates
  * into a header — so the default profile needs exactly those two.
  */
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
@@ -50,7 +50,7 @@ const CLAUDE_SETTINGS = ".claude/settings.json";
 
 /** The two variables the default profile's bundle declares. */
 const FIGMA_VAR = "ACME_FIGMA_TOKEN";
-const SCOPED_VAR = "SCOPED_API_KEY";
+const TAGGED_VAR = "TAGGED_API_KEY";
 
 /** The hook the harness cases put in the catalog, and the variable one of them has it want. */
 const HOOK = "notify";
@@ -200,8 +200,8 @@ beforeEach(async () => {
   projectDir = path.join(root, "project");
   await buildFixtureCatalog(catalogDir);
   await mkdir(projectDir, { recursive: true });
-  // Three skills — `function.engineering` also selects its nested frontend child — plus the `scoped`
-  // http server, which declares that same scope.
+  // Three skills — `function.engineering` also selects its nested frontend child — plus the `tagged`
+  // http server, which declares that same tag.
   await writeProfile(["core", "function.engineering", "function.engineering.*"]);
 });
 
@@ -213,7 +213,7 @@ afterEach(async () => {
 describe("ambit doctor on a healthy project", () => {
   beforeEach(async () => {
     vi.stubEnv(FIGMA_VAR, "figma-token");
-    vi.stubEnv(SCOPED_VAR, "scoped-key");
+    vi.stubEnv(TAGGED_VAR, "tagged-key");
     expect((await cli("install")).code).toBe(ExitCode.Success);
   });
 
@@ -228,7 +228,7 @@ describe("ambit doctor on a healthy project", () => {
     const before = await snapshot();
 
     expect((await cli("doctor")).code).toBe(ExitCode.Success);
-    vi.stubEnv(SCOPED_VAR, undefined);
+    vi.stubEnv(TAGGED_VAR, undefined);
     await rm(path.join(projectDir, LOCK_FILE));
     expect((await cli("doctor")).code).toBe(ExitCode.Doctor);
 
@@ -266,7 +266,7 @@ describe("ambit doctor on an incomplete environment", () => {
     // Installed with neither variable set, so `.mcp.json` holds the placeholder and matches the plan:
     // the only thing wrong with this project is its environment.
     vi.stubEnv(FIGMA_VAR, undefined);
-    vi.stubEnv(SCOPED_VAR, undefined);
+    vi.stubEnv(TAGGED_VAR, undefined);
     expect((await cli("install")).code).toBe(ExitCode.Success);
   });
 
@@ -278,7 +278,7 @@ describe("ambit doctor on an incomplete environment", () => {
     expect(result.stderr).toBe("");
     expect(await findings()).toEqual([
       `expects/fail: unset environment variable "${FIGMA_VAR}"`,
-      `expects/fail: unset environment variable "${SCOPED_VAR}"`,
+      `expects/fail: unset environment variable "${TAGGED_VAR}"`,
     ]);
     expect(await checks()).toEqual([
       "expects=fail",
@@ -298,23 +298,23 @@ describe("ambit doctor on an incomplete environment", () => {
   });
 
   it("names the server, and the reference install left in `.mcp.json` for the harness", async () => {
-    expect(await detailOf(SCOPED_VAR)).toEqual([
-      'MCP server "scoped" expects it',
-      `"mcpServers.scoped" in ${MCP_FILE} references it, for the harness to expand at spawn`,
+    expect(await detailOf(TAGGED_VAR)).toEqual([
+      'MCP server "tagged" expects it',
+      `"mcpServers.tagged" in ${MCP_FILE} references it, for the harness to expand at spawn`,
       // No reinstall in the fix: ambit wrote a reference, so setting the variable is the whole of it.
-      `set ${SCOPED_VAR} in the environment the agent runs in`,
+      `set ${TAGGED_VAR} in the environment the agent runs in`,
     ]);
   });
 
   it("says nothing about a variable set to the empty string, which is a decision someone made", async () => {
     vi.stubEnv(FIGMA_VAR, "");
 
-    expect(await findings()).toEqual([`expects/fail: unset environment variable "${SCOPED_VAR}"`]);
+    expect(await findings()).toEqual([`expects/fail: unset environment variable "${TAGGED_VAR}"`]);
   });
 
   it("goes quiet once the variables are set and install has interpolated them", async () => {
     vi.stubEnv(FIGMA_VAR, "figma-token");
-    vi.stubEnv(SCOPED_VAR, "scoped-key");
+    vi.stubEnv(TAGGED_VAR, "tagged-key");
     expect((await cli("install")).code).toBe(ExitCode.Success);
 
     expect(isHealthy(await diagnoseProject(projectDir))).toBe(true);
@@ -325,7 +325,7 @@ describe("ambit doctor on an incomplete environment", () => {
 describe("ambit doctor against the lock", () => {
   beforeEach(async () => {
     vi.stubEnv(FIGMA_VAR, "figma-token");
-    vi.stubEnv(SCOPED_VAR, "scoped-key");
+    vi.stubEnv(TAGGED_VAR, "tagged-key");
     expect((await cli("install")).code).toBe(ExitCode.Success);
   });
 
@@ -369,7 +369,7 @@ describe("ambit doctor against the lock", () => {
 describe("ambit doctor on an ownership anomaly", () => {
   beforeEach(async () => {
     vi.stubEnv(FIGMA_VAR, "figma-token");
-    vi.stubEnv(SCOPED_VAR, "scoped-key");
+    vi.stubEnv(TAGGED_VAR, "tagged-key");
     expect((await cli("install")).code).toBe(ExitCode.Success);
   });
 
@@ -404,7 +404,7 @@ describe("ambit doctor on an ownership anomaly", () => {
     await rm(path.join(projectDir, STATE_FILE));
 
     expect(await detailOf(MCP_FILE)).toContain(
-      '"mcpServers.scoped" exists but ambit did not create it',
+      '"mcpServers.tagged" exists but ambit did not create it',
     );
   });
 });
@@ -412,7 +412,7 @@ describe("ambit doctor on an ownership anomaly", () => {
 describe("ambit doctor against the project", () => {
   beforeEach(async () => {
     vi.stubEnv(FIGMA_VAR, "figma-token");
-    vi.stubEnv(SCOPED_VAR, "scoped-key");
+    vi.stubEnv(TAGGED_VAR, "tagged-key");
     expect((await cli("install")).code).toBe(ExitCode.Success);
   });
 
@@ -436,7 +436,7 @@ describe("ambit doctor against the project", () => {
   });
 
   it("reports every failure at once rather than stopping at the first", async () => {
-    vi.stubEnv(SCOPED_VAR, undefined);
+    vi.stubEnv(TAGGED_VAR, undefined);
     await rm(path.join(projectDir, CORE_TARGET));
     await rm(path.join(projectDir, LOCK_FILE));
 
@@ -445,7 +445,7 @@ describe("ambit doctor against the project", () => {
     // cannot make the installed file differ from what resolution now produces. An installed config is
     // a function of the bundle alone, which is what stops `doctor` inventing drift from a shell.
     expect(await findings()).toEqual([
-      `expects/fail: unset environment variable "${SCOPED_VAR}"`,
+      `expects/fail: unset environment variable "${TAGGED_VAR}"`,
       `lock/fail: ${LOCK_FILE} is missing`,
       `drift/fail: ${CORE_TARGET} is missing`,
     ]);
@@ -456,7 +456,7 @@ describe("ambit doctor against the project", () => {
 describe("ambit doctor on a project installed with `--copy`", () => {
   beforeEach(async () => {
     vi.stubEnv(FIGMA_VAR, "figma-token");
-    vi.stubEnv(SCOPED_VAR, "scoped-key");
+    vi.stubEnv(TAGGED_VAR, "tagged-key");
     expect((await cli("install", "--copy")).code).toBe(ExitCode.Success);
   });
 
@@ -589,7 +589,7 @@ describe("ambit doctor on a project configuring codex", () => {
 describe("ambit doctor before an install", () => {
   it("reports the missing lock and every missing artifact, and exits 6", async () => {
     vi.stubEnv(FIGMA_VAR, "figma-token");
-    vi.stubEnv(SCOPED_VAR, "scoped-key");
+    vi.stubEnv(TAGGED_VAR, "tagged-key");
 
     const result = await cli("doctor");
 

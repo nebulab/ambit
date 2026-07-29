@@ -43,7 +43,7 @@ export interface McpEntity {
 
 /**
  * The transport kinds ambit understands. `transport` carries exactly one of these as a nested
- * key, so the kind's own fields stay scoped to it and a new kind adds nothing at the top level.
+ * key, so the kind's own fields stay under it and a new kind adds nothing at the top level.
  */
 export const MCP_TRANSPORT_KINDS = ["http", "stdio"] as const;
 

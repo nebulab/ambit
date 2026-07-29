@@ -36,8 +36,8 @@ ambit:
 
 # Acme company context
 
-Reached by holding the \`core\` scope, and pulled in by \`requires\` from the project skill even when
-\`core\` is not held.
+Reached by a \`tag: core\` entry, and pulled in by \`requires\` from the project skill even when no
+entry selects \`core\` at all.
 `;
 
 const ENGINEERING_SKILL = `---
@@ -49,7 +49,7 @@ ambit:
 
 # Code review at Acme
 
-Tagged \`function.engineering\`, exactly. Holding \`core\` must not reach it.
+Tagged \`function.engineering\`, exactly. A \`tag: core\` entry must not reach it.
 `;
 
 const FRONTEND_SKILL = `---
@@ -63,13 +63,15 @@ ambit:
 
 # Design tokens
 
-Tagged one level below \`function.engineering\`, so holding the parent reaches it and holding this
-label does not reach back up.
+Tagged one dot below \`function.engineering\`, which is exactly what no longer reaches it: a pattern
+without a \`*\` is an exact match, so \`tag: function.engineering\` takes \`code-review\` and leaves this
+behind, and \`tag: function.engineering.*\` takes this and leaves \`code-review\` behind. Both together
+is two entries. The dot is a character, not a level.
 `;
 
 const PROJECT_SKILL = `---
 name: acme-brief
-description: The Acme engagement brief — scope, contacts, and conventions.
+description: The Acme engagement brief — remit, contacts, and conventions.
 ambit:
   tags: [project.acme]
   # Unqualified, because a catalog author cannot write a consumer's alias — so each entry resolves
@@ -85,8 +87,8 @@ ambit:
 
 # Acme engagement brief
 
-Reaches a skill, an MCP server and a hook that no held scope matches, so the \`requires\` closure
-is the only thing that can pull them in.
+Reaches a skill, an MCP server and a hook that no entry a test writes selects on its own, so the
+\`requires\` closure is the only thing that can pull them in.
 `;
 
 const REQUIRED_MCP = `name: fixture
@@ -101,17 +103,17 @@ expects:
   - env: FIXTURE_API_KEY
 `;
 
-const TAGGED_MCP = `name: scoped
+const TAGGED_MCP = `name: tagged
 tags: [function.engineering]
 
 transport:
   http:
     url: https://mcp.invalid/fixture
     headers:
-      Authorization: "Bearer \${SCOPED_API_KEY}"
+      Authorization: "Bearer \${TAGGED_API_KEY}"
 
 expects:
-  - env: SCOPED_API_KEY
+  - env: TAGGED_API_KEY
 `;
 
 const COMMAND_HOOK = `name: session-notes
@@ -163,7 +165,7 @@ export const FIXTURE_CATALOG_FILES: Readonly<Record<string, string>> = {
   "hooks/guard-secrets/guard.sh": HOOK_SCRIPT,
   "hooks/acme-standup/HOOK.yml": REQUIRED_HOOK,
   "mcps/fixture.yml": REQUIRED_MCP,
-  "mcps/scoped.yml": TAGGED_MCP,
+  "mcps/tagged.yml": TAGGED_MCP,
   "skills/company-context/SKILL.md": CORE_SKILL,
   "skills/code-review/SKILL.md": ENGINEERING_SKILL,
   "skills/design-tokens/SKILL.md": FRONTEND_SKILL,

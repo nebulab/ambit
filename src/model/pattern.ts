@@ -25,7 +25,8 @@
  * matched is not an answer.
  *
  * **`capabilities` is required, not defaulted.** Defaulting it to all three is tempting — it is
- * what a held scope did, and it is what would make a one-line entry possible — and it is refused
+ * what the selector this grammar replaces did, and it is what would make a one-line entry possible —
+ * and it is refused
  * because **hooks execute**. An entry someone wrote thinking about skills would silently install
  * every hook carrying that tag, which is exactly the class of surprise a hook's opt-in exists to
  * prevent. The cost is real and accepted: the common single-namespace entry is two lines rather
@@ -33,8 +34,9 @@
  *
  * **A capability *list*, rather than a `<kind>.<field>` key per entry.** Selection by tag is
  * inherently multi-namespace: an author tags a skill, a server and a hook for the same audience,
- * and one entry has to be able to take all three, or this is a regression against the held scope it
- * replaces — three entries saying what one scope said. The list is also the extension point: a
+ * and one entry has to be able to take all three, or this is a regression against the selector it
+ * replaces, which took all three in one stroke — three entries saying what one used to say. The list
+ * is also the extension point: a
  * fourth capability is a member of {@link CAPABILITIES}, not a new key prefix on every entry.
  *
  * **No bare shorthand.** No spelling omits `capabilities`, and none omits the field. Adding a
@@ -150,7 +152,7 @@ export interface PatternEntry {
    */
   readonly pattern: string;
   /**
-   * The catalog alias the pattern is scoped to, present exactly when the entry was parsed as
+   * The catalog alias the pattern is qualified with, present exactly when the entry was parsed as
    * `"qualified"`.
    *
    * Absent is not *any catalog*. An unqualified entry is catalog-blind by construction, and it is
