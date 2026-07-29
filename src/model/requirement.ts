@@ -1,5 +1,5 @@
 /**
- * The three namespaces a bundle item can be in, and the `<kind>:<name>` grammar that names one.
+ * The three namespaces a bundle item can be in, and how a person names one of them on a command line.
  *
  * This module used to be the whole of what a `requires` entry was: a namespace and a name, looked up
  * in a map, one item per entry. It is not that any more. A `requires` entry selects **by pattern** —
@@ -9,23 +9,32 @@
  *
  * What survives is the vocabulary, and it survives because a *bundle item* is still one item of one
  * namespace, which is a different thing from the question an entry asks. {@link ITEM_KINDS} is that
- * vocabulary — the order every report lists the three in — and {@link ITEM_REFERENCE} is the grammar
- * for the one surface left that takes an item's identity from a person as a string: `ambit why`'s
- * subject, `ambit why mcp:sentry`.
+ * vocabulary — the order every report lists the three in — and {@link parseItemSubject} is the one
+ * surface left that takes an item's identity from a person as a string: `ambit why`'s subject,
+ * `ambit why mcp:sentry`.
  *
- * The declaration is mandatory there for the reason it was mandatory in a document. A catalog's
+ * The reader is here rather than in a shared module because it has one caller and one vocabulary.
+ * `reference.ts` used to parameterize it over both this vocabulary and `expects`; the two turned out
+ * to share no reader at all once `requires` left — a document list of one-key mappings and a
+ * command-line string are two grammars — so its header records the collapse and keeps only the shape
+ * both parse to.
+ *
+ * The declaration is mandatory here for the reason it is mandatory in a document. A catalog's
  * namespaces are flat and independent, so a skill at `skills/mcp/sentry/SKILL.md` is legitimately
  * named `mcp.sentry` and so is an MCP entity called `sentry` one namespace over. `skill:mcp.sentry`
- * and `mcp:sentry` are different questions, both askable, and a bare name is refused rather than
- * resolved against whatever the catalog happens to hold today.
+ * and `mcp:sentry` are different questions, both askable, and the separator is what makes the answer a
+ * declaration rather than a guess.
  *
- * That leaves `reference.ts` with two callers rather than three — this one and `expects` — and only
- * `expects` still reads a *list* through it. Whether the generic `ReferenceGrammar` parameterization
- * still pays for itself at that size is an open question, and a real one: `ReferenceGrammar.guess`
- * already has no grammar setting it, having existed for the bare-entry refusal a `requires` list
- * needed.
+ * Nothing here guesses. A bare name is refused with the spellings of what was typed rather than
+ * resolved against the catalog — even though `ambit why` *could* look one up — because a rule that
+ * holds only while a name happens to be unique is a rule nobody can rely on, and because the subject
+ * of a question may name something that has gone, which still has to be said back.
  */
-import type { ReferenceGrammarOf } from "./reference.js";
+import { configError } from "../errors.js";
+import type { Reference } from "./reference.js";
+
+/** What separates a kind from a name on a command line. */
+export const KIND_SEPARATOR = ":";
 
 /**
  * The namespaces a bundle item can be in, in the order every report lists them.
@@ -38,32 +47,53 @@ export const ITEM_KINDS = ["skill", "mcp", "hook"] as const;
 /** Which of the bundle's namespaces a name belongs to. */
 export type ItemKind = (typeof ITEM_KINDS)[number];
 
-/** What a namespace is called in a message about one of its members. */
-export const KIND_NOUNS: Readonly<Record<ItemKind, string>> = {
-  skill: "a skill",
-  mcp: "an MCP entity",
-  hook: "a hook",
-};
+// There is no noun table here any more. `KIND_NOUNS` fed the example line a parameterized refusal ended
+// on, and neither refusal below can use one: a bare name is answered with every spelling of itself, and
+// a kind with no name after it has nothing to make an example out of. The two surfaces that do put a
+// namespace in a sentence carry their own words and deliberately disagree — `resolve.ts` needs the bare
+// noun where a name follows immediately, and `why` says "MCP server" to a person.
+
+/** Whether `value` is one of the three namespaces. */
+function isItemKind(value: string): value is ItemKind {
+  return (ITEM_KINDS as readonly string[]).includes(value);
+}
+
+/** Every spelling of what was typed, as the refusal for a bare name offers them. */
+function spellings(text: string): string {
+  return ITEM_KINDS.map((kind) => `\`${kind}${KIND_SEPARATOR}${text}\``).join(", ");
+}
 
 /**
- * How one bundle item is named where only a string will do, and the words a refusal about one uses.
+ * The item one `<kind>:<name>` subject names.
  *
- * `namespace` rather than `capability` because this names one member of one namespace — `mcp:sentry`
- * is the server, singular — where a `requires` entry's `capabilities: [mcps]` names a whole
- * namespace to search. The two vocabularies are bridged by `CAPABILITY_OF_KIND` in `pattern.ts`.
+ * Recognized by its kind rather than by the mere presence of a `:`, and split on the *first* separator
+ * after that — so a name carrying one of its own survives the round trip (`skill:odd:name` is the skill
+ * `odd:name`) while `server:fixture` is a bare name and gets the refusal that explains the grammar,
+ * rather than a confusing complaint about a namespace nobody claimed to be naming.
+ *
+ * @param summary how the command names what it is missing — `` `why acme` does not say what to
+ *   explain `` — since that is the only half that could differ between two commands taking a subject.
+ * @throws {AmbitError} exit 2 for a bare name — which includes a `<prefix>:<name>` whose prefix is no
+ *   namespace, since that is what one is — or for a namespace with no name after it.
  */
-export const ITEM_REFERENCE: ReferenceGrammarOf<ItemKind> = {
-  // `key`, `entry` and `plural` describe a *list* written in this grammar under a document key, and
-  // this vocabulary no longer has one: `parseSubject` reads `kinds`, `noun`, `missing`, `named` and
-  // `members`, and nothing else. Left as the words a `requires` list used rather than invented, so
-  // the table still reads against `EXPECTS`' — and see the module header for what that says about
-  // `ReferenceGrammar`.
-  key: "requires",
-  entry: "an item reference",
-  noun: "namespace",
-  plural: "namespaces",
-  missing: "which namespace it is in",
-  named: "item",
-  kinds: ITEM_KINDS,
-  members: KIND_NOUNS,
-};
+export function parseItemSubject(text: string, summary: string): Reference<ItemKind> {
+  const separator = text.indexOf(KIND_SEPARATOR);
+  const kind = separator === -1 ? "" : text.slice(0, separator);
+
+  if (!isItemKind(kind)) {
+    throw configError(summary, [
+      "a bare name does not say what kind of thing it names",
+      `write the subject as one of: ${spellings(text)}`,
+    ]);
+  }
+
+  const name = text.slice(separator + KIND_SEPARATOR.length);
+  if (name === "") {
+    throw configError(summary, [
+      `\`${kind}${KIND_SEPARATOR}\` names no item`,
+      `write the subject as \`<kind>${KIND_SEPARATOR}<name>\`, one of: ${ITEM_KINDS.join(", ")}`,
+    ]);
+  }
+
+  return { kind, name };
+}

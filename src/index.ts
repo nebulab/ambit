@@ -24,7 +24,6 @@ export {
   MCP_EXTENSIONS,
   SKILLS_DIRNAME,
   SKILL_FILENAME,
-  copiesByName,
   hookCommand,
   loadCatalogs,
   mergeCatalogs,
@@ -116,7 +115,6 @@ export {
 } from "./model/state.js";
 export type { ArtifactKind, ArtifactMode, OwnedArtifact, State } from "./model/state.js";
 export {
-  EditableYaml,
   YamlMapping,
   emitYaml,
   parseFrontmatterMapping,
@@ -126,19 +124,8 @@ export {
   splitFrontmatter,
 } from "./model/yaml.js";
 export type { FrontmatterSplit, PositionedString } from "./model/yaml.js";
-export {
-  KIND_SEPARATOR,
-  formatReference,
-  isReference,
-  parseReference,
-  parseReferenceList,
-  parseSubject,
-  referenceYaml,
-  sameReference,
-  sortedUniqueReferences,
-} from "./model/reference.js";
-export type { Reference, ReferenceGrammar, ReferenceGrammarOf } from "./model/reference.js";
-export { ITEM_KINDS, ITEM_REFERENCE, KIND_NOUNS } from "./model/requirement.js";
+export type { Reference } from "./model/reference.js";
+export { ITEM_KINDS, KIND_SEPARATOR, parseItemSubject } from "./model/requirement.js";
 export type { ItemKind } from "./model/requirement.js";
 export {
   CAPABILITIES,
@@ -165,14 +152,8 @@ export type {
 export {
   EXPECTATION_KINDS,
   EXPECTATION_NOUNS,
-  EXPECTS,
-  expectationYaml,
   expectedEnv,
-  formatExpectation,
-  parseExpectation,
   parseExpectations,
-  sameExpectation,
-  sortedUniqueExpectations,
   unionExpectations,
 } from "./model/expectation.js";
 export type { Expectation, ExpectationKind, ExpectationSet } from "./model/expectation.js";

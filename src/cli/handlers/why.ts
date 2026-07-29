@@ -43,8 +43,7 @@ import {
   resolveBundle,
 } from "../../resolution/resolve.js";
 import { CAPABILITY_OF_KIND, REQUIRES_KEY, entryYaml } from "../../model/pattern.js";
-import { parseSubject } from "../../model/reference.js";
-import { ITEM_REFERENCE } from "../../model/requirement.js";
+import { parseItemSubject } from "../../model/requirement.js";
 
 /** How an item is named in messages, one entry per namespace so a fourth is a type error. */
 const SUBJECTS: Readonly<Record<ItemKind, string>> = {
@@ -168,11 +167,7 @@ function locate(
   merged: MergedCatalog,
   config: ProjectConfig,
 ): BundleItem {
-  const item = parseSubject<ItemKind>(
-    ITEM_REFERENCE,
-    name,
-    `\`why ${name}\` does not say what to explain`,
-  );
+  const item = parseItemSubject(name, `\`why ${name}\` does not say what to explain`);
   if (isSelected(bundle, item)) return item;
 
   const entries = providers(merged, item);

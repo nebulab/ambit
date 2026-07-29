@@ -257,7 +257,15 @@ export interface MergedHook extends HookEntity {
  * A name is not an identity here. Two catalogs may both provide `house-style`, and both copies
  * survive the merge, each identified by its catalog *and* its name — see {@link qualifiedName}. So
  * anything that keys, groups or looks up a merged item keys on the pair, and a lookup by name alone
- * answers with a set rather than an item ({@link copiesByName}).
+ * answers with a set rather than an item.
+ *
+ * There is no name-keyed grouping helper here to do that with. One was added when the merge stopped
+ * collapsing copies, on the expectation that the callers of the name-keyed `Map` it replaced would
+ * want it, and not one of them did. `ambit why` wants a *filter*: one name it already has, in one
+ * namespace it already knows, so grouping the whole namespace to read a single bucket out of it is
+ * work for nothing. Resolution's collision check wants the opposite — every name at once — but keyed
+ * by *catalog* rather than by item, since what its message needs is where each copy came from. Two
+ * call sites, two shapes, neither of them a lookup.
  */
 export interface MergedCatalog {
   /**
@@ -295,25 +303,6 @@ export const CATALOG_SEPARATOR = "/";
  */
 export function qualifiedName(item: { readonly catalog: string; readonly name: string }): string {
   return `${item.catalog}${CATALOG_SEPARATOR}${item.name}`;
-}
-
-/**
- * Every copy of each name, grouped by name and keeping the order the merge put them in.
- *
- * What a name-keyed `Map` over the merged catalog used to be. A caller that used to `get` one item
- * now gets all the copies and has to say what it does with several — which is the point: with no
- * precedence left, silently taking the first would be the arbitration this design removed, hidden
- * in a lookup.
- *
- * A name nothing provides is absent rather than mapped to an empty list, so `undefined` still means
- * exactly what it meant before.
- */
-export function copiesByName<T extends { readonly name: string }>(
-  items: readonly T[],
-): ReadonlyMap<string, readonly T[]> {
-  const grouped = new Map<string, T[]>();
-  for (const item of items) grouped.set(item.name, [...(grouped.get(item.name) ?? []), item]);
-  return grouped;
 }
 
 function compareStrings(a: string, b: string): number {

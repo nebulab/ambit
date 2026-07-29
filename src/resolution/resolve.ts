@@ -201,8 +201,8 @@ export function matchesAnything(entry: PatternEntry, merged: MergedCatalog): boo
 /**
  * What a namespace is called in a message about one of its members, without an article.
  *
- * {@link KIND_NOUNS} carries one, which reads wrong where a name follows immediately — *a skill
- * "house-style"* — so this is the bare noun for exactly that sentence shape.
+ * Bare rather than carrying one, because an article reads wrong where a name follows immediately —
+ * *a skill "house-style"* — and this is the sentence shape every message here has.
  */
 const KIND_LABELS: Readonly<Record<ItemKind, string>> = {
   skill: "skill",

@@ -14,16 +14,15 @@
  * document, so the emit half of §3.0 is enforced once too — and so what ambit writes is
  * guaranteed readable by what ambit reads.
  *
- * *Editing* a document ambit did not write is a third thing, and {@link EditableYaml} is it: the
- * parsed node tree is kept and re-emitted, rather than a plain object being emitted afresh, because
- * a command that rewrites one key of a hand-maintained file must leave comments, unknown keys, key
- * order, and formatting byte-for-byte intact. Nothing outside this module touches the `yaml` package,
- * so the three halves cannot drift apart.
+ * There used to be a third half: `EditableYaml`, which kept the parsed node tree and re-emitted it so
+ * that rewriting one key of a hand-maintained file left comments, unknown keys, key order and
+ * formatting byte-for-byte intact. It is gone, because nothing rewrites such a file any more — its only
+ * caller was the catalog editor, and authoring a catalog is hand-editing now. It was 170 lines and its
+ * own emit options, kept alive by nothing but the possibility of a future caller; the git history holds
+ * it, which is the better place for code with no user. A command that needs to edit a document ambit
+ * did not write brings it back, and brings back a test for it at the same time.
  *
- * **{@link EditableYaml} has no caller left in ambit.** Its only one was the catalog editor, which
- * went when the authoring commands did; it survives as public API and as the answer for the next
- * command that has to rewrite a file it did not write. Whether that is worth keeping is a live
- * question, not an oversight.
+ * Nothing outside this module touches the `yaml` package, so read and emit cannot drift apart.
  */
 import { readFile } from "node:fs/promises";
 
@@ -32,10 +31,8 @@ import type {
   CreateNodeOptions,
   Document,
   DocumentOptions,
-  Node,
   Pair,
   ParseOptions,
-  Scalar,
   SchemaOptions,
   ToStringOptions,
   YAMLMap,
@@ -742,178 +739,4 @@ const EMIT_OPTIONS: DocumentOptions & SchemaOptions & CreateNodeOptions & ToStri
  */
 export function emitYaml(document: unknown): string {
   return stringify(document, EMIT_OPTIONS);
-}
-
-/**
- * How ambit re-emits a document it did not write. It shares
- * {@link EMIT_OPTIONS}' quoting and no-rewrapping rules — the bytes ambit adds are still §3.0 bytes —
- * and differs in exactly two ways, both load-bearing:
- *
- * - **No `sortMapEntries`.** Sorting would reorder keys ambit never touched, which is the reformatting
- *   an authoring command must not do. Keys keep the order the author wrote them in, and a key ambit
- *   adds lands at the end.
- * - **`flowCollectionPadding: false`**, so `tags: [core]` does not come back as `tags: [ core ]`.
- *   Without it, a no-op round trip of a hand-written flow sequence is a diff.
- */
-const EDIT_OPTIONS: ToStringOptions = {
-  singleQuote: false,
-  blockQuote: false,
-  lineWidth: 0,
-  flowCollectionPadding: false,
-};
-
-/**
- * A parsed document open for editing.
- *
- * The node tree is what is kept and re-emitted, so everything ambit was not asked to change survives
- * byte-for-byte: comments, unknown keys, key order, quoting style, and whether a sequence was written
- * flow or block. Re-emitting from a plain object would silently reformat a
- * hand-maintained catalog, which is the one thing an authoring tool must never do.
- *
- * The bytes outside the parsed region — a `SKILL.md`'s delimiters and Markdown body, and the blank
- * lines a parser does not preserve — are carried as strings and concatenated back on, rather than
- * reconstructed.
- */
-export class EditableYaml {
-  private readonly document: Document.Parsed;
-  private readonly open: string;
-  private readonly close: string;
-
-  /** @param open bytes before the parsed block; `close` those after it. */
-  private constructor(document: Document.Parsed, open: string, close: string) {
-    this.document = document;
-    this.open = open;
-    this.close = close;
-  }
-
-  /**
-   * Opens a whole YAML file for editing — `mcps/<name>.yml`, `HOOK.yml`.
-   *
-   * @throws {AmbitError} exit 2 if the document violates a §3.0 rule.
-   */
-  static yaml(text: string, file: string): EditableYaml {
-    const leading = /^\n*/.exec(text)?.[0] ?? "";
-    const body = text.slice(leading.length);
-    const trailing = /\n*$/.exec(body)?.[0] ?? "";
-    const block = body.slice(0, body.length - trailing.length);
-
-    return new EditableYaml(
-      parseChecked(block, file, lineCount(leading)).document,
-      leading,
-      trailing,
-    );
-  }
-
-  /**
-   * Opens the frontmatter block of a Markdown document for editing, leaving the body alone.
-   *
-   * @throws {AmbitError} exit 2 if there is no frontmatter block, or it violates a §3.0 rule.
-   */
-  static frontmatter(text: string, file: string): EditableYaml {
-    const split = splitFrontmatter(text, file);
-    const checked = parseChecked(split.block, file, lineCount(split.open));
-    return new EditableYaml(checked.document, split.open, split.close);
-  }
-
-  /** Whether `path` — a key, or a path of keys into nested mappings — is present. */
-  has(path: readonly string[]): boolean {
-    return this.document.hasIn(path);
-  }
-
-  /**
-   * Sets `path` to a string, creating any mapping along the way that is not there yet.
-   *
-   * The value is emitted under §3.0's quoting rules, so a description that reads as a number arrives
-   * back as the string it was given.
-   */
-  setString(path: readonly string[], value: string): void {
-    this.document.setIn(path, this.document.createNode(value));
-  }
-
-  /**
-   * Sets `path` to a sequence of strings, in the order given.
-   *
-   * An existing sequence's layout is kept — flow stays flow, block stays block — along with any
-   * comment written on it, because the author chose both. A key that was not there yet is written the
-   * way {@link emitYaml} would write it, as a block sequence. An empty list is emitted as `[]` rather
-   * than left null, since "declares none" and "declares nothing" are different claims.
-   */
-  setStringList(path: readonly string[], values: readonly string[]): void {
-    this.setSequence(path, values);
-  }
-
-  /**
-   * Sets `path` to a sequence of one-key mappings — the shape a skill's `expects` has, where each
-   * entry declares the kind of precondition its value is.
-   *
-   * Keeps the author's layout on the same terms {@link EditableYaml.setStringList} does, since the
-   * decision is about the sequence and not about what its items are.
-   */
-  setMappingList(
-    path: readonly string[],
-    values: readonly Readonly<Record<string, string>>[],
-  ): void {
-    this.setSequence(path, values);
-  }
-
-  /** The layout-preserving write both list setters share; see {@link EditableYaml.setStringList}. */
-  private setSequence(path: readonly string[], values: readonly unknown[]): void {
-    const node: Node = this.document.createNode([...values]);
-    const existing = this.document.getIn(path, true);
-
-    if (isSeq(existing) && isSeq(node)) {
-      // Only when the author's node says: an unset `flow` already means the block layout a fresh node
-      // takes, and assigning the absence back would be a write of `undefined`.
-      if (existing.flow !== undefined) node.flow = existing.flow;
-      if (existing.comment !== undefined) node.comment = existing.comment;
-      if (existing.commentBefore !== undefined) node.commentBefore = existing.commentBefore;
-    }
-
-    this.document.setIn(path, node);
-  }
-
-  /** Removes `path`, if it is there. */
-  remove(path: readonly string[]): void {
-    this.document.deleteIn(path);
-  }
-
-  /**
-   * Renames keys of the mapping at `path`, leaving everything else about each entry alone.
-   *
-   * What changes is the key node itself, so the entry keeps its position in the mapping, its value, and
-   * every comment written above or beside it. Removing the old key and setting the new one — the only
-   * other way to express this — would move the entry to the end and take the comment above it with it,
-   * which is exactly the reformatting authoring rule 2 forbids.
-   *
-   * A whole set at once, deliberately: renaming a run of keys together passes through
-   * states where two entries share a name (`a` → `a.b` while `a.b` → `a.b.b`), so every pair is located
-   * before any of them is touched. Keys the mapping does not hold are ignored, and a key's quoting style
-   * is the author's and is kept — a new name that could not be written plain is quoted regardless.
-   */
-  renameKeys(path: readonly string[], renames: ReadonlyMap<string, string>): void {
-    const mapping = this.document.getIn(path, true);
-    if (!isMap(mapping)) return;
-
-    const renamed: { readonly key: Scalar<unknown>; readonly to: string }[] = [];
-    for (const item of mapping.items) {
-      if (!isScalar(item.key) || typeof item.key.value !== "string") continue;
-      const to = renames.get(item.key.value);
-      if (to !== undefined) renamed.push({ key: item.key, to });
-    }
-
-    for (const { key, to } of renamed) key.value = to;
-  }
-
-  /**
-   * The whole file's bytes, as they would be written.
-   *
-   * Byte-identical to what was parsed when nothing was changed — the property every authoring
-   * command's no-op round trip rests on.
-   */
-  text(): string {
-    // `toString` always ends the document with a newline; the one that belongs to the file is already
-    // in `close`, kept as bytes so a trailing blank line survives.
-    const emitted = this.document.toString(EDIT_OPTIONS).replace(/\n$/, "");
-    return `${this.open}${emitted}${this.close}`;
-  }
 }

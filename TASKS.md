@@ -258,7 +258,7 @@ Per §_`ambit validate` validates the catalog too, and `ambit catalog` goes_.
 
 ## 10. Settle what the collapse exposes
 
-- [ ] `reference.ts`'s parameterization, and `requirementYaml`.
+- [x] `reference.ts`'s parameterization, and `requirementYaml`.
 
 Per the two structural consequences at the end of §_Deleted, concretely_ — the issue asks for a
 decision here rather than dictating one, so make it and record it in the code's own comments.
@@ -272,6 +272,22 @@ decision here rather than dictating one, so make it and record it in the code's 
   pattern and the file is probably better advice than quoting YAML. Restructure accordingly.
 
 **Slice** — no abstraction is left standing on an argument that no longer holds.
+
+> decided in task 10, four ways. **`reference.ts` collapses**: not because two callers are too few, but
+> because the two turned out to share no _reader_ — a document list of one-key mappings and a
+> command-line `<kind>:<name>` string are two grammars, and every function the grammar parameterized had
+> exactly one caller once `requires` left and the projections' wrappers went with `src/authoring/`, so
+> collapsing duplicated nothing. `parseReferenceList` is `expectation.ts`' own, `parseSubject` becomes
+> `requirement.ts`' `parseItemSubject`, and 337 lines become 45 holding the shape both parse to and the
+> argument for why nothing else is shared. `KIND_NOUNS` goes with the example line it fed.
+> **`requirementYaml` was already resolved by deletion** in task 7 — verified: no caller, and
+> `entryYaml`'s own comment records the flow-mapping decision the issue asked for, while
+> `unmatchedEntryError` names the pattern and the file.
+> Two more the earlier tasks left standing, since this task's remit is exactly that: **`copiesByName`
+> goes** — a task-3 artifact no caller wanted, because `why` wants a filter and the collision check wants
+> a grouping keyed by catalog; and **`EditableYaml` goes** — dead since task 8 deleted its only caller,
+> with no test of its own, kept alive by nothing but a possible future caller. Each deletion leaves its
+> argument behind in the surviving module's comments.
 
 ## 11. Documentation
 
