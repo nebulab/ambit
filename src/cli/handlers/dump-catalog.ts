@@ -17,7 +17,6 @@ import type {
   MergedHook,
   MergedMcp,
   MergedSkill,
-  ScopeDefinition,
 } from "../../model/catalog.js";
 import { loadCatalogs, mergeCatalogs } from "../../model/catalog.js";
 import type { CommandHandler } from "../commands.js";
@@ -27,8 +26,8 @@ import { ExitCode } from "../../errors.js";
 import type { McpTransport } from "../../model/mcp-entity.js";
 import { keyed, printSections, section } from "../output.js";
 
-/** Stands in for an empty scope list, which means "not selectable by scope". */
-const UNSCOPED = "-";
+/** Stands in for an empty tag list, which means "not selectable by scope". */
+const UNTAGGED = "-";
 
 function transportJson(transport: McpTransport): Readonly<Record<string, unknown>> {
   switch (transport.kind) {
@@ -48,7 +47,7 @@ function skillJson(skill: MergedSkill): Readonly<Record<string, unknown>> {
     // Each entry keeps its two halves apart, as the document writes them: a consumer filtering for
     // what a skill pulls in should not have to re-derive a namespace from a name.
     requires: skill.requires.map((item) => ({ kind: item.kind, name: item.name })),
-    scopes: skill.scopes,
+    tags: skill.tags,
   };
 }
 
@@ -56,7 +55,7 @@ function mcpJson(mcp: MergedMcp): Readonly<Record<string, unknown>> {
   return {
     catalog: mcp.catalog,
     expects: mcp.expects.map((item) => ({ kind: item.kind, name: item.name })),
-    scopes: mcp.scopes,
+    tags: mcp.tags,
     transport: transportJson(mcp.transport),
   };
 }
@@ -73,7 +72,7 @@ function hookJson(hook: MergedHook): Readonly<Record<string, unknown>> {
     expects: hook.expects.map((item) => ({ kind: item.kind, name: item.name })),
     ...(hook.matcher !== undefined && { matcher: hook.matcher }),
     ...(hook.path !== undefined && { path: hook.path }),
-    scopes: hook.scopes,
+    tags: hook.tags,
     ...(hook.timeout !== undefined && { timeout: hook.timeout }),
     type: hook.type,
   };
@@ -84,19 +83,12 @@ function toJson(merged: MergedCatalog): Readonly<Record<string, unknown>> {
     catalogs: merged.catalogs,
     hooks: keyed(merged.hooks, (hook) => hook.name, hookJson),
     mcps: keyed(merged.mcps, (mcp) => mcp.name, mcpJson),
-    scopes: keyed(
-      merged.scopes,
-      (scope) => scope.name,
-      (scope) => ({
-        description: scope.description,
-      }),
-    ),
     skills: keyed(merged.skills, (skill) => skill.name, skillJson),
   };
 }
 
-function scopeList(scopes: readonly string[]): string {
-  return scopes.length === 0 ? UNSCOPED : [...scopes].join(", ");
+function tagList(tags: readonly string[]): string {
+  return tags.length === 0 ? UNTAGGED : [...tags].join(", ");
 }
 
 function transportSummary(transport: McpTransport): string {
@@ -122,19 +114,15 @@ function toText(catalogs: readonly Catalog[], merged: MergedCatalog): readonly s
   return [
     ...heading,
     ...section(
-      "scopes",
-      merged.scopes.map((scope: ScopeDefinition) => [scope.name, scope.description]),
-    ),
-    ...section(
       "skills",
-      merged.skills.map((skill) => [skill.name, skill.catalog, scopeList(skill.scopes)]),
+      merged.skills.map((skill) => [skill.name, skill.catalog, tagList(skill.tags)]),
     ),
     ...section(
       "mcps",
       merged.mcps.map((mcp) => [
         mcp.name,
         mcp.catalog,
-        scopeList(mcp.scopes),
+        tagList(mcp.tags),
         transportSummary(mcp.transport),
       ]),
     ),
@@ -143,7 +131,7 @@ function toText(catalogs: readonly Catalog[], merged: MergedCatalog): readonly s
       merged.hooks.map((hook) => [
         hook.name,
         hook.catalog,
-        scopeList(hook.scopes),
+        tagList(hook.tags),
         hook.event,
         commandSummary(hook),
       ]),

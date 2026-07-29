@@ -113,7 +113,7 @@ async function writeCatalogHook(
   await mkdir(dir, { recursive: true });
   await writeFile(
     path.join(dir, "HOOK.yml"),
-    [`name: ${name}`, "scopes: [core]", ...body, ""].join("\n"),
+    [`name: ${name}`, "tags: [core]", ...body, ""].join("\n"),
     "utf8",
   );
   if (script !== undefined) await writeFile(path.join(dir, script.file), script.body, "utf8");

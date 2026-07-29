@@ -3,7 +3,7 @@
  *
  * ambit replaces dotagents, but a catalog must stay a plain skills repo so that dotagents — or
  * skills.sh, or anything else that reads `skills/<name>/SKILL.md` — can install from the
- * same directory. ambit's additions (`scopes.yml`, `mcps/`, the extra frontmatter keys) are supposed
+ * same directory. ambit's additions (`mcps/`, `hooks/`, the extra frontmatter keys) are supposed
  * to be additive and ignored. Spec §7 calls that "the guarantee most likely to rot", which is why it
  * is checked by running the real tool instead of by reasoning about it.
  *
@@ -15,7 +15,7 @@
  *
  * One catalog, the hand-written fixture. There were two, the second authored by ambit itself — but
  * nothing writes a skill into a catalog any more, so there is no ambit-written `SKILL.md` left for a
- * second case to hand to dotagents. The fixture declares `scopes`, `requires` and `expects` between
+ * second case to hand to dotagents. The fixture declares `tags`, `requires` and `expects` between
  * its skills, which is the whole of what ambit adds to a frontmatter block, so one case still covers
  * every key another tool's parser could choke on.
  *

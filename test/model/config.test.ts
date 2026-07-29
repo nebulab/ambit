@@ -61,7 +61,7 @@ mcps:
         args: ["-y", "some-server"]
     expects: [{ env: SOME_TOKEN }]
   - name: remote
-    scopes: [function.sales]
+    tags: [function.sales]
     transport:
       http:
         url: https://api.close.com/mcp
@@ -118,13 +118,13 @@ describe("project config", () => {
       mcps: [
         {
           name: "custom",
-          scopes: [],
+          tags: [],
           transport: { kind: "stdio", command: "npx", args: ["-y", "some-server"] },
           expects: [{ kind: "env", name: "SOME_TOKEN" }],
         },
         {
           name: "remote",
-          scopes: ["function.sales"],
+          tags: ["function.sales"],
           transport: {
             kind: "http",
             url: "https://api.close.com/mcp",
@@ -136,7 +136,7 @@ describe("project config", () => {
       hooks: [
         {
           name: "format-on-write",
-          scopes: [],
+          tags: [],
           event: "PostToolUse",
           matcher: "Edit|Write",
           type: "command",

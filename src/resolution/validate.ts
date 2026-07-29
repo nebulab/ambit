@@ -3,10 +3,14 @@
  * project that consumes one (`ambit validate`).
  *
  * `resolve` and `install` hard-validate the selected closure only, so one broken skill nobody holds
- * cannot block everyone. That leaves a gap this closes: a dangling `requires`, a cycle, an
- * unregistered scope, or a shadowed name can sit in a catalog for weeks until the first profile
- * that reaches it fails, and the person it fails for is never the person who wrote it. So every
- * skill, every server and every hook is checked here, selected or not.
+ * cannot block everyone. That leaves a gap this closes: a dangling `requires`, a cycle, or a
+ * shadowed name can sit in a catalog for weeks until the first profile that reaches it fails, and
+ * the person it fails for is never the person who wrote it. So every skill, every server and every
+ * hook is checked here, selected or not.
+ *
+ * What is *not* checked is a tag: nothing registers one, so a misspelled tag inside a catalog is
+ * indistinguishable from a new one and there is nowhere to put the check. Only the consumer-side
+ * direction still fails — a held scope nothing declares, below.
  *
  * Problems are **collected, not thrown**. A CI run that reports the first of six costs six runs to
  * clear, which is what makes a validator people stop trusting. The command prints the list and
@@ -20,9 +24,8 @@
  * error: there is no useful semantic report about a document ambit cannot read. The one exception is
  * a skill whose `name` disagrees with its path — which is collected instead,
  * because the path already answers what the skill is called (see {@link CatalogParseOptions}).
- * Likewise a project whose config collides with a catalog, or whose catalogs describe one scope
- * differently, still fails one problem at a time: both are refusals to build a merged view, and
- * there is nothing to validate without one.
+ * Likewise a project whose config collides with a catalog still fails one problem at a time: that is
+ * a refusal to build a merged view, and there is nothing to validate without one.
  */
 import path from "node:path";
 
@@ -30,14 +33,10 @@ import type {
   CatalogOverlay,
   CatalogParseOptions,
   MergedCatalog,
-  MergedHook,
-  MergedMcp,
   MergedSkill,
   Shadowing,
 } from "../model/catalog.js";
 import {
-  HOOK_FILENAME,
-  SCOPES_FILENAME,
   loadCatalogs,
   mergeCatalogs,
   mergeConfigEntities,
@@ -51,9 +50,9 @@ import type { ItemKind } from "../model/requirement.js";
 import { sortedUniqueRequirements } from "../model/requirement.js";
 import {
   cycleError,
+  declaredTags,
+  inSubtree,
   missingRequirement,
-  scopeSuggestion,
-  skillFile,
   unknownExplicitSkill,
   unknownScopeError,
 } from "./resolve.js";
@@ -62,11 +61,11 @@ import type { SourceContext } from "../model/sources.js";
 /**
  * What kind of problem a report entry is, so `--json` can be filtered without parsing prose.
  *
- * The five a catalog can hold, plus the two a project's own config contributes: a held scope no registry
- * knows, and a `skills` entry nothing provides. Those two are already resolution errors — `validate`
- * is where they are all listed at once instead of one per run.
+ * The three a catalog can hold, plus the two a project's own config contributes: a held scope nothing
+ * declares, and a `skills` entry nothing provides. Those two are already resolution errors —
+ * `validate` is where they are all listed at once instead of one per run.
  *
- * Each kind names a *class* of problem rather than a namespace: an unregistered scope on a hook is the
+ * Each kind names a *class* of problem rather than a namespace: a dangling `requires` on a hook is the
  * same finding it is on a skill, and the message already names which of the three the offender is. So a
  * namespace joining the catalog adds no kind here.
  */
@@ -76,7 +75,6 @@ export const VALIDATION_PROBLEM_KINDS = [
   "shadowed-name",
   "unknown-scope",
   "unknown-skill",
-  "unregistered-scope",
   "unresolvable-requirement",
 ] as const;
 
@@ -95,7 +93,6 @@ export interface ValidationProblem {
 export interface ValidationCounts {
   readonly hooks: number;
   readonly mcps: number;
-  readonly scopes: number;
   readonly skills: number;
 }
 
@@ -103,9 +100,9 @@ export interface ValidationReport {
   readonly checked: ValidationCounts;
   /**
    * Every problem found, in a fixed order: the catalog's own integrity first — name mismatches,
-   * unregistered scopes, unresolvable requirements, cycles, shadowed names — then how the project
-   * uses it. Within each check, findings are in name order, so the report is a function of the
-   * catalog's contents and not of the order anything was read in.
+   * unresolvable requirements, cycles, shadowed names — then how the project uses it. Within each
+   * check, findings are in name order, so the report is a function of the catalog's contents and not
+   * of the order anything was read in.
    */
   readonly problems: readonly ValidationProblem[];
 }
@@ -126,104 +123,6 @@ function sortedUnique(values: readonly string[]): readonly string[] {
 /** Wraps what would have been thrown as what is listed instead. */
 function problem(kind: ValidationProblemKind, error: AmbitError): ValidationProblem {
   return { kind, message: error.message, detail: error.detail };
-}
-
-/**
- * Where an MCP entity is written, as a problem cites it.
- *
- * Read off the merged view rather than derived from the name: `mcps/<name>.yml` is only the
- * extension ambit *writes*, so a catalog spelling an entity `.yaml` would be reported against a file
- * that is not there. Parsing already found the real one and carries it ({@link MergedMcp.file}),
- * which also means nothing here has to re-decide which catalog's copy won.
- *
- * An entity a project declares inline has no file of its own, and its `catalog` is the config
- * filename — so its absence reads as "declared in `ambit.yml`", which is where a reader goes to
- * change it.
- */
-function mcpFile(mcp: MergedMcp): string {
-  return mcp.file ?? mcp.catalog;
-}
-
-/**
- * Where a hook is written, as a problem cites it.
- *
- * A directory rather than a file is what parsing carries, since `HOOK.yml` is the only spelling a hook
- * document has — so the file is joined here rather than stored. A hook a project declares inline has no
- * directory, and its `catalog` is the config filename, which is {@link mcpFile}'s argument exactly.
- */
-function hookFile(hook: MergedHook): string {
-  return hook.path === undefined ? hook.catalog : `${hook.path}/${HOOK_FILENAME}`;
-}
-
-/**
- * The problem for a scope a skill or a server declares that no catalog registers.
- *
- * Nothing else reports this: expansion runs against the registry, so an unregistered declared scope
- * simply never selects anything, and the skill carrying it is dead weight nobody is told about.
- * That makes it exactly the class of problem a catalog's CI exists to catch.
- */
-function unregisteredScope(
-  scope: string,
-  where: string,
-  declarer: string,
-  registered: MergedCatalog["scopes"],
-): ValidationProblem {
-  return problem(
-    "unregistered-scope",
-    resolutionError(`unregistered scope "${scope}" ${where}`, [
-      `${declarer} declares it, but no catalog's ${SCOPES_FILENAME} registers it`,
-      scopeSuggestion(scope, registered),
-    ]),
-  );
-}
-
-function unregisteredScopeProblems(merged: MergedCatalog): readonly ValidationProblem[] {
-  const known = new Set(merged.scopes.map((definition) => definition.name));
-  const problems: ValidationProblem[] = [];
-
-  for (const skill of merged.skills) {
-    for (const scope of sortedUnique(skill.scopes)) {
-      if (known.has(scope)) continue;
-      problems.push(
-        unregisteredScope(
-          scope,
-          at(skillFile(skill), undefined),
-          `skill "${skill.name}"`,
-          merged.scopes,
-        ),
-      );
-    }
-  }
-
-  for (const mcp of merged.mcps) {
-    for (const scope of sortedUnique(mcp.scopes)) {
-      if (known.has(scope)) continue;
-      problems.push(
-        unregisteredScope(
-          scope,
-          at(mcpFile(mcp), undefined),
-          `MCP server "${mcp.name}" (catalog "${mcp.catalog}")`,
-          merged.scopes,
-        ),
-      );
-    }
-  }
-
-  for (const hook of merged.hooks) {
-    for (const scope of sortedUnique(hook.scopes)) {
-      if (known.has(scope)) continue;
-      problems.push(
-        unregisteredScope(
-          scope,
-          at(hookFile(hook), undefined),
-          `hook "${hook.name}" (catalog "${hook.catalog}")`,
-          merged.scopes,
-        ),
-      );
-    }
-  }
-
-  return problems;
 }
 
 /**
@@ -340,7 +239,7 @@ function shadowingProblems(merged: MergedCatalog): readonly ValidationProblem[] 
 }
 
 /**
- * What a project's own config contributes: held scopes no registry knows, and `skills` entries
+ * What a project's own config contributes: held scopes nothing declares, and `skills` entries
  * nothing provides.
  *
  * Both are already exit-3 resolution errors. Listing them is the point — a config naming four
@@ -352,16 +251,16 @@ function configProblems(
 ): readonly ValidationProblem[] {
   const problems: ValidationProblem[] = [];
 
-  const registered = new Set(merged.scopes.map((definition) => definition.name));
+  const declared = declaredTags(merged);
   for (const scope of sortedUnique(config.scopes)) {
-    if (registered.has(scope)) continue;
+    if (declared.some((tag) => inSubtree(scope, tag))) continue;
     problems.push(
       problem(
         "unknown-scope",
         unknownScopeError(
           scope,
           at(config.origin.file, config.origin.scopeLines.get(scope)),
-          merged.scopes,
+          declared,
         ),
       ),
     );
@@ -403,12 +302,10 @@ export function validateCatalog(
     checked: {
       hooks: merged.hooks.length,
       mcps: merged.mcps.length,
-      scopes: merged.scopes.length,
       skills: merged.skills.length,
     },
     problems: [
       ...(options.parsed ?? []),
-      ...unregisteredScopeProblems(merged),
       ...requirementProblems(merged),
       ...cycleProblems(merged),
       ...shadowingProblems(merged),
@@ -433,8 +330,8 @@ function collector(parsed: ValidationProblem[]): CatalogParseOptions {
  * @param context where sources resolve from, `--offline` included, so this adds no place that could
  *   forget it.
  * @throws {AmbitError} exit 2 for a missing or malformed config, an unresolvable source, or a
- *   catalog that does not parse; exit 3 for a config declaration a catalog also provides or one
- *   scope two catalogs describe differently; exit 4 if a fetch fails.
+ *   catalog that does not parse; exit 3 for a config declaration a catalog also provides; exit 4 if a
+ *   fetch fails.
  */
 export async function validateProject(context: SourceContext): Promise<ValidationReport> {
   const parsed: ValidationProblem[] = [];

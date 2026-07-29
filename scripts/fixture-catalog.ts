@@ -3,9 +3,9 @@
  * testable offline).
  *
  * The catalog is a plain skills repo — skills at `skills/<name>/SKILL.md`, MCP
- * entities at `mcps/<name>.yml`, hooks at `hooks/<name>/HOOK.yml`, a `scopes.yml` registry at the
- * root — so it doubles as the subject of the dotagents compatibility test (A26): everything but
- * `skills/` is additive, and a tool that reads only skills must be unbothered by it.
+ * entities at `mcps/<name>.yml`, hooks at `hooks/<name>/HOOK.yml`, and no config of its own — so it
+ * doubles as the subject of the dotagents compatibility test (A26): everything but `skills/` is
+ * additive, and a tool that reads only skills must be unbothered by it.
  *
  * It also builds that same catalog as a **local bare git repository**, which is how the git-source
  * tests stay offline: a `file://` URL is a git URL like any other, so nothing in ambit needs a test
@@ -23,34 +23,20 @@ import { promisify } from "node:util";
 
 /**
  * Written at the catalog root so a rebuild knows the directory is ours to delete. Dotfiles
- * are invisible to catalog parsing, which reads only `scopes.yml`, `skills/**`, `mcps/*`, and
- * `hooks/**`.
+ * are invisible to catalog parsing, which reads only `skills/**`, `mcps/*`, and `hooks/**`.
  */
 export const FIXTURE_MARKER = ".ambit-fixture";
-
-const SCOPES_YML = `# The catalog's scope registry. Every scope a skill, MCP or hook declares must be
-# registered here, so a typo fails loudly instead of silently matching nothing.
-scopes:
-  core:
-    description: The universal floor — context everyone needs
-  function.engineering:
-    description: Building and shipping software
-  function.engineering.frontend:
-    description: "Browser-side work: components, styling, accessibility"
-  project.acme:
-    description: The Acme engagement
-`;
 
 const CORE_SKILL = `---
 name: company-context
 description: Canonical context about Acme — what it sells, to whom, and how it works.
 ambit:
-  scopes: [core]
+  tags: [core]
 ---
 
 # Acme company context
 
-Selected by the \`core\` scope, and pulled in by \`requires\` from the project skill even when
+Reached by holding the \`core\` scope, and pulled in by \`requires\` from the project skill even when
 \`core\` is not held.
 `;
 
@@ -58,34 +44,34 @@ const ENGINEERING_SKILL = `---
 name: code-review
 description: How Acme reviews code — what reviewers look for, and in what order.
 ambit:
-  scopes: [function.engineering]
+  tags: [function.engineering]
 ---
 
 # Code review at Acme
 
-Selected by \`function.engineering\`, exactly. Holding \`core\` must not reach it.
+Tagged \`function.engineering\`, exactly. Holding \`core\` must not reach it.
 `;
 
 const FRONTEND_SKILL = `---
 name: design-tokens
 description: Acme's design tokens — color, spacing, and the type scale.
 ambit:
-  scopes: [function.engineering.frontend]
+  tags: [function.engineering.frontend]
   expects:
     - env: ACME_FIGMA_TOKEN
 ---
 
 # Design tokens
 
-Nested one level below \`function.engineering\`, so holding the parent selects it and holding
-this scope does not reach back up.
+Tagged one level below \`function.engineering\`, so holding the parent reaches it and holding this
+label does not reach back up.
 `;
 
 const PROJECT_SKILL = `---
 name: acme-brief
 description: The Acme engagement brief — scope, contacts, and conventions.
 ambit:
-  scopes: [project.acme]
+  tags: [project.acme]
   requires:
     - skill: company-context
     - mcp: fixture
@@ -94,12 +80,12 @@ ambit:
 
 # Acme engagement brief
 
-Reaches a skill, an MCP server and a hook that none match by scope, so the \`requires\` closure
+Reaches a skill, an MCP server and a hook that no held scope matches, so the \`requires\` closure
 is the only thing that can pull them in.
 `;
 
 const REQUIRED_MCP = `name: fixture
-# No scopes: reachable only because acme-brief requires it.
+# No tags: reachable only because acme-brief requires it.
 
 transport:
   stdio:
@@ -110,8 +96,8 @@ expects:
   - env: FIXTURE_API_KEY
 `;
 
-const SCOPED_MCP = `name: scoped
-scopes: [function.engineering]
+const TAGGED_MCP = `name: scoped
+tags: [function.engineering]
 
 transport:
   http:
@@ -124,7 +110,7 @@ expects:
 `;
 
 const INLINE_HOOK = `name: session-notes
-scopes: [core]
+tags: [core]
 description: Reminds a session that Acme's conventions apply.
 
 event: SessionStart
@@ -135,7 +121,7 @@ command: echo "acme conventions apply"
 `;
 
 const SCRIPT_HOOK = `name: guard-secrets
-scopes: [function.engineering]
+tags: [function.engineering]
 description: Inspects a Bash command before Acme's tooling runs it.
 
 event: PreToolUse
@@ -156,7 +142,7 @@ exit 0
 `;
 
 const REQUIRED_HOOK = `name: acme-standup
-# No scopes: reachable only because acme-brief requires it.
+# No tags: reachable only because acme-brief requires it.
 description: Records what the session touched, for the Acme standup.
 
 event: SessionEnd
@@ -167,13 +153,12 @@ command: echo "acme session ended"
 /** Every file in the fixture, keyed by its path relative to the catalog root. */
 export const FIXTURE_CATALOG_FILES: Readonly<Record<string, string>> = {
   [FIXTURE_MARKER]: "generated by scripts/fixture-catalog.ts — safe to delete\n",
-  "scopes.yml": SCOPES_YML,
   "hooks/session-notes/HOOK.yml": INLINE_HOOK,
   "hooks/guard-secrets/HOOK.yml": SCRIPT_HOOK,
   "hooks/guard-secrets/guard.sh": HOOK_SCRIPT,
   "hooks/acme-standup/HOOK.yml": REQUIRED_HOOK,
   "mcps/fixture.yml": REQUIRED_MCP,
-  "mcps/scoped.yml": SCOPED_MCP,
+  "mcps/scoped.yml": TAGGED_MCP,
   "skills/company-context/SKILL.md": CORE_SKILL,
   "skills/code-review/SKILL.md": ENGINEERING_SKILL,
   "skills/design-tokens/SKILL.md": FRONTEND_SKILL,

@@ -38,6 +38,15 @@ const FIXTURE_DOCUMENTS = Object.keys(FIXTURE_CATALOG_FILES)
   .filter((file) => file.endsWith(".yml") || file.endsWith(".md"))
   .sort();
 
+/**
+ * The fixture's one entity carrying both a leading comment-free header block and a nested mapping:
+ * the subject wherever a case needs a whole-file YAML document rather than a frontmatter block.
+ */
+const HEADERED_MCP = mcpDocumentPath("scoped");
+
+/** The last line of that entity's `headers` mapping, which an appended key lands under. */
+const HEADERS_TAIL = '      Authorization: "Bearer ${SCOPED_API_KEY}"\n';
+
 /** A skill carrying a harness key ambit knows nothing about, a comment, and a body. */
 const ANNOTATED_SKILL_PATH = skillDocumentPath("close-crm");
 
@@ -47,7 +56,7 @@ description: Calls the Close CRM REST API.
 # Bash stays out of this one: the skill only ever reads.
 allowed-tools: [Read, Grep]
 ambit:
-  scopes: [core]
+  tags: [core]
   requires:
     - skill: company-context
   expects:
@@ -134,17 +143,17 @@ describe("the catalog editor: round-tripping", () => {
     expect(document.text()).toBe(await read("mcps/spaced.yml"));
   });
 
-  it("adds a scope to a SKILL.md without disturbing anything else in it", async () => {
+  it("adds a tag to a SKILL.md without disturbing anything else in it", async () => {
     await write(ANNOTATED_SKILL_PATH, ANNOTATED_SKILL);
     const document = await CatalogDocument.open(catalogDir, ANNOTATED_SKILL_PATH);
 
-    document.setStringList(["ambit", "scopes"], ["core", "function.engineering"]);
+    document.setStringList(["ambit", "tags"], ["core", "function.engineering"]);
     await applyCatalogEdit(catalogDir, [document.change()]);
 
     // The unknown key, the comment above it, the key order, the flow layout of the list, the block
     // layout of `requires`, and the body: all as written.
     expect(await read(ANNOTATED_SKILL_PATH)).toBe(
-      ANNOTATED_SKILL.replace("scopes: [core]", "scopes: [core, function.engineering]"),
+      ANNOTATED_SKILL.replace("tags: [core]", "tags: [core, function.engineering]"),
     );
   });
 
@@ -174,69 +183,71 @@ describe("the catalog editor: round-tripping", () => {
     expect(document.text()).not.toContain("requires:\n");
   });
 
-  it("adds a registry entry without touching the comment above the file", async () => {
-    const document = await CatalogDocument.open(catalogDir, "scopes.yml");
+  it("appends to a nested mapping without touching the comment above the file", async () => {
+    const document = await CatalogDocument.open(catalogDir, HEADERED_MCP);
 
-    document.setString(["scopes", "function.sales", "description"], "Selling the work");
+    document.setString(["transport", "http", "headers", "X-Trace"], "on");
     await applyCatalogEdit(catalogDir, [document.change()]);
 
-    const before = FIXTURE_CATALOG_FILES["scopes.yml"] ?? "";
-    expect(await read("scopes.yml")).toBe(
-      `${before}  function.sales:\n    description: Selling the work\n`,
+    const before = FIXTURE_CATALOG_FILES[HEADERED_MCP] ?? "";
+    expect(await read(HEADERED_MCP)).toBe(
+      before.replace(HEADERS_TAIL, `${HEADERS_TAIL}      X-Trace: on\n`),
     );
   });
 
   it("renames a set of keys in place, through a name one of them still holds", async () => {
-    // Renaming a scope's subtree passes through a state where two entries share a name, so every pair has
-    // to be located before any of them is touched — and each keeps its position and its comment, which
-    // `remove` plus `setString` could not do.
+    // A rename that shifts a whole run of keys passes through a state where two entries share a name,
+    // so every pair has to be located before any of them is touched — and each keeps its position and
+    // its comment, which `remove` plus `setString` could not do.
     await write(
-      "scopes.yml",
+      "mcps/renamed.yml",
       [
-        "scopes:",
-        "  # Everyone.",
-        "  core:",
-        "    description: The floor",
-        "  a:",
-        "    description: A",
-        "  a.b:",
-        "    description: B",
+        "name: renamed",
+        "transport:",
+        "  http:",
+        "    url: https://mcp.invalid/renamed",
+        "    headers:",
+        "      # Everyone.",
+        "      Base: zero",
+        "      A: one",
+        "      A-B: two",
         "",
       ].join("\n"),
     );
-    const document = await CatalogDocument.open(catalogDir, "scopes.yml");
+    const document = await CatalogDocument.open(catalogDir, "mcps/renamed.yml");
 
     document.renameKeys(
-      ["scopes"],
+      ["transport", "http", "headers"],
       new Map([
-        ["a", "a.b"],
-        ["a.b", "a.b.b"],
-        ["absent", "x"],
+        ["A", "A-B"],
+        ["A-B", "A-B-B"],
+        ["absent", "X"],
       ]),
     );
 
     expect(document.text()).toBe(
       [
-        "scopes:",
-        "  # Everyone.",
-        "  core:",
-        "    description: The floor",
-        "  a.b:",
-        "    description: A",
-        "  a.b.b:",
-        "    description: B",
+        "name: renamed",
+        "transport:",
+        "  http:",
+        "    url: https://mcp.invalid/renamed",
+        "    headers:",
+        "      # Everyone.",
+        "      Base: zero",
+        "      A-B: one",
+        "      A-B-B: two",
         "",
       ].join("\n"),
     );
   });
 
   it("creates the mappings a nested key needs, and reads back what it wrote", async () => {
-    const document = await CatalogDocument.open(catalogDir, "scopes.yml");
+    const document = await CatalogDocument.open(catalogDir, mcpDocumentPath("fixture"));
 
-    expect(document.has(["scopes", "function.sales"])).toBe(false);
-    document.setString(["scopes", "function.sales", "description"], "Selling the work");
+    expect(document.has(["transport", "stdio", "env"])).toBe(false);
+    document.setString(["transport", "stdio", "env", "FIXTURE_MODE"], "test");
 
-    expect(document.has(["scopes", "function.sales", "description"])).toBe(true);
+    expect(document.has(["transport", "stdio", "env", "FIXTURE_MODE"])).toBe(true);
   });
 });
 
@@ -244,19 +255,19 @@ describe("the catalog editor: writing", () => {
   it("writes nothing at all when the edit changes nothing", async () => {
     // Re-running a mutation must leave the catalog alone down to the modification time: a rewrite of
     // identical bytes still shows up in a build cache, and in a `git status` on a checkout.
-    const document = await CatalogDocument.open(catalogDir, "scopes.yml");
+    const document = await CatalogDocument.open(catalogDir, HEADERED_MCP);
     const past = new Date("2001-01-01T00:00:00Z");
-    await utimes(path.join(catalogDir, "scopes.yml"), past, past);
+    await utimes(path.join(catalogDir, HEADERED_MCP), past, past);
 
     const result = await applyCatalogEdit(catalogDir, [document.change()]);
 
     expect(result).toEqual({ changes: [], trees: [], written: false });
-    expect((await stat(path.join(catalogDir, "scopes.yml"))).mtimeMs).toBe(past.getTime());
+    expect((await stat(path.join(catalogDir, HEADERED_MCP))).mtimeMs).toBe(past.getTime());
   });
 
   it("leaves no partial write behind", async () => {
-    const document = await CatalogDocument.open(catalogDir, "scopes.yml");
-    document.setString(["scopes", "function.sales", "description"], "Selling the work");
+    const document = await CatalogDocument.open(catalogDir, HEADERED_MCP);
+    document.setStringList(["tags"], ["function.engineering", "function.sales"]);
 
     await applyCatalogEdit(catalogDir, [document.change()]);
 
@@ -266,32 +277,37 @@ describe("the catalog editor: writing", () => {
   });
 
   it("reports every changed file in path order, with the bytes it holds now", async () => {
-    const registry = await CatalogDocument.open(catalogDir, "scopes.yml");
-    registry.setString(["scopes", "function.sales", "description"], "Selling the work");
+    const server = await CatalogDocument.open(catalogDir, HEADERED_MCP);
+    server.setStringList(["tags"], ["function.engineering", "function.sales"]);
     await write(ANNOTATED_SKILL_PATH, ANNOTATED_SKILL);
     const skill = await CatalogDocument.open(catalogDir, ANNOTATED_SKILL_PATH);
-    skill.setStringList(["ambit", "scopes"], ["core", "function.sales"]);
+    skill.setStringList(["ambit", "tags"], ["core", "function.sales"]);
 
-    const result = await applyCatalogEdit(catalogDir, [skill.change(), registry.change()]);
+    const result = await applyCatalogEdit(catalogDir, [skill.change(), server.change()]);
 
     expect(result.written).toBe(true);
     expect(result.changes.map((change) => change.file)).toEqual([
-      "scopes.yml",
+      HEADERED_MCP,
       ANNOTATED_SKILL_PATH,
     ]);
-    expect(result.changes[0]?.before).toBe(FIXTURE_CATALOG_FILES["scopes.yml"]);
+    expect(result.changes[0]?.before).toBe(FIXTURE_CATALOG_FILES[HEADERED_MCP]);
   });
 
   it("judges an edit as a whole, so a change one file needs may live in another", async () => {
     // The claim the overlay exists for: neither half of this edit validates on its own — the skill
-    // declares a scope nothing registers, and it is the same edit that registers it.
-    await write(ANNOTATED_SKILL_PATH, ANNOTATED_SKILL);
-    const registry = await CatalogDocument.open(catalogDir, "scopes.yml");
-    registry.setString(["scopes", "function.sales", "description"], "Selling the work");
+    // requires a skill the catalog does not hold, and it is the same edit that adds it.
+    await write(
+      ANNOTATED_SKILL_PATH,
+      ANNOTATED_SKILL.replace("- skill: company-context", "- skill: pipeline"),
+    );
     const skill = await CatalogDocument.open(catalogDir, ANNOTATED_SKILL_PATH);
-    skill.setStringList(["ambit", "scopes"], ["core", "function.sales"]);
+    skill.setStringList(["ambit", "tags"], ["core", "function.sales"]);
+    const required = {
+      file: skillDocumentPath("pipeline"),
+      text: ["---", "name: pipeline", "---", "", "# Pipeline", ""].join("\n"),
+    };
 
-    const result = await applyCatalogEdit(catalogDir, [registry.change(), skill.change()]);
+    const result = await applyCatalogEdit(catalogDir, [required, skill.change()]);
 
     expect(result.written).toBe(true);
     expect(isValid(await validateCatalogDirectory(catalogDir))).toBe(true);
@@ -303,7 +319,7 @@ describe("the catalog editor: writing", () => {
       "---",
       "name: pipeline",
       "ambit:",
-      "  scopes: [core]",
+      "  tags: [core]",
       "---",
       "",
       "# Pipeline",
@@ -329,14 +345,14 @@ describe("the catalog editor: writing", () => {
 
   it("under `--dry-run`, validates and reports the change and writes none of it", async () => {
     const before = await snapshot();
-    const document = await CatalogDocument.open(catalogDir, "scopes.yml");
-    document.setString(["scopes", "function.sales", "description"], "Selling the work");
+    const document = await CatalogDocument.open(catalogDir, HEADERED_MCP);
+    document.setStringList(["tags"], ["function.engineering", "function.sales"]);
 
     const result = await applyCatalogEdit(catalogDir, [document.change()], { dryRun: true });
 
     expect(result.written).toBe(false);
     expect(result.changes).toEqual([
-      { file: "scopes.yml", text: document.text(), before: FIXTURE_CATALOG_FILES["scopes.yml"] },
+      { file: HEADERED_MCP, text: document.text(), before: FIXTURE_CATALOG_FILES[HEADERED_MCP] },
     ]);
     expect(await snapshot()).toEqual(before);
   });
@@ -381,8 +397,8 @@ describe("the catalog editor: refusals", () => {
 
   it("refuses a path outside the root even when another change is fine", async () => {
     const before = await snapshot();
-    const document = await CatalogDocument.open(catalogDir, "scopes.yml");
-    document.setString(["scopes", "function.sales", "description"], "Selling the work");
+    const document = await CatalogDocument.open(catalogDir, HEADERED_MCP);
+    document.setStringList(["tags"], ["function.engineering", "function.sales"]);
 
     await rejection(
       () =>
@@ -399,7 +415,7 @@ describe("the catalog editor: refusals", () => {
   it("refuses a write whose result would not validate, leaving the file byte-identical", async () => {
     await write(ANNOTATED_SKILL_PATH, ANNOTATED_SKILL);
     const document = await CatalogDocument.open(catalogDir, ANNOTATED_SKILL_PATH);
-    document.setStringList(["ambit", "scopes"], ["core", "function.sails"]);
+    document.setReferenceList(["ambit", "requires"], [{ kind: "skill", name: "absent-skill" }]);
 
     const error = await rejection(
       () => applyCatalogEdit(catalogDir, [document.change()]),
@@ -407,14 +423,22 @@ describe("the catalog editor: refusals", () => {
     );
 
     expect(error.message).toBe("refusing to write: the result would not validate");
-    expect(error.detail).toContain(`unregistered scope "function.sails" (${ANNOTATED_SKILL_PATH})`);
+    expect(error.detail).toContain(
+      `unresolvable requirement "skill:absent-skill" (${ANNOTATED_SKILL_PATH})`,
+    );
     expect(await read(ANNOTATED_SKILL_PATH)).toBe(ANNOTATED_SKILL);
   });
 
   it("says how many problems it found, and where the whole report is", async () => {
     await write(ANNOTATED_SKILL_PATH, ANNOTATED_SKILL);
     const document = await CatalogDocument.open(catalogDir, ANNOTATED_SKILL_PATH);
-    document.setStringList(["ambit", "scopes"], ["one.unknown", "two.unknown"]);
+    document.setReferenceList(
+      ["ambit", "requires"],
+      [
+        { kind: "skill", name: "one-absent" },
+        { kind: "skill", name: "two-absent" },
+      ],
+    );
 
     const error = await rejection(
       () => applyCatalogEdit(catalogDir, [document.change()]),

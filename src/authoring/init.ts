@@ -2,11 +2,11 @@
  * `ambit catalog init` — scaffold a catalog, the mirror of what
  * `ambit init` does for a project.
  *
- * A catalog's shape is not the interesting part; the selection rule is. Nesting `scopes.yml` wrongly is
- * the one mistake here that cannot be fixed without editing every project that holds the scope, so the
- * scaffolded `README.md` carries the descendants-only rule and its nest-versus-sibling guidance
- * in full. That is why the README is part of the scaffold at all rather than a nicety: a catalog whose
- * author never met the rule is a catalog whose tree has to be restructured later.
+ * What the scaffold amounts to is three empty directories, a README and a CI workflow. It used to
+ * write a fourth thing — the scope registry — and most of the prose here and in the README existed to
+ * teach the one rule that made the registry's shape expensive to get wrong. There is no registry and
+ * no shape: a tag is a free-form label on an item, so nothing has to be decided before the catalog
+ * has users, and the README is left saying where each kind of thing goes.
  *
  * Three decisions a reader would otherwise have to reverse-engineer:
  *
@@ -16,12 +16,12 @@
  *   not written. The directories are therefore created by writing the `.gitkeep` files inside them,
  *   which is also what makes them survive the first commit; git tracks no empty directory, and a
  *   catalog that loses three of its four directories on the way into a repo is not a scaffolded repo.
- * - **An existing `scopes.yml` is refused; any other occupant is left alone.** The registry is what
- *   makes a directory a catalog, so its presence means the command was pointed at one that already
- *   exists (exit 2, nothing written). A catalog is normally initialized *inside* a repo that already
- *   has a README and a workflows directory, though, so a scaffold file that is already there is kept as
- *   it is and reported — overwriting someone's README would be exactly the reformatting authoring rule
- *   2 exists to forbid, one file up.
+ * - **Nothing is refused, and every occupant is left alone.** No file makes a directory a catalog any
+ *   more — the three item directories do, and a catalog is normally initialized *inside* a repo that
+ *   already has a README and a workflows directory. So a scaffold file that is already there is kept
+ *   as it is and reported, which also makes a second run a no-op: overwriting someone's README would
+ *   be exactly the reformatting authoring rule 2 exists to forbid, one file up. A directory still
+ *   holding a `scopes.yml` fails anyway, through the validation the editor runs on the result.
  * - **A missing root is created**, unlike `ambit init`, which refuses one. The scaffold necessarily
  *   creates directories (`skills/`, `mcps/`, `hooks/`, `.github/workflows/`), so "this command does not create
  *   directories" is not a stance it could hold, and starting a new catalog with
@@ -33,26 +33,15 @@ import {
   HOOKS_DIRNAME,
   HOOK_FILENAME,
   MCPS_DIRNAME,
-  SCOPES_FILENAME,
   SKILLS_DIRNAME,
   SKILL_FILENAME,
 } from "../model/catalog.js";
 import type { CatalogFileChange, EditOptions, EditedFile } from "./editor.js";
 import { applyCatalogEdit, catalogFilePath } from "./editor.js";
-import { configError } from "../errors.js";
 import type { ScaffoldBlock } from "../model/scaffold.js";
 import { renderScaffold } from "../model/scaffold.js";
 
-/**
- * The scope the scaffolded registry holds.
- *
- * A convention, not a rule ambit knows, and the same one `ambit init` scaffolds into a
- * project — so a freshly initialized project and a freshly initialized catalog agree out of the box,
- * which is the pair someone tries first.
- */
-export const CATALOG_INIT_SCOPE = "core";
-
-/** The scaffolded README, where the selection rule is documented. */
+/** The scaffolded README, which says what goes where. */
 export const CATALOG_README_FILENAME = "README.md";
 
 /** The scaffolded CI workflow, which runs `ambit catalog validate`. */
@@ -60,8 +49,7 @@ export const CATALOG_WORKFLOW_FILENAME = ".github/workflows/validate.yml";
 
 /**
  * What is written inside `skills/`, `mcps/` and `hooks/` so the directories exist and survive a commit.
- * Invisible to catalog parsing, which reads only `scopes.yml`, `skills/**`, `mcps/*.yml`, and
- * `hooks/**`.
+ * Invisible to catalog parsing, which reads only `skills/**`, `mcps/*.yml`, and `hooks/**`.
  */
 export const CATALOG_KEEP_FILENAME = ".gitkeep";
 
@@ -74,33 +62,12 @@ export const CATALOG_KEEP_FILENAME = ".gitkeep";
  */
 const VALIDATE_COMMAND = "npx --yes @nebulab/ambit catalog validate";
 
-const REGISTRY_BLOCKS: readonly ScaffoldBlock[] = [
-  {
-    comment: [
-      "The scope registry: every scope any skill or MCP server in this catalog declares must be",
-      "listed here, with a description. A scope that is not registered selects nothing and warns",
-      "nobody, so registering them is what turns a typo into an error — and the descriptions are",
-      "what a tool asking someone which scopes they hold renders as its list.",
-      "",
-      "A held scope selects itself and every scope beneath it — descendants only. Nest a scope",
-      "only when holding the parent genuinely implies wanting every child; make siblings of",
-      "anything people pick independently. README.md explains the choice; it is much cheaper to",
-      "make now than to change once projects name these scopes.",
-    ],
-    values: {
-      scopes: {
-        [CATALOG_INIT_SCOPE]: { description: "The universal floor — what everyone here needs" },
-      },
-    },
-  },
-];
-
 const WORKFLOW_BLOCKS: readonly ScaffoldBlock[] = [
   {
     comment: [
-      "Validates this catalog on every push and pull request: that every scope a skill or server",
-      "declares is registered, that every `requires` resolves to something this catalog provides,",
-      "that no `requires` edge forms a cycle, and that every skill's name matches its path.",
+      "Validates this catalog on every push and pull request: that every `requires` resolves to",
+      "something this catalog provides, that no `requires` edge forms a cycle, and that every",
+      "skill's name matches its path.",
       "",
       "Catching those here is the point. A broken catalog otherwise fails for whoever installs it",
       "next, which is never the person who broke it.",
@@ -130,66 +97,54 @@ const WORKFLOW_BLOCKS: readonly ScaffoldBlock[] = [
  * The scaffolded README.
  *
  * Prose, so it is written as prose — the §3.0 emit rules are about documents ambit parses, and this is
- * the one scaffolded file nothing reads back. Its middle two sections are the selection rule and
- * the nest-versus-sibling guidance the spec asks a catalog's README to carry prominently.
+ * the one scaffolded file nothing reads back. It is orientation and nothing more: where each kind of
+ * thing goes, what a tag is, and the one command that checks the result.
  */
 const README = `# An ambit catalog
 
 This directory is a catalog: the skills, MCP server definitions and hooks \`ambit\` installs into
-projects, each labelled with the *scopes* that should get it.
+projects, each tagged with whatever labels say *who needs it*.
 
 ## Layout
 
-    ${SCOPES_FILENAME}                every scope, with a description
     ${SKILLS_DIRNAME}/<name>/${SKILL_FILENAME}    one directory per skill
     ${MCPS_DIRNAME}/<name>.yml           one file per MCP server
     ${HOOKS_DIRNAME}/<name>/${HOOK_FILENAME}     one directory per hook
+
+That is the whole of it. A catalog is a directory holding some of those three, with no config file of
+its own — nothing here has to be declared before it can be written.
 
 A skill's name is its path under \`${SKILLS_DIRNAME}/\`, so \`${SKILLS_DIRNAME}/close-crm/\` holds the skill \`close-crm\`.
 Nothing else names it — which is what keeps this directory a plain skills repo that other tools
 can read. Nesting a skill is allowed and joins the segments with \`.\`, so
 \`${SKILLS_DIRNAME}/sales/close-crm/\` is \`sales.close-crm\`.
 
-## A held scope selects its descendants
+## Tags
 
-A project holds a list of scopes. **A held scope selects itself and every scope beneath it —
-descendants only.**
+An item carries a list of tags: dotted labels a consuming project selects on.
 
-Holding \`function.engineering\` selects things scoped \`function.engineering\` *and*
-\`function.engineering.frontend\`. Holding \`function.engineering.frontend\` selects that subtree
-alone: it does **not** reach back up to \`function.engineering\`.
+    ambit:
+      tags: [function.engineering]
 
-Nothing is implicit. ambit reserves no scope names and adds none on its own, so a project gets
-exactly the scopes it lists. \`${CATALOG_INIT_SCOPE}\` is registered as this catalog's universal floor by
-convention, and a project that wants it has to say so.
+They are free-form. Nothing registers a tag, nothing describes one, and no file in this catalog has
+to agree about which tags exist — tag an item and every project selecting that label reaches it,
+with no edit on their side. Dots nest: a project selecting \`function.engineering\` also reaches
+something tagged \`function.engineering.frontend\`, never the reverse.
 
-### Nest, or make siblings?
-
-The rule above makes the shape of \`scopes.yml\` load-bearing, and it is the one decision here that
-gets expensive to change — every project's \`ambit.yml\` names these scopes by hand.
-
-- **Nest** only when holding the parent genuinely implies wanting every child.
-  \`function.engineering.frontend\` belongs under \`function.engineering\` because everyone doing
-  engineering wants the frontend material too.
-- **Make siblings** of anything people pick independently. Two engagements are
-  \`project.apollo\` and \`project.borealis\`, never one beneath the other, because nobody working on
-  the first wants the second's brief.
-
-Getting this wrong is only fixable by restructuring the tree, so decide it before the catalog has
-users.
+The cost of that freedom is that a misspelled tag is silently a new tag, reaching nobody. Nothing
+here can catch it, so keep the list of labels this catalog uses somewhere a person will look.
 
 ## Maintaining the catalog
 
-A catalog is Markdown and YAML, so it is maintained with an editor. Register a scope in
-\`${SCOPES_FILENAME}\`, add a skill by writing \`${SKILLS_DIRNAME}/<name>/${SKILL_FILENAME}\`, a server by writing
-\`${MCPS_DIRNAME}/<name>.yml\`, a hook by writing \`${HOOKS_DIRNAME}/<name>/${HOOK_FILENAME}\`.
+A catalog is Markdown and YAML, so it is maintained with an editor. Add a skill by writing
+\`${SKILLS_DIRNAME}/<name>/${SKILL_FILENAME}\`, a server by writing \`${MCPS_DIRNAME}/<name>.yml\`, a hook by writing
+\`${HOOKS_DIRNAME}/<name>/${HOOK_FILENAME}\`.
 
     ambit catalog validate                                check the whole catalog
 
-That is what catches the mistakes hand-editing makes: a scope a skill declares that nothing
-registered, a \`requires\` that resolves to nothing, a cycle, a skill whose name disagrees with its
-path. It acts on the current directory unless given \`--catalog <dir>\`, and it is what
-\`${CATALOG_WORKFLOW_FILENAME}\` runs in CI.
+That is what catches the mistakes hand-editing makes: a \`requires\` that resolves to nothing, a
+cycle, a skill whose name disagrees with its path. It acts on the current directory unless given
+\`--catalog <dir>\`, and it is what \`${CATALOG_WORKFLOW_FILENAME}\` runs in CI.
 `;
 
 /**
@@ -204,7 +159,6 @@ export function scaffoldCatalog(): readonly CatalogFileChange[] {
     [CATALOG_README_FILENAME]: README,
     [`${HOOKS_DIRNAME}/${CATALOG_KEEP_FILENAME}`]: "",
     [`${MCPS_DIRNAME}/${CATALOG_KEEP_FILENAME}`]: "",
-    [SCOPES_FILENAME]: renderScaffold(REGISTRY_BLOCKS),
     [`${SKILLS_DIRNAME}/${CATALOG_KEEP_FILENAME}`]: "",
   };
 
@@ -224,7 +178,7 @@ export interface CatalogInitResult {
   readonly created: readonly EditedFile[];
   /** Scaffold files that were already there, left byte-identical, in path order. */
   readonly kept: readonly string[];
-  /** False under `--dry-run`. */
+  /** False under `--dry-run`, and false when every scaffold file was already there. */
   readonly written: boolean;
 }
 
@@ -242,21 +196,14 @@ async function exists(target: string): Promise<boolean> {
  *
  * @param root the catalog root, absolute. Created if it is not there yet.
  * @param options `--dry-run`, which validates the scaffold and writes none of it.
- * @throws {AmbitError} exit 2 if the directory already holds a `scopes.yml` — under `--dry-run` too,
- *   since a preview of a refusal is a refusal — or if a write fails; exit 3 in the case the editor
- *   guards against, a result that would not validate.
+ * @throws {AmbitError} exit 2 if a write fails, or if the directory does not parse as a catalog —
+ *   which is what refuses one still holding a `scopes.yml`; exit 3 in the case the editor guards
+ *   against, a result that would not validate.
  */
 export async function initCatalog(
   root: string,
   options: CatalogInitOptions = {},
 ): Promise<CatalogInitResult> {
-  if (await exists(catalogFilePath(root, SCOPES_FILENAME))) {
-    throw configError(`refusing to overwrite ${SCOPES_FILENAME}`, [
-      `${root} already holds a catalog`,
-      `edit it, or point \`--catalog\` at a directory that has no ${SCOPES_FILENAME}`,
-    ]);
-  }
-
   const kept: string[] = [];
   const changes: CatalogFileChange[] = [];
   for (const change of scaffoldCatalog()) {

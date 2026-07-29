@@ -62,9 +62,9 @@ const INCOMING_SUFFIX = ".ambit-incoming";
 const MARKDOWN_EXTENSION = ".md";
 
 /**
- * What catalog parsing reads inside a directory: a skill's `SKILL.md`, and the YAML an entity, a hook
- * or the registry is written as. A hook's `HOOK.yml` needs no name of its own here, since it ends in
- * one of the extensions already listed.
+ * What catalog parsing reads inside a directory: a skill's `SKILL.md`, and the YAML an entity or a
+ * hook is written as. A hook's `HOOK.yml` needs no name of its own here, since it ends in one of the
+ * extensions already listed.
  *
  * Everything else a skill or hook directory holds is opaque to ambit — a reference PDF, a hook's
  * script — so a moved tree only has to describe *these* files to validation, which is also what keeps

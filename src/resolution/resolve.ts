@@ -5,15 +5,17 @@
  * time this runs. That is what makes determinism testable — the same inputs produce a
  * byte-identical bundle, so `resolve --json` can be committed as a golden file.
  *
- * A held scope selects itself and every scope beneath it — **descendants only**.
- * Holding `function.engineering` reaches `function.engineering.frontend`; holding the child never
- * reaches back up to the parent. That asymmetry is what makes the catalog's tree shape
- * load-bearing, so it lives here rather than in any adapter.
+ * A held scope matches a **tag** an item declares, and every tag beneath it — **descendants only**.
+ * Holding `function.engineering` reaches an item tagged `function.engineering.frontend`; holding the
+ * child never reaches back up to the parent. Nothing registers a tag and nothing describes one, so
+ * the set a held scope expands over is whatever the catalog's items happen to declare — an author
+ * who tags a new skill `function.engineering` reaches every project already holding that scope, with
+ * no consumer edit and nothing to keep in step.
  *
  * Nothing else is implicit: no scope is reserved, and a project selects exactly the scopes it
  * lists, expanded downward — a catalog's skills, servers and hooks all come down that route.
  * Alongside it, a project may name skills and servers outright, and declare servers and hooks of its
- * own: those are selected whatever their scopes, since asking for something by
+ * own: those are selected whatever their tags, since asking for something by
  * name is already the decision that scopes exist to make. Everything selected either way is
  * then closed over `requires`, so a skill can carry its dependencies into a bundle that would never
  * have selected them.
@@ -22,14 +24,8 @@
  * into a bundle a list of names is not an answer to "why is this here?" — and the lock records the
  * reason too, so it has to be part of resolution rather than a reporting afterthought.
  */
-import type {
-  MergedCatalog,
-  MergedHook,
-  MergedMcp,
-  MergedSkill,
-  ScopeDefinition,
-} from "../model/catalog.js";
-import { HOOKS_DIRNAME, MCPS_DIRNAME, SCOPES_FILENAME, SKILL_FILENAME } from "../model/catalog.js";
+import type { MergedCatalog, MergedHook, MergedMcp, MergedSkill } from "../model/catalog.js";
+import { HOOKS_DIRNAME, MCPS_DIRNAME, SKILL_FILENAME } from "../model/catalog.js";
 import type { ProjectConfig } from "../model/config.js";
 import type { ExpectationSet } from "../model/expectation.js";
 import { unionExpectations } from "../model/expectation.js";
@@ -46,8 +42,9 @@ import { AmbitError, ExitCode, at, resolutionError } from "../errors.js";
 /**
  * What separates a scope from its children.
  *
- * Named rather than inlined because expansion joins names with it and {@link inSubtree} cuts them
- * apart on it, and the two have to agree on where a scope ends.
+ * Named rather than inlined because {@link inSubtree} is the only thing that reads it, and a bare `.`
+ * at that call site would read as punctuation rather than as the one place the subtree rule is
+ * spelled.
  */
 export const SCOPE_SEPARATOR = ".";
 
@@ -73,14 +70,14 @@ export type BundleItem = Requirement;
  * Why one item is in the bundle — one of the three routes resolution offers, and never
  * more than one, so a reader gets an answer rather than a list of possibilities.
  *
- * A `scope` reason carries both ends of the expansion: the scope the item declares, and the held
+ * A `scope` reason carries both ends of the expansion: the tag the item declares, and the held
  * scope that reached it. They differ whenever selection went through the subtree rule, which is
- * exactly when naming only one of the two would leave a reader looking for a scope their config
+ * exactly when naming only one of the two would leave a reader looking for a label their config
  * does not contain.
  */
 export type SelectionReason =
   | { readonly kind: "explicit" }
-  | { readonly kind: "scope"; readonly scope: string; readonly held: string }
+  | { readonly kind: "scope"; readonly tag: string; readonly held: string }
   | { readonly kind: "required-by"; readonly requirer: string };
 
 /** A bundle item with the reason it was selected. */
@@ -98,9 +95,9 @@ export interface SelectionReasons {
 /** The resolved set of skills, MCP servers and hooks for a project. */
 export interface Bundle {
   /**
-   * The held scopes exactly as the project declared them, deduplicated and sorted. The subtree
-   * they expand to is derived from these and the registry, and is deliberately not reported: a
-   * reader wants their own list back, not the registry restated.
+   * The held scopes exactly as the project declared them, deduplicated and sorted. The set of tags
+   * they expand over is derived from these and the catalog, and is deliberately not reported: a
+   * reader wants their own list back, not every label the catalog happens to carry.
    */
   readonly scopes: readonly string[];
   /** Selected skills, sorted by name. */
@@ -144,37 +141,53 @@ export function inSubtree(held: string, candidate: string): boolean {
 }
 
 /**
- * Expands held scopes into the set that does the selecting: every **registered** scope
- * equal to a held scope or beneath it.
+ * Every tag the merged catalog's items declare, deduplicated and sorted.
  *
- * Expansion runs against the registry rather than over the scopes skills happen to declare, so
- * `scopes.yml` stays the single authority on the tree's shape — an unregistered scope cannot
- * smuggle itself into a subtree by naming itself a child of one.
+ * This is what selection and every message about a scope work from, now that nothing registers a
+ * label anywhere: the catalog's vocabulary is the union of what its skills, servers and hooks
+ * happen to say. Sorted, so a suggestion and an expansion are functions of the values alone.
+ */
+export function declaredTags(merged: MergedCatalog): readonly string[] {
+  return sortedUnique([
+    ...merged.skills.flatMap((skill) => skill.tags),
+    ...merged.mcps.flatMap((mcp) => mcp.tags),
+    ...merged.hooks.flatMap((hook) => hook.tags),
+  ]);
+}
+
+/**
+ * Expands held scopes into the set that does the selecting: every declared tag equal to a held
+ * scope or beneath it.
  *
- * Deliberately total: a held scope the registry does not know simply contributes nothing here,
- * so the expansion can be reasoned about as a set operation. Rejecting such a scope is
- * {@link assertScopesRegistered}'s job, and {@link resolveBundle} runs it first.
+ * The subtree rule is unchanged; what it runs over is not. Expansion used to be filtered through a
+ * registry, which is what made a catalog's tree shape load-bearing — a consumer could only select at
+ * a depth the author had registered. Over declared tags there is no shape to agree with: a tag one
+ * level deeper than anything anyone foresaw is reached by whichever held scope is above it.
+ *
+ * Deliberately total: a held scope nothing declares simply contributes nothing here, so the
+ * expansion can be reasoned about as a set operation. Rejecting such a scope is
+ * {@link assertScopesDeclared}'s job, and {@link resolveBundle} runs it first.
  */
 export function expandHeldScopes(
   held: readonly string[],
-  registered: readonly ScopeDefinition[],
+  declared: readonly string[],
 ): ReadonlySet<string> {
   const expanded = new Set<string>();
-  // Both loops run in sorted order — `registered` arrives sorted by name — so the set's insertion
-  // order is a function of the values alone, not of config or filesystem order.
+  // Both loops run in sorted order — `declared` arrives sorted — so the set's insertion order is a
+  // function of the values alone, not of config or filesystem order.
   for (const scope of [...held].sort(compare)) {
-    for (const definition of registered) {
-      if (inSubtree(scope, definition.name)) expanded.add(definition.name);
+    for (const tag of declared) {
+      if (inSubtree(scope, tag)) expanded.add(tag);
     }
   }
   return expanded;
 }
 
 /**
- * How far a registered scope may be from a held one and still be worth proposing as the
+ * How far a declared tag may be from a held scope and still be worth proposing as the
  * correction.
  *
- * Scaled by length rather than fixed: a typo in a long dotted scope is still one or two edits
+ * Scaled by length rather than fixed: a typo in a long dotted label is still one or two edits
  * from its target, while at a threshold generous enough to catch those, a short unrelated word
  * would confidently propose something it has nothing to do with.
  */
@@ -182,7 +195,7 @@ function suggestionThreshold(scope: string): number {
   return Math.max(2, Math.floor(scope.length / 3));
 }
 
-/** Levenshtein distance. A registry holds tens of scopes, so the exact distance is cheap. */
+/** Levenshtein distance. A catalog declares tens of tags, so the exact distance is cheap. */
 function editDistance(a: string, b: string): number {
   // One row of the matrix, rewritten per character of `a`: previous[j] is the distance between
   // the prefix of `a` handled so far and the first j characters of `b`.
@@ -201,86 +214,83 @@ function editDistance(a: string, b: string): number {
 }
 
 /**
- * The registered scope nearest `scope`, or undefined when nothing is close enough that proposing
+ * The declared tag nearest `scope`, or undefined when nothing is close enough that proposing
  * it would help.
  *
- * Ties go to the first candidate in `registered`, which arrives sorted by name, so the
- * suggestion is a function of the names alone.
+ * Ties go to the first candidate in `declared`, which arrives sorted, so the suggestion is a
+ * function of the names alone.
  */
-function nearestScope(scope: string, registered: readonly ScopeDefinition[]): string | undefined {
+function nearestScope(scope: string, declared: readonly string[]): string | undefined {
   const threshold = suggestionThreshold(scope);
   let best: { readonly name: string; readonly distance: number } | undefined;
 
-  for (const definition of registered) {
-    const distance = editDistance(scope, definition.name);
+  for (const tag of declared) {
+    const distance = editDistance(scope, tag);
     if (distance > threshold) continue;
-    if (best === undefined || distance < best.distance) best = { name: definition.name, distance };
+    if (best === undefined || distance < best.distance) best = { name: tag, distance };
   }
 
   return best?.name;
 }
 
 /**
- * The concrete next step for a scope nothing recognizes: the nearest registered scope
- * when one is a plausible correction, and how to register it otherwise.
+ * The concrete next step for a scope nothing recognizes: the nearest declared tag when one is a
+ * plausible correction, and how to make the scope mean something otherwise.
  *
  * Exported because two surfaces reject a scope — resolution, on the first offender, and
  * validation, on every one of them — and the advice must read identically from both.
  */
-export function scopeSuggestion(scope: string, registered: readonly ScopeDefinition[]): string {
-  const suggestion = nearestScope(scope, registered);
+export function scopeSuggestion(scope: string, declared: readonly string[]): string {
+  const suggestion = nearestScope(scope, declared);
   return suggestion === undefined
-    ? `register it in a catalog's ${SCOPES_FILENAME}, or correct the spelling`
+    ? "tag an item with it (`ambit.tags`), or correct the spelling"
     : `did you mean "${suggestion}"?`;
 }
 
 /**
- * The error for a held scope the merged registry does not know.
+ * The error for a held scope no item in any catalog declares.
  *
  * @param where the `(file line N)` suffix, as {@link at} renders it.
  */
 export function unknownScopeError(
   scope: string,
   where: string,
-  registered: readonly ScopeDefinition[],
+  declared: readonly string[],
 ): AmbitError {
   return resolutionError(`unknown scope "${scope}" ${where}`, [
-    "not found in the merged registry",
-    scopeSuggestion(scope, registered),
+    "no item in any configured catalog declares it, or anything beneath it",
+    scopeSuggestion(scope, declared),
   ]);
 }
 
 /**
- * Rejects a held scope the merged registry does not know.
+ * Rejects a held scope no item declares.
  *
  * A typo has to fail loudly, because the alternative is worse than an error: expanding to
  * nothing yields a bundle quietly missing everything that scope was meant to bring, and nobody
- * notices until the agent behaves oddly weeks later.
+ * notices until the agent behaves oddly weeks later. This is the only surface left that can catch
+ * one at all — with nothing registering a tag, the same typo made *inside* a catalog is simply a
+ * new tag, and no check anywhere says a word about it.
  *
- * The registry decides what may be held, not the shape of the tree — holding `function` when
- * only `function.engineering` is registered is a typo like any other, since a parent nobody
- * declared is not a scope.
+ * The subtree rule counts here: holding `function` is fine as long as something is tagged
+ * `function.engineering`, because that scope does select. What is refused is a scope whose whole
+ * subtree is empty, which is exactly the set that selects nothing.
  *
  * Stops at the first offender, in name order. Listing every problem at once is validation's
  * job, which reuses the same error builder so the two agree.
  *
  * @throws {AmbitError} exit 3, naming the scope, the config line it was written on, and the
- *   nearest registered scope when one is a plausible correction.
+ *   nearest declared tag when one is a plausible correction.
  */
-export function assertScopesRegistered(
-  config: ProjectConfig,
-  registered: readonly ScopeDefinition[],
-): void {
-  const known = new Set(registered.map((definition) => definition.name));
-
+export function assertScopesDeclared(config: ProjectConfig, declared: readonly string[]): void {
   // Sorted, so which of several unknown scopes is reported first depends on the names alone
   // rather than on the order the config happens to list them in.
   for (const scope of sortedUnique(config.scopes)) {
-    if (known.has(scope)) continue;
+    if (declared.some((tag) => inSubtree(scope, tag))) continue;
     throw unknownScopeError(
       scope,
       at(config.origin.file, config.origin.scopeLines.get(scope)),
-      registered,
+      declared,
     );
   }
 }
@@ -336,7 +346,7 @@ export function cycleError(cycle: readonly string[], head: MergedSkill): AmbitEr
 
 /**
  * Closes a selection over `requires` until fixpoint: every skill, MCP entity and hook a selected
- * skill requires joins the selection — whether or not its own scopes would ever have selected it.
+ * skill requires joins the selection — whether or not its own tags would ever have selected it.
  *
  * That is the point of the mechanism. A skill that is useless without a company-context skill and
  * a server declares so once, and every profile that reaches it gets a working bundle instead of a
@@ -347,8 +357,8 @@ export function cycleError(cycle: readonly string[], head: MergedSkill): AmbitEr
  * here is skill → skill, with both other namespaces as leaves.
  *
  * @param skills the roots — what scope selection found, sorted by name.
- * @param mcps MCP entities already selected by their own scopes.
- * @param hooks hooks already selected by their own scopes.
+ * @param mcps MCP entities already selected by their own tags.
+ * @param hooks hooks already selected by their own tags.
  * @param merged what requirements resolve against.
  * @throws {AmbitError} exit 3 for a requirement no catalog provides, or a cycle.
  */
@@ -422,13 +432,13 @@ export function closeOverRequires(
 }
 
 /**
- * Whether a declared scope list is selected by the expanded held scopes.
+ * Whether an item's declared tags are reached by the expanded held scopes.
  *
  * An empty list is never selected — such a thing is reachable only through `requires` or an
  * explicit listing.
  */
-function selectedByScope(selecting: ReadonlySet<string>, declared: readonly string[]): boolean {
-  return declared.some((scope) => selecting.has(scope));
+function selectedByScope(selecting: ReadonlySet<string>, tags: readonly string[]): boolean {
+  return tags.some((tag) => selecting.has(tag));
 }
 
 /** The names a config selects outright, by kind. */
@@ -456,7 +466,7 @@ export function unknownExplicitSkill(name: string, config: ProjectConfig): Ambit
 }
 
 /**
- * The skills, servers and hooks config names outright, whatever scopes they declare.
+ * The skills, servers and hooks config names outright, whatever tags they carry.
  *
  * A `skills` entry carrying its own `source`, and every inline `mcps` and `hooks` entry, were folded
  * into `merged` before resolution (see `mergeConfigEntities`), so both `skills` forms resolve by name
@@ -490,7 +500,7 @@ export function formatReason(reason: SelectionReason): string {
     case "explicit":
       return "explicit";
     case "scope":
-      return `scope:${reason.scope}`;
+      return `scope:${reason.tag}`;
     case "required-by":
       return `required-by:${reason.requirer}`;
   }
@@ -511,31 +521,31 @@ function unexplainable(item: BundleItem, problem: string): AmbitError {
 }
 
 /**
- * The held scope that reached `scope`: itself, or the ancestor whose subtree it lies in.
+ * The held scope that reached `tag`: the tag itself, or the ancestor whose subtree it lies in.
  *
- * Ties go to the first in `held`, which arrives sorted — and since a scope's ancestors form a
+ * Ties go to the first in `held`, which arrives sorted — and since a label's ancestors form a
  * prefix chain, that is the broadest held scope. Any of them is equally true, so the tie-break only
  * has to be a function of the names.
  */
-function heldAncestor(scope: string, held: readonly string[]): string | undefined {
-  return held.find((candidate) => inSubtree(candidate, scope));
+function heldAncestor(tag: string, held: readonly string[]): string | undefined {
+  return held.find((candidate) => inSubtree(candidate, tag));
 }
 
 /**
  * The scope reason for an item, or undefined when no held scope reached it.
  *
- * The declared scopes are searched in sorted order, so an item declaring two selected scopes
+ * The declared tags are searched in sorted order, so an item whose tags are reached twice over
  * reports the same one whatever order its frontmatter lists them in.
  */
 function scopeReason(
-  declared: readonly string[],
+  tags: readonly string[],
   selecting: ReadonlySet<string>,
   held: readonly string[],
 ): SelectionReason | undefined {
-  for (const scope of sortedUnique(declared)) {
-    if (!selecting.has(scope)) continue;
-    const ancestor = heldAncestor(scope, held);
-    if (ancestor !== undefined) return { kind: "scope", scope, held: ancestor };
+  for (const tag of sortedUnique(tags)) {
+    if (!selecting.has(tag)) continue;
+    const ancestor = heldAncestor(tag, held);
+    if (ancestor !== undefined) return { kind: "scope", tag, held: ancestor };
   }
   return undefined;
 }
@@ -570,7 +580,7 @@ function requiredByReason(
  * @throws {AmbitError} exit 1 for an item none of the three routes accounts for.
  */
 function selectionReasons(
-  items: readonly { readonly name: string; readonly scopes: readonly string[] }[],
+  items: readonly { readonly name: string; readonly tags: readonly string[] }[],
   kind: ItemKind,
   explicit: ReadonlySet<string>,
   selecting: ReadonlySet<string>,
@@ -583,7 +593,7 @@ function selectionReasons(
     const target: BundleItem = { kind, name: item.name };
     const reason = explicit.has(item.name)
       ? EXPLICIT
-      : (scopeReason(item.scopes, selecting, held) ?? requiredByReason(target, selected));
+      : (scopeReason(item.tags, selecting, held) ?? requiredByReason(target, selected));
 
     if (reason === undefined) {
       throw unexplainable(
@@ -676,29 +686,30 @@ export function explainSelection(bundle: Bundle, item: BundleItem): readonly Rea
  * @param merged the catalogs, with the project's own declarations already folded in — a `skills`
  *   entry carrying a `source`, inline `mcps`, and inline `hooks` — as `mergeConfigEntities` does, so
  *   every namespace resolves by name here and no surface needs a case of its own.
- * @throws {AmbitError} exit 3 for a held scope the merged registry does not know, an explicit skill
- *   nothing provides, a requirement no catalog provides, or a `requires` cycle.
+ * @throws {AmbitError} exit 3 for a held scope nothing declares, an explicit skill nothing provides,
+ *   a requirement no catalog provides, or a `requires` cycle.
  */
 export function resolveBundle(config: ProjectConfig, merged: MergedCatalog): Bundle {
-  assertScopesRegistered(config, merged.scopes);
+  const declared = declaredTags(merged);
+  assertScopesDeclared(config, declared);
 
   const held = sortedUnique(config.scopes);
-  const selecting = expandHeldScopes(config.scopes, merged.scopes);
+  const selecting = expandHeldScopes(config.scopes, declared);
   const explicit = explicitNames(config, merged);
 
   // All three seed lists stay in name order, being filters of the merged catalog, so how something
   // was selected cannot change where it lands in the bundle. The third one means a catalog hook is
   // reached by scope exactly as a server is, and an inline one — folded in as explicit — is selected
-  // whatever scopes it names.
+  // whatever tags it carries.
   const { skills, mcps, hooks } = closeOverRequires(
     merged.skills.filter(
-      (skill) => explicit.skills.has(skill.name) || selectedByScope(selecting, skill.scopes),
+      (skill) => explicit.skills.has(skill.name) || selectedByScope(selecting, skill.tags),
     ),
     merged.mcps.filter(
-      (mcp) => explicit.mcps.has(mcp.name) || selectedByScope(selecting, mcp.scopes),
+      (mcp) => explicit.mcps.has(mcp.name) || selectedByScope(selecting, mcp.tags),
     ),
     merged.hooks.filter(
-      (hook) => explicit.hooks.has(hook.name) || selectedByScope(selecting, hook.scopes),
+      (hook) => explicit.hooks.has(hook.name) || selectedByScope(selecting, hook.tags),
     ),
     merged,
   );

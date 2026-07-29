@@ -1,10 +1,15 @@
 /**
  * Catalog parsing.
  *
- * A catalog is a plain skills repo: skills at `skills/<name>/SKILL.md`, MCP
- * entities at `mcps/<name>.yml`, hooks at `hooks/<name>/HOOK.yml`, and a `scopes.yml` registry at the
- * root. Nothing here is ambit-specific except one extra frontmatter key and the extra directories,
- * which other tools ignore — that compatibility is a hard requirement.
+ * A catalog is a plain skills repo, and nothing else: skills at `skills/<name>/SKILL.md`, MCP
+ * entities at `mcps/<name>.yml`, hooks at `hooks/<name>/HOOK.yml`. Nothing here is ambit-specific
+ * except one extra frontmatter key and the extra directories, which other tools ignore — that
+ * compatibility is a hard requirement.
+ *
+ * There is no catalog-side config: parsing scans those three directories and takes what is there.
+ * A file at the root ambit would read as a *project's* config is therefore ignored rather than
+ * refused, because a project that publishes its own items lists itself as `source: path:.` — so a
+ * directory that is both a catalog and a project is the ordinary case, not a mistake.
  *
  * A skill's name is not stored anywhere authoritative: it is derived from the path, and the
  * frontmatter `name` must agree. Disagreement is an error rather than a preference for one over
@@ -42,8 +47,13 @@ import {
   readYamlMapping,
 } from "./yaml.js";
 
-/** The catalog's scope registry. */
-export const SCOPES_FILENAME = "scopes.yml";
+/**
+ * The registry a catalog used to carry, kept only so its presence can be refused.
+ *
+ * Not exported: nothing reads this file any more, and the one thing left to say about it is the
+ * rewrite in {@link removedRegistry}.
+ */
+const REMOVED_REGISTRY_FILENAME = "scopes.yml";
 
 /** Where skills live within a catalog. */
 export const SKILLS_DIRNAME = "skills";
@@ -74,14 +84,11 @@ export const HOOK_FILENAME = "HOOK.yml";
  */
 export const MCP_EXTENSIONS: readonly string[] = [".yml", ".yaml"];
 
-const SCOPES_KEYS = ["scopes"] as const;
-const SCOPE_KEYS = ["description"] as const;
-
 /**
  * The one top-level `SKILL.md` frontmatter key ambit owns.
  *
  * Every annotation lives under it, so the block a harness reads and the block ambit reads cannot
- * collide however either grows: a harness that one day defines its own `scopes` or `requires` takes
+ * collide however either grows: a harness that one day defines its own `tags` or `requires` takes
  * the top-level name, and ambit's are a level down where they always were. The cost is one line of
  * nesting; the alternative was a standing bet that no harness ever picks those two words.
  */
@@ -93,7 +100,7 @@ export const AMBIT_FRONTMATTER_KEY = "ambit";
  *
  * One list, in the layer that reads them, so nothing can drift apart on what an annotation is.
  */
-export const ANNOTATION_KEYS = ["scopes", "requires", "expects"] as const;
+export const ANNOTATION_KEYS = ["tags", "requires", "expects"] as const;
 
 export type AnnotationKey = (typeof ANNOTATION_KEYS)[number];
 
@@ -131,22 +138,19 @@ export type CatalogOverlay = ReadonlyMap<string, string | null>;
 /** Nothing pending: what every read path outside an edit parses through. */
 const NO_OVERLAY: CatalogOverlay = new Map();
 
-/** One registered scope. The description is the picker label a consuming tool renders. */
-export interface ScopeDefinition {
-  readonly name: string;
-  readonly description: string;
-}
-
 /** A skill as the catalog declares it. */
 export interface CatalogSkill {
   /** Derived from `path`, and equal to the frontmatter `name`. */
   readonly name: string;
   /** The skill directory, relative to the catalog root, `/`-separated. */
   readonly path: string;
-  /** The harness's own summary, carried through for `catalog` and `scopes` output. */
+  /** The harness's own summary, carried through to every report that lists the skill. */
   readonly description?: string;
-  /** Declared scopes. Empty means reachable only via `requires` or an explicit listing. */
-  readonly scopes: readonly string[];
+  /**
+   * Declared tags: free-form labels, registered nowhere and described nowhere, that a consumer can
+   * select on. Empty means reachable only via `requires` or an explicit listing.
+   */
+  readonly tags: readonly string[];
   /**
    * What this skill pulls into a bundle with it, each entry naming its own namespace — see
    * {@link Requirement}. In the order the author wrote them.
@@ -197,8 +201,6 @@ export interface Catalog {
    * revision — a working directory is whatever it currently says.
    */
   readonly commit?: string;
-  /** Registered scopes, sorted by name. */
-  readonly scopes: readonly ScopeDefinition[];
   /** Skills, sorted by name. */
   readonly skills: readonly CatalogSkill[];
   /** MCP entities, sorted by name. */
@@ -294,7 +296,6 @@ export interface Shadowings {
 export interface MergedCatalog {
   /** Catalog names, in config order — which is priority order. */
   readonly catalogs: readonly string[];
-  readonly scopes: readonly ScopeDefinition[];
   readonly skills: readonly MergedSkill[];
   readonly mcps: readonly MergedMcp[];
   readonly hooks: readonly MergedHook[];
@@ -449,18 +450,18 @@ export async function resolveCatalogRoot(
   );
 }
 
-/** Parses `scopes.yml`. Descriptions are required: they are the picker's labels, not decoration. */
-function parseScopeRegistry(root: YamlMapping): readonly ScopeDefinition[] {
-  root.rejectUnknownKeys(SCOPES_KEYS);
-  const scopes = root.requireMapping("scopes");
-
-  return byName(
-    scopes.keys().map((name) => {
-      const entry = scopes.requireMapping(name);
-      entry.rejectUnknownKeys(SCOPE_KEYS);
-      return { name, description: entry.requireString("description") };
-    }),
-  );
+/**
+ * The refusal for a catalog that still holds the registry.
+ *
+ * A hard break, and loud on purpose: the file parses as YAML and every scope in it looks like it is
+ * still doing something, so silence would leave an author believing a catalog is labelled when
+ * nothing in it is. The message carries the whole rewrite, since it is short enough to state.
+ */
+function removedRegistry(): AmbitError {
+  return configError(`the scope registry is gone (${REMOVED_REGISTRY_FILENAME})`, [
+    "scopes are gone; tag items with `ambit.tags` and select them with `tag:`",
+    `delete ${REMOVED_REGISTRY_FILENAME}, carrying each scope over as a tag on the items that declared it`,
+  ]);
 }
 
 /**
@@ -517,8 +518,11 @@ async function findHookDirectories(files: CatalogFiles): Promise<readonly string
  * Two opposite stances on unknown keys, and both are deliberate. At the top level they are allowed,
  * unlike everywhere else, because that block is the harness's and ambit is a guest in it. Under
  * `ambit:` they are rejected like everywhere else, because that block is ambit's: a misspelled
- * `scope:` there would otherwise be a skill that declares nothing and warns nobody, which is the
+ * `tag:` there would otherwise be a skill that declares nothing and warns nobody, which is the
  * same silence the namespace exists to remove.
+ *
+ * A *value* under `tags` is unguarded by contrast — a misspelled tag is a new tag, and nothing can
+ * tell the difference. That is the cost of dropping the registry, paid here.
  *
  * @throws {AmbitError} exit 2 for an `ambit:` that is not a mapping, or a key under it that §3.2
  *   does not define.
@@ -530,7 +534,7 @@ function skillAnnotations(mapping: YamlMapping): Omit<CatalogSkill, "name" | "pa
 
   return {
     ...(description !== undefined && { description }),
-    scopes: ambit?.optionalStringList("scopes") ?? [],
+    tags: ambit?.optionalStringList("tags") ?? [],
     requires: ambit === undefined ? [] : parseRequirements(ambit),
     expects: ambit === undefined ? [] : parseExpectations(ambit),
   };
@@ -764,7 +768,7 @@ function fromCatalog(name: string, problem: AmbitError): AmbitError {
  * @param commit the commit the directory holds, for a git source.
  * @param options a collector for the one problem parsing can continue past, and an edit's pending
  *   files to read through — see {@link CatalogParseOptions}.
- * @throws {AmbitError} exit 2 for a missing registry, a malformed file, or a name that
+ * @throws {AmbitError} exit 2 for a leftover scope registry, a malformed file, or a name that
  *   disagrees with its path.
  */
 export async function parseCatalogDirectory(
@@ -782,14 +786,11 @@ export async function parseCatalogDirectory(
   const files = new CatalogFiles(root, options.overlay ?? NO_OVERLAY);
 
   try {
-    if (!(await files.isFile(SCOPES_FILENAME))) {
-      throw configError(`${SCOPES_FILENAME} is missing`, [
-        "a catalog must register every scope its skills and MCPs declare",
-        `add ${SCOPES_FILENAME} at the catalog root`,
-      ]);
-    }
-
-    const scopes = parseScopeRegistry(await files.mapping(SCOPES_FILENAME));
+    // The one file at a catalog root ambit still has an opinion about, and the opinion is that it
+    // must not be there. Nothing else is read: a directory holding none of the three subdirectories
+    // is a catalog with zero items, which the patterns selecting from it report far better than a
+    // missing-file error here could.
+    if (await files.isFile(REMOVED_REGISTRY_FILENAME)) throw removedRegistry();
 
     const skills: CatalogSkill[] = [];
     for (const relative of await findSkillDirectories(files)) {
@@ -811,7 +812,6 @@ export async function parseCatalogDirectory(
       source,
       root,
       ...(commit !== undefined && { commit }),
-      scopes,
       skills: byName(skills),
       mcps: byName(mcps),
       hooks: byName(hooks),
@@ -863,8 +863,8 @@ function skillPathFromName(name: string): string {
 /**
  * Loads one skill declared with its own `source` rather than through a catalog.
  *
- * A source need not be a catalog: only the one skill directory is read, nothing expects a
- * `scopes.yml`, and `path` may point anywhere inside it. What the skill declares still counts —
+ * A source need not be a catalog: only the one skill directory is read, nothing else in the source is
+ * scanned, and `path` may point anywhere inside it. What the skill declares still counts —
  * `requires` is closed over as usual — so an explicit entry can carry dependencies with it.
  *
  * The config's `name` is authoritative, since it is what resolution, `requires`, and the installed
@@ -1018,30 +1018,6 @@ export async function mergeConfigEntities(
   return { ...merged, skills: byName(skills), mcps: byName(mcps), hooks: byName(hooks) };
 }
 
-/** One scope registration, remembering which catalog made it so a conflict can name both. */
-interface RegisteredScope {
-  readonly catalog: string;
-  readonly definition: ScopeDefinition;
-}
-
-/**
- * The error for one scope two catalogs describe differently.
- *
- * Identical descriptions merge silently — two catalogs agreeing about a shared scope is how a
- * company catalog and a personal one are meant to overlap. Disagreeing ones are rejected because
- * the description is what a consuming tool shows a human in the picker, and quietly
- * keeping one of two contradictory labels would make a project's own catalog order decide what a
- * scope appears to mean.
- */
-function scopeDescriptionConflict(first: RegisteredScope, second: RegisteredScope): AmbitError {
-  const name = first.definition.name;
-  return resolutionError(`conflicting descriptions for scope "${name}" (${SCOPES_FILENAME})`, [
-    `catalog "${first.catalog}" describes it as "${first.definition.description}"`,
-    `catalog "${second.catalog}" describes it as "${second.definition.description}"`,
-    "make the two descriptions identical, or rename the scope in one of the two catalogs",
-  ]);
-}
-
 /**
  * Notes that `loser` also provides `name`, which `winner` already did.
  *
@@ -1071,17 +1047,13 @@ function mapByName<T>(entries: ReadonlyMap<string, T>): ReadonlyMap<string, T> {
  * Merges catalogs into one namespace per kind.
  *
  * On a duplicate skill, MCP or hook name the earlier catalog in config order wins, and the shadowing is
- * recorded rather than discarded — see {@link Shadowing}. Scope registries merge on
- * matching descriptions and are rejected on differing ones.
+ * recorded rather than discarded — see {@link Shadowing}.
  *
  * A config-declared skill or server colliding with a catalog is deliberately *not* this: that is an
  * error, not a precedence question, because both config surfaces are for
  * things no catalog defines. See {@link mergeConfigEntities}.
- *
- * @throws {AmbitError} exit 3 for one scope two catalogs describe differently.
  */
 export function mergeCatalogs(catalogs: readonly Catalog[]): MergedCatalog {
-  const scopes = new Map<string, RegisteredScope>();
   const skills = new Map<string, MergedSkill>();
   const mcps = new Map<string, MergedMcp>();
   const hooks = new Map<string, MergedHook>();
@@ -1090,16 +1062,6 @@ export function mergeCatalogs(catalogs: readonly Catalog[]): MergedCatalog {
   const shadowedHooks = new Map<string, Shadowing>();
 
   for (const catalog of catalogs) {
-    for (const definition of catalog.scopes) {
-      const registered = scopes.get(definition.name);
-      const here: RegisteredScope = { catalog: catalog.name, definition };
-      if (registered === undefined) {
-        scopes.set(definition.name, here);
-      } else if (registered.definition.description !== definition.description) {
-        throw scopeDescriptionConflict(registered, here);
-      }
-    }
-
     for (const skill of catalog.skills) {
       const winner = skills.get(skill.name);
       if (winner !== undefined) {
@@ -1143,7 +1105,6 @@ export function mergeCatalogs(catalogs: readonly Catalog[]): MergedCatalog {
 
   return {
     catalogs: catalogs.map((catalog) => catalog.name),
-    scopes: byName([...scopes.values()].map((registered) => registered.definition)),
     skills: byName([...skills.values()]),
     mcps: byName([...mcps.values()]),
     hooks: byName([...hooks.values()]),

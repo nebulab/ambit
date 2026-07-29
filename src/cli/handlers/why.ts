@@ -80,8 +80,8 @@ function provided(
 }
 
 /** How to get an item that exists into the bundle, given what it declares. */
-function selectionAdvice(item: BundleItem, scopes: readonly string[]): string {
-  const hold = scopes.length === 0 ? undefined : `hold one of its scopes (${scopes.join(", ")})`;
+function selectionAdvice(item: BundleItem, tags: readonly string[]): string {
+  const hold = tags.length === 0 ? undefined : `hold one of its tags (${tags.join(", ")})`;
   // A skill is the one namespace a project can name outright in a way resolution reaches by name;
   // a server and a hook a *catalog* provides are reached by a scope or by a `requires` edge.
   const otherwise =
@@ -96,7 +96,7 @@ function selectionAdvice(item: BundleItem, scopes: readonly string[]): string {
  * The error for an item a catalog provides but nothing selects.
  *
  * Names the catalog it came from, so a reader knows the config is otherwise fine, and says which
- * scopes would reach it rather than leaving them to be looked up. Only a catalog can be named here:
+ * tags would reach it rather than leaving them to be looked up. Only a catalog can be named here:
  * everything the config declares itself is selected outright, so it is never the unselected one.
  */
 function notSelected(
@@ -106,7 +106,7 @@ function notSelected(
 ): AmbitError {
   return resolutionError(`${subject(item)} is not in the bundle`, [
     `catalog "${entry.catalog}" provides it, but nothing ${config.origin.file} holds selects it`,
-    selectionAdvice(item, entry.scopes),
+    selectionAdvice(item, entry.tags),
   ]);
 }
 
@@ -153,12 +153,12 @@ function locate(
 }
 
 /**
- * The reason as `why` shows it: with the held scope too, when the item declares a different one and
+ * The reason as `why` shows it: with the held scope too, when the item's tag is a different label and
  * the subtree rule did the rest.
  */
 function reasonLabel(reason: SelectionReason): string {
   const label = formatReason(reason);
-  return reason.kind === "scope" && reason.held !== reason.scope
+  return reason.kind === "scope" && reason.held !== reason.tag
     ? `${label} (held ${reason.held})`
     : label;
 }

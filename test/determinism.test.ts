@@ -402,7 +402,7 @@ describe("nothing in the surface table touches disk", () => {
  * The two surfaces that make the shuffle above more than a formality.
  *
  * Everything the table asserts is protected twice over — a catalog's directory entries are sorted as
- * they are read, and its skills, servers and scopes are sorted again before they are emitted — so a
+ * they are read, and its skills and servers are sorted again before they are emitted — so a
  * single missing sort would not move any of those bytes. These two do move: a report of *problems*
  * is in the order they were found, and the two documents in a duplicate-stem refusal are named in
  * the order the directory listed them, so nothing but the entry sort stands between read order and
@@ -421,7 +421,7 @@ describe("a report of problems is in the same order whatever order directories a
     await mkdir(path.dirname(target), { recursive: true });
     await writeFile(
       target,
-      ["---", `name: ${declared}`, "ambit:", "  scopes: [core]", "---", "", "# fixture", ""].join(
+      ["---", `name: ${declared}`, "ambit:", "  tags: [core]", "---", "", "# fixture", ""].join(
         "\n",
       ),
       "utf8",

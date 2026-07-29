@@ -511,7 +511,7 @@ describe("ambit install", () => {
 describe("how a skill's source reaches its target", () => {
   const CORE_TARGET = `${SKILLS_DIR}/${CORE_SKILL}`;
   const CORE_SOURCE = "skills/company-context";
-  const EDITED = "---\nname: company-context\nscopes: [core]\n---\n\n# edited\n";
+  const EDITED = "---\nname: company-context\ntags: [core]\n---\n\n# edited\n";
 
   /** The skill's file inside the catalog, which a linked install must be the very same file as. */
   async function readSource(): Promise<string> {
@@ -676,11 +676,11 @@ describe(".mcp.json", () => {
   it("omits `args` and `headers` a server does not declare", async () => {
     await writeCatalogFile(
       "mcps/plain.yml",
-      "name: plain\nscopes: [core]\n\ntransport:\n  stdio:\n    command: plain-mcp\n",
+      "name: plain\ntags: [core]\n\ntransport:\n  stdio:\n    command: plain-mcp\n",
     );
     await writeCatalogFile(
       "mcps/bare.yml",
-      "name: bare\nscopes: [core]\n\ntransport:\n  http:\n    url: https://bare.invalid/mcp\n",
+      "name: bare\ntags: [core]\n\ntransport:\n  http:\n    url: https://bare.invalid/mcp\n",
     );
     await writeProfile(["core"]);
 

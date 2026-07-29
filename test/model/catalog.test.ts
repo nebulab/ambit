@@ -4,7 +4,7 @@
  * Every case runs against the fixture catalog, mutated in place for the malformed ones, so the
  * subject is the same tree the rest of the suite resolves against.
  */
-import { cp, mkdir, mkdtemp, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -21,10 +21,9 @@ import type { SourceContext } from "../../src/model/sources.js";
 const CATALOG_NAME = "company";
 const CODE_REVIEW = "skills/code-review/SKILL.md";
 
-/** The fixture's core skill, and the scope it declares — the pair a second catalog collides with. */
+/** The fixture's core skill, and the tag it declares — the pair a second catalog collides with. */
 const CORE_SKILL = "company-context";
-const CORE_DESCRIPTION = "The universal floor — context everyone needs";
-const ENGINEERING_DESCRIPTION = "Building and shipping software";
+const CORE_TAG = "core";
 
 /** A skill only the second catalog provides, so a merge has something to keep from both. */
 const OWN_SKILL = "jane-notes";
@@ -63,35 +62,19 @@ async function rejection(): Promise<AmbitError> {
 }
 
 /**
- * Builds a catalog beside the fixture that deliberately collides with it: the same `core` scope,
- * the same core skill, and the same `scoped` server, plus a scope and a skill of its own so the
- * merge has something to keep from both.
+ * Builds a catalog beside the fixture that deliberately collides with it: the same core skill and the
+ * same `scoped` server, plus a skill of its own so the merge has something to keep from both.
  *
  * @param name the catalog's directory, which is also the name config gives it.
- * @param coreDescription how it describes the shared `core` scope — identical to the fixture's
- *   unless the test is about two catalogs disagreeing.
  */
-async function writeShadowingCatalog(
-  name: string,
-  coreDescription: string = CORE_DESCRIPTION,
-): Promise<void> {
+async function writeShadowingCatalog(name: string): Promise<void> {
   const files: Readonly<Record<string, string>> = {
-    "scopes.yml": [
-      "scopes:",
-      "  core:",
-      `    description: ${JSON.stringify(coreDescription)}`,
-      "  function.engineering:",
-      `    description: ${JSON.stringify(ENGINEERING_DESCRIPTION)}`,
-      "  person.jane:",
-      "    description: Jane's own things",
-      "",
-    ].join("\n"),
     [`skills/${CORE_SKILL.replaceAll(".", "/")}/SKILL.md`]: [
       "---",
       `name: ${CORE_SKILL}`,
       `description: ${name}'s copy of the core skill.`,
       "ambit:",
-      "  scopes: [core]",
+      `  tags: [${CORE_TAG}]`,
       "---",
       "",
       `# ${name}'s copy`,
@@ -102,7 +85,7 @@ async function writeShadowingCatalog(
       `name: ${OWN_SKILL}`,
       "description: Jane's notes, which no other catalog provides.",
       "ambit:",
-      "  scopes: [core, person.jane]",
+      `  tags: [${CORE_TAG}, person.jane]`,
       "---",
       "",
       "# notes",
@@ -110,7 +93,7 @@ async function writeShadowingCatalog(
     ].join("\n"),
     "mcps/scoped.yml": [
       "name: scoped",
-      "scopes: [function.engineering]",
+      "tags: [function.engineering]",
       "transport:",
       "  stdio:",
       `    command: ${name}-mcp`,
@@ -211,20 +194,11 @@ afterEach(async () => {
 });
 
 describe("catalog parsing", () => {
-  it("reads the registry, every skill, and every MCP entity", async () => {
+  it("reads every skill and every MCP entity, and nothing at the root", async () => {
     const catalog = await parseCatalogDirectory(CATALOG_NAME, "path:../catalog", catalogDir);
 
     expect(catalog.name).toBe(CATALOG_NAME);
     expect(catalog.root).toBe(catalogDir);
-    expect(catalog.scopes).toEqual([
-      { name: "core", description: "The universal floor — context everyone needs" },
-      { name: "function.engineering", description: "Building and shipping software" },
-      {
-        name: "function.engineering.frontend",
-        description: "Browser-side work: components, styling, accessibility",
-      },
-      { name: "project.acme", description: "The Acme engagement" },
-    ]);
     expect(catalog.skills.map((skill) => skill.name)).toEqual([
       "acme-brief",
       "code-review",
@@ -240,7 +214,7 @@ describe("catalog parsing", () => {
 
     expect(frontend).toMatchObject({
       path: "skills/design-tokens",
-      scopes: ["function.engineering.frontend"],
+      tags: ["function.engineering.frontend"],
       requires: [],
       expects: [{ kind: "env", name: "ACME_FIGMA_TOKEN" }],
     });
@@ -295,7 +269,7 @@ name: code-review
 description: x
 allowed-tools: [Read, Grep]
 ambit:
-  scopes: [function.engineering]
+  tags: [function.engineering]
 ---
 `,
     );
@@ -342,14 +316,14 @@ description: x
 name: code-review
 description: x
 ambit:
-  scope: [function.engineering]
+  tag: [function.engineering]
 ---
 `,
     );
 
     const error = await rejection();
-    expect(error.message).toBe(`unknown key "ambit.scope" (${CODE_REVIEW} line 5)`);
-    expect(error.detail).toContain("accepted keys: expects, requires, scopes");
+    expect(error.message).toBe(`unknown key "ambit.tag" (${CODE_REVIEW} line 5)`);
+    expect(error.detail).toContain("accepted keys: expects, requires, tags");
   });
 
   it("rejects an `ambit:` that is not a mapping", async () => {
@@ -421,16 +395,24 @@ transport:
     );
   });
 
-  it("rejects a catalog with no scope registry", async () => {
-    await rename(path.join(catalogDir, "scopes.yml"), path.join(catalogDir, "scopes.hidden"));
+  it("refuses a catalog that still holds a scopes.yml, naming the rewrite", async () => {
+    // The registry is the one thing at a catalog root ambit still has an opinion about, and the
+    // opinion is that it must not be there.
+    await writeCatalogFile("scopes.yml", "scopes:\n  core:\n    description: A\n");
 
-    expect((await rejection()).message).toBe("scopes.yml is missing");
+    const error = await rejection();
+    expect(error.message).toBe("the scope registry is gone (scopes.yml)");
+    expect(error.detail).toContain(
+      "scopes are gone; tag items with `ambit.tags` and select them with `tag:`",
+    );
   });
 
-  it("requires a description for every registered scope", async () => {
-    await writeCatalogFile("scopes.yml", "scopes:\n  core: {}\n");
+  it("ignores an `ambit.yml` at the catalog root, since a project may publish itself", async () => {
+    await writeCatalogFile("ambit.yml", "version: 1\nscopes: [core]\n");
 
-    expect((await rejection()).message).toContain('missing required key "scopes.core.description"');
+    const catalog = await parseCatalogDirectory(CATALOG_NAME, "path:../catalog", catalogDir);
+
+    expect(catalog.skills.map((skill) => skill.name)).toContain("company-context");
   });
 
   it("names the catalog an error came from", async () => {
@@ -483,7 +465,7 @@ describe("ambit dump-catalog", () => {
     expect(result.code).toBe(ExitCode.Success);
     expect(JSON.parse(result.stdout)).toEqual({
       catalogs: [CATALOG_NAME],
-      // The fixture's three: one selected by a scope, one shipping a script, and one no scope selects.
+      // The fixture's three: one a held scope reaches, one shipping a script, and one tagged nothing.
       hooks: {
         "acme-standup": {
           catalog: CATALOG_NAME,
@@ -493,7 +475,7 @@ describe("ambit dump-catalog", () => {
           expects: [],
           event: "SessionEnd",
           path: "hooks/acme-standup",
-          scopes: [],
+          tags: [],
         },
         "guard-secrets": {
           catalog: CATALOG_NAME,
@@ -504,7 +486,7 @@ describe("ambit dump-catalog", () => {
           event: "PreToolUse",
           matcher: "Bash",
           path: "hooks/guard-secrets",
-          scopes: ["function.engineering"],
+          tags: ["function.engineering"],
           timeout: 10,
         },
         "session-notes": {
@@ -515,16 +497,8 @@ describe("ambit dump-catalog", () => {
           expects: [],
           event: "SessionStart",
           path: "hooks/session-notes",
-          scopes: ["core"],
+          tags: ["core"],
         },
-      },
-      scopes: {
-        core: { description: "The universal floor — context everyone needs" },
-        "function.engineering": { description: "Building and shipping software" },
-        "function.engineering.frontend": {
-          description: "Browser-side work: components, styling, accessibility",
-        },
-        "project.acme": { description: "The Acme engagement" },
       },
       skills: {
         "company-context": {
@@ -533,7 +507,7 @@ describe("ambit dump-catalog", () => {
           expects: [],
           path: "skills/company-context",
           requires: [],
-          scopes: ["core"],
+          tags: ["core"],
         },
         "design-tokens": {
           catalog: CATALOG_NAME,
@@ -541,7 +515,7 @@ describe("ambit dump-catalog", () => {
           expects: [{ kind: "env", name: "ACME_FIGMA_TOKEN" }],
           path: "skills/design-tokens",
           requires: [],
-          scopes: ["function.engineering.frontend"],
+          tags: ["function.engineering.frontend"],
         },
         "code-review": {
           catalog: CATALOG_NAME,
@@ -549,7 +523,7 @@ describe("ambit dump-catalog", () => {
           expects: [],
           path: "skills/code-review",
           requires: [],
-          scopes: ["function.engineering"],
+          tags: ["function.engineering"],
         },
         "acme-brief": {
           catalog: CATALOG_NAME,
@@ -561,20 +535,20 @@ describe("ambit dump-catalog", () => {
             { kind: "mcp", name: "fixture" },
             { kind: "hook", name: "acme-standup" },
           ],
-          scopes: ["project.acme"],
+          tags: ["project.acme"],
         },
       },
       mcps: {
         fixture: {
           catalog: CATALOG_NAME,
           expects: [{ kind: "env", name: "FIXTURE_API_KEY" }],
-          scopes: [],
+          tags: [],
           transport: { kind: "stdio", command: "npx", args: ["-y", "@acme/fixture-mcp"] },
         },
         scoped: {
           catalog: CATALOG_NAME,
           expects: [{ kind: "env", name: "SCOPED_API_KEY" }],
-          scopes: ["function.engineering"],
+          tags: ["function.engineering"],
           transport: {
             kind: "http",
             url: "https://mcp.invalid/fixture",
@@ -600,12 +574,14 @@ describe("ambit dump-catalog", () => {
     expect(result.stdout).not.toContain(root);
   });
 
-  it("lists scopes, skills, and MCPs as text", async () => {
+  it("lists skills with their tags, and MCPs, as text", async () => {
     const result = await cli("dump-catalog");
 
     expect(result.code).toBe(ExitCode.Success);
     expect(result.stdout).toContain(`${CATALOG_NAME}  path:../catalog`);
-    expect(result.stdout).toContain("core                           The universal floor");
+    // No registry section to print: the labels an item carries are shown on the item's own row.
+    expect(result.stdout).not.toContain("scopes");
+    expect(result.stdout).toContain(`company-context  ${CATALOG_NAME}  core`);
     expect(result.stdout).toContain("acme-brief");
     expect(result.stdout).toContain("stdio: npx -y @acme/fixture-mcp");
     expect(result.stdout).toContain("http: https://mcp.invalid/fixture");
@@ -689,7 +665,7 @@ describe("catalog hooks", () => {
       HOOK_FILE,
       document(HOOK_NAME, [
         "description: Refuses a destructive rm before it runs",
-        "scopes: [function.engineering]",
+        "tags: [function.engineering]",
         "event: PreToolUse",
         "matcher: Bash",
         "type: command",
@@ -705,7 +681,7 @@ describe("catalog hooks", () => {
         name: HOOK_NAME,
         path: HOOK_DIR,
         description: "Refuses a destructive rm before it runs",
-        scopes: ["function.engineering"],
+        tags: ["function.engineering"],
         event: "PreToolUse",
         matcher: "Bash",
         type: "command",
@@ -825,7 +801,7 @@ describe("catalog hooks", () => {
     await writeCatalogFile(
       HOOK_FILE,
       document(HOOK_NAME, [
-        "scopes: [function.engineering]",
+        "tags: [function.engineering]",
         "event: PreToolUse",
         "matcher: Bash",
         "type: script",
@@ -845,7 +821,7 @@ describe("catalog hooks", () => {
       expects: [],
       matcher: "Bash",
       path: HOOK_DIR,
-      scopes: ["function.engineering"],
+      tags: ["function.engineering"],
     });
     // The fixture's own three come along, which the whole-catalog case above pins.
     expect(Object.keys(emitted.hooks)).toEqual([HOOK_NAME, ...FIXTURE_HOOKS].sort());
@@ -1132,7 +1108,7 @@ describe("the flag rules Commander enforces before a handler runs", () => {
     const stubbed = stub("catalog validate");
     const rules: CommandRules = {
       "catalog validate": () => {
-        throw new AmbitError(ExitCode.Config, "refused by a rule (scopes.yml)", [
+        throw new AmbitError(ExitCode.Config, "refused by a rule (mcps/x.yml)", [
           "do something else",
         ]);
       },
@@ -1145,7 +1121,7 @@ describe("the flag rules Commander enforces before a handler runs", () => {
     );
 
     expect(result.code).toBe(ExitCode.Config);
-    expect(result.stderr).toContain("refused by a rule (scopes.yml)");
+    expect(result.stderr).toContain("refused by a rule (mcps/x.yml)");
     expect(result.stderr).toContain("do something else");
     expect(stubbed.reached()).toBe(false);
   });
@@ -1283,37 +1259,6 @@ describe("multi-catalog merge and shadowing", () => {
     expect((await merged()).shadowing.skills.get(CORE_SKILL)?.shadows).toEqual([SECOND, THIRD]);
   });
 
-  it("merges a scope two catalogs describe identically, keeping one registration", async () => {
-    await writeShadowingCatalog(SECOND);
-    await writeCatalogOrder([SECOND]);
-
-    const view = await merged();
-
-    expect(view.scopes.map((scope) => scope.name)).toEqual([
-      "core",
-      "function.engineering",
-      "function.engineering.frontend",
-      "person.jane",
-      "project.acme",
-    ]);
-    expect(view.scopes.find((scope) => scope.name === "core")?.description).toBe(CORE_DESCRIPTION);
-  });
-
-  it("exits 3 for a scope two catalogs describe differently, naming both", async () => {
-    await writeShadowingCatalog(SECOND, "Everything, all of it");
-    await writeCatalogOrder([SECOND], ["core"]);
-
-    const result = await cli("resolve");
-
-    expect(result.code).toBe(ExitCode.Resolution);
-    expect(result.stderr).toContain('conflicting descriptions for scope "core" (scopes.yml)');
-    expect(result.stderr).toContain(
-      `catalog "${CATALOG_NAME}" describes it as "${CORE_DESCRIPTION}"`,
-    );
-    expect(result.stderr).toContain(`catalog "${SECOND}" describes it as "Everything, all of it"`);
-    expect(result.stderr).toContain("make the two descriptions identical");
-  });
-
   it("reports the shadowing beside the reason under `resolve --explain`", async () => {
     await writeShadowingCatalog(SECOND);
     await writeCatalogOrder([SECOND], ["core"]);
@@ -1353,7 +1298,7 @@ describe("multi-catalog merge and shadowing", () => {
 
     expect(explained.skills[CORE_SKILL]?.shadows).toEqual([SECOND]);
     expect(explained.skills[OWN_SKILL]).not.toHaveProperty("shadows");
-    // A server the fixture and the second catalog both provide, selected by its own scope.
+    // A server the fixture and the second catalog both provide, reached by its own tag.
     expect(explained.mcps.scoped).toEqual({
       catalog: CATALOG_NAME,
       reason: "scope:function.engineering",

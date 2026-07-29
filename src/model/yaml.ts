@@ -1,7 +1,7 @@
 /**
  * The shared YAML loader.
  *
- * Every ambit format goes through here — `ambit.yml`, `scopes.yml`, `mcps/*.yml`, `SKILL.md`
+ * Every ambit format goes through here — `ambit.yml`, `mcps/*.yml`, `HOOK.yml`, `SKILL.md`
  * frontmatter — so the rules are enforced once and cannot drift between parsers. The rules
  * exist because the alternative is silent corruption: a commit SHA like `1234567` parses as
  * an integer, a duplicate key quietly wins, a tab looks like indentation.
@@ -223,9 +223,9 @@ export class YamlMapping {
   /**
    * The same sequence, each item paired with the line it was written on.
    *
-   * A rule enforced after parsing — a held scope the catalog's registry does not know, say — has
-   * no YAML node left to point at, and its error is still expected to name a line. Carrying the
-   * positions forward is cheaper and less fragile than reparsing the document to find them again.
+   * A rule enforced after parsing — a held scope no catalog's items declare, say — has no YAML node
+   * left to point at, and its error is still expected to name a line. Carrying the positions forward
+   * is cheaper and less fragile than reparsing the document to find them again.
    */
   optionalPositionedStringList(key: string): readonly PositionedString[] | undefined {
     const items = this.sequence(key, "a sequence of strings");
@@ -778,7 +778,7 @@ export class EditableYaml {
   }
 
   /**
-   * Opens a whole YAML file for editing — `scopes.yml`, `mcps/<name>.yml`.
+   * Opens a whole YAML file for editing — `mcps/<name>.yml`, `HOOK.yml`.
    *
    * @throws {AmbitError} exit 2 if the document violates a §3.0 rule.
    */
@@ -876,7 +876,7 @@ export class EditableYaml {
    * other way to express this — would move the entry to the end and take the comment above it with it,
    * which is exactly the reformatting authoring rule 2 forbids.
    *
-   * A whole set at once, deliberately: renaming a scope together with its descendants passes through
+   * A whole set at once, deliberately: renaming a run of keys together passes through
    * states where two entries share a name (`a` → `a.b` while `a.b` → `a.b.b`), so every pair is located
    * before any of them is touched. Keys the mapping does not hold are ignored, and a key's quoting style
    * is the author's and is kept — a new name that could not be written plain is quoted regardless.

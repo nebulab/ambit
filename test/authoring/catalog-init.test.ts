@@ -5,13 +5,13 @@
  * `ambit catalog validate` passes against it, so the first thing an author writes into it by hand is
  * written into something that already checks out. The second is that it is a function of nothing: two runs into two differently
  * named directories produce byte-identical trees, so the scaffold cannot pick up a machine path or a
- * timestamp. The third is about what it refuses: an existing `scopes.yml` means the directory already
- * holds a catalog and nothing is written, while a directory that merely has a README is the ordinary
- * case, and that README must come out the other side untouched.
+ * timestamp. The third is about what it leaves alone: no file makes a directory a catalog any more, so
+ * every occupant of the same name is kept byte-identical and reported — which makes a second run a
+ * no-op rather than a refusal, and a directory that merely has a README the ordinary case.
  *
  * The prose is deliberately not pinned, exactly as in `test/init.test.ts`. What is pinned is that the
- * README still teaches the descendants-only rule and the nest-versus-sibling choice — since
- * that is the part a catalog cannot be fixed without.
+ * README says where each kind of thing goes and that tags are free-form — a scaffolded README still
+ * describing a registry would be worse than none.
  */
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -19,11 +19,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { parseCatalogDirectory } from "../../src/model/catalog.js";
-import {
-  CATALOG_INIT_SCOPE,
-  CATALOG_README_FILENAME,
-  CATALOG_WORKFLOW_FILENAME,
-} from "../../src/authoring/init.js";
+import { CATALOG_README_FILENAME, CATALOG_WORKFLOW_FILENAME } from "../../src/authoring/init.js";
 import { ExitCode } from "../../src/errors.js";
 import { run } from "../../src/cli/program.js";
 import { isValid, validateCatalogDirectory } from "../../src/resolution/validate.js";
@@ -35,17 +31,8 @@ const SCAFFOLD_FILES = [
   CATALOG_README_FILENAME,
   "hooks/.gitkeep",
   "mcps/.gitkeep",
-  "scopes.yml",
   "skills/.gitkeep",
 ];
-
-/**
- * What the registry sets, stated here rather than imported so the test is an independent claim about
- * the emitted shape rather than a restatement of the source.
- */
-const REGISTRY_VALUES = {
-  scopes: { core: { description: "The universal floor — what everyone here needs" } },
-};
 
 let root: string;
 let catalogDir: string;
@@ -117,9 +104,6 @@ describe("ambit catalog init", () => {
 
     const catalog = await parseCatalogDirectory("scaffold", `path:${catalogDir}`, catalogDir);
 
-    expect(catalog.scopes).toEqual([
-      { name: CATALOG_INIT_SCOPE, description: REGISTRY_VALUES.scopes.core.description },
-    ]);
     expect(catalog.skills).toEqual([]);
     expect(catalog.mcps).toEqual([]);
     // A `.gitkeep` is invisible to parsing, so the scaffolded `hooks/` holds no hook — which is what
@@ -133,20 +117,17 @@ describe("ambit catalog init", () => {
     const result = await invoke("catalog", "validate", "--catalog", catalogDir);
 
     expect(result.code, result.stderr).toBe(ExitCode.Success);
-    expect(result.stdout).toContain("checked 1 scope, 0 skills, 0 mcps");
+    expect(result.stdout).toContain("checked 0 skills, 0 mcps");
     expect(result.stdout).toContain("problems (0)");
   });
 
-  it("writes the registry, all three item directories, a README, and a CI workflow", async () => {
+  it("writes all three item directories, a README and a CI workflow — and no config of its own", async () => {
     await init(catalogDir);
 
-    expect(Object.keys(await snapshot(catalogDir)).sort()).toEqual([...SCAFFOLD_FILES].sort());
-  });
-
-  it("holds exactly what ambit would emit from the registry's values, plus comments", async () => {
-    await init(catalogDir);
-
-    expect(values(await read("scopes.yml"))).toBe(emitYaml(REGISTRY_VALUES));
+    const written = Object.keys(await snapshot(catalogDir)).sort();
+    expect(written).toEqual([...SCAFFOLD_FILES].sort());
+    // A catalog is a directory and nothing else, so there is no file left to write at its root.
+    expect(written).not.toContain("scopes.yml");
   });
 
   it("emits the CI workflow the same way, so it cannot drift into malformed YAML", async () => {
@@ -212,7 +193,7 @@ describe("ambit catalog init", () => {
         "kept (0)",
         "  (none)",
         "",
-        "next: register your scopes in `scopes.yml`, then add a skill in `skills/<name>/SKILL.md` — see `README.md`",
+        "next: add a skill in `skills/<name>/SKILL.md`, tagged with who needs it — see `README.md`",
       ].join("\n"),
     );
   });
@@ -231,49 +212,65 @@ describe("ambit catalog init", () => {
     for (const change of report.created) expect(change.text).toBe(await read(change.file));
   });
 
-  it("teaches the descendants-only rule and the nest-versus-sibling choice in the README", async () => {
+  it("says where each kind of thing goes, and that tags are free-form, in the README", async () => {
     await init(catalogDir);
     const readme = await read(CATALOG_README_FILENAME);
 
-    expect(readme).toMatch(/descendants only/i);
-    expect(readme).toMatch(/nothing is implicit/i);
-    // The guidance a catalog's README has to carry: nest only when the parent implies every
-    // child, sibling anything picked independently.
-    expect(readme).toMatch(/nest/i);
-    expect(readme).toMatch(/sibling/i);
+    expect(readme).toContain("skills/<name>/SKILL.md");
+    expect(readme).toContain("mcps/<name>.yml");
+    expect(readme).toContain("hooks/<name>/HOOK.yml");
+    expect(readme).toMatch(/free-form/i);
+    // The rule a tag still obeys, and the one mistake nothing here can catch.
     expect(readme).toMatch(/function\.engineering\.frontend/);
+    expect(readme).toMatch(/misspelled tag/i);
+    // Nothing registers anything any more, so the README must not say a word about a registry.
+    expect(readme).not.toMatch(/scopes\.yml/);
+    expect(readme).not.toMatch(/registr/i);
   });
 });
 
 describe("ambit catalog init on a directory that already holds a catalog", () => {
-  it("refuses an existing scopes.yml, writing nothing", async () => {
-    const registry = "scopes:\n  mine:\n    description: Mine\n";
-    await writeFile(path.join(catalogDir, "scopes.yml"), registry, "utf8");
+  it("keeps every scaffold file it finds, writing nothing on a second run", async () => {
+    // No file makes a directory a catalog, so there is nothing left to refuse: the second run finds
+    // all five files already there, reports them as kept, and touches none of them.
+    await init(catalogDir);
+    const before = await snapshot(catalogDir);
+
+    const second = await invoke("catalog", "init", "--catalog", catalogDir);
+
+    expect(second.code, second.stderr).toBe(ExitCode.Success);
+    expect(second.stdout).toContain("created (0)");
+    expect(second.stdout).toContain(`kept (${SCAFFOLD_FILES.length})`);
+    expect(await snapshot(catalogDir)).toEqual(before);
+  });
+
+  it("refuses a directory still holding a scopes.yml, naming the rewrite", async () => {
+    // The scaffold's result would not parse as a catalog, and the editor validates the result before
+    // writing — so the migration refusal arrives here without this command knowing anything about it.
+    await writeFile(
+      path.join(catalogDir, "scopes.yml"),
+      "scopes:\n  mine:\n    description: Mine\n",
+      "utf8",
+    );
     const before = await snapshot(catalogDir);
 
     const result = await invoke("catalog", "init", "--catalog", catalogDir);
 
     expect(result.code).toBe(ExitCode.Config);
-    expect(result.stderr).toContain("refusing to overwrite scopes.yml");
-    expect(result.stderr).toContain(catalogDir);
+    expect(result.stderr).toContain("the scope registry is gone (scopes.yml)");
+    expect(result.stderr).toContain(
+      "scopes are gone; tag items with `ambit.tags` and select them with `tag:`",
+    );
     expect(await snapshot(catalogDir)).toEqual(before);
   });
 
-  it("refuses under --dry-run as well, since the preview of a refusal is a refusal", async () => {
+  it("refuses it under --dry-run as well, since the preview of a refusal is a refusal", async () => {
     await writeFile(path.join(catalogDir, "scopes.yml"), "scopes: {}\n", "utf8");
 
     const result = await invoke("catalog", "init", "--catalog", catalogDir, "--dry-run");
 
     expect(result.code).toBe(ExitCode.Config);
-    expect(result.stderr).toContain("refusing to overwrite scopes.yml");
-  });
-
-  it("refuses a second run, which is what makes the first one the only one", async () => {
-    await init(catalogDir);
-
-    const second = await invoke("catalog", "init", "--catalog", catalogDir);
-
-    expect(second.code).toBe(ExitCode.Config);
+    expect(result.stderr).toContain("the scope registry is gone (scopes.yml)");
   });
 });
 
@@ -313,8 +310,8 @@ describe("ambit catalog init --dry-run", () => {
     expect(result.stdout).toContain(`would create (${SCAFFOLD_FILES.length})`);
     expect(result.stdout).toContain(`diff (${SCAFFOLD_FILES.length})`);
     for (const file of SCAFFOLD_FILES) expect(result.stdout).toContain(`  ${file} (created)`);
-    // The diff is the scaffold: every line of the registry appears as an addition.
-    expect(result.stdout).toContain("    + scopes:");
+    // The diff is the scaffold: every line of the workflow appears as an addition.
+    expect(result.stdout).toContain("    + jobs:");
     expect(await snapshot(catalogDir)).toEqual({});
   });
 

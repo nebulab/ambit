@@ -405,7 +405,7 @@ describe("a variable referenced by a header and not declared in `env`", () => {
     await writeFile(
       path.join(catalogDir, "mcps/undeclared.yml"),
       `name: undeclared
-scopes: [core]
+tags: [core]
 
 transport:
   http:

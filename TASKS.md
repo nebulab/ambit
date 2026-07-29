@@ -68,7 +68,7 @@ their re-exports from `src/index.ts`, and their tests — including `test/golden
 
 ## 2. Delete the scope registry; items carry tags
 
-- [ ] `scopes.yml` is gone, a catalog is a directory, and `scopes:` on an item becomes `tags:`.
+- [x] `scopes.yml` is gone, a catalog is a directory, and `scopes:` on an item becomes `tags:`.
 
 Per §_`scopes` becomes `tags`_ and §_A catalog is a directory, and nothing else_.
 

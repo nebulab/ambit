@@ -30,8 +30,11 @@ export type McpTransport = StdioTransport | HttpTransport;
 
 export interface McpEntity {
   readonly name: string;
-  /** Declared scopes. Empty means reachable only via `requires` or an explicit listing. */
-  readonly scopes: readonly string[];
+  /**
+   * Declared tags: free-form labels, registered nowhere, that a consumer can select on. Empty means
+   * reachable only via `requires` or an explicit listing.
+   */
+  readonly tags: readonly string[];
   readonly transport: McpTransport;
   /** What must be true of the world for this server to work — its credentials, today. */
   readonly expects: readonly Expectation[];
@@ -43,7 +46,7 @@ export interface McpEntity {
  */
 export const MCP_TRANSPORT_KINDS = ["http", "stdio"] as const;
 
-const ENTITY_KEYS = ["expects", "name", "scopes", "transport"] as const;
+const ENTITY_KEYS = ["expects", "name", "tags", "transport"] as const;
 
 function parseTransport(mapping: YamlMapping): McpTransport {
   const transport = mapping.requireMapping("transport");
@@ -103,7 +106,7 @@ export function parseMcpEntity(mapping: YamlMapping): McpEntity {
 
   return {
     name: mapping.requireString("name"),
-    scopes: mapping.optionalStringList("scopes") ?? [],
+    tags: mapping.optionalStringList("tags") ?? [],
     transport: parseTransport(mapping),
     expects: parseExpectations(mapping),
   };

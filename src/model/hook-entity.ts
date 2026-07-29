@@ -48,8 +48,11 @@ export interface HookEntity {
   readonly name: string;
   /** Carried into reports. */
   readonly description?: string;
-  /** Declared scopes. Empty means reachable only via `requires` or an explicit listing. */
-  readonly scopes: readonly string[];
+  /**
+   * Declared tags: free-form labels, registered nowhere, that a consumer can select on. Empty means
+   * reachable only via `requires` or an explicit listing.
+   */
+  readonly tags: readonly string[];
   readonly event: HookEvent;
   /** Tool-name filter. Only ever set on one of {@link MATCHABLE_EVENTS}. */
   readonly matcher?: string;
@@ -79,7 +82,7 @@ const ENTITY_KEYS = [
   "expects",
   "matcher",
   "name",
-  "scopes",
+  "tags",
   "timeout",
   "type",
 ] as const;
@@ -205,7 +208,7 @@ export function parseHookEntity(mapping: YamlMapping): HookEntity {
   return {
     name,
     ...(description !== undefined && { description }),
-    scopes: mapping.optionalStringList("scopes") ?? [],
+    tags: mapping.optionalStringList("tags") ?? [],
     event,
     ...(matcher !== undefined && { matcher }),
     type,

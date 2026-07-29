@@ -29,17 +29,16 @@ describe("diffLines", () => {
   });
 
   it("shows an appended line with the lines above it for context", () => {
-    // The shape a key appended to a registry produces. A reader has to be able to see where in the
-    // file it landed, which is what the context lines are for.
-    const before = "scopes:\n  core:\n    description: A\n";
-    const after = `${before}  person.jane:\n    description: B\n`;
+    // The shape a key appended to a nested mapping produces. A reader has to be able to see where in
+    // the file it landed, which is what the context lines are for.
+    const before = "headers:\n  A: one\n  B: two\n";
+    const after = `${before}  C: three\n`;
 
     expect(diffLines(before, after)).toEqual([
-      "  scopes:",
-      "    core:",
-      "      description: A",
-      "+   person.jane:",
-      "+     description: B",
+      "  headers:",
+      "    A: one",
+      "    B: two",
+      "+   C: three",
     ]);
   });
 

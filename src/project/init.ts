@@ -34,10 +34,9 @@ export const INIT_FILENAME = CONFIG_FILENAMES[0];
 /**
  * The scope the scaffold holds.
  *
- * A convention, not a rule ambit knows: the resolver reserves no names, and a catalog that
- * calls its universal floor something else will reject this one as unregistered. Scaffolding it
- * anyway is deliberate — the alternative is an empty `scopes` list, which selects nothing and
- * teaches nothing about why.
+ * A convention, not a rule ambit knows: the resolver reserves no names, and a catalog where nothing
+ * is tagged `core` rejects this one as a scope nothing declares. Scaffolding it anyway is deliberate
+ * — the alternative is an empty `scopes` list, which selects nothing and teaches nothing about why.
  */
 export const INIT_SCOPE = "core";
 
@@ -85,12 +84,12 @@ const BLOCKS: readonly ScaffoldBlock[] = [
       "",
       "Nothing is implicit. ambit reserves no scope names and adds nothing on its own, so a scope",
       "that is not listed here selects nothing, however universal it looks. `core` is the",
-      "conventional name for a catalog's universal floor, and it is scaffolded here because",
+      "conventional tag for the material everyone needs, and it is scaffolded here because",
       "forgetting it is the mistake that costs the most and warns the least.",
       "",
-      "A held scope selects itself and every scope beneath it — descendants only. Holding",
-      "`function.engineering` also selects `function.engineering.frontend`; holding the child does",
-      "not reach back up to the parent.",
+      "Each entry matches a tag a catalog's items carry, and every tag beneath it —",
+      "descendants only. Holding `function.engineering` also selects something tagged",
+      "`function.engineering.frontend`; holding the child does not reach back up to the parent.",
     ],
     values: { scopes: [INIT_SCOPE] },
   },

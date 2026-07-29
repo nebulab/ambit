@@ -21,7 +21,6 @@ export {
   HOOK_FILENAME,
   MCPS_DIRNAME,
   MCP_EXTENSIONS,
-  SCOPES_FILENAME,
   SKILLS_DIRNAME,
   SKILL_FILENAME,
   formatShadowing,
@@ -46,7 +45,6 @@ export type {
   MergedHook,
   MergedMcp,
   MergedSkill,
-  ScopeDefinition,
   Shadowing,
   Shadowings,
 } from "./model/catalog.js";
@@ -181,9 +179,10 @@ export type { Expectation, ExpectationKind, ExpectationSet } from "./model/expec
 // ── resolution — derive and verify the selected closure ───────────────────────────────────────
 export {
   SCOPE_SEPARATOR,
-  assertScopesRegistered,
+  assertScopesDeclared,
   closeOverRequires,
   cycleError,
+  declaredTags,
   explainSelection,
   formatReason,
   inSubtree,
@@ -272,7 +271,6 @@ export type {
   EditedFile,
 } from "./authoring/editor.js";
 export {
-  CATALOG_INIT_SCOPE,
   CATALOG_KEEP_FILENAME,
   CATALOG_README_FILENAME,
   CATALOG_WORKFLOW_FILENAME,
