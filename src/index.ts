@@ -17,19 +17,21 @@ export { VERSION } from "./version.js";
 export {
   AMBIT_FRONTMATTER_KEY,
   ANNOTATION_KEYS,
+  CATALOG_SEPARATOR,
   HOOKS_DIRNAME,
   HOOK_FILENAME,
   MCPS_DIRNAME,
   MCP_EXTENSIONS,
   SKILLS_DIRNAME,
   SKILL_FILENAME,
-  formatShadowing,
+  copiesByName,
   hookCommand,
   loadCatalogs,
   loadSourceSkill,
   mergeCatalogs,
   mergeConfigEntities,
   parseCatalogDirectory,
+  qualifiedName,
   resolveCatalogRoot,
   skillNameFromPath,
 } from "./model/catalog.js";
@@ -45,8 +47,6 @@ export type {
   MergedHook,
   MergedMcp,
   MergedSkill,
-  Shadowing,
-  Shadowings,
 } from "./model/catalog.js";
 export {
   CONFIG_FILENAMES,
@@ -179,6 +179,7 @@ export type { Expectation, ExpectationKind, ExpectationSet } from "./model/expec
 // ── resolution — derive and verify the selected closure ───────────────────────────────────────
 export {
   SCOPE_SEPARATOR,
+  assertNoCollisions,
   assertScopesDeclared,
   closeOverRequires,
   cycleError,

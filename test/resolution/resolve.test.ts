@@ -146,6 +146,52 @@ async function writeSkill(relative: string, annotations: readonly string[]): Pro
   );
 }
 
+/**
+ * Adds a skill to a second catalog beside the fixture, for the cases about two catalogs providing one
+ * name.
+ *
+ * @param catalog the catalog's directory, which is also the name config gives it.
+ */
+async function writeSkillIn(
+  catalog: string,
+  relative: string,
+  annotations: readonly string[] = [],
+): Promise<void> {
+  const target = path.join(root, catalog, "skills", relative, "SKILL.md");
+  await mkdir(path.dirname(target), { recursive: true });
+  await writeFile(
+    target,
+    [
+      "---",
+      `name: ${skillNameFromPath(relative)}`,
+      ...ambitBlock(annotations),
+      "---",
+      "",
+      "# fixture",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+}
+
+/** Points the project at the fixture catalog and a second one beside it, holding `scopes`. */
+async function writeTwoCatalogProfile(second: string, scopes: readonly string[]): Promise<void> {
+  await writeFile(
+    path.join(projectDir, "ambit.yml"),
+    [
+      "version: 1",
+      "catalogs:",
+      `  - name: ${CATALOG_NAME}`,
+      "    source: path:../catalog",
+      `  - name: ${second}`,
+      `    source: path:../${second}`,
+      `scopes: [${scopes.join(", ")}]`,
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+}
+
 /** Adds a hook to the fixture catalog, its name derived from its path per §2. */
 async function writeHook(name: string, lines: readonly string[]): Promise<void> {
   const target = path.join(catalogDir, "hooks", name.replaceAll(".", "/"), "HOOK.yml");
@@ -502,6 +548,36 @@ describe("the requires closure", () => {
     expect((await bundle(["core"])).mcps.map((mcp) => mcp.name)).toEqual(["fixture"]);
   });
 
+  it("pulls in every catalog's copy of a required name, and refuses the collision", async () => {
+    // A `requires` entry names a name and says nothing about which catalog holds it. With no
+    // precedence left there is nothing to choose with, so both copies join the selection and the
+    // project hears about it — taking the first is the silent drop this branch deleted.
+    await writeSkill("needs-shared", ["tags: [core]", "requires: [{skill: shared-dep}]"]);
+    await writeSkill("shared-dep", []);
+    await writeSkillIn("personal", "shared-dep", []);
+    await writeTwoCatalogProfile("personal", ["core"]);
+
+    const result = await cli("resolve");
+
+    expect(result.code).toBe(ExitCode.Resolution);
+    expect(result.stderr).toContain('skill "shared-dep" is selected from more than one catalog');
+    expect(result.stderr).toContain(`provided by: ${CATALOG_NAME}, personal`);
+  });
+
+  it("follows a required name into a second catalog when only one copy exists", async () => {
+    // The other half of the case above: reaching across catalogs is what a `requires` edge does
+    // today, and one copy of the name is one selection — no collision, no refusal.
+    await writeSkill("needs-remote", ["tags: [core]", "requires: [{skill: remote-dep}]"]);
+    await writeSkillIn("personal", "remote-dep", []);
+    await writeTwoCatalogProfile("personal", ["core"]);
+
+    const config = await loadProjectConfig(projectDir);
+    const catalogs = mergeCatalogs(await loadCatalogs(config, context()));
+    const resolved = resolveBundle(config, await mergeConfigEntities(catalogs, config, context()));
+
+    expect(resolved.skills.find((skill) => skill.name === "remote-dep")?.catalog).toBe("personal");
+  });
+
   it("leaves a broken skill nobody selected alone, so one bad entry blocks no one", async () => {
     // Spec §4's validation split: `resolve` hard-validates the selected closure only. This skill
     // declares no scope, so nothing reaches it and its dangling requirement is `validate`'s
@@ -839,7 +915,7 @@ describe("explicit skills and inline servers", () => {
     expect(second.stderr).toContain('unknown skill "alpha.absent"');
   });
 
-  it("exits 3 rather than letting a source shadow a catalog skill of the same name", async () => {
+  it("exits 3 rather than letting a source override a catalog skill of the same name", async () => {
     await writeSourceSkill("skills/company-context", CORE_SKILL);
     await writeProfile([], ["skills:", `  - name: ${CORE_SKILL}`, `    source: ${SOURCE}`]);
 
@@ -852,7 +928,7 @@ describe("explicit skills and inline servers", () => {
     expect(result.stderr).toContain("drop `source` to take the catalog's copy");
   });
 
-  it("exits 3 rather than letting an inline server shadow a catalog one", async () => {
+  it("exits 3 rather than letting an inline server override a catalog one", async () => {
     await writeProfile(
       [],
       ["mcps:", "  - name: fixture", "    transport:", "      stdio:", "        command: mine"],

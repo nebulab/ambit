@@ -63,11 +63,11 @@ async function rejection(): Promise<AmbitError> {
 
 /**
  * Builds a catalog beside the fixture that deliberately collides with it: the same core skill and the
- * same `scoped` server, plus a skill of its own so the merge has something to keep from both.
+ * same `scoped` server, plus a skill of its own so the merge has something only one catalog provides.
  *
  * @param name the catalog's directory, which is also the name config gives it.
  */
-async function writeShadowingCatalog(name: string): Promise<void> {
+async function writeCollidingCatalog(name: string): Promise<void> {
   const files: Readonly<Record<string, string>> = {
     [`skills/${CORE_SKILL.replaceAll(".", "/")}/SKILL.md`]: [
       "---",
@@ -109,8 +109,10 @@ async function writeShadowingCatalog(name: string): Promise<void> {
 }
 
 /**
- * Points the project at the fixture catalog first and the extra catalogs after it, so config order
- * — which is priority order — is the fixture's.
+ * Points the project at the fixture catalog first and the extra catalogs after it.
+ *
+ * The order is only how the file reads: nothing resolves by it, since every catalog's copy of a name
+ * survives the merge.
  */
 async function writeCatalogOrder(
   extra: readonly string[],
@@ -467,7 +469,7 @@ describe("ambit dump-catalog", () => {
       catalogs: [CATALOG_NAME],
       // The fixture's three: one a held scope reaches, one shipping a script, and one tagged nothing.
       hooks: {
-        "acme-standup": {
+        [`${CATALOG_NAME}/acme-standup`]: {
           catalog: CATALOG_NAME,
           type: "command",
           command: 'echo "acme session ended"',
@@ -477,7 +479,7 @@ describe("ambit dump-catalog", () => {
           path: "hooks/acme-standup",
           tags: [],
         },
-        "guard-secrets": {
+        [`${CATALOG_NAME}/guard-secrets`]: {
           catalog: CATALOG_NAME,
           type: "script",
           command: "guard.sh",
@@ -489,7 +491,7 @@ describe("ambit dump-catalog", () => {
           tags: ["function.engineering"],
           timeout: 10,
         },
-        "session-notes": {
+        [`${CATALOG_NAME}/session-notes`]: {
           catalog: CATALOG_NAME,
           type: "command",
           command: 'echo "acme conventions apply"',
@@ -501,7 +503,7 @@ describe("ambit dump-catalog", () => {
         },
       },
       skills: {
-        "company-context": {
+        [`${CATALOG_NAME}/company-context`]: {
           catalog: CATALOG_NAME,
           description: "Canonical context about Acme — what it sells, to whom, and how it works.",
           expects: [],
@@ -509,7 +511,7 @@ describe("ambit dump-catalog", () => {
           requires: [],
           tags: ["core"],
         },
-        "design-tokens": {
+        [`${CATALOG_NAME}/design-tokens`]: {
           catalog: CATALOG_NAME,
           description: "Acme's design tokens — color, spacing, and the type scale.",
           expects: [{ kind: "env", name: "ACME_FIGMA_TOKEN" }],
@@ -517,7 +519,7 @@ describe("ambit dump-catalog", () => {
           requires: [],
           tags: ["function.engineering.frontend"],
         },
-        "code-review": {
+        [`${CATALOG_NAME}/code-review`]: {
           catalog: CATALOG_NAME,
           description: "How Acme reviews code — what reviewers look for, and in what order.",
           expects: [],
@@ -525,7 +527,7 @@ describe("ambit dump-catalog", () => {
           requires: [],
           tags: ["function.engineering"],
         },
-        "acme-brief": {
+        [`${CATALOG_NAME}/acme-brief`]: {
           catalog: CATALOG_NAME,
           description: "The Acme engagement brief — scope, contacts, and conventions.",
           expects: [],
@@ -539,13 +541,13 @@ describe("ambit dump-catalog", () => {
         },
       },
       mcps: {
-        fixture: {
+        [`${CATALOG_NAME}/fixture`]: {
           catalog: CATALOG_NAME,
           expects: [{ kind: "env", name: "FIXTURE_API_KEY" }],
           tags: [],
           transport: { kind: "stdio", command: "npx", args: ["-y", "@acme/fixture-mcp"] },
         },
-        scoped: {
+        [`${CATALOG_NAME}/scoped`]: {
           catalog: CATALOG_NAME,
           expects: [{ kind: "env", name: "SCOPED_API_KEY" }],
           tags: ["function.engineering"],
@@ -617,8 +619,8 @@ describe("ambit dump-catalog", () => {
  * `hooks/<name>/HOOK.yml`: the third namespace a catalog distributes, and the one whose declaration is
  * not the whole truth about it.
  *
- * A hook is a directory for the same reason a skill is — it may ship bytes — so it is found, named and
- * shadowed exactly as a skill is, and those cases are the cheap half. The half worth the file is what
+ * A hook is a directory for the same reason a skill is — it may ship bytes — so it is found and named
+ * exactly as a skill is, and those cases are the cheap half. The half worth the file is what
  * happens once a document says `type: script`: the catalog is asked whether the file is really there,
  * so a misspelled script name is a refusal naming what the directory actually holds, rather than a
  * command line quietly written into a harness config and discovered when the hook silently fails to
@@ -633,7 +635,7 @@ describe("catalog hooks", () => {
   const HOOK_FILE = `${HOOK_DIR}/HOOK.yml`;
 
   /** The second catalog, for the one case about two of them providing one hook. */
-  const SHADOWING_CATALOG = "personal";
+  const SECOND_CATALOG = "personal";
 
   /** A hook document, its `name` given separately so a caller writes only what the case is about. */
   function document(name: string, lines: readonly string[]): string {
@@ -813,7 +815,7 @@ describe("catalog hooks", () => {
     const emitted = JSON.parse((await cli("dump-catalog", "--json")).stdout) as {
       hooks: Record<string, unknown>;
     };
-    expect(emitted.hooks[HOOK_NAME]).toEqual({
+    expect(emitted.hooks[`${CATALOG_NAME}/${HOOK_NAME}`]).toEqual({
       catalog: CATALOG_NAME,
       type: "script",
       command: "hook.sh",
@@ -823,8 +825,11 @@ describe("catalog hooks", () => {
       path: HOOK_DIR,
       tags: ["function.engineering"],
     });
-    // The fixture's own three come along, which the whole-catalog case above pins.
-    expect(Object.keys(emitted.hooks)).toEqual([HOOK_NAME, ...FIXTURE_HOOKS].sort());
+    // The fixture's own three come along, which the whole-catalog case above pins. Each record is
+    // keyed by its address, since a name is not unique across catalogs.
+    expect(Object.keys(emitted.hooks)).toEqual(
+      [HOOK_NAME, ...FIXTURE_HOOKS].sort().map((name) => `${CATALOG_NAME}/${name}`),
+    );
 
     // The row's fields rather than its padding, which widens with whatever else the catalog holds.
     const row = (await cli("dump-catalog")).stdout
@@ -835,35 +840,36 @@ describe("catalog hooks", () => {
     );
   });
 
-  it("lets the earlier catalog win a duplicate hook name, and records the shadowing", async () => {
-    await writeShadowingCatalog(SHADOWING_CATALOG);
+  it("keeps both catalogs' copies of a duplicate hook name, each with its own definition", async () => {
+    await writeCollidingCatalog(SECOND_CATALOG);
     await writeHookIn("catalog", HOOK_NAME, [
       "event: Stop",
       "type: command",
       "command: npx company-notify",
     ]);
-    await writeHookIn(SHADOWING_CATALOG, HOOK_NAME, [
+    await writeHookIn(SECOND_CATALOG, HOOK_NAME, [
       "event: Stop",
       "type: command",
       "command: npx jane-notify",
     ]);
-    await writeCatalogOrder([SHADOWING_CATALOG]);
+    await writeCatalogOrder([SECOND_CATALOG]);
 
     const view = await merged();
 
-    // One entry for the contested name, beside the fixture's own hooks, which only one catalog holds.
+    // Two entries for the contested name, in catalog order, each carrying its own `command` — which
+    // is what says the merge kept both definitions rather than one label twice.
     expect(view.hooks.filter((hook) => hook.name === HOOK_NAME)).toEqual([
       expect.objectContaining({
         name: HOOK_NAME,
         catalog: CATALOG_NAME,
         command: "npx company-notify",
       }),
+      expect.objectContaining({
+        name: HOOK_NAME,
+        catalog: SECOND_CATALOG,
+        command: "npx jane-notify",
+      }),
     ]);
-    expect(view.shadowing.hooks.get(HOOK_NAME)).toEqual({
-      name: HOOK_NAME,
-      catalog: CATALOG_NAME,
-      shadows: [SHADOWING_CATALOG],
-    });
   });
 
   it("refuses an inline hook a catalog already provides, since a name means one thing", async () => {
@@ -1173,7 +1179,7 @@ describe("merging", () => {
     }
   });
 
-  it("lets the earlier catalog win a duplicate name", async () => {
+  it("keeps every catalog's copy of a duplicate name, grouped by name then catalog", async () => {
     const other = path.join(root, "other");
     await buildFixtureCatalog(other);
     const config = await loadProjectConfig(projectDir);
@@ -1185,83 +1191,133 @@ describe("merging", () => {
 
     const merged = mergeCatalogs([...first, ...second]);
     expect(merged.catalogs).toEqual([CATALOG_NAME, "personal"]);
-    expect(new Set(merged.skills.map((skill) => skill.catalog))).toEqual(new Set([CATALOG_NAME]));
-    expect(merged.skills).toHaveLength(4);
+    // Two identical catalogs, so every name is provided twice and nothing is dropped.
+    expect(merged.skills).toHaveLength(8);
+    expect(merged.skills.map((skill) => `${skill.name} ${skill.catalog}`)).toEqual([
+      `acme-brief ${CATALOG_NAME}`,
+      "acme-brief personal",
+      `code-review ${CATALOG_NAME}`,
+      "code-review personal",
+      `company-context ${CATALOG_NAME}`,
+      "company-context personal",
+      `design-tokens ${CATALOG_NAME}`,
+      "design-tokens personal",
+    ]);
   });
 });
 
 /**
- * Spec §4.4–§4.5: several catalogs merge into one namespace per kind, the earlier one in config
- * order wins a duplicate name, and the loss is recorded rather than discarded — a shadowed copy that
- * vanishes silently is the failure someone adding a personal catalog cannot debug.
+ * Spec §4.4–§4.5: several catalogs merge into one namespace per kind, and **every** copy of a name
+ * survives — `catalogs:` order settles nothing, because there is no precedence left to establish.
+ *
+ * A name two catalogs provide is a non-event here. It becomes a refusal only where a project selects
+ * both copies, and then at resolve rather than at the merge: harness layout is flat, so the two would
+ * be installed at one path, and choosing one would be ambit deciding which half of the request the
+ * project meant.
  *
  * The second catalog is written per test rather than added to the shared fixture: a catalog whose
  * whole purpose is to collide with another one has no business in the tree every other profile
  * resolves against.
  */
-describe("multi-catalog merge and shadowing", () => {
+describe("multi-catalog merge", () => {
   const SECOND = "personal";
   const THIRD = "backup";
 
-  it("keeps the earlier catalog's copy of a duplicate name, and records the shadowing", async () => {
-    await writeShadowingCatalog(SECOND);
+  it("keeps both catalogs' copies of a duplicate name", async () => {
+    await writeCollidingCatalog(SECOND);
     await writeCatalogOrder([SECOND]);
 
     const view = await merged();
 
     expect(view.catalogs).toEqual([CATALOG_NAME, SECOND]);
-    expect(view.skills.find((skill) => skill.name === CORE_SKILL)?.catalog).toBe(CATALOG_NAME);
-    expect(view.shadowing.skills.get(CORE_SKILL)).toEqual({
-      name: CORE_SKILL,
-      catalog: CATALOG_NAME,
-      shadows: [SECOND],
-    });
-    expect(view.shadowing.mcps.get("scoped")).toEqual({
-      name: "scoped",
-      catalog: CATALOG_NAME,
-      shadows: [SECOND],
-    });
+    expect(
+      view.skills.filter((skill) => skill.name === CORE_SKILL).map((skill) => skill.catalog),
+    ).toEqual([CATALOG_NAME, SECOND]);
+    expect(view.mcps.filter((mcp) => mcp.name === "scoped").map((mcp) => mcp.catalog)).toEqual([
+      CATALOG_NAME,
+      SECOND,
+    ]);
   });
 
-  it("keeps what the later catalog alone provides, and records nothing about it", async () => {
-    await writeShadowingCatalog(SECOND);
+  it("keeps what one catalog alone provides, exactly once", async () => {
+    await writeCollidingCatalog(SECOND);
     await writeCatalogOrder([SECOND]);
 
     const view = await merged();
 
-    expect(view.skills.find((skill) => skill.name === OWN_SKILL)?.catalog).toBe(SECOND);
-    expect(view.shadowing.skills.has(OWN_SKILL)).toBe(false);
-    expect([...view.shadowing.skills.keys()]).toEqual([CORE_SKILL]);
-    expect([...view.shadowing.mcps.keys()]).toEqual(["scoped"]);
+    expect(view.skills.filter((skill) => skill.name === OWN_SKILL)).toEqual([
+      expect.objectContaining({ name: OWN_SKILL, catalog: SECOND }),
+    ]);
   });
 
-  it("keeps the winner's definition, not merely its label", async () => {
-    // The transports differ, so this is the assertion that the merge dropped the shadowed entry
-    // rather than keeping its body under the winning catalog's name.
-    await writeShadowingCatalog(SECOND);
+  it("keeps each copy's own definition, not one body under two catalog names", async () => {
+    // The transports differ, so this is the assertion that both bodies are in the merged view rather
+    // than one of them twice — and that a name-keyed JSON record did not quietly drop one.
+    await writeCollidingCatalog(SECOND);
     await writeCatalogOrder([SECOND]);
 
     const dumped = JSON.parse((await cli("dump-catalog", "--json")).stdout) as {
-      mcps: Record<string, { catalog: string; transport: { kind: string } }>;
+      mcps: Record<string, { catalog: string; transport: Record<string, unknown> }>;
     };
 
-    expect(dumped.mcps.scoped).toMatchObject({
+    expect(dumped.mcps[`${CATALOG_NAME}/scoped`]).toMatchObject({
       catalog: CATALOG_NAME,
       transport: { kind: "http" },
     });
+    expect(dumped.mcps[`${SECOND}/scoped`]).toMatchObject({
+      catalog: SECOND,
+      transport: { kind: "stdio", command: `${SECOND}-mcp` },
+    });
   });
 
-  it("names every catalog a duplicate was shadowed in, in config order", async () => {
-    await writeShadowingCatalog(SECOND);
-    await writeShadowingCatalog(THIRD);
+  it("keeps all three copies when three catalogs provide one name", async () => {
+    await writeCollidingCatalog(SECOND);
+    await writeCollidingCatalog(THIRD);
     await writeCatalogOrder([SECOND, THIRD]);
 
-    expect((await merged()).shadowing.skills.get(CORE_SKILL)?.shadows).toEqual([SECOND, THIRD]);
+    // In catalog order rather than config order: the merged view is sorted by name and then catalog,
+    // so which copy is listed first depends on the names alone.
+    expect(
+      (await merged()).skills
+        .filter((skill) => skill.name === CORE_SKILL)
+        .map((skill) => skill.catalog),
+    ).toEqual([THIRD, CATALOG_NAME, SECOND]);
   });
 
-  it("reports the shadowing beside the reason under `resolve --explain`", async () => {
-    await writeShadowingCatalog(SECOND);
+  it("refuses a selection that reaches both copies of a skill, naming both catalogs", async () => {
+    await writeCollidingCatalog(SECOND);
     await writeCatalogOrder([SECOND], ["core"]);
+
+    const result = await cli("resolve");
+
+    expect(result.code).toBe(ExitCode.Resolution);
+    expect(result.stderr).toContain(`skill "${CORE_SKILL}" is selected from more than one catalog`);
+    expect(result.stderr).toContain(`provided by: ${CATALOG_NAME}, ${SECOND}`);
+    expect(result.stderr).toContain(
+      "a harness reads one entry per name, so both copies would be installed at the same path",
+    );
+    expect(result.stderr).toContain(
+      "select only one copy: narrow what selects them, or drop the catalog that should not provide it",
+    );
+  });
+
+  it("refuses a selected MCP server two catalogs provide, as it does a skill", async () => {
+    // `function.engineering` reaches the `scoped` server in both catalogs, and no skill twice — so
+    // this is the namespace the refusal is reported for.
+    await writeCollidingCatalog(SECOND);
+    await writeCatalogOrder([SECOND], ["function.engineering"]);
+
+    const result = await cli("resolve");
+
+    expect(result.code).toBe(ExitCode.Resolution);
+    expect(result.stderr).toContain('MCP server "scoped" is selected from more than one catalog');
+  });
+
+  it("resolves normally, with no whose-copy column, when one copy is selected", async () => {
+    // A tag only the second catalog's own skill carries, so two catalogs are configured and nothing
+    // collides. `--explain` ends at the reason: there is nothing left to say about which copy this is.
+    await writeCollidingCatalog(SECOND);
+    await writeCatalogOrder([SECOND], ["person.jane"]);
 
     const result = await cli("resolve", "--explain");
 
@@ -1269,17 +1325,16 @@ describe("multi-catalog merge and shadowing", () => {
     expect(result.stdout).toBe(
       [
         "scopes (1)",
-        "  core",
+        "  person.jane",
         "",
-        "skills (2)",
-        `  ${CORE_SKILL}  ${CATALOG_NAME.padEnd(SECOND.length)}  scope:core  catalog:${CATALOG_NAME} (shadows ${SECOND})`,
-        `  ${OWN_SKILL.padEnd(CORE_SKILL.length)}  ${SECOND}  scope:core`,
+        "skills (1)",
+        `  ${OWN_SKILL}  ${SECOND}  scope:person.jane`,
         "",
         "mcps (0)",
         "  (none)",
         "",
-        "hooks (1)",
-        `  session-notes  ${CATALOG_NAME}  SessionStart  scope:core`,
+        "hooks (0)",
+        "  (none)",
         "",
         "expects (0)",
         "  (none)",
@@ -1287,29 +1342,21 @@ describe("multi-catalog merge and shadowing", () => {
     );
   });
 
-  it("adds the shadowed catalogs to `--explain --json`, and only there", async () => {
-    await writeShadowingCatalog(SECOND);
-    await writeCatalogOrder([SECOND], ["core", "function.engineering"]);
+  it("carries nothing about other copies into `--explain --json`", async () => {
+    await writeCollidingCatalog(SECOND);
+    await writeCatalogOrder([SECOND], ["person.jane"]);
 
     const explained = JSON.parse((await cli("resolve", "--explain", "--json")).stdout) as {
-      skills: Record<string, { catalog: string; shadows?: readonly string[] }>;
-      mcps: Record<string, { catalog: string; reason?: string; shadows?: readonly string[] }>;
+      skills: Record<string, Record<string, unknown>>;
     };
 
-    expect(explained.skills[CORE_SKILL]?.shadows).toEqual([SECOND]);
-    expect(explained.skills[OWN_SKILL]).not.toHaveProperty("shadows");
-    // A server the fixture and the second catalog both provide, reached by its own tag.
-    expect(explained.mcps.scoped).toEqual({
-      catalog: CATALOG_NAME,
-      reason: "scope:function.engineering",
-      shadows: [SECOND],
+    // Keyed by name, because a bundle holds one item per name — the collision refusal is what makes
+    // that true — and carrying only what the bundle knows: where it came from, and why.
+    expect(Object.keys(explained.skills)).toEqual([OWN_SKILL]);
+    expect(explained.skills[OWN_SKILL]).toEqual({
+      catalog: SECOND,
+      path: `skills/${OWN_SKILL}`,
+      reason: "scope:person.jane",
     });
-
-    const plain = JSON.parse((await cli("resolve", "--json")).stdout) as {
-      skills: Record<string, unknown>;
-      mcps: Record<string, unknown>;
-    };
-    expect(plain.skills[CORE_SKILL]).not.toHaveProperty("shadows");
-    expect(plain.mcps.scoped).not.toHaveProperty("shadows");
   });
 });

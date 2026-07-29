@@ -2,7 +2,7 @@
  * Full-catalog validation — `ambit validate` for a project, `ambit catalog validate` for one catalog
  * directory on its own terms. They are two commands over one report, so most cases here run the
  * project half and the catalog half is asserted where the subject is what differs: no `ambit.yml`
- * within reach, and nothing to say about shadowing when only one catalog was read.
+ * within reach.
  *
  * Two claims carry this suite. The first is the split from resolution: validation must find what
  * `resolve` deliberately ignores, so the broken-but-unselected cases assert *both* commands — exit 0
@@ -80,9 +80,18 @@ function ambitBlock(annotations: readonly string[]): readonly string[] {
   return annotations.length === 0 ? [] : ["ambit:", ...annotations.map((line) => `  ${line}`)];
 }
 
-/** Adds a skill to the catalog copy this test owns, its name derived from its path per §2. */
-async function writeSkill(relative: string, annotations: readonly string[] = []): Promise<void> {
-  const target = path.join(catalogDir, "skills", relative, "SKILL.md");
+/**
+ * Adds a skill to the catalog copy this test owns, its name derived from its path per §2.
+ *
+ * @param within the catalog root to write it into, so a case about two catalogs providing one name can
+ *   put a copy in each.
+ */
+async function writeSkill(
+  relative: string,
+  annotations: readonly string[] = [],
+  within = catalogDir,
+): Promise<void> {
+  const target = path.join(within, "skills", relative, "SKILL.md");
   await mkdir(path.dirname(target), { recursive: true });
   await writeFile(
     target,
@@ -113,7 +122,8 @@ async function writeMisnamedSkill(relative: string, declared: string): Promise<v
 /**
  * Adds a hook, its name derived from its directory per §2.
  *
- * @param within the catalog root to write it into, so a shadowing case can put one copy in each.
+ * @param within the catalog root to write it into, so a case about two catalogs providing one name can
+ *   put a copy in each.
  */
 async function writeHook(
   name: string,
@@ -398,15 +408,19 @@ describe("ambit validate: name↔path agreement", () => {
 });
 
 /**
- * Spec §4.5: resolution has a well-defined answer for a duplicate name — the earlier catalog wins —
- * and `validate` still calls it a problem, because in a catalog the losing copy is instructions
- * somebody maintains and nothing installs.
+ * A name two catalogs provide is not a `validate` finding any more.
+ *
+ * It was one while resolution silently dropped a copy: an unreachable skill somebody maintains is
+ * worse than an absent one. Now nothing is dropped, both copies are addressable, and the only place
+ * two copies are a conflict is a project that selects both — which is resolution's judgement, not a
+ * fact about a catalog. So this suite's claim is inverted: `validate` reports nothing, and `resolve`
+ * on the very same project refuses.
  */
-describe("ambit validate: shadowing", () => {
+describe("ambit validate: a name two catalogs provide", () => {
   const SECOND = "personal";
 
   beforeEach(async () => {
-    // An exact copy of the fixture, so every name collides.
+    // An exact copy of the fixture, so every name is provided twice.
     await buildFixtureCatalog(path.join(root, SECOND));
     await writeFile(
       path.join(projectDir, "ambit.yml"),
@@ -424,76 +438,41 @@ describe("ambit validate: shadowing", () => {
     );
   });
 
-  it("reports every shadowed name, naming the winner and the losers", async () => {
+  it("exits 0, counting every copy it checked", async () => {
     const found = await report("validate");
 
-    expect(found.valid).toBe(false);
-    expect(found.problems).toHaveLength(FIXTURE_SKILLS + FIXTURE_MCPS + FIXTURE_HOOKS);
-    expect(new Set(found.problems.map((problem) => problem.kind))).toEqual(
-      new Set(["shadowed-name"]),
-    );
-    expect(found.problems[0]).toMatchObject({
-      message: `shadowed skill "acme-brief" (catalog "${CATALOG_NAME}")`,
-      detail: [
-        `catalog "${CATALOG_NAME}" provides the copy resolution uses`,
-        `also provided by: ${SECOND}`,
-        "rename one of the copies, or drop the catalog that should not provide it",
-      ],
+    expect(found.valid).toBe(true);
+    expect(found.problems).toEqual([]);
+    // Both copies, not both names: each is a document this run read and checked on its own terms.
+    expect(found.checked).toEqual({
+      skills: FIXTURE_SKILLS * 2,
+      mcps: FIXTURE_MCPS * 2,
+      hooks: FIXTURE_HOOKS * 2,
     });
   });
 
-  it("reports a hook two catalogs provide, after the skills and the servers", async () => {
-    await writeHook("guard", ["event: Stop", "type: command", "command: npx notify"]);
-    await writeHook(
-      "guard",
-      ["event: Stop", "type: command", "command: npx notify"],
-      path.join(root, SECOND),
-    );
+  it("leaves the collision to `resolve`, which refuses the same project", async () => {
+    // The split, in the opposite direction from the rest of this file: `validate` passes a catalog
+    // pair that is perfectly well-formed, and the project selecting both copies is what fails.
+    expect((await cli("validate")).code).toBe(ExitCode.Success);
 
-    const found = await report("validate");
-
-    expect(
-      found.problems.find((problem) => problem.message.includes('hook "guard"')),
-    ).toMatchObject({
-      kind: "shadowed-name",
-      message: `shadowed hook "guard" (catalog "${CATALOG_NAME}")`,
-      detail: [
-        `catalog "${CATALOG_NAME}" provides the copy resolution uses`,
-        `also provided by: ${SECOND}`,
-        "rename one of the copies, or drop the catalog that should not provide it",
-      ],
-    });
-
-    // The hooks are the trailing group: every problem from the first hook on is one, so none of them
-    // is interleaved with a skill or a server.
-    const messages = found.problems.map((problem) => problem.message);
-    const first = messages.findIndex((message) => message.startsWith("shadowed hook"));
-    expect(first).toBeGreaterThan(0);
-    expect(messages.slice(first).every((message) => message.startsWith("shadowed hook"))).toBe(
-      true,
-    );
+    const resolved = await cli("resolve");
+    expect(resolved.code).toBe(ExitCode.Resolution);
+    expect(resolved.stderr).toContain("is selected from more than one catalog");
   });
 
-  it("keeps each kind in name order, kinds in report order", async () => {
+  it("reports a broken skill once per copy, because two copies are two documents", async () => {
+    const dangling = ["requires:", "  - skill: absent"];
+    await writeSkill("dangling", dangling);
+    await writeSkill("dangling", dangling, path.join(root, SECOND));
+
     const found = await report("validate");
+    const problems = found.problems.filter((problem) => problem.message.includes("skill:absent"));
 
-    expect(found.problems.map((problem) => problem.message)).toEqual([
-      `shadowed skill "acme-brief" (catalog "${CATALOG_NAME}")`,
-      `shadowed skill "code-review" (catalog "${CATALOG_NAME}")`,
-      `shadowed skill "company-context" (catalog "${CATALOG_NAME}")`,
-      `shadowed skill "design-tokens" (catalog "${CATALOG_NAME}")`,
-      `shadowed MCP server "fixture" (catalog "${CATALOG_NAME}")`,
-      `shadowed MCP server "scoped" (catalog "${CATALOG_NAME}")`,
-      `shadowed hook "acme-standup" (catalog "${CATALOG_NAME}")`,
-      `shadowed hook "guard-secrets" (catalog "${CATALOG_NAME}")`,
-      `shadowed hook "session-notes" (catalog "${CATALOG_NAME}")`,
-    ]);
-  });
-
-  it("says nothing about shadowing when `catalog validate` reads only one catalog", async () => {
-    const result = await cliWithoutProject("catalog", "validate", "--catalog", catalogDir);
-
-    expect(result.code, result.stderr).toBe(ExitCode.Success);
+    expect(problems).toHaveLength(2);
+    expect(new Set(problems.map((problem) => problem.kind))).toEqual(
+      new Set(["unresolvable-requirement"]),
+    );
   });
 });
 

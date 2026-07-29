@@ -64,18 +64,25 @@ function subject(item: BundleItem): string {
   return `${SUBJECTS[item.kind]} "${item.name}"`;
 }
 
-/** The merged-catalog entry a candidate names, if anything provides it. */
-function provided(
+/**
+ * Every merged-catalog entry a candidate names — several, where more than one catalog provides the
+ * name.
+ *
+ * All of them rather than the first, because there is no first: no catalog takes precedence, and an
+ * answer naming one copy of a name two catalogs ship would leave a reader editing the wrong catalog.
+ * In the merged catalog's order, so the answer is a function of the names alone.
+ */
+function providers(
   merged: MergedCatalog,
   item: BundleItem,
-): MergedSkill | MergedMcp | MergedHook | undefined {
+): readonly (MergedSkill | MergedMcp | MergedHook)[] {
   switch (item.kind) {
     case "skill":
-      return merged.skills.find((skill) => skill.name === item.name);
+      return merged.skills.filter((skill) => skill.name === item.name);
     case "mcp":
-      return merged.mcps.find((mcp) => mcp.name === item.name);
+      return merged.mcps.filter((mcp) => mcp.name === item.name);
     case "hook":
-      return merged.hooks.find((hook) => hook.name === item.name);
+      return merged.hooks.filter((hook) => hook.name === item.name);
   }
 }
 
@@ -93,20 +100,30 @@ function selectionAdvice(item: BundleItem, tags: readonly string[]): string {
 }
 
 /**
- * The error for an item a catalog provides but nothing selects.
+ * The error for an item one or more catalogs provide but nothing selects.
  *
- * Names the catalog it came from, so a reader knows the config is otherwise fine, and says which
- * tags would reach it rather than leaving them to be looked up. Only a catalog can be named here:
- * everything the config declares itself is selected outright, so it is never the unselected one.
+ * Names every catalog it could have come from, so a reader knows the config is otherwise fine, and
+ * says which tags would reach it rather than leaving them to be looked up. Only catalogs can be named
+ * here: everything the config declares itself is selected outright, so it is never the unselected one.
+ *
+ * The tags are the union across the copies, since holding any one of them selects at least one copy —
+ * and if it selects two, the collision refusal at resolve is the better message for that.
  */
 function notSelected(
   item: BundleItem,
-  entry: MergedSkill | MergedMcp | MergedHook,
+  entries: readonly (MergedSkill | MergedMcp | MergedHook)[],
   config: ProjectConfig,
 ): AmbitError {
+  const names = entries.map((entry) => `"${entry.catalog}"`).join(", ");
+  const provided =
+    entries.length === 1 ? `catalog ${names} provides it` : `catalogs ${names} provide it`;
+  const tags = [...new Set(entries.flatMap((entry) => entry.tags))].sort((a, b) =>
+    a < b ? -1 : a > b ? 1 : 0,
+  );
+
   return resolutionError(`${subject(item)} is not in the bundle`, [
-    `catalog "${entry.catalog}" provides it, but nothing ${config.origin.file} holds selects it`,
-    selectionAdvice(item, entry.tags),
+    `${provided}, but nothing ${config.origin.file} holds selects it`,
+    selectionAdvice(item, tags),
   ]);
 }
 
@@ -147,9 +164,9 @@ function locate(
   );
   if (isSelected(bundle, item)) return item;
 
-  const entry = provided(merged, item);
-  if (entry === undefined) throw unknownName(item, config);
-  throw notSelected(item, entry, config);
+  const entries = providers(merged, item);
+  if (entries.length === 0) throw unknownName(item, config);
+  throw notSelected(item, entries, config);
 }
 
 /**

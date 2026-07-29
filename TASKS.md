@@ -90,7 +90,7 @@ Per §_`scopes` becomes `tags`_ and §_A catalog is a directory, and nothing els
 
 ## 3. Delete shadowing; two catalogs may provide one name
 
-- [ ] The merged catalog keeps every catalog's copy, and a collision is refused at resolve.
+- [x] The merged catalog keeps every catalog's copy, and a collision is refused at resolve.
 
 Per §_Collision moves from selection to materialization_.
 

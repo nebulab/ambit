@@ -137,7 +137,8 @@ scopes:
   - function.engineering
   - project.vision-group
 
-# Catalogs, in priority order. On a name collision, the first wins.
+# Catalogs. The order carries no meaning: every catalog's items are addressable,
+# and none takes precedence over another.
 catalogs:
   - name: company
     source: git@github.com:acme/skills.git
@@ -226,8 +227,8 @@ resolved against whatever the catalog happens to hold today.
 They share that grammar and nothing else. **`requires` is resolved**: every entry names a catalog item,
 resolution closes over it to a fixpoint, and an entry nothing provides fails the install at exit 3
 rather than leaving a bundle missing what a skill said it could not work without. **`expects` is
-checked**: nothing provides an environment variable, so there is no lookup, no shadowing, no cycle and
-nothing to close over. `ambit doctor` asks the machine, and a machine that says no fails at exit 6 with
+checked**: nothing provides an environment variable, so there is no lookup, no collision, no cycle
+and nothing to close over. `ambit doctor` asks the machine, and a machine that says no fails at exit 6 with
 the install left exactly as it was.
 
 That is why they are two lists rather than one with four kinds. Each has one algebra, one exit code,
@@ -343,8 +344,8 @@ scope over as a tag on the items that declared it.
 3. **Parse each catalog:** every `skills/**/SKILL.md`, every `mcps/*.yml`, every `hooks/**/HOOK.yml`.
    A skill or hook whose declared `name` disagrees with its directory path is an error. A leftover
    `scopes.yml` → exit 2 naming the rewrite.
-4. **Merge catalogs.** On a duplicate skill, MCP or hook name the earlier catalog in config order wins,
-   and the shadowing is recorded so `resolve --explain` and `validate` can report it.
+4. **Merge catalogs.** Every catalog's copy of every skill, MCP and hook survives, identified by its
+   catalog and its name. `catalogs:` order settles nothing — there is no precedence between them.
 5. **Expand held scopes.** For each held scope `s`, every tag any item declares that is equal to `s`
    or begins with `s + "."`. A held scope whose whole subtree is empty → exit 3, suggesting the
    nearest declared tag by edit distance.
@@ -357,7 +358,11 @@ scope over as a tag on the items that declared it.
 9. **Union `expects`** across every selected skill, server and hook, grouped by kind. Nothing is
    resolved here: an expectation names no catalog item, so the union is the list `doctor` later
    checks the machine against.
-10. **Emit the bundle**, sorted by name.
+10. **Refuse a collision.** Two selected items of one kind sharing a name → exit 3, naming both and
+    the catalog each came from. A harness's layout is flat — Claude reads `.claude/skills/<name>` — so
+    both copies would be installed at one path, and ambit will not choose one on the project's behalf.
+    Narrow what selects them, or drop the catalog that should not provide it.
+11. **Emit the bundle**, sorted by name.
 
 ### Scope inheritance
 

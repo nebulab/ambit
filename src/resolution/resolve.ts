@@ -20,12 +20,24 @@
  * then closed over `requires`, so a skill can carry its dependencies into a bundle that would never
  * have selected them.
  *
+ * Two catalogs may provide one name, and the merged catalog holds both copies — a bundle holds at
+ * most one. A selection that reached both is refused, because harness layout is flat and externally
+ * imposed and the two copies would materialize to one path; see {@link assertNoCollisions}. That
+ * refusal is what makes a bare name an identity within a bundle, so every map here keys on one, while
+ * everything reading the merged catalog keys on `<catalog>/<name>`.
+ *
  * Every selected item also carries the reason it was selected, because with three routes
  * into a bundle a list of names is not an answer to "why is this here?" — and the lock records the
  * reason too, so it has to be part of resolution rather than a reporting afterthought.
  */
 import type { MergedCatalog, MergedHook, MergedMcp, MergedSkill } from "../model/catalog.js";
-import { HOOKS_DIRNAME, MCPS_DIRNAME, SKILL_FILENAME } from "../model/catalog.js";
+import {
+  HOOKS_DIRNAME,
+  MCPS_DIRNAME,
+  SKILL_FILENAME,
+  copiesByName,
+  qualifiedName,
+} from "../model/catalog.js";
 import type { ProjectConfig } from "../model/config.js";
 import type { ExpectationSet } from "../model/expectation.js";
 import { unionExpectations } from "../model/expectation.js";
@@ -48,7 +60,14 @@ import { AmbitError, ExitCode, at, resolutionError } from "../errors.js";
  */
 export const SCOPE_SEPARATOR = ".";
 
-/** A set of catalog items under consideration, each list sorted by name. */
+/**
+ * A set of catalog items under consideration, each list in the merged catalog's own order — name,
+ * then catalog.
+ *
+ * Two copies of one name can be in here: this is what {@link closeOverRequires} produces, and
+ * {@link assertNoCollisions} is what judges it. A {@link Bundle} is a selection that has passed that
+ * check.
+ */
 export interface Selection {
   readonly skills: readonly MergedSkill[];
   readonly mcps: readonly MergedMcp[];
@@ -85,14 +104,26 @@ export interface ReasonedItem extends BundleItem {
   readonly reason: SelectionReason;
 }
 
-/** Every selected item's reason, keyed by name within each namespace. */
+/**
+ * Every selected item's reason, keyed by name within each namespace.
+ *
+ * By name and not by address, because a bundle holds one item per name per namespace —
+ * {@link assertNoCollisions} refuses anything else — and a reader asking why `house-style` is
+ * installed has one thing installed under that name to ask about.
+ */
 export interface SelectionReasons {
   readonly skills: ReadonlyMap<string, SelectionReason>;
   readonly mcps: ReadonlyMap<string, SelectionReason>;
   readonly hooks: ReadonlyMap<string, SelectionReason>;
 }
 
-/** The resolved set of skills, MCP servers and hooks for a project. */
+/**
+ * The resolved set of skills, MCP servers and hooks for a project.
+ *
+ * One item per name within each namespace, which is what everything downstream — `install`, the
+ * lock, `status`, `doctor`, `why` — relies on when it keys on a bare name. The guarantee comes from
+ * {@link assertNoCollisions} rather than from the merged catalog, which holds every catalog's copy.
+ */
 export interface Bundle {
   /**
    * The held scopes exactly as the project declared them, deduplicated and sorted. The set of tags
@@ -356,7 +387,13 @@ export function cycleError(cycle: readonly string[], head: MergedSkill): AmbitEr
  * Only skills carry `requires` (neither MCP entities nor hooks have such a key), so the graph walked
  * here is skill → skill, with both other namespaces as leaves.
  *
- * @param skills the roots — what scope selection found, sorted by name.
+ * A requirement names a name, and several catalogs may provide it — so **every copy joins the
+ * selection**, not one of them. There is nothing left to choose with: config order settles nothing,
+ * and taking the first copy would be the precedence this design deleted, reintroduced where nobody
+ * could see it. Two copies both selected is then {@link assertNoCollisions}'s refusal, which is loud
+ * and names both catalogs.
+ *
+ * @param skills the roots — what scope selection found, in the merged catalog's order.
  * @param mcps MCP entities already selected by their own tags.
  * @param hooks hooks already selected by their own tags.
  * @param merged what requirements resolve against.
@@ -368,29 +405,40 @@ export function closeOverRequires(
   hooks: readonly MergedHook[],
   merged: MergedCatalog,
 ): Selection {
-  const skillsByName = new Map(merged.skills.map((skill) => [skill.name, skill]));
-  const mcpsByName = new Map(merged.mcps.map((mcp) => [mcp.name, mcp]));
-  const hooksByName = new Map(merged.hooks.map((hook) => [hook.name, hook]));
+  const skillCopies = copiesByName(merged.skills);
+  const mcpCopies = copiesByName(merged.mcps);
+  const hookCopies = copiesByName(merged.hooks);
 
+  // Addresses rather than names throughout: one catalog's copy of a name being selected says nothing
+  // about another's, so a set of names would silently treat the two as one item.
   const chosenSkills = new Set<string>();
-  const chosenMcps = new Set(mcps.map((mcp) => mcp.name));
-  const chosenHooks = new Set(hooks.map((hook) => hook.name));
+  const chosenMcps = new Set(mcps.map(qualifiedName));
+  const chosenHooks = new Set(hooks.map(qualifiedName));
 
   // The two colours a depth-first walk needs to tell a cycle from a diamond: `path` is the chain
   // currently being followed, in order, so meeting something already on it yields the cycle
   // itself; `closed` is what has been followed to completion, and revisiting that is just a
   // requirement two skills share.
-  const path: string[] = [];
+  const path: MergedSkill[] = [];
   const closed = new Set<string>();
 
   const follow = (skill: MergedSkill): void => {
-    if (closed.has(skill.name)) return;
+    const address = qualifiedName(skill);
+    if (closed.has(address)) return;
 
-    const opened = path.indexOf(skill.name);
-    if (opened !== -1) throw cycleError([...path.slice(opened), skill.name], skill);
+    const opened = path.findIndex((entry) => qualifiedName(entry) === address);
+    // The printed path is names, which is what an author reads in a `requires` list; the walk's own
+    // bookkeeping is addresses, so two catalogs' copies of one name are two nodes rather than a
+    // cycle between them.
+    if (opened !== -1) {
+      throw cycleError(
+        [...path.slice(opened), skill].map((entry) => entry.name),
+        skill,
+      );
+    }
 
-    path.push(skill.name);
-    chosenSkills.add(skill.name);
+    path.push(skill);
+    chosenSkills.add(address);
 
     // Sorted and deduplicated, so which of several problems in one `requires` list is reported
     // does not depend on the order its author happened to write them in.
@@ -398,37 +446,105 @@ export function closeOverRequires(
       // Both leaf namespaces end the walk: nothing an entity or a hook declares reaches anything
       // else, so joining the selection is all there is to do.
       if (target.kind === "mcp") {
-        const required = mcpsByName.get(target.name);
+        const required = mcpCopies.get(target.name);
         if (required === undefined) throw missingRequirement(skill, target);
-        chosenMcps.add(required.name);
+        for (const copy of required) chosenMcps.add(qualifiedName(copy));
         continue;
       }
 
       if (target.kind === "hook") {
-        const required = hooksByName.get(target.name);
+        const required = hookCopies.get(target.name);
         if (required === undefined) throw missingRequirement(skill, target);
-        chosenHooks.add(required.name);
+        for (const copy of required) chosenHooks.add(qualifiedName(copy));
         continue;
       }
 
-      const required = skillsByName.get(target.name);
+      const required = skillCopies.get(target.name);
       if (required === undefined) throw missingRequirement(skill, target);
-      follow(required);
+      for (const copy of required) follow(copy);
     }
 
     path.pop();
-    closed.add(skill.name);
+    closed.add(address);
   };
 
   for (const skill of skills) follow(skill);
 
-  // Filtering the merged lists rather than collecting during the walk keeps the result in name
-  // order, whatever order the closure happened to discover things in.
+  // Filtering the merged lists rather than collecting during the walk keeps the result in the merged
+  // catalog's order, whatever order the closure happened to discover things in.
   return {
-    skills: merged.skills.filter((skill) => chosenSkills.has(skill.name)),
-    mcps: merged.mcps.filter((mcp) => chosenMcps.has(mcp.name)),
-    hooks: merged.hooks.filter((hook) => chosenHooks.has(hook.name)),
+    skills: merged.skills.filter((skill) => chosenSkills.has(qualifiedName(skill))),
+    mcps: merged.mcps.filter((mcp) => chosenMcps.has(qualifiedName(mcp))),
+    hooks: merged.hooks.filter((hook) => chosenHooks.has(qualifiedName(hook))),
   };
+}
+
+/**
+ * What a namespace is called in a message about two catalogs providing one of its members.
+ *
+ * {@link KIND_NOUNS} carries an article, which reads wrong where the name follows immediately —
+ * *a skill "house-style"* — so this is the bare noun for exactly that sentence shape.
+ */
+const KIND_LABELS: Readonly<Record<ItemKind, string>> = {
+  skill: "skill",
+  mcp: "MCP server",
+  hook: "hook",
+};
+
+/**
+ * The error for one name two selected catalogs both provide.
+ *
+ * A harness's layout is flat and not ambit's to change — Claude reads `.claude/skills/<name>` — so
+ * both copies want one path and there is no way to install both. Dropping one is refused rather than
+ * chosen: nothing is left to prefer either with, since no catalog outranks another, and a bundle
+ * quietly missing a copy the selection asked for is the failure nobody can debug.
+ *
+ * The advice is *narrow what selects them*, which is what it is however selection is spelled: a held
+ * scope reaching two copies is narrowed by holding one only one of them declares, and a pattern
+ * reaching two is narrowed by qualifying it with a single catalog.
+ *
+ * @param catalogs every catalog providing the name, in catalog order.
+ */
+function collisionError(kind: ItemKind, name: string, catalogs: readonly string[]): AmbitError {
+  return resolutionError(`${KIND_LABELS[kind]} "${name}" is selected from more than one catalog`, [
+    `provided by: ${catalogs.join(", ")}`,
+    "a harness reads one entry per name, so both copies would be installed at the same path",
+    "select only one copy: narrow what selects them, or drop the catalog that should not provide it",
+  ]);
+}
+
+/** Rejects two selected copies of one name within one namespace. */
+function assertOnePerName(
+  kind: ItemKind,
+  items: readonly { readonly name: string; readonly catalog: string }[],
+): void {
+  const providers = new Map<string, string[]>();
+  for (const item of items) {
+    providers.set(item.name, [...(providers.get(item.name) ?? []), item.catalog]);
+  }
+
+  for (const [name, catalogs] of providers) {
+    if (catalogs.length > 1) throw collisionError(kind, name, catalogs);
+  }
+}
+
+/**
+ * Rejects a selection holding two catalogs' copies of one name.
+ *
+ * This is where the collision the merge stopped arbitrating is settled, and the conflict it is about
+ * is materialization rather than selection: a name two catalogs ship costs nothing until a project
+ * selects both copies and a harness is asked to hold them at one path.
+ *
+ * Stops at the first offender, in namespace order and then name order — the selection arrives sorted
+ * by name and then catalog, so which collision is reported, and the order the catalogs are named in,
+ * depend on the names alone.
+ *
+ * @throws {AmbitError} exit 3, naming the item and every catalog that provides it.
+ */
+export function assertNoCollisions(selection: Selection): void {
+  assertOnePerName("skill", selection.skills);
+  assertOnePerName("mcp", selection.mcps);
+  assertOnePerName("hook", selection.hooks);
 }
 
 /**
@@ -687,7 +803,7 @@ export function explainSelection(bundle: Bundle, item: BundleItem): readonly Rea
  *   entry carrying a `source`, inline `mcps`, and inline `hooks` — as `mergeConfigEntities` does, so
  *   every namespace resolves by name here and no surface needs a case of its own.
  * @throws {AmbitError} exit 3 for a held scope nothing declares, an explicit skill nothing provides,
- *   a requirement no catalog provides, or a `requires` cycle.
+ *   a requirement no catalog provides, a `requires` cycle, or one name selected from two catalogs.
  */
 export function resolveBundle(config: ProjectConfig, merged: MergedCatalog): Bundle {
   const declared = declaredTags(merged);
@@ -697,11 +813,14 @@ export function resolveBundle(config: ProjectConfig, merged: MergedCatalog): Bun
   const selecting = expandHeldScopes(config.scopes, declared);
   const explicit = explicitNames(config, merged);
 
-  // All three seed lists stay in name order, being filters of the merged catalog, so how something
+  // All three seed lists stay in the merged catalog's order, being filters of it, so how something
   // was selected cannot change where it lands in the bundle. The third one means a catalog hook is
   // reached by scope exactly as a server is, and an inline one — folded in as explicit — is selected
   // whatever tags it carries.
-  const { skills, mcps, hooks } = closeOverRequires(
+  //
+  // Selection is per copy, not per name: a held scope reaching two catalogs' copies of one name
+  // selects both, which is what makes the collision the project's to resolve rather than ambit's.
+  const selection = closeOverRequires(
     merged.skills.filter(
       (skill) => explicit.skills.has(skill.name) || selectedByScope(selecting, skill.tags),
     ),
@@ -713,6 +832,11 @@ export function resolveBundle(config: ProjectConfig, merged: MergedCatalog): Bun
     ),
     merged,
   );
+
+  // Before the bundle exists, and before any map below keys on a bare name: this is the check that
+  // makes a name an identity from here on, so nothing downstream can quietly drop a copy instead.
+  assertNoCollisions(selection);
+  const { skills, mcps, hooks } = selection;
 
   return {
     scopes: held,

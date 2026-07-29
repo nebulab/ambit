@@ -8,7 +8,7 @@
  * missing the half a skill said it could not work without.
  *
  * That is the whole of what separates it from `expects`, its sibling in `expectation.ts`: an expectation
- * is looked up nowhere, cannot be shadowed, cannot require anything back and cannot cycle. It is
+ * is looked up nowhere, is provided by no catalog, cannot require anything back and cannot cycle. It is
  * checked, not resolved. The two lists share a spelling and nothing else, and the spelling lives in
  * `reference.ts`.
  *

@@ -8,8 +8,15 @@
  * root. Two subjects under one noun is a confusion the name now avoids rather than documents.
  *
  * This is the window onto everything resolution works from, so it prints what was parsed rather
- * than a summary of it. `--json` output carries no absolute paths and sorts every key, so it is
- * comparable between machines and stable enough to commit as a golden file.
+ * than a summary of it. `--json` output carries no absolute paths and emits every record in the
+ * merged catalog's own order — by name, then by catalog — so it is comparable between machines and
+ * stable enough to commit as a golden file.
+ *
+ * Each JSON record is keyed by an item's **address** — `<catalog>/<name>` — and not by its name,
+ * because a name is not unique in this view: two catalogs may both provide `house-style`, both copies
+ * are here, and a name-keyed record would silently drop one of them. That is exactly the loss the
+ * merge stopped performing, so the window onto it must not reintroduce it. The text form needs no
+ * such thing: it already prints one row per copy with the catalog in its own column.
  */
 import type {
   Catalog,
@@ -18,7 +25,7 @@ import type {
   MergedMcp,
   MergedSkill,
 } from "../../model/catalog.js";
-import { loadCatalogs, mergeCatalogs } from "../../model/catalog.js";
+import { loadCatalogs, mergeCatalogs, qualifiedName } from "../../model/catalog.js";
 import type { CommandHandler } from "../commands.js";
 import { jsonRequested, sourceContextOf } from "../commands.js";
 import { loadProjectConfig } from "../../model/config.js";
@@ -81,9 +88,9 @@ function hookJson(hook: MergedHook): Readonly<Record<string, unknown>> {
 function toJson(merged: MergedCatalog): Readonly<Record<string, unknown>> {
   return {
     catalogs: merged.catalogs,
-    hooks: keyed(merged.hooks, (hook) => hook.name, hookJson),
-    mcps: keyed(merged.mcps, (mcp) => mcp.name, mcpJson),
-    skills: keyed(merged.skills, (skill) => skill.name, skillJson),
+    hooks: keyed(merged.hooks, qualifiedName, hookJson),
+    mcps: keyed(merged.mcps, qualifiedName, mcpJson),
+    skills: keyed(merged.skills, qualifiedName, skillJson),
   };
 }
 

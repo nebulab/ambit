@@ -3,8 +3,8 @@
  *
  * `expects` is not `requires` with a different vocabulary. A requirement is **resolved** — it names a
  * catalog item, it is looked up, it joins the bundle, and one nothing provides fails the install at exit
- * 3. An expectation is **checked** — nothing provides it, no file can be shadowed, it cannot expect
- * anything back and it cannot cycle. `doctor` asks the world about it, and a world that says no leaves
+ * 3. An expectation is **checked** — nothing provides it, no two catalogs can offer competing
+ * copies of it, it cannot expect anything back and it cannot cycle. `doctor` asks the world about it, and a world that says no leaves
  * the install alone and fails at exit 6.
  *
  * ```yaml

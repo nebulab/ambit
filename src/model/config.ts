@@ -98,7 +98,13 @@ export interface ProjectConfig {
   readonly harnesses: readonly string[];
   /** Held scopes, exactly as listed — nothing is added implicitly. */
   readonly scopes: readonly string[];
-  /** Catalogs in priority order: on a name collision the earlier one wins. */
+  /**
+   * Catalogs to fetch and parse, in the order they were listed.
+   *
+   * The order carries no meaning: every catalog's copy of a name survives the merge, so there is no
+   * precedence between them to establish. It is kept because it is what the config says, and because
+   * the lock lists catalogs as inputs.
+   */
   readonly catalogs: readonly CatalogRef[];
   /** Skills wanted regardless of scope. */
   readonly skills: readonly SkillRequest[];

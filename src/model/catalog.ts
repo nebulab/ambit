@@ -269,53 +269,93 @@ export interface MergedHook extends HookEntity {
 }
 
 /**
- * One name more than one catalog provides.
+ * Every configured catalog, merged into one namespace per kind — every catalog's copy of every name.
  *
- * Recorded rather than merely resolved, because the loss is otherwise silent in a way nobody can
- * debug: someone who adds a personal catalog and finds their copy of a skill ignored has no way to
- * see that a company catalog earlier in the list is the one being installed. Which copy *should*
- * win is not ambit's call — config order already decided that — but that a choice was made has to
- * be visible.
+ * A name is not an identity here. Two catalogs may both provide `house-style`, and both copies
+ * survive the merge, each identified by its catalog *and* its name — see {@link qualifiedName}. So
+ * anything that keys, groups or looks up a merged item keys on the pair, and a lookup by name alone
+ * answers with a set rather than an item ({@link copiesByName}).
  */
-export interface Shadowing {
-  readonly name: string;
-  /** The catalog whose copy is in the merged view: the earliest in config order. */
-  readonly catalog: string;
-  /** The catalogs whose copies were dropped, in config order — so the list reads as priority does. */
-  readonly shadows: readonly string[];
-}
-
-/** Every shadowed name, keyed by name within each namespace. Empty when nothing collided. */
-export interface Shadowings {
-  readonly skills: ReadonlyMap<string, Shadowing>;
-  readonly mcps: ReadonlyMap<string, Shadowing>;
-  readonly hooks: ReadonlyMap<string, Shadowing>;
-}
-
-/** Every configured catalog, merged into one namespace per kind. */
 export interface MergedCatalog {
-  /** Catalog names, in config order — which is priority order. */
+  /**
+   * Catalog names, in config order.
+   *
+   * A record of what the config listed, and nothing more: the order settles nothing, because no
+   * copy of a name is dropped and no catalog takes precedence over another.
+   */
   readonly catalogs: readonly string[];
   readonly skills: readonly MergedSkill[];
   readonly mcps: readonly MergedMcp[];
   readonly hooks: readonly MergedHook[];
-  /** Which names came from more than one catalog, for `--explain` and `validate`. */
-  readonly shadowing: Shadowings;
 }
 
 /**
- * How a shadowing reads in `--explain`: `catalog:company (shadows personal)`.
+ * What separates a catalog from a name in the address of a merged item.
  *
- * The winning catalog is named even though the item's own `catalog` column already says it, so the
- * annotation still answers "which copy is this?" when it is read on its own — which is how it is
- * read, one row at a time.
+ * `/` rather than `.`, so an address introduces no phantom level into the dotted name space a
+ * catalog already has — `company/core.a` is the item `core.a` in the catalog `company`, and a dot in
+ * a catalog's alias needs no refusing.
  */
-export function formatShadowing(shadowing: Shadowing): string {
-  return `catalog:${shadowing.catalog} (shadows ${shadowing.shadows.join(", ")})`;
+export const CATALOG_SEPARATOR = "/";
+
+/**
+ * The address of one item in the merged catalog: `<catalog>/<name>`.
+ *
+ * The identity a bare name stopped being once every catalog's copy survives the merge. Anything that
+ * needs one string per item — a `Map` key, a JSON record key, a set of what a walk has already
+ * followed — uses this, so two catalogs' copies of `house-style` cannot collapse into one entry by
+ * accident, which is the silent loss the merge no longer performs.
+ *
+ * A *bundle* is the one view where a bare name is still an identity, and it is one because
+ * resolution refuses a selection holding two copies of a name (`assertNoCollisions`) rather than
+ * because the merge guarantees it.
+ */
+export function qualifiedName(item: { readonly catalog: string; readonly name: string }): string {
+  return `${item.catalog}${CATALOG_SEPARATOR}${item.name}`;
 }
 
+/**
+ * Every copy of each name, grouped by name and keeping the order the merge put them in.
+ *
+ * What a name-keyed `Map` over the merged catalog used to be. A caller that used to `get` one item
+ * now gets all the copies and has to say what it does with several — which is the point: with no
+ * precedence left, silently taking the first would be the arbitration this design removed, hidden
+ * in a lookup.
+ *
+ * A name nothing provides is absent rather than mapped to an empty list, so `undefined` still means
+ * exactly what it meant before.
+ */
+export function copiesByName<T extends { readonly name: string }>(
+  items: readonly T[],
+): ReadonlyMap<string, readonly T[]> {
+  const grouped = new Map<string, T[]>();
+  for (const item of items) grouped.set(item.name, [...(grouped.get(item.name) ?? []), item]);
+  return grouped;
+}
+
+function compareStrings(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+/** One catalog's items in name order, which is a total order within a single catalog. */
 function byName<T extends { readonly name: string }>(items: readonly T[]): readonly T[] {
-  return [...items].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  return [...items].sort((a, b) => compareStrings(a.name, b.name));
+}
+
+/**
+ * Merged items in name order, then catalog order.
+ *
+ * Name first, so two catalogs' copies of one name sit next to each other in every listing that walks
+ * this — a reader scanning `dump-catalog` sees the pair rather than having to notice it. Catalog
+ * second, because a name alone is no longer a total order, and an order that fell back to the order
+ * catalogs happened to be read in would make every downstream listing depend on config order again.
+ */
+function byNameThenCatalog<T extends { readonly name: string; readonly catalog: string }>(
+  items: readonly T[],
+): readonly T[] {
+  return [...items].sort(
+    (a, b) => compareStrings(a.name, b.name) || compareStrings(a.catalog, b.catalog),
+  );
 }
 
 async function isDirectory(target: string): Promise<boolean> {
@@ -934,6 +974,10 @@ export async function loadSourceSkill(
  * Spec §3.1 describes both surfaces as being for things no catalog defines, so a collision means
  * one of the two declarations is a mistake — and which one ambit cannot know, so it refuses rather
  * than letting either quietly win.
+ *
+ * @param provider the catalog named in the message. Where several provide the name, this is the
+ *   first in catalog order, because the merged lists are sorted by name and then catalog — the
+ *   message names one of them and stays the same message on the next run.
  */
 function declarationConflict(
   kind: string,
@@ -970,12 +1014,12 @@ export async function mergeConfigEntities(
 
   for (const request of config.skills) {
     if (request.kind !== "source") continue;
-    const shadowed = merged.skills.find((skill) => skill.name === request.name);
-    if (shadowed !== undefined) {
+    const provider = merged.skills.find((skill) => skill.name === request.name);
+    if (provider !== undefined) {
       throw declarationConflict(
         "skill",
         request.name,
-        shadowed.catalog,
+        provider.catalog,
         at(config.origin.file, config.origin.skillLines.get(request.name)),
         "drop `source` to take the catalog's copy, or rename one of the two",
       );
@@ -984,12 +1028,12 @@ export async function mergeConfigEntities(
   }
 
   for (const entity of config.mcps) {
-    const shadowed = merged.mcps.find((mcp) => mcp.name === entity.name);
-    if (shadowed !== undefined) {
+    const provider = merged.mcps.find((mcp) => mcp.name === entity.name);
+    if (provider !== undefined) {
       throw declarationConflict(
         "MCP server",
         entity.name,
-        shadowed.catalog,
+        provider.catalog,
         at(config.origin.file, config.origin.mcpLines.get(entity.name)),
         "remove the `mcps` entry to take the catalog's, or rename one of the two",
       );
@@ -1000,12 +1044,12 @@ export async function mergeConfigEntities(
   }
 
   for (const entity of config.hooks) {
-    const shadowed = merged.hooks.find((hook) => hook.name === entity.name);
-    if (shadowed !== undefined) {
+    const provider = merged.hooks.find((hook) => hook.name === entity.name);
+    if (provider !== undefined) {
       throw declarationConflict(
         "hook",
         entity.name,
-        shadowed.catalog,
+        provider.catalog,
         at(config.origin.file, config.origin.hookLines.get(entity.name)),
         "remove the `hooks` entry to take the catalog's, or rename one of the two",
       );
@@ -1015,60 +1059,41 @@ export async function mergeConfigEntities(
     hooks.push({ ...entity, catalog: config.origin.file });
   }
 
-  return { ...merged, skills: byName(skills), mcps: byName(mcps), hooks: byName(hooks) };
+  // Re-sorted the way the merge sorts, so a config-declared item lands among the catalogs' items
+  // rather than at the end, and the whole list keeps one order.
+  return {
+    ...merged,
+    skills: byNameThenCatalog(skills),
+    mcps: byNameThenCatalog(mcps),
+    hooks: byNameThenCatalog(hooks),
+  };
 }
 
 /**
- * Notes that `loser` also provides `name`, which `winner` already did.
+ * Merges catalogs into one namespace per kind, keeping every catalog's copy of every name.
  *
- * Appends rather than replaces, so a name three catalogs provide records both losers in the order
- * config listed them.
- */
-function recordShadowing(
-  shadowed: Map<string, Shadowing>,
-  name: string,
-  winner: string,
-  loser: string,
-): void {
-  const existing = shadowed.get(name);
-  shadowed.set(name, {
-    name,
-    catalog: winner,
-    shadows: [...(existing?.shadows ?? []), loser],
-  });
-}
-
-/** A name-keyed map in name order, so iterating it never depends on the order catalogs were read. */
-function mapByName<T>(entries: ReadonlyMap<string, T>): ReadonlyMap<string, T> {
-  return new Map([...entries].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
-}
-
-/**
- * Merges catalogs into one namespace per kind.
+ * Nothing is dropped and nothing is arbitrated. Two catalogs both providing `house-style` is a
+ * non-event here: both copies are in the merged view, each addressable by its catalog and its name,
+ * and `catalogs:` order therefore settles nothing — there is no precedence left to establish.
  *
- * On a duplicate skill, MCP or hook name the earlier catalog in config order wins, and the shadowing is
- * recorded rather than discarded — see {@link Shadowing}.
+ * The collision this function used to decide is decided at *materialization* instead. Harness layout
+ * is flat and externally imposed — Claude reads `.claude/skills/<name>` — so two copies of one name
+ * that are both *selected* would want one path, and resolution refuses that (`assertNoCollisions`).
+ * Refusing a selection is a different thing from refusing a catalog: a name two catalogs ship costs
+ * nothing until a project asks for both.
  *
  * A config-declared skill or server colliding with a catalog is deliberately *not* this: that is an
- * error, not a precedence question, because both config surfaces are for
- * things no catalog defines. See {@link mergeConfigEntities}.
+ * error, not a collision over a harness path, because both config surfaces are for things no catalog
+ * defines. See {@link mergeConfigEntities}.
  */
 export function mergeCatalogs(catalogs: readonly Catalog[]): MergedCatalog {
-  const skills = new Map<string, MergedSkill>();
-  const mcps = new Map<string, MergedMcp>();
-  const hooks = new Map<string, MergedHook>();
-  const shadowedSkills = new Map<string, Shadowing>();
-  const shadowedMcps = new Map<string, Shadowing>();
-  const shadowedHooks = new Map<string, Shadowing>();
+  const skills: MergedSkill[] = [];
+  const mcps: MergedMcp[] = [];
+  const hooks: MergedHook[] = [];
 
   for (const catalog of catalogs) {
     for (const skill of catalog.skills) {
-      const winner = skills.get(skill.name);
-      if (winner !== undefined) {
-        recordShadowing(shadowedSkills, skill.name, winner.catalog, catalog.name);
-        continue;
-      }
-      skills.set(skill.name, {
+      skills.push({
         ...skill,
         catalog: catalog.name,
         ...(catalog.commit !== undefined && { commit: catalog.commit }),
@@ -1077,24 +1102,14 @@ export function mergeCatalogs(catalogs: readonly Catalog[]): MergedCatalog {
     }
 
     for (const mcp of catalog.mcps) {
-      const winner = mcps.get(mcp.name);
-      if (winner !== undefined) {
-        recordShadowing(shadowedMcps, mcp.name, winner.catalog, catalog.name);
-        continue;
-      }
-      mcps.set(mcp.name, { ...mcp, catalog: catalog.name });
+      mcps.push({ ...mcp, catalog: catalog.name });
     }
 
     for (const hook of catalog.hooks) {
-      const winner = hooks.get(hook.name);
-      if (winner !== undefined) {
-        recordShadowing(shadowedHooks, hook.name, winner.catalog, catalog.name);
-        continue;
-      }
       // `catalogRoot` for the same reason a skill carries one: a hook that ships a script is
       // materialized out of the catalog it came from, and nothing downstream should have to look the
       // catalog up again to find it.
-      hooks.set(hook.name, {
+      hooks.push({
         ...hook,
         catalog: catalog.name,
         ...(catalog.commit !== undefined && { commit: catalog.commit }),
@@ -1105,13 +1120,8 @@ export function mergeCatalogs(catalogs: readonly Catalog[]): MergedCatalog {
 
   return {
     catalogs: catalogs.map((catalog) => catalog.name),
-    skills: byName([...skills.values()]),
-    mcps: byName([...mcps.values()]),
-    hooks: byName([...hooks.values()]),
-    shadowing: {
-      skills: mapByName(shadowedSkills),
-      mcps: mapByName(shadowedMcps),
-      hooks: mapByName(shadowedHooks),
-    },
+    skills: byNameThenCatalog(skills),
+    mcps: byNameThenCatalog(mcps),
+    hooks: byNameThenCatalog(hooks),
   };
 }

@@ -3,10 +3,11 @@
  * project that consumes one (`ambit validate`).
  *
  * `resolve` and `install` hard-validate the selected closure only, so one broken skill nobody holds
- * cannot block everyone. That leaves a gap this closes: a dangling `requires`, a cycle, or a
- * shadowed name can sit in a catalog for weeks until the first profile that reaches it fails, and
- * the person it fails for is never the person who wrote it. So every skill, every server and every
- * hook is checked here, selected or not.
+ * cannot block everyone. That leaves a gap this closes: a dangling `requires` or a cycle can sit in a
+ * catalog for weeks until the first profile that reaches it fails, and the person it fails for is
+ * never the person who wrote it. So every skill, every server and every hook is checked here,
+ * selected or not — every catalog's copy of a name included, since two copies of one name are two
+ * documents, each of which can be broken on its own.
  *
  * What is *not* checked is a tag: nothing registers one, so a misspelled tag inside a catalog is
  * indistinguishable from a new one and there is nowhere to put the check. Only the consumer-side
@@ -34,18 +35,19 @@ import type {
   CatalogParseOptions,
   MergedCatalog,
   MergedSkill,
-  Shadowing,
 } from "../model/catalog.js";
 import {
+  copiesByName,
   loadCatalogs,
   mergeCatalogs,
   mergeConfigEntities,
   parseCatalogDirectory,
+  qualifiedName,
 } from "../model/catalog.js";
 import type { ProjectConfig } from "../model/config.js";
 import { loadProjectConfig } from "../model/config.js";
 import type { AmbitError } from "../errors.js";
-import { at, resolutionError } from "../errors.js";
+import { at } from "../errors.js";
 import type { ItemKind } from "../model/requirement.js";
 import { sortedUniqueRequirements } from "../model/requirement.js";
 import {
@@ -65,6 +67,10 @@ import type { SourceContext } from "../model/sources.js";
  * declares, and a `skills` entry nothing provides. Those two are already resolution errors —
  * `validate` is where they are all listed at once instead of one per run.
  *
+ * A name two catalogs provide is deliberately *not* one of them any more. It is a problem only where
+ * a project selects both copies, which is resolution's judgement to make and not a fact about a
+ * catalog — see `assertNoCollisions`.
+ *
  * Each kind names a *class* of problem rather than a namespace: a dangling `requires` on a hook is the
  * same finding it is on a skill, and the message already names which of the three the offender is. So a
  * namespace joining the catalog adds no kind here.
@@ -72,7 +78,6 @@ import type { SourceContext } from "../model/sources.js";
 export const VALIDATION_PROBLEM_KINDS = [
   "cycle",
   "name-mismatch",
-  "shadowed-name",
   "unknown-scope",
   "unknown-skill",
   "unresolvable-requirement",
@@ -100,7 +105,7 @@ export interface ValidationReport {
   readonly checked: ValidationCounts;
   /**
    * Every problem found, in a fixed order: the catalog's own integrity first — name mismatches,
-   * unresolvable requirements, cycles, shadowed names — then how the project uses it. Within each
+   * unresolvable requirements, cycles — then how the project uses it. Within each
    * check, findings are in name order, so the report is a function of the catalog's contents and not
    * of the order anything was read in.
    */
@@ -128,6 +133,11 @@ function problem(kind: ValidationProblemKind, error: AmbitError): ValidationProb
 /**
  * Every `requires` entry no catalog can satisfy — across the whole catalog, not only the closure a
  * project's scopes reach.
+ *
+ * "Provided" is a question about the name, since that is all a `requires` entry names: an entry is
+ * satisfied if any catalog provides its target. Two catalogs shipping copies of one broken skill
+ * therefore yield one finding each, which is right — they are two documents, and each has to be
+ * fixed where it is written.
  */
 function requirementProblems(merged: MergedCatalog): readonly ValidationProblem[] {
   const provided: Readonly<Record<ItemKind, ReadonlySet<string>>> = {
@@ -160,18 +170,23 @@ function requirementProblems(merged: MergedCatalog): readonly ValidationProblem[
  * reported path opens on is a function of the names alone. The canonical-rotation guard makes
  * reporting one loop once a property of the report rather than of the traversal, so a later change
  * to how the graph is walked cannot turn into a duplicated problem.
+ *
+ * A skill edge is followed into *every* catalog's copy of the name, as the closure does, so a cycle
+ * is found whichever copy the walk arrived through. The bookkeeping is addresses for the same reason:
+ * two catalogs' copies of one name are two nodes, and one loop in each of two catalogs is two
+ * problems, each in a catalog somebody has to fix.
  */
 function cycleProblems(merged: MergedCatalog): readonly ValidationProblem[] {
-  const byName = new Map(merged.skills.map((skill) => [skill.name, skill]));
+  const copies = copiesByName(merged.skills);
   const problems: ValidationProblem[] = [];
   const reported = new Set<string>();
 
-  const walked: string[] = [];
+  const walked: MergedSkill[] = [];
   const closed = new Set<string>();
 
-  const record = (cycle: readonly string[], head: MergedSkill): void => {
-    // The path closes on the name it opened with, so the loop's members are all but the last.
-    const members = cycle.slice(0, -1);
+  const record = (cycle: readonly MergedSkill[], head: MergedSkill): void => {
+    // The path closes on the skill it opened with, so the loop's members are all but the last.
+    const members = cycle.slice(0, -1).map(qualifiedName);
     const first = [...members].sort(compare)[0];
     const start = first === undefined ? 0 : members.indexOf(first);
     // U+0000 as the separator, written as an escape rather than as the byte itself: a literal
@@ -180,62 +195,43 @@ function cycleProblems(merged: MergedCatalog): readonly ValidationProblem[] {
 
     if (reported.has(key)) return;
     reported.add(key);
-    problems.push(problem("cycle", cycleError(cycle, head)));
+    // Names in the printed path, addresses in the key: a path is read against the `requires` lists an
+    // author wrote, which name siblings and never qualify them.
+    problems.push(
+      problem(
+        "cycle",
+        cycleError(
+          cycle.map((skill) => skill.name),
+          head,
+        ),
+      ),
+    );
   };
 
   const follow = (skill: MergedSkill): void => {
-    const opened = walked.indexOf(skill.name);
+    const address = qualifiedName(skill);
+    const opened = walked.findIndex((entry) => qualifiedName(entry) === address);
     if (opened !== -1) {
-      record([...walked.slice(opened), skill.name], skill);
+      record([...walked.slice(opened), skill], skill);
       return;
     }
-    if (closed.has(skill.name)) return;
+    if (closed.has(address)) return;
 
-    walked.push(skill.name);
+    walked.push(skill);
     for (const target of sortedUniqueRequirements(skill.requires)) {
       // Both leaf namespaces end the walk: only a skill can require anything, so only a skill edge
       // can close a loop.
       if (target.kind !== "skill") continue;
-      const required = byName.get(target.name);
       // A requirement nothing provides is `requirementProblems`'s finding; here it is simply an
       // edge that goes nowhere, and following it would report the same thing twice.
-      if (required !== undefined) follow(required);
+      for (const required of copies.get(target.name) ?? []) follow(required);
     }
     walked.pop();
-    closed.add(skill.name);
+    closed.add(address);
   };
 
   for (const skill of merged.skills) follow(skill);
   return problems;
-}
-
-/**
- * The problem for a name more than one catalog provides.
- *
- * A problem rather than a note, even though resolution has a well-defined answer for it: in a
- * catalog repo two copies of one name means one of them is unreachable, and unreachable
- * instructions are worse than absent ones — someone maintains them believing they are in use.
- */
-function shadowedName(kind: string, shadowing: Shadowing): AmbitError {
-  return resolutionError(`shadowed ${kind} "${shadowing.name}" (catalog "${shadowing.catalog}")`, [
-    `catalog "${shadowing.catalog}" provides the copy resolution uses`,
-    `also provided by: ${shadowing.shadows.join(", ")}`,
-    "rename one of the copies, or drop the catalog that should not provide it",
-  ]);
-}
-
-function shadowingProblems(merged: MergedCatalog): readonly ValidationProblem[] {
-  return [
-    ...[...merged.shadowing.skills.values()].map((shadowing) =>
-      problem("shadowed-name", shadowedName("skill", shadowing)),
-    ),
-    ...[...merged.shadowing.mcps.values()].map((shadowing) =>
-      problem("shadowed-name", shadowedName("MCP server", shadowing)),
-    ),
-    ...[...merged.shadowing.hooks.values()].map((shadowing) =>
-      problem("shadowed-name", shadowedName("hook", shadowing)),
-    ),
-  ];
 }
 
 /**
@@ -299,6 +295,8 @@ export function validateCatalog(
   const config = options.config;
 
   return {
+    // Every copy, not every name: two catalogs providing `house-style` is two documents this run
+    // read and checked, and a count that said one would understate what the report covers.
     checked: {
       hooks: merged.hooks.length,
       mcps: merged.mcps.length,
@@ -308,7 +306,6 @@ export function validateCatalog(
       ...(options.parsed ?? []),
       ...requirementProblems(merged),
       ...cycleProblems(merged),
-      ...shadowingProblems(merged),
       ...(config === undefined ? [] : configProblems(config, merged)),
     ],
   };
