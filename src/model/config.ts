@@ -9,6 +9,7 @@ import { stat } from "node:fs/promises";
 import path from "node:path";
 
 import { at, configError } from "../errors.js";
+import { CATALOG_SEPARATOR } from "./catalog.js";
 import type { Capability, PatternEntry, PatternField } from "./pattern.js";
 import { REQUIRES_KEY, entryYaml, parseEntries, uniqueEntries } from "./pattern.js";
 import { YamlMapping, parseYamlMapping, readYamlMapping } from "./yaml.js";
@@ -271,6 +272,28 @@ function nameTracker(
   };
 }
 
+/**
+ * Refuses a catalog alias holding the one character that separates an alias from a pattern.
+ *
+ * An alias is the qualifier half of `<catalog>/<pattern>`, so an alias holding a `/` cannot appear in
+ * an address at all: every entry qualified with it reads as a second separator and is refused at
+ * parse, while `validate` reports the catalog as one nothing selects from and advises qualifying an
+ * entry with it. Two refusals pointing at each other, and no spelling satisfying both — so the alias
+ * is refused where it is written, which is the only place a rename can happen.
+ *
+ * The separator is the *only* character an alias may not hold. A dot is fine, which is the whole
+ * reason the separator is `/` and not `.`; a `*` is fine too, and matched literally, because a
+ * qualifier is an alias rather than a pattern.
+ */
+function assertAddressableAlias(entry: YamlMapping, name: string): void {
+  if (!name.includes(CATALOG_SEPARATOR)) return;
+
+  throw entry.keyError("name", `catalog name "${name}" holds a \`${CATALOG_SEPARATOR}\``, [
+    `a \`${REQUIRES_KEY}\` entry addresses an item as \`<catalog>${CATALOG_SEPARATOR}<pattern>\`, so nothing can select from an alias holding one`,
+    `rename the catalog to something without a \`${CATALOG_SEPARATOR}\` — a dot is fine`,
+  ]);
+}
+
 function parseCatalogs(root: YamlMapping): readonly CatalogRef[] {
   const track = nameTracker(root.file, "catalog name", "give each catalog a distinct name");
   const catalogs: CatalogRef[] = [];
@@ -278,6 +301,7 @@ function parseCatalogs(root: YamlMapping): readonly CatalogRef[] {
   for (const entry of root.optionalMappingList("catalogs") ?? []) {
     entry.rejectUnknownKeys(CATALOG_KEYS);
     const name = entry.requireString("name");
+    assertAddressableAlias(entry, name);
     track(name, entry.lineOf("name"));
 
     const ref = entry.optionalString("ref");

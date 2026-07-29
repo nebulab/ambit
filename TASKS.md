@@ -307,7 +307,7 @@ decision here rather than dictating one, so make it and record it in the code's 
 
 ## 12. Verification gate
 
-- [ ] The whole thing, pinned.
+- [x] The whole thing, pinned.
 
 - `npm run lint && npm run format:check && npm run typecheck && npm test`, clean.
 - `grep -rin "scope" src test README.md` returns only migration refusals and their tests.
@@ -318,6 +318,32 @@ decision here rather than dictating one, so make it and record it in the code's 
 - Determinism: `resolve --json` is byte-stable across runs and across filesystem orderings.
 
 **Slice** — the issue is closed.
+
+> verified in task 12, by re-audit rather than by trusting the earlier reports. All six checks pass,
+> every file and symbol §_Deleted, concretely_ names is absent, and the surface is the ten commands
+> with exactly the six global flags — driven against `dist/cli.js`, not the source.
+>
+> One defect found and fixed: **a `catalogs:` alias holding a `/` was accepted and addressable by
+> nothing.** An alias is the qualifier half of `<catalog>/<pattern>`, so every entry qualified with
+> `a/b` read as two separators and was refused at exit 2, while `validate` reported the catalog as one
+> nothing selects from and advised qualifying an entry with `a/b/` — two refusals pointing at each
+> other. Now refused where the alias is written. A dot is still fine, which is the whole reason the
+> separator is `/` (§_Addressing_), and so is a `*`, matched literally, which is what
+> `unmatchedEntryError`'s "a qualifier is an alias, not a pattern" line already claimed.
+>
+> Corrected counts for the `grep -rin "scope"` audit: 11 in `src`, **22** in `test`, **14** in
+> `README.md`, 0 in `package.json` — every one re-read and justified as a refusal's literal string, a
+> comment explaining what a refusal prints, or the README's own refusal and migration prose.
+>
+> Escalated rather than answered: a `skills:` entry carrying a `source:` earns
+> _`skills[0]` must be a string_ and not the two-line rewrite the other removed keys print, because
+> `assertNoRemovedSelection` reads the list as names and the string coercion throws first. §_Migration_
+> asks every refusal to carry the rewrite; which of the two rewrites a key that was both a selection
+> route and a definition site should print is a decision, not a bug, and the README already documents
+> the behaviour honestly.
+>
+> Recorded, not fixed: tasks 10 (`7992cbd`) and 11 (`e4f578c`) carry no `gpgsig` header — 1Password's
+> agent was unreachable. Every other commit on the branch is signed. History is left alone.
 
 ---
 

@@ -222,7 +222,7 @@ becomes, per line — the catalog alias is in the same file, so the message prin
 | ----------- | ------------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `version`   | int          | yes      | Must be `1`.                                                                                                                                                                         |
 | `harnesses` | string[]     | no       | Any of `claude`, `codex`, `cursor`, `opencode`, `vscode`. Default `[claude]`. An unknown name is an error naming the five.                                                           |
-| `catalogs`  | list of maps | no       | `name`, `source`, `ref?`. `name` unique.                                                                                                                                             |
+| `catalogs`  | list of maps | no       | `name`, `source`, `ref?`. `name` unique, and holding no `/` — it is the qualifier half of an address, so an alias holding one could be selected from by nothing. A dot is fine.      |
 | `requires`  | list of maps | no       | Each entry: exactly one of `name`/`tag` carrying `<catalog>/<pattern>`, plus a non-empty `capabilities` drawn from `skills`, `mcps`, `hooks`. An entry matching nothing is an error. |
 
 **Source formats:** `owner/repo`, `owner/repo@ref` (GitHub shorthand), `https://github.com/owner/repo`,

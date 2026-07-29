@@ -227,6 +227,25 @@ describe("project config", () => {
       expect(error.format()).toContain("first declared on line 3");
     });
 
+    it("rejects a catalog name holding the address separator, which nothing could select from", () => {
+      // An alias is the qualifier half of `<catalog>/<pattern>`. One holding a `/` is addressable by
+      // nothing: `a/b/x` reads as two separators and is refused, while `validate` calls the catalog
+      // unselected and advises qualifying an entry with `a/b/`. Refused where it is written instead.
+      const error = rejection("version: 1\ncatalogs:\n  - name: a/b\n    source: x/y\n");
+
+      expect(error.format()).toContain(`catalog name "a/b" holds a \`/\` (${FILE} line 3)`);
+      expect(error.format()).toContain("rename the catalog to something without a `/`");
+    });
+
+    it("accepts a catalog name holding a dot, which is why the separator is not one", () => {
+      const config = parseProjectConfig(
+        "version: 1\ncatalogs:\n  - name: acme.company\n    source: x/y\n",
+        FILE,
+      );
+
+      expect(config.catalogs.map((entry) => entry.name)).toEqual(["acme.company"]);
+    });
+
     it("rejects an unknown key inside a catalog entry", () => {
       expect(
         rejection(
