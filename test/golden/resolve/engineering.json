@@ -16,9 +16,6 @@
       "catalog": "company"
     }
   },
-  "scopes": [
-    "function.engineering"
-  ],
   "skills": {
     "code-review": {
       "catalog": "company",

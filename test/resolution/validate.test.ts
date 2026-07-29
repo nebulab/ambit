@@ -32,8 +32,8 @@ const FIXTURE_SKILLS = 4;
 const FIXTURE_MCPS = 2;
 const FIXTURE_HOOKS = 3;
 
-/** `writeProfile` puts the first held scope here, after the four-line preamble and `scopes:`. */
-const FIRST_SCOPE_LINE = 6;
+/** `writeProfile` puts the first `requires` entry here, after the four-line preamble and the key. */
+const FIRST_ENTRY_LINE = 6;
 
 /** What a clean catalog reports: what was checked, and an explicitly empty problem list. */
 const CLEAN_REPORT = [
@@ -47,24 +47,27 @@ let root: string;
 let catalogDir: string;
 let projectDir: string;
 
+/** One `requires` entry, selecting everything in `catalog` that carries `tag`. */
+function requiresEntry(tag: string, catalog = CATALOG_NAME): string {
+  return `  - { tag: "${catalog}/${tag}", capabilities: [skills, mcps, hooks] }`;
+}
+
 /**
- * Points the project at the fixture catalog and gives it `scopes`.
+ * Points the project at the fixture catalog and gives it a `requires` list.
  *
- * @param extra further top-level config lines, appended after the scopes list so the line each held
- *   scope sits on does not depend on them.
+ * @param tags the tags to select by, each becoming one entry over all three capabilities.
+ * @param extra further top-level config lines, appended after the list so the line each entry sits
+ *   on does not depend on them.
  */
-async function writeProfile(
-  scopes: readonly string[],
-  extra: readonly string[] = [],
-): Promise<void> {
-  const list = scopes.length === 0 ? "[]" : `\n${scopes.map((scope) => `  - ${scope}`).join("\n")}`;
+async function writeProfile(tags: readonly string[], extra: readonly string[] = []): Promise<void> {
+  const list = tags.length === 0 ? "[]" : `\n${tags.map((tag) => requiresEntry(tag)).join("\n")}`;
   await writeFile(
     path.join(projectDir, "ambit.yml"),
     `version: 1
 catalogs:
   - name: ${CATALOG_NAME}
     source: path:../catalog
-scopes: ${list}
+requires: ${list}
 ${extra.map((line) => `${line}\n`).join("")}`,
     "utf8",
   );
@@ -309,7 +312,7 @@ describe("ambit validate: requirements and cycles", () => {
     expect((await report("validate")).problems).toEqual([]);
   });
 
-  it("reports a cycle among skills no scope selects, printing the whole path", async () => {
+  it("reports a cycle among skills nothing selects, printing the whole path", async () => {
     await writeSkill("cycle-a", ["requires: [{skill: cycle-b}]"]);
     await writeSkill("cycle-b", ["requires: [{skill: cycle-c}]"]);
     await writeSkill("cycle-c", ["requires: [{skill: cycle-a}]"]);
@@ -431,7 +434,9 @@ describe("ambit validate: a name two catalogs provide", () => {
         "    source: path:../catalog",
         `  - name: ${SECOND}`,
         `    source: path:../${SECOND}`,
-        "scopes: [core]",
+        "requires:",
+        requiresEntry("core"),
+        requiresEntry("core", SECOND),
         "",
       ].join("\n"),
       "utf8",
@@ -481,26 +486,26 @@ describe("ambit validate: a name two catalogs provide", () => {
  * error builders, so the assertion is that `validate` lists what `resolve` stops at.
  */
 describe("ambit validate: the project's own config", () => {
-  it("lists every mistyped held scope and every unknown explicit skill in one run", async () => {
-    await writeProfile(["core", "zeta.unknown", "alpha.unknown"], ["skills:", "  - absent-skill"]);
+  it("lists every entry that matches nothing in one run, in document order", async () => {
+    await writeProfile(["core", "zeta.unknown", "alpha.unknown"]);
 
     const resolved = await cli("resolve");
     const found = await report("validate");
 
-    // `resolve` reports the alphabetically first offender and nothing else.
+    // `resolve` reports the alphabetically first offender and nothing else, so which one it names
+    // does not fall to the order the config happens to list them in.
     expect(resolved.code).toBe(ExitCode.Resolution);
-    expect(resolved.stderr).toContain('unknown scope "alpha.unknown"');
+    expect(resolved.stderr).toContain(`"tag:${CATALOG_NAME}/alpha.unknown" matches nothing`);
     expect(resolved.stderr).not.toContain("zeta.unknown");
 
+    // `validate` lists all of them, down the file the reader has open.
     expect(found.problems.map((problem) => problem.message)).toEqual([
-      `unknown scope "alpha.unknown" (ambit.yml line ${FIRST_SCOPE_LINE + 2})`,
-      `unknown scope "zeta.unknown" (ambit.yml line ${FIRST_SCOPE_LINE + 1})`,
-      `unknown skill "absent-skill" (ambit.yml line ${FIRST_SCOPE_LINE + 4})`,
+      `\`requires\` entry "tag:${CATALOG_NAME}/zeta.unknown" matches nothing (ambit.yml line ${FIRST_ENTRY_LINE + 1})`,
+      `\`requires\` entry "tag:${CATALOG_NAME}/alpha.unknown" matches nothing (ambit.yml line ${FIRST_ENTRY_LINE + 2})`,
     ]);
     expect(found.problems.map((problem) => problem.kind)).toEqual([
-      "unknown-scope",
-      "unknown-scope",
-      "unknown-skill",
+      "unmatched-pattern",
+      "unmatched-pattern",
     ]);
   });
 
@@ -518,7 +523,8 @@ describe("ambit validate: the project's own config", () => {
         "    source: path:../catalog",
         "  - name: local",
         "    source: path:.",
-        "scopes: [core]",
+        "requires:",
+        requiresEntry("core"),
         "",
       ].join("\n"),
       "utf8",
@@ -533,8 +539,8 @@ describe("ambit validate: the project's own config", () => {
     );
   });
 
-  it("reports nothing about a held scope some configured catalog's items declare", async () => {
-    await writeProfile(["core", "function.engineering", "project.acme"]);
+  it("reports nothing about an entry some configured catalog's items satisfy", async () => {
+    await writeProfile(["core", "function.engineering", "function.engineering.*", "project.acme"]);
 
     expect((await cli("validate")).code).toBe(ExitCode.Success);
   });

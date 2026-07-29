@@ -2,9 +2,9 @@
  * `ambit why <kind>:<name>` — explain why one item is in the bundle.
  *
  * The chain is the answer, not the reason on its own: being told a skill arrived through
- * `required-by:acme-brief` only moves the question one level up, and it is the held scope at the
- * far end that a reader can actually change. So this prints every link from the root cause down to
- * the item asked about.
+ * `required-by:acme-brief` only moves the question one level up, and it is the `requires` entry at
+ * the far end that a reader can actually change. So this prints every link from the root cause down
+ * to the item asked about.
  *
  * A bundle item is the only subject. An `expects` entry is not one: nothing provides an environment
  * variable, so there is no chain to walk and no selection to explain, and the question of whether the
@@ -42,8 +42,9 @@ import {
   reasonOf,
   resolveBundle,
 } from "../../resolution/resolve.js";
+import { CAPABILITY_OF_KIND, REQUIRES_KEY, entryYaml } from "../../model/pattern.js";
 import { parseSubject } from "../../model/reference.js";
-import { REQUIRES, requirementYaml } from "../../model/requirement.js";
+import { REQUIRES } from "../../model/requirement.js";
 
 /** How an item is named in messages, one entry per namespace so a fourth is a type error. */
 const SUBJECTS: Readonly<Record<ItemKind, string>> = {
@@ -86,28 +87,37 @@ function providers(
   }
 }
 
-/** How to get an item that exists into the bundle, given what it declares. */
-function selectionAdvice(item: BundleItem, tags: readonly string[]): string {
-  const hold = tags.length === 0 ? undefined : `hold one of its tags (${tags.join(", ")})`;
-  // A skill is the one namespace a project can name outright in a way resolution reaches by name;
-  // a server and a hook a *catalog* provides are reached by a scope or by a `requires` edge.
-  const otherwise =
-    item.kind === "skill"
-      ? "list it under `skills`"
-      : `have a selected skill require it, with \`${requirementYaml(item)}\``;
-
-  return hold === undefined ? otherwise : `${hold}, or ${otherwise}`;
+/**
+ * The `requires` entry that would select an item, written out for the reader to paste.
+ *
+ * By exact name and qualified with the catalog that provides it, because that is the one entry
+ * guaranteed to select this copy and nothing else: a tag entry would reach every other item carrying
+ * the label, and an unqualified address is not a spelling a project config has.
+ *
+ * One entry for one namespace, since `capabilities` is not defaulted — the item's own kind is the
+ * only member that could belong there.
+ */
+function selectionEntry(item: BundleItem, catalog: string): string {
+  return entryYaml({
+    field: "name",
+    pattern: item.name,
+    catalog,
+    capabilities: [CAPABILITY_OF_KIND[item.kind]],
+  });
 }
 
 /**
  * The error for an item one or more catalogs provide but nothing selects.
  *
  * Names every catalog it could have come from, so a reader knows the config is otherwise fine, and
- * says which tags would reach it rather than leaving them to be looked up. Only catalogs can be named
- * here: everything the config declares itself is selected outright, so it is never the unselected one.
+ * says which tags would reach it rather than leaving them to be looked up.
  *
- * The tags are the union across the copies, since holding any one of them selects at least one copy —
- * and if it selects two, the collision refusal at resolve is the better message for that.
+ * The advice is one entry, on the first providing catalog in merged order. There is only one route
+ * into a bundle now, so there is no second suggestion to make: a hook and a server are addressable
+ * exactly as a skill is, which is what folding the explicit list into `requires` bought.
+ *
+ * The tags are the union across the copies, since an entry on any one of them selects at least one
+ * copy — and if it selects two, the collision refusal at resolve is the better message for that.
  */
 function notSelected(
   item: BundleItem,
@@ -122,8 +132,9 @@ function notSelected(
   );
 
   return resolutionError(`${subject(item)} is not in the bundle`, [
-    `${provided}, but nothing ${config.origin.file} holds selects it`,
-    selectionAdvice(item, tags),
+    `${provided}, but no \`${REQUIRES_KEY}\` entry in ${config.origin.file} selects it`,
+    ...(tags.length === 0 ? [] : [`it declares tags: ${tags.join(", ")}`]),
+    `select it with \`${selectionEntry(item, entries[0]!.catalog)}\``,
   ]);
 }
 
@@ -169,20 +180,8 @@ function locate(
   throw notSelected(item, entries, config);
 }
 
-/**
- * The reason as `why` shows it: with the held scope too, when the item's tag is a different label and
- * the subtree rule did the rest.
- */
-function reasonLabel(reason: SelectionReason): string {
-  const label = formatReason(reason);
-  return reason.kind === "scope" && reason.held !== reason.tag
-    ? `${label} (held ${reason.held})`
-    : label;
-}
-
 function linkJson(link: ReasonedItem): Readonly<Record<string, unknown>> {
   return {
-    ...(link.reason.kind === "scope" && { held: link.reason.held }),
     kind: link.kind,
     name: link.name,
     reason: formatReason(link.reason),
@@ -204,7 +203,7 @@ function toText(item: BundleItem, chain: readonly ReasonedItem[]): readonly stri
     "",
     ...section(
       "chain",
-      chain.map((link) => [link.name, link.kind, reasonLabel(link.reason)]),
+      chain.map((link) => [link.name, link.kind, formatReason(link.reason)]),
     ),
   ];
 }

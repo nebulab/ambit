@@ -33,7 +33,7 @@ import { ExitCode } from "../../errors.js";
 import type { McpTransport } from "../../model/mcp-entity.js";
 import { keyed, printSections, section } from "../output.js";
 
-/** Stands in for an empty tag list, which means "not selectable by scope". */
+/** Stands in for an empty tag list, which means no `tag:` entry can reach the item. */
 const UNTAGGED = "-";
 
 function transportJson(transport: McpTransport): Readonly<Record<string, unknown>> {

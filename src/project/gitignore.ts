@@ -10,7 +10,7 @@
  * **Two files, because one of them is the volatile one.** Every installed skill is a path under
  * `.agents/`, so those go in `.agents/.gitignore` where a nested `.gitignore` can reach them — the
  * layout dotagents established, and the reason is that this is the list that changes. Narrow a
- * project's scopes and it churns; the project root's `.gitignore` should not churn with it, because
+ * project's `requires` list and it churns; the project root's `.gitignore` should not churn with it, because
  * that is a file people read. What stays at the root is what a nested file cannot express: git only
  * matches a pattern against paths beneath the `.gitignore` holding it, so `.ambit/` and the skills
  * link — `.claude/skills`, which belongs to a harness and not to this directory — have nowhere else

@@ -2,7 +2,7 @@
  * What a `requires` entry names: a catalog item that joins the bundle behind whatever required it.
  *
  * `requires` is a **closure** operator. `closeOverRequires` walks skill → skill to a fixpoint, pulling
- * every named item into the selection whether or not a held scope would ever have selected it. Its three
+ * every named item into the selection whether or not the project's own entries would have selected it. Its three
  * kinds are exactly the three catalog namespaces, and an entry nothing can satisfy is exit 3 naming the
  * catalog that should have provided it — the install refuses rather than producing a bundle that is
  * missing the half a skill said it could not work without.

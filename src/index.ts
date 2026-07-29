@@ -153,6 +153,28 @@ export {
 } from "./model/requirement.js";
 export type { ItemKind, Requirement } from "./model/requirement.js";
 export {
+  CAPABILITIES,
+  CAPABILITIES_KEY,
+  CAPABILITY_OF_KIND,
+  PATTERN_FIELDS,
+  REQUIRES_KEY,
+  entryAddress,
+  entryYaml,
+  formatEntry,
+  matches,
+  matchesPattern,
+  parseEntries,
+  sameEntry,
+  uniqueEntries,
+} from "./model/pattern.js";
+export type {
+  Addressing,
+  Capability,
+  PatternEntry,
+  PatternField,
+  PatternItem,
+} from "./model/pattern.js";
+export {
   EXPECTATION_KINDS,
   EXPECTATION_NOUNS,
   EXPECTS,
@@ -169,23 +191,21 @@ export type { Expectation, ExpectationKind, ExpectationSet } from "./model/expec
 
 // ── resolution — derive and verify the selected closure ───────────────────────────────────────
 export {
-  SCOPE_SEPARATOR,
+  assertEntriesMatch,
   assertNoCollisions,
-  assertScopesDeclared,
   closeOverRequires,
   cycleError,
-  declaredTags,
+  entryPosition,
   explainSelection,
   formatReason,
-  inSubtree,
   isSelected,
+  matchesAnything,
   missingRequirement,
   reasonOf,
   resolveBundle,
-  scopeSuggestion,
+  selectingEntry,
   skillFile,
-  unknownExplicitSkill,
-  unknownScopeError,
+  unmatchedEntryError,
 } from "./resolution/resolve.js";
 export type {
   Bundle,
@@ -305,7 +325,7 @@ export {
   writeGitignoreBlocks,
 } from "./project/gitignore.js";
 export type { GitignoreStatus, IgnoreBlock } from "./project/gitignore.js";
-export { INIT_FILENAME, INIT_SCOPE, initProject, scaffoldConfig } from "./project/init.js";
+export { INIT_FILENAME, initProject, scaffoldConfig } from "./project/init.js";
 export type { InitOptions, InitResult } from "./project/init.js";
 export {
   ADAPTERS,

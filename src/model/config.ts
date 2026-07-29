@@ -8,9 +8,9 @@
 import { stat } from "node:fs/promises";
 import path from "node:path";
 
-import type { AmbitError } from "../errors.js";
 import { at, configError } from "../errors.js";
-import type { PositionedString } from "./yaml.js";
+import type { Capability, PatternEntry, PatternField } from "./pattern.js";
+import { REQUIRES_KEY, entryYaml, parseEntries, uniqueEntries } from "./pattern.js";
 import { YamlMapping, parseYamlMapping, readYamlMapping } from "./yaml.js";
 
 /** The only config version this build understands. */
@@ -27,7 +27,7 @@ export const DEFAULT_HARNESSES: readonly string[] = ["claude"];
  */
 export const CONFIG_FILENAMES = ["ambit.yml", "ambit.yaml"] as const;
 
-const CONFIG_KEYS = ["catalogs", "harnesses", "scopes", "skills", "version"] as const;
+const CONFIG_KEYS = ["catalogs", "harnesses", REQUIRES_KEY, "version"] as const;
 const CATALOG_KEYS = ["name", "ref", "source"] as const;
 
 /** A catalog to fetch and parse. */
@@ -84,28 +84,121 @@ function assertNoInlineDefinitions(root: YamlMapping): void {
 }
 
 /**
- * The refusal for a `skills` entry that is a mapping rather than a bare name.
+ * The two keys a project used to select with, and the entry each of their members becomes.
  *
- * The mapping form carried the skill's own `source`, so a project could name one skill out of a
- * directory that was not a catalog at all. What replaces it is listing that directory in `catalogs:`
- * and leaving the bare name here — the same two steps every other definition takes, since a catalog
- * with one skill in it is a catalog.
+ * Both are gone in favour of one `requires:` list of patterns, and the rewrite is mechanical enough
+ * to print: a held scope selected all three namespaces by tag, and a `skills` entry selected one
+ * skill by name. So a refusal names the entry per line rather than describing the new grammar and
+ * leaving the reader to translate — which is the whole of the migration path, there being no
+ * compatibility reader.
  *
- * Positioned at `source` because that is the key that made the entry a definition; a mapping without
- * one is refused here too, and {@link YamlMapping.lineOf} falls back to the entry's own line.
+ * `subtree` marks the key whose members also reached everything *beneath* them. That rule is gone
+ * with the key, and a pattern says so explicitly, so the refusal has to mention the second entry a
+ * faithful rewrite needs.
  */
-function removedSourceSkill(entry: YamlMapping): AmbitError {
-  return entry.keyError("source", "a `skills` entry is a name, not a definition", [
-    "a skill is defined by a file: `skills/<name>/SKILL.md`, in the catalog that ships it",
-    "list the source in `catalogs:` under a name of its own, and leave the bare name in `skills:`",
-    `or move the skill into this project's own \`skills/\`, ${SELF_CATALOG_ADVICE}`,
-  ]);
+const REMOVED_SELECTION_KEYS: readonly {
+  readonly key: string;
+  /** How the message names one of the entries. */
+  readonly subject: string;
+  /** Which field of an item each member matched. */
+  readonly field: PatternField;
+  /** Which namespaces each member reached. */
+  readonly capabilities: readonly Capability[];
+  /** Whether a member also selected everything beneath it. */
+  readonly subtree: boolean;
+}[] = [
+  {
+    key: "scopes",
+    subject: "a held scope",
+    field: "tag",
+    capabilities: ["skills", "mcps", "hooks"],
+    subtree: true,
+  },
+  {
+    key: "skills",
+    subject: "a skill name",
+    field: "name",
+    capabilities: ["skills"],
+    subtree: false,
+  },
+];
+
+/** Stands in for a catalog alias the config does not name unambiguously. */
+const ALIAS_PLACEHOLDER = "<catalog>";
+
+/**
+ * The catalog aliases this config declares, for the rewrite a removed key's refusal prints.
+ *
+ * Read defensively rather than through {@link parseCatalogs}: a malformed `catalogs:` is refused on
+ * its own terms once the removed key is gone, and until then it should cost the message a concrete
+ * alias and nothing else.
+ */
+function catalogAliases(root: YamlMapping): readonly string[] {
+  try {
+    return (root.optionalMappingList("catalogs") ?? []).flatMap((entry) => {
+      const name = entry.optionalString("name");
+      return name === undefined ? [] : [name];
+    });
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Which alias a rewrite qualifies its patterns with.
+ *
+ * The one the config declares, when it declares exactly one — the case the migration note has in
+ * mind, since the alias is right there in the same file. With several there is nothing to pick with:
+ * a held scope reached every catalog at once, and which of them a given entry should now name is the
+ * reader's call, so the placeholder says so rather than guessing.
+ */
+function rewriteAlias(root: YamlMapping): string {
+  const aliases = catalogAliases(root);
+  return aliases.length === 1 ? aliases[0]! : ALIAS_PLACEHOLDER;
+}
+
+/**
+ * Refuses a top-level `scopes:` or `skills:`, naming the `requires` entry each member becomes.
+ *
+ * Runs before {@link YamlMapping.rejectUnknownKeys} for the same reason
+ * {@link assertNoInlineDefinitions} does: the generic message would say *unknown key* and list the
+ * accepted set, which reads as a typo and leaves a reader holding a selection that used to work.
+ */
+function assertNoRemovedSelection(root: YamlMapping): void {
+  for (const removed of REMOVED_SELECTION_KEYS) {
+    if (!root.has(removed.key)) continue;
+
+    const catalog = rewriteAlias(root);
+    const rewrites = (root.optionalPositionedStringList(removed.key) ?? []).map((entry) => {
+      const yaml = entryYaml({
+        field: removed.field,
+        pattern: entry.value,
+        catalog,
+        capabilities: removed.capabilities,
+      });
+      const where = entry.line === undefined ? "" : `line ${entry.line}: `;
+      return `${where}\`${entry.value}\` becomes \`${yaml}\``;
+    });
+
+    throw root.keyError(removed.key, `top-level \`${removed.key}\` is gone`, [
+      `a project selects by pattern now: one \`${REQUIRES_KEY}:\` list, each entry qualified with a \`catalogs:\` alias`,
+      ...rewrites,
+      ...(removed.subtree
+        ? [
+            `${removed.subject} also reached every tag beneath it; that is a second entry now, on \`${catalog}/<tag>.*\``,
+          ]
+        : []),
+      catalog === ALIAS_PLACEHOLDER
+        ? `rename the key to \`${REQUIRES_KEY}\`, qualifying each entry with the alias it should select from`
+        : `rename the key to \`${REQUIRES_KEY}\``,
+    ]);
+  }
 }
 
 /**
  * Where the config came from, and where inside it the values live that a later stage judges.
  *
- * Resolution runs long after parsing, so an error about a held scope has no YAML node left to
+ * Resolution runs long after parsing, so an error about a `requires` entry has no YAML node left to
  * point at — yet it still has to name the file and the line. This carries just
  * enough of the document's positions for that, keeping {@link ProjectConfig} itself a plain
  * object with no parser state hanging off it.
@@ -113,10 +206,14 @@ function removedSourceSkill(entry: YamlMapping): AmbitError {
 export interface ConfigOrigin {
   /** How the config file is named in messages — `ambit.yml` or `ambit.yaml`, project-relative. */
   readonly file: string;
-  /** 1-based line each held scope was written on, keyed by scope. */
-  readonly scopeLines: ReadonlyMap<string, number>;
-  /** 1-based line each `skills` entry was written on, keyed by skill name. */
-  readonly skillLines: ReadonlyMap<string, number>;
+  /**
+   * 1-based line each `requires` entry was written on, keyed by {@link entryYaml}.
+   *
+   * Keyed by the entry rendered whole rather than by {@link formatEntry}, which drops the capability
+   * list: two entries on two lines may share a field and an address and differ only in what they
+   * select, and a refusal about one of them must name its own line.
+   */
+  readonly entryLines: ReadonlyMap<string, number>;
 }
 
 /** A parsed, validated `ambit.yml`. */
@@ -125,8 +222,6 @@ export interface ProjectConfig {
   /** Positions for the errors raised after parsing. */
   readonly origin: ConfigOrigin;
   readonly harnesses: readonly string[];
-  /** Held scopes, exactly as listed — nothing is added implicitly. */
-  readonly scopes: readonly string[];
   /**
    * Catalogs to fetch and parse, in the order they were listed.
    *
@@ -135,8 +230,15 @@ export interface ProjectConfig {
    * the lock lists catalogs as inputs.
    */
   readonly catalogs: readonly CatalogRef[];
-  /** Names of skills wanted regardless of scope, each provided by one of the catalogs above. */
-  readonly skills: readonly string[];
+  /**
+   * What this project selects: pattern entries in the order they were written, literal duplicates
+   * dropped.
+   *
+   * Deduplicated here because an entry written twice is one selection and one finding — a pattern
+   * matching nothing is reported per entry, and reporting the same entry twice would be noise. The
+   * order is the document's, so nothing downstream has to sort to be deterministic.
+   */
+  readonly requires: readonly PatternEntry[];
 }
 
 /**
@@ -169,12 +271,6 @@ function nameTracker(
   };
 }
 
-/** A parsed config list, with the line each entry was written on for the errors raised later. */
-interface Positioned<T> {
-  readonly entries: readonly T[];
-  readonly lines: ReadonlyMap<string, number>;
-}
-
 function parseCatalogs(root: YamlMapping): readonly CatalogRef[] {
   const track = nameTracker(root.file, "catalog name", "give each catalog a distinct name");
   const catalogs: CatalogRef[] = [];
@@ -195,38 +291,41 @@ function parseCatalogs(root: YamlMapping): readonly CatalogRef[] {
   return catalogs;
 }
 
-function parseSkills(root: YamlMapping): Positioned<string> {
-  const track = nameTracker(root.file, "skills entry", "list each skill once");
-  const entries: string[] = [];
-  const lines = new Map<string, number>();
-
-  for (const entry of root.optionalEntryList("skills") ?? []) {
-    if (entry instanceof YamlMapping) throw removedSourceSkill(entry);
-    track(entry.value, entry.line);
-    if (entry.line !== undefined) lines.set(entry.value, entry.line);
-    entries.push(entry.value);
-  }
-
-  return { entries, lines };
+/** A `requires` list, with the line each surviving entry was written on. */
+interface Selection {
+  readonly entries: readonly PatternEntry[];
+  readonly lines: ReadonlyMap<string, number>;
 }
 
 /**
- * Where each held scope was written.
+ * The project's `requires` list, deduplicated, with each entry's line kept.
  *
- * A scope listed twice keeps the first line: that is the one a reader scanning downward finds,
- * and duplicates are harmless to resolution, which deduplicates them.
+ * The lines come from a second read of the same key rather than from
+ * {@link parseEntries}, which returns entries and not positions. Pairing them by index is exact:
+ * the parse maps one entry to one item of the sequence, in document order, so item *i* is where
+ * entry *i* was written. An entry repeated verbatim keeps the first line — that is the one a reader
+ * scanning downward finds, and the two are the same selection.
  */
-function scopeLines(scopes: readonly PositionedString[]): ReadonlyMap<string, number> {
+function parseSelection(root: YamlMapping): Selection {
+  const written = parseEntries(root, "qualified");
+  // Every item is a mapping by now: `parseEntries` refuses a bare pattern before returning.
+  const items = root.optionalEntryList(REQUIRES_KEY) ?? [];
+
   const lines = new Map<string, number>();
-  for (const entry of scopes) {
-    if (entry.line !== undefined && !lines.has(entry.value)) lines.set(entry.value, entry.line);
-  }
-  return lines;
+  written.forEach((entry, index) => {
+    const item = items[index];
+    const line = item instanceof YamlMapping ? item.line : undefined;
+    const key = entryYaml(entry);
+    if (line !== undefined && !lines.has(key)) lines.set(key, line);
+  });
+
+  return { entries: uniqueEntries(written), lines };
 }
 
 /** Validates a config mapping, whatever it was read from. */
 function fromMapping(root: YamlMapping): ProjectConfig {
   assertNoInlineDefinitions(root);
+  assertNoRemovedSelection(root);
   root.rejectUnknownKeys(CONFIG_KEYS);
 
   const version = root.requireInteger("version");
@@ -241,21 +340,15 @@ function fromMapping(root: YamlMapping): ProjectConfig {
   // order: a config with two problems should report the earlier key's, not whichever key the
   // object literal happens to mention first.
   const harnesses = root.optionalStringList("harnesses") ?? DEFAULT_HARNESSES;
-  const scopes = root.optionalPositionedStringList("scopes") ?? [];
   const catalogs = parseCatalogs(root);
-  const skills = parseSkills(root);
+  const selection = parseSelection(root);
 
   return {
     version,
-    origin: {
-      file: root.file,
-      scopeLines: scopeLines(scopes),
-      skillLines: skills.lines,
-    },
+    origin: { file: root.file, entryLines: selection.lines },
     harnesses,
-    scopes: scopes.map((entry) => entry.value),
     catalogs,
-    skills: skills.entries,
+    requires: selection.entries,
   };
 }
 

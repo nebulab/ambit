@@ -20,10 +20,6 @@
       "catalog": "company"
     }
   },
-  "scopes": [
-    "core",
-    "function.engineering"
-  ],
   "skills": {
     "code-review": {
       "catalog": "company",

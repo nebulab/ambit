@@ -57,7 +57,6 @@ function toJson(bundle: Bundle, explain: boolean): Readonly<Record<string, unkno
         };
       },
     ),
-    scopes: bundle.scopes,
     skills: keyed(
       bundle.skills,
       (skill) => skill.name,
@@ -80,10 +79,6 @@ function row(cells: readonly string[], why: string | undefined): readonly string
 
 function toText(bundle: Bundle, explain: boolean): readonly string[] {
   return [
-    ...section(
-      "scopes",
-      bundle.scopes.map((scope) => [scope]),
-    ),
     ...section(
       "skills",
       bundle.skills.map((skill) =>

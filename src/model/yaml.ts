@@ -223,9 +223,9 @@ export class YamlMapping {
   /**
    * The same sequence, each item paired with the line it was written on.
    *
-   * A rule enforced after parsing — a held scope no catalog's items declare, say — has no YAML node
-   * left to point at, and its error is still expected to name a line. Carrying the positions forward
-   * is cheaper and less fragile than reparsing the document to find them again.
+   * A rule enforced after parsing — a `requires` pattern no catalog's items match, say — has no YAML
+   * node left to point at, and its error is still expected to name a line. Carrying the positions
+   * forward is cheaper and less fragile than reparsing the document to find them again.
    */
   optionalPositionedStringList(key: string): readonly PositionedString[] | undefined {
     const items = this.sequence(key, "a sequence of strings");
@@ -258,17 +258,17 @@ export class YamlMapping {
   }
 
   /**
-   * A sequence whose items are each a string or a mapping — the shape `ambit.yml`'s `skills` reads,
-   * where only the string form is legal.
+   * A sequence whose items are each a string or a mapping — the shape `requires` reads, where only
+   * the mapping form is legal.
    *
-   * The mapping form is handed back rather than rejected here so its caller can refuse it with the
-   * rewrite it needs: `skills` once accepted an entry carrying its own `source`, and *must be a
-   * string* would read as a typo rather than as a form that was removed.
+   * The string form is handed back rather than rejected here so its caller can refuse it with the
+   * rewrite it needs: a bare pattern says neither which field it matches nor which capabilities it
+   * selects, and *must be a mapping* would read as a shape complaint rather than as the two missing
+   * declarations it is.
    *
-   * The string form carries its line for the same reason
-   * {@link YamlMapping.optionalPositionedStringList} does: an explicit skill no catalog provides
-   * is rejected long after this parse, and its error is still expected to name the
-   * line the name was written on.
+   * That form carries its line for the same reason
+   * {@link YamlMapping.optionalPositionedStringList} does: an entry is judged long after this parse,
+   * and its error is still expected to name the line it was written on.
    */
   optionalEntryList(key: string): readonly (PositionedString | YamlMapping)[] | undefined {
     const items = this.sequence(key, "a sequence of strings or mappings");
@@ -747,7 +747,7 @@ export function emitYaml(document: unknown): string {
  * - **No `sortMapEntries`.** Sorting would reorder keys ambit never touched, which is the reformatting
  *   an authoring command must not do. Keys keep the order the author wrote them in, and a key ambit
  *   adds lands at the end.
- * - **`flowCollectionPadding: false`**, so `scopes: [core]` does not come back as `scopes: [ core ]`.
+ * - **`flowCollectionPadding: false`**, so `tags: [core]` does not come back as `tags: [ core ]`.
  *   Without it, a no-op round trip of a hand-written flow sequence is a diff.
  */
 const EDIT_OPTIONS: ToStringOptions = {

@@ -53,16 +53,21 @@ let root: string;
 let catalogDir: string;
 let projectDir: string;
 
-/** Points the project at the fixture catalog and gives it `scopes`. */
-async function writeProfile(scopes: readonly string[]): Promise<void> {
-  const list = scopes.length === 0 ? "[]" : `\n${scopes.map((scope) => `  - ${scope}`).join("\n")}`;
+/** One `requires` entry, selecting everything in `catalog` that carries `tag`. */
+function requiresEntry(tag: string, catalog = CATALOG_NAME): string {
+  return `  - { tag: "${catalog}/${tag}", capabilities: [skills, mcps, hooks] }`;
+}
+
+/** Points the project at the fixture catalog and gives it a `requires` list. */
+async function writeProfile(tags: readonly string[]): Promise<void> {
+  const list = tags.length === 0 ? "[]" : `\n${tags.map((tag) => requiresEntry(tag)).join("\n")}`;
   await writeFile(
     path.join(projectDir, "ambit.yml"),
     `version: 1
 catalogs:
   - name: ${CATALOG_NAME}
     source: path:../catalog
-scopes: ${list}
+requires: ${list}
 `,
     "utf8",
   );
@@ -139,7 +144,7 @@ beforeEach(async () => {
   await mkdir(projectDir, { recursive: true });
   // Three skills — `function.engineering` also selects its nested frontend child — plus the
   // `scoped` http server, which declares that same scope.
-  await writeProfile(["core", "function.engineering"]);
+  await writeProfile(["core", "function.engineering", "function.engineering.*"]);
   // The scoped server interpolates this into a header, so what is on disk depends on it.
   vi.stubEnv(SCOPED_KEY_VAR, undefined);
 });
@@ -478,9 +483,9 @@ describe("ambit status after the profile narrows", () => {
 
   it("reports a single stale server key in a file whose other keys still match", async () => {
     // Both servers: `scoped` by scope, `fixture` through the project skill's `requires`.
-    await writeProfile(["function.engineering", "project.acme"]);
+    await writeProfile(["function.engineering", "function.engineering.*", "project.acme"]);
     expect((await cli("install")).code).toBe(ExitCode.Success);
-    await writeProfile(["function.engineering"]);
+    await writeProfile(["function.engineering", "function.engineering.*"]);
 
     expect(await detailOf(MCP_FILE)).toBe(`"mcpServers.${FIXTURE_MCP}" is no longer selected`);
     expect(await states()).toContain(`${MCP_FILE}=stale`);

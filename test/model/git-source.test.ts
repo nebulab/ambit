@@ -40,7 +40,7 @@ const CORE_SKILL = "company-context";
 const SKILLS_DIR = ".agents/skills";
 
 /** Selects three skills and the `scoped` server, so the comparison covers every artifact kind. */
-const SCOPES: readonly string[] = ["core", "function.engineering"];
+const TAGS: readonly string[] = ["core", "function.engineering", "function.engineering.*"];
 
 /** The variable the scoped server interpolates into a header; pinned so the file is predictable. */
 const SCOPED_KEY_VAR = "SCOPED_API_KEY";
@@ -55,7 +55,7 @@ let pathProject: string;
 /**
  * Writes a project pointing one catalog at `source`.
  *
- * @param extra further top-level config lines, appended after the scopes list.
+ * @param extra further top-level config lines, appended after the `requires` list.
  */
 async function writeProject(
   dir: string,
@@ -71,11 +71,16 @@ async function writeProject(
 catalogs:
   - name: ${CATALOG_NAME}
     source: ${source}
-${refLine}scopes:
-${SCOPES.map((scope) => `  - ${scope}`).join("\n")}
+${refLine}requires:
+${TAGS.map((tag) => requiresEntry(tag)).join("\n")}
 ${extra.map((line) => `${line}\n`).join("")}`,
     "utf8",
   );
+}
+
+/** One `requires` entry, selecting everything in `catalog` that carries `tag`. */
+function requiresEntry(tag: string, catalog = CATALOG_NAME): string {
+  return `  - { tag: "${catalog}/${tag}", capabilities: [skills, mcps, hooks] }`;
 }
 
 /** Runs the CLI against one project, collecting stdout and stderr. */

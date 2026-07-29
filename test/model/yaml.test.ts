@@ -40,54 +40,52 @@ function load(text: string) {
 describe("YAML loader", () => {
   it("reads a mapping into positioned, typed accessors", () => {
     const root = load(
-      ["version: 1", "name: acme", "scopes:", "  - core", "  - function.engineering", ""].join(
-        "\n",
-      ),
+      ["version: 1", "name: acme", "tags:", "  - core", "  - function.engineering", ""].join("\n"),
     );
 
     expect(root.file).toBe(FILE);
-    expect(root.keys()).toEqual(["version", "name", "scopes"]);
+    expect(root.keys()).toEqual(["version", "name", "tags"]);
     expect(root.requireInteger("version")).toBe(1);
     expect(root.optionalInteger("version")).toBe(1);
     expect(root.requireString("name")).toBe("acme");
-    expect(root.optionalStringList("scopes")).toEqual(["core", "function.engineering"]);
-    expect(root.lineOf("scopes")).toBe(3);
+    expect(root.optionalStringList("tags")).toEqual(["core", "function.engineering"]);
+    expect(root.lineOf("tags")).toBe(3);
   });
 
   it("treats an absent key as absent, not as a value", () => {
     const root = load("version: 1\n");
 
-    expect(root.has("scopes")).toBe(false);
-    expect(root.optionalString("scopes")).toBeUndefined();
-    expect(root.optionalInteger("scopes")).toBeUndefined();
-    expect(root.optionalStringList("scopes")).toBeUndefined();
-    expect(root.optionalMapping("scopes")).toBeUndefined();
-    expect(root.optionalMappingList("scopes")).toBeUndefined();
-    expect(root.optionalEntryList("scopes")).toBeUndefined();
+    expect(root.has("tags")).toBe(false);
+    expect(root.optionalString("tags")).toBeUndefined();
+    expect(root.optionalInteger("tags")).toBeUndefined();
+    expect(root.optionalStringList("tags")).toBeUndefined();
+    expect(root.optionalMapping("tags")).toBeUndefined();
+    expect(root.optionalMappingList("tags")).toBeUndefined();
+    expect(root.optionalEntryList("tags")).toBeUndefined();
   });
 
   it("distinguishes an empty sequence from an absent one", () => {
-    expect(load("scopes: []\n").optionalStringList("scopes")).toEqual([]);
+    expect(load("tags: []\n").optionalStringList("tags")).toEqual([]);
   });
 
   it("pairs each sequence item with its own line, block style and flow style alike", () => {
     // A rule enforced after parsing has no node left to point at, so the position has to come
     // out of the document with the value.
     expect(
-      load("scopes:\n  - core\n  - function.engineering\n").optionalPositionedStringList("scopes"),
+      load("tags:\n  - core\n  - function.engineering\n").optionalPositionedStringList("tags"),
     ).toEqual([
       { value: "core", line: 2 },
       { value: "function.engineering", line: 3 },
     ]);
-    expect(load("version: 1\nscopes: [core]\n").optionalPositionedStringList("scopes")).toEqual([
+    expect(load("version: 1\ntags: [core]\n").optionalPositionedStringList("tags")).toEqual([
       { value: "core", line: 2 },
     ]);
   });
 
   it("rejects a duplicate key, naming both lines", () => {
-    const error = rejection(() => load("version: 1\nscopes:\n  - core\nscopes:\n  - other\n"));
+    const error = rejection(() => load("version: 1\ntags:\n  - core\ntags:\n  - other\n"));
 
-    expect(error.format()).toContain(`duplicate key "scopes" (${FILE} line 4)`);
+    expect(error.format()).toContain(`duplicate key "tags" (${FILE} line 4)`);
     expect(error.format()).toContain("first defined on line 2");
   });
 
@@ -165,16 +163,16 @@ describe("YAML loader", () => {
     });
 
     it("names sequence items by index and suggests a pastable fix", () => {
-      const error = rejection(() => load("scopes:\n  - 1234\n").optionalStringList("scopes"));
+      const error = rejection(() => load("tags:\n  - 1234\n").optionalStringList("tags"));
 
-      expect(error.format()).toContain(`"scopes[0]" must be a string (${FILE} line 2)`);
+      expect(error.format()).toContain(`"tags[0]" must be a string (${FILE} line 2)`);
       expect(error.format()).toContain('quote it: `- "1234"`');
     });
   });
 
   describe("required and null values", () => {
     it("reports a missing required key", () => {
-      const error = rejection(() => load("scopes: [core]\n").requireString("name"));
+      const error = rejection(() => load("tags: [core]\n").requireString("name"));
 
       expect(error.format()).toContain(`missing required key "name" (${FILE} line 1)`);
       expect(error.format()).toContain("add `name:` with a value");
@@ -188,9 +186,9 @@ describe("YAML loader", () => {
     });
 
     it("rejects an explicit null on an optional key, pointing at omission instead", () => {
-      const error = rejection(() => load("scopes: ~\n").optionalStringList("scopes"));
+      const error = rejection(() => load("tags: ~\n").optionalStringList("tags"));
 
-      expect(error.format()).toContain(`"scopes" must not be null (${FILE} line 1)`);
+      expect(error.format()).toContain(`"tags" must not be null (${FILE} line 1)`);
       expect(error.format()).toContain("remove the key to take its default");
     });
 
@@ -204,11 +202,11 @@ describe("YAML loader", () => {
   describe("unknown keys", () => {
     it("rejects them, listing what is accepted", () => {
       const error = rejection(() =>
-        load("version: 1\nscope: core\n").rejectUnknownKeys(["scopes", "version"]),
+        load("version: 1\ntag: core\n").rejectUnknownKeys(["tags", "version"]),
       );
 
-      expect(error.format()).toContain(`unknown key "scope" (${FILE} line 2)`);
-      expect(error.format()).toContain("accepted keys: scopes, version");
+      expect(error.format()).toContain(`unknown key "tag" (${FILE} line 2)`);
+      expect(error.format()).toContain("accepted keys: tags, version");
     });
 
     it("labels a nested unknown key by its path", () => {
@@ -262,24 +260,28 @@ describe("YAML loader", () => {
     });
 
     it("reads a list of strings or mappings, positioning the bare names", () => {
-      const entries = load("skills:\n  - house-style\n  - name: two\n").optionalEntryList("skills");
+      const entries = load("requires:\n  - house-style\n  - name: two\n").optionalEntryList(
+        "requires",
+      );
 
       expect(entries?.[0]).toEqual({ value: "house-style", line: 2 });
       expect(entries?.[1]).toBeInstanceOf(YamlMapping);
     });
 
     it("rejects an entry that is neither a string nor a mapping", () => {
-      const error = rejection(() => load("skills:\n  - [nested]\n").optionalEntryList("skills"));
+      const error = rejection(() =>
+        load("requires:\n  - [nested]\n").optionalEntryList("requires"),
+      );
 
       expect(error.format()).toContain(
-        `"skills[0]" must be a string or a mapping (${FILE} line 2)`,
+        `"requires[0]" must be a string or a mapping (${FILE} line 2)`,
       );
     });
 
     it("rejects a scalar where a sequence belongs", () => {
-      const error = rejection(() => load("scopes: core\n").optionalStringList("scopes"));
+      const error = rejection(() => load("tags: core\n").optionalStringList("tags"));
 
-      expect(error.format()).toContain(`"scopes" must be a sequence of strings (${FILE} line 1)`);
+      expect(error.format()).toContain(`"tags" must be a sequence of strings (${FILE} line 1)`);
     });
 
     it("rejects a scalar where a mapping belongs", () => {
@@ -312,12 +314,12 @@ describe("YAML loader", () => {
 
     it("parses the block under the same rules as a file", () => {
       const root = frontmatter(
-        ["---", "name: close-crm", "scopes: [function.sales]", "---", "", "# Close", ""].join("\n"),
+        ["---", "name: close-crm", "tags: [function.sales]", "---", "", "# Close", ""].join("\n"),
       );
 
-      expect(root.keys()).toEqual(["name", "scopes"]);
+      expect(root.keys()).toEqual(["name", "tags"]);
       expect(root.requireString("name")).toBe("close-crm");
-      expect(root.optionalStringList("scopes")).toEqual(["function.sales"]);
+      expect(root.optionalStringList("tags")).toEqual(["function.sales"]);
     });
 
     it("reports lines of the document, not of the block", () => {
@@ -335,7 +337,7 @@ describe("YAML loader", () => {
         `duplicate key "name" (${DOC} line 3)`,
       );
 
-      const tabbed = ["---", "scopes:", "\t- core", "---", ""].join("\n");
+      const tabbed = ["---", "tags:", "\t- core", "---", ""].join("\n");
       expect(rejection(() => frontmatter(tabbed)).message).toContain("does not permit tabs");
     });
 
@@ -393,13 +395,13 @@ describe("YAML loader", () => {
     });
 
     it("reads a file and names it as asked in errors", async () => {
-      const target = path.join(dir, "scopes.yml");
-      await writeFile(target, "scopes:\n  core: {}\n", "utf8");
+      const target = path.join(dir, "entity.yml");
+      await writeFile(target, "tags:\n  core: {}\n", "utf8");
 
-      const root = await readYamlMapping(target, "scopes.yml");
+      const root = await readYamlMapping(target, "entity.yml");
 
-      expect(root.file).toBe("scopes.yml");
-      expect(root.keys()).toEqual(["scopes"]);
+      expect(root.file).toBe("entity.yml");
+      expect(root.keys()).toEqual(["tags"]);
     });
 
     it("reports an unreadable file as a config error", async () => {

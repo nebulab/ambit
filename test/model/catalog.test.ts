@@ -113,10 +113,14 @@ async function writeCollidingCatalog(name: string): Promise<void> {
  *
  * The order is only how the file reads: nothing resolves by it, since every catalog's copy of a name
  * survives the merge.
+ *
+ * @param requires entry lines, built with {@link requiresEntry}. Each carries its own qualifier,
+ *   because that is the whole of what makes two copies of one name individually addressable — and so
+ *   what makes reaching both of them a thing a config has to ask for on purpose.
  */
 async function writeCatalogOrder(
   extra: readonly string[],
-  scopes: readonly string[] = [],
+  requires: readonly string[] = [],
 ): Promise<void> {
   await writeConfig(
     [
@@ -125,10 +129,15 @@ async function writeCatalogOrder(
       `  - name: ${CATALOG_NAME}`,
       "    source: path:../catalog",
       ...extra.flatMap((name) => [`  - name: ${name}`, `    source: path:../${name}`]),
-      `scopes: [${scopes.join(", ")}]`,
+      ...(requires.length === 0 ? ["requires: []"] : ["requires:", ...requires]),
       "",
     ].join("\n"),
   );
+}
+
+/** One `requires` entry, selecting everything in `catalog` that carries `tag`. */
+function requiresEntry(tag: string, catalog = CATALOG_NAME): string {
+  return `  - { tag: "${catalog}/${tag}", capabilities: [skills, mcps, hooks] }`;
 }
 
 /** The merged view of whatever the project's config currently lists. */
@@ -450,7 +459,7 @@ transport:
   });
 
   it("ignores an `ambit.yml` at the catalog root, since a project may publish itself", async () => {
-    await writeCatalogFile("ambit.yml", "version: 1\nscopes: [core]\n");
+    await writeCatalogFile("ambit.yml", "version: 1\nrequires: []\n");
 
     const catalog = await parseCatalogDirectory(CATALOG_NAME, "path:../catalog", catalogDir);
 
@@ -622,7 +631,7 @@ describe("ambit dump-catalog", () => {
     expect(result.code).toBe(ExitCode.Success);
     expect(result.stdout).toContain(`${CATALOG_NAME}  path:../catalog`);
     // No registry section to print: the labels an item carries are shown on the item's own row.
-    expect(result.stdout).not.toContain("scopes");
+    expect(result.stdout).not.toContain("tags (");
     expect(result.stdout).toContain(`company-context  ${CATALOG_NAME}  core`);
     expect(result.stdout).toContain("acme-brief");
     expect(result.stdout).toContain("stdio: npx -y @acme/fixture-mcp");
@@ -630,7 +639,7 @@ describe("ambit dump-catalog", () => {
   });
 
   it("succeeds with nothing to dump when no catalogs are configured", async () => {
-    await writeConfig("version: 1\nscopes: [core]\n");
+    await writeConfig("version: 1\nrequires: []\n");
 
     const result = await cli("dump-catalog");
     expect(result.code).toBe(ExitCode.Success);
@@ -1298,8 +1307,10 @@ describe("multi-catalog merge", () => {
   });
 
   it("refuses a selection that reaches both copies of a skill, naming both catalogs", async () => {
+    // Two entries, one per catalog: reaching both copies is something a qualified address makes a
+    // project ask for deliberately, which is exactly why refusing it is not second-guessing anyone.
     await writeCollidingCatalog(SECOND);
-    await writeCatalogOrder([SECOND], ["core"]);
+    await writeCatalogOrder([SECOND], [requiresEntry(CORE_TAG), requiresEntry(CORE_TAG, SECOND)]);
 
     const result = await cli("resolve");
 
@@ -1310,7 +1321,7 @@ describe("multi-catalog merge", () => {
       "a harness reads one entry per name, so both copies would be installed at the same path",
     );
     expect(result.stderr).toContain(
-      "select only one copy: narrow what selects them, or drop the catalog that should not provide it",
+      "select only one copy: narrow a `requires` pattern, or drop the entry that reaches the other catalog",
     );
   });
 
@@ -1318,7 +1329,10 @@ describe("multi-catalog merge", () => {
     // `function.engineering` reaches the `scoped` server in both catalogs, and no skill twice — so
     // this is the namespace the refusal is reported for.
     await writeCollidingCatalog(SECOND);
-    await writeCatalogOrder([SECOND], ["function.engineering"]);
+    await writeCatalogOrder(
+      [SECOND],
+      [requiresEntry("function.engineering"), requiresEntry("function.engineering", SECOND)],
+    );
 
     const result = await cli("resolve");
 
@@ -1330,18 +1344,15 @@ describe("multi-catalog merge", () => {
     // A tag only the second catalog's own skill carries, so two catalogs are configured and nothing
     // collides. `--explain` ends at the reason: there is nothing left to say about which copy this is.
     await writeCollidingCatalog(SECOND);
-    await writeCatalogOrder([SECOND], ["person.jane"]);
+    await writeCatalogOrder([SECOND], [requiresEntry("person.jane", SECOND)]);
 
     const result = await cli("resolve", "--explain");
 
     expect(result.code, result.stderr).toBe(ExitCode.Success);
     expect(result.stdout).toBe(
       [
-        "scopes (1)",
-        "  person.jane",
-        "",
         "skills (1)",
-        `  ${OWN_SKILL}  ${SECOND}  scope:person.jane`,
+        `  ${OWN_SKILL}  ${SECOND}  tag:${SECOND}/person.jane`,
         "",
         "mcps (0)",
         "  (none)",
@@ -1357,7 +1368,7 @@ describe("multi-catalog merge", () => {
 
   it("carries nothing about other copies into `--explain --json`", async () => {
     await writeCollidingCatalog(SECOND);
-    await writeCatalogOrder([SECOND], ["person.jane"]);
+    await writeCatalogOrder([SECOND], [requiresEntry("person.jane", SECOND)]);
 
     const explained = JSON.parse((await cli("resolve", "--explain", "--json")).stdout) as {
       skills: Record<string, Record<string, unknown>>;
@@ -1369,7 +1380,7 @@ describe("multi-catalog merge", () => {
     expect(explained.skills[OWN_SKILL]).toEqual({
       catalog: SECOND,
       path: `skills/${OWN_SKILL}`,
-      reason: "scope:person.jane",
+      reason: `tag:${SECOND}/person.jane`,
     });
   });
 });

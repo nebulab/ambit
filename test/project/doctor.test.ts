@@ -82,16 +82,21 @@ let root: string;
 let catalogDir: string;
 let projectDir: string;
 
-/** Points the project at the fixture catalog and gives it `scopes`. */
-async function writeProfile(scopes: readonly string[]): Promise<void> {
-  const list = scopes.length === 0 ? "[]" : `\n${scopes.map((scope) => `  - ${scope}`).join("\n")}`;
+/** One `requires` entry, selecting everything in `catalog` that carries `tag`. */
+function requiresEntry(tag: string, catalog = CATALOG_NAME): string {
+  return `  - { tag: "${catalog}/${tag}", capabilities: [skills, mcps, hooks] }`;
+}
+
+/** Points the project at the fixture catalog and gives it a `requires` list. */
+async function writeProfile(tags: readonly string[]): Promise<void> {
+  const list = tags.length === 0 ? "[]" : `\n${tags.map((tag) => requiresEntry(tag)).join("\n")}`;
   await writeFile(
     path.join(projectDir, "ambit.yml"),
     `version: 1
 catalogs:
   - name: ${CATALOG_NAME}
     source: path:../catalog
-scopes: ${list}
+requires: ${list}
 `,
     "utf8",
   );
@@ -127,7 +132,7 @@ catalogs:
   - name: ${CATALOG_NAME}
     source: path:../catalog
 harnesses: [${harnesses.join(", ")}]
-scopes: ${hooks.length === 0 ? "[]" : `[${HOOK_TAG}]`}
+requires: ${hooks.length === 0 ? "[]" : `\n${requiresEntry(HOOK_TAG)}`}
 `,
     "utf8",
   );
@@ -197,7 +202,7 @@ beforeEach(async () => {
   await mkdir(projectDir, { recursive: true });
   // Three skills — `function.engineering` also selects its nested frontend child — plus the `scoped`
   // http server, which declares that same scope.
-  await writeProfile(["core", "function.engineering"]);
+  await writeProfile(["core", "function.engineering", "function.engineering.*"]);
 });
 
 afterEach(async () => {
@@ -608,7 +613,9 @@ describe("ambit doctor before an install", () => {
     const result = await cli("doctor");
 
     expect(result.code).toBe(ExitCode.Resolution);
-    expect(result.stderr).toContain('unknown scope "function.enginering"');
+    expect(result.stderr).toContain(
+      `\`requires\` entry "tag:${CATALOG_NAME}/function.enginering" matches nothing`,
+    );
     expect(result.stdout).toBe("");
   });
 });

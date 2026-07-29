@@ -110,10 +110,15 @@ harnesses: [${harnesses.join(", ")}]
 catalogs:
   - name: local
     source: path:.
-scopes: ${hooks.length === 0 ? "[]" : "[core]"}
+requires: ${hooks.length === 0 ? "[]" : `\n${requiresEntry("core", "local")}`}
 `,
     "utf8",
   );
+}
+
+/** One `requires` entry, selecting everything in `catalog` that carries `tag`. */
+function requiresEntry(tag: string, catalog = "local"): string {
+  return `  - { tag: "${catalog}/${tag}", capabilities: [skills, mcps, hooks] }`;
 }
 
 async function cli(
@@ -966,7 +971,8 @@ harnesses: [${harnesses.join(", ")}]
 catalogs:
   - name: company
     source: path:../catalog
-scopes: [core]
+requires:
+${requiresEntry("core", "company")}
 `,
       "utf8",
     );

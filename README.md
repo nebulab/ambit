@@ -6,8 +6,8 @@ All agent harnesses (Claude Code, Codex, Cursor, opencode, etc.) load skills, ho
 ambit makes picking them declarative:
 
 1. An ambit catalog declares the capabilities it offers (skills, hooks, and MCP servers).
-2. An ambit project declares the catalogs it wants to pull and the scopes it wants from each catalog.
-3. ambit resolves the scopes into a bundle and writes it into your harness's configuration.
+2. An ambit project declares the catalogs it wants to pull and, per catalog, the patterns it selects.
+3. ambit resolves those patterns into a bundle and writes it into your harness's configuration.
 
 ## Table of contents
 
@@ -67,24 +67,26 @@ byte-identical and reported as `kept`, which makes a second run a no-op.
 ```
 $ ambit init
 created ambit.yml
-next: add a catalog under `catalogs`, edit `scopes`, then run `ambit install`
+next: add a catalog under `catalogs`, then `requires` entries, then `ambit install`
 ```
 
-The scaffold holds `core` and no catalog, so `ambit install` fails until you point it at one. Add a
-catalog and list the scopes this project holds:
+The scaffold declares no catalog and selects nothing, so `ambit install` installs nothing until you
+point it at one. Add a catalog and say what to take from it:
 
 ```yaml
 version: 1
 harnesses: [claude]
 
-scopes:
-  - core
-  - function.engineering
-
 catalogs:
   - name: company
     source: acme/skills
     ref: main
+
+requires:
+  - tag: "company/function.engineering"
+    capabilities: [skills, mcps, hooks]
+  - name: "company/core.*"
+    capabilities: [skills]
 ```
 
 Then:
@@ -115,8 +117,8 @@ artifacts (5)
 | **Skill**           | A directory containing `SKILL.md`. Its name is its path under `skills/`, so `skills/close-crm/` is `close-crm`. A nested directory joins its segments with `.`. |
 | **MCP entity**      | A server definition in the catalog's `mcps/` directory.                                                                                                         |
 | **Hook**            | A directory containing `HOOK.yml`, named from its path under `hooks/` the way a skill is. It runs a command on one harness event.                               |
-| **Tag**             | A dotted, nestable label a catalog item carries, saying _who needs it_: `function.engineering`, `project.vision-group`, `person.jane-doe`. Free-form.           |
-| **Scope**           | A tag a project holds. Holding one selects every item tagged with it, or with anything beneath it.                                                              |
+| **Tag**             | A dotted label a catalog item carries, saying _who needs it_: `function.engineering`, `project.vision-group`, `person.jane-doe`. Free-form, registered nowhere. |
+| **Entry**           | One line of a project's `requires`: a field to match (`name` or `tag`), a glob to match it with, and the capabilities to match it against.                      |
 | **Project**         | A directory containing `ambit.yml`.                                                                                                                             |
 | **Bundle**          | The resolved set of skills, MCP servers and hooks for a project.                                                                                                |
 | **Harness adapter** | Code that writes a bundle into one agent tool's layout: `claude`, `codex`, `cursor`, `opencode`, `vscode`.                                                      |
@@ -130,13 +132,6 @@ artifacts (5)
 version: 1
 harnesses: [claude]
 
-# Scopes this project holds — each one a tag a catalog's items carry. Nothing is
-# implicit: list everything, including the tag everything shared carries.
-scopes:
-  - core
-  - function.engineering
-  - project.vision-group
-
 # Catalogs. The order carries no meaning: every catalog's items are addressable,
 # and none takes precedence over another.
 catalogs:
@@ -147,10 +142,18 @@ catalogs:
     source: git@github.com:jane/skills-private.git
     ref: main
 
-# Extra skills, regardless of scope. Each entry names a skill one of the catalogs
-# above provides; a name nothing provides is an error, not a silent miss.
-skills:
-  - luma
+# What this project selects. Nothing is implicit: an item no entry reaches is not
+# installed. Every entry declares both keys — the field, because
+# `function.engineering` is a plausible name prefix and a plausible tag, and
+# `capabilities`, because hooks execute. An address is `<catalog>/<pattern>`,
+# where the catalog is an alias from `catalogs:` above.
+requires:
+  - tag: "company/function.engineering"
+    capabilities: [skills, mcps, hooks]
+  - name: "company/core.*" # everything beneath the `core` name prefix
+    capabilities: [skills]
+  - name: "personal/luma" # one skill, exactly
+    capabilities: [skills]
 ```
 
 Every definition lives in a file a catalog holds: a skill in `skills/<name>/SKILL.md`, a server in
@@ -163,17 +166,17 @@ catalogs:
     source: path:. # this project's own skills/, mcps/, hooks/
 ```
 
-A top-level `mcps:` or `hooks:`, or a `skills:` entry carrying its own `source`, is refused rather
-than ignored, naming both halves of the rewrite: the file to move the definition into, and the
-`catalogs:` entry that makes it reachable.
+A top-level `mcps:` or `hooks:` is refused rather than ignored, naming both halves of the rewrite:
+the file to move the definition into, and the `catalogs:` entry that makes it reachable. A top-level
+`scopes:` or `skills:` is refused the same way, naming the `requires` entry each of its members
+becomes, per line — the catalog alias is in the same file, so the message prints something pasteable.
 
-| Field       | Type         | Required | Notes                                                                                                                                            |
-| ----------- | ------------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `version`   | int          | yes      | Must be `1`.                                                                                                                                     |
-| `harnesses` | string[]     | no       | Any of `claude`, `codex`, `cursor`, `opencode`, `vscode`. Default `[claude]`. An unknown name is an error naming the five.                       |
-| `scopes`    | string[]     | no       | Held scopes, exactly as listed. Nothing is added implicitly. Absent or empty means nothing is selected by scope, only explicit `skills` entries. |
-| `catalogs`  | list of maps | no       | `name`, `source`, `ref?`. `name` unique.                                                                                                         |
-| `skills`    | string[]     | no       | Names of skills the configured catalogs provide. A name nothing provides is an error.                                                            |
+| Field       | Type         | Required | Notes                                                                                                                                                                                |
+| ----------- | ------------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `version`   | int          | yes      | Must be `1`.                                                                                                                                                                         |
+| `harnesses` | string[]     | no       | Any of `claude`, `codex`, `cursor`, `opencode`, `vscode`. Default `[claude]`. An unknown name is an error naming the five.                                                           |
+| `catalogs`  | list of maps | no       | `name`, `source`, `ref?`. `name` unique.                                                                                                                                             |
+| `requires`  | list of maps | no       | Each entry: exactly one of `name`/`tag` carrying `<catalog>/<pattern>`, plus a non-empty `capabilities` drawn from `skills`, `mcps`, `hooks`. An entry matching nothing is an error. |
 
 **Source formats:** `owner/repo`, `owner/repo@ref` (GitHub shorthand), `https://github.com/owner/repo`,
 `git@host:owner/repo.git`, `git:<any-git-url>`, `path:./relative/dir`. A `@ref` shorthand that
@@ -195,12 +198,12 @@ ambit:
 ---
 ```
 
-| Key              | Type     | Required | Notes                                                                                                                                  |
-| ---------------- | -------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `ambit`          | map      | no       | Every annotation below. Absent means the skill declares nothing.                                                                       |
-| `ambit.tags`     | string[] | no       | Free-form labels a project selects on. Absent or empty: never selected by scope, reachable only via `requires` or an explicit listing. |
-| `ambit.requires` | map[]    | no       | One entry per requirement, each a single key naming its namespace: `skill:`, `mcp:`, or `hook:`.                                       |
-| `ambit.expects`  | map[]    | no       | One entry per precondition, each a single key naming its kind. Today: `env:`.                                                          |
+| Key              | Type     | Required | Notes                                                                                                                                |
+| ---------------- | -------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `ambit`          | map      | no       | Every annotation below. Absent means the skill declares nothing.                                                                     |
+| `ambit.tags`     | string[] | no       | Free-form labels a `tag:` entry selects on. Absent or empty: reachable by a `name:` entry or a `requires` edge, and by nothing else. |
+| `ambit.requires` | map[]    | no       | One entry per requirement, each a single key naming its namespace: `skill:`, `mcp:`, or `hook:`.                                     |
+| `ambit.expects`  | map[]    | no       | One entry per precondition, each a single key naming its kind. Today: `env:`.                                                        |
 
 A `requires` entry **declares** its namespace instead of encoding it in the name. The three namespaces
 are flat and independent, so a skill at `skills/mcp/sentry/SKILL.md` is legitimately named `mcp.sentry`
@@ -335,60 +338,64 @@ scope over as a tag on the items that declared it.
    `scopes.yml` → exit 2 naming the rewrite.
 4. **Merge catalogs.** Every catalog's copy of every skill, MCP and hook survives, identified by its
    catalog and its name. `catalogs:` order settles nothing — there is no precedence between them.
-5. **Expand held scopes.** For each held scope `s`, every tag any item declares that is equal to `s`
-   or begins with `s + "."`. A held scope whose whole subtree is empty → exit 3, suggesting the
-   nearest declared tag by edit distance.
-6. **Select by scope.** Any skill, MCP or hook with at least one declared tag in the expanded set.
-7. **Add explicit entries** from the config's `skills` — names, whatever tags the skills carry.
-8. **Close over `requires`** to a fixpoint. Each entry declares its own namespace, so a `mcp:` entry
+5. **Check every `requires` entry.** An entry no item satisfies → exit 3, naming the entry and the
+   config line it was written on. A qualifier no `catalogs:` alias answers to is reported as that
+   rather than as a pattern problem: the qualifier is an alias, so `*` is matched literally there.
+6. **Select by entry.** Any skill, MCP or hook whose capability the entry names, whose catalog it
+   qualified, and whose `name` or `tag` its pattern matches. An exact name is a pattern with no
+   wildcard, so naming one item and globbing a prefix are one operator.
+7. **Close over `requires`** to a fixpoint. Each entry declares its own namespace, so a `mcp:` entry
    resolves against MCP entities, a `hook:` entry against hooks, and a `skill:` entry against skills —
    nothing is read off the name. Servers and hooks are leaves: neither carries `requires`. Unresolvable
    → exit 3 naming the requirer and the missing target. A cycle → exit 3 printing the full cycle path.
-9. **Union `expects`** across every selected skill, server and hook, grouped by kind. Nothing is
+8. **Union `expects`** across every selected skill, server and hook, grouped by kind. Nothing is
    resolved here: an expectation names no catalog item, so the union is the list `doctor` later
    checks the machine against.
-10. **Refuse a collision.** Two selected items of one kind sharing a name → exit 3, naming both and
-    the catalog each came from. A harness's layout is flat — Claude reads `.claude/skills/<name>` — so
-    both copies would be installed at one path, and ambit will not choose one on the project's behalf.
-    Narrow what selects them, or drop the catalog that should not provide it.
-11. **Emit the bundle**, sorted by name.
+9. **Refuse a collision.** Two selected items of one kind sharing a name → exit 3, naming both and
+   the catalog each came from. A harness's layout is flat — Claude reads `.claude/skills/<name>` — so
+   both copies would be installed at one path, and ambit will not choose one on the project's behalf.
+   Narrow a `requires` pattern, or drop the entry that reaches the other catalog.
+10. **Emit the bundle**, sorted by name.
 
-### Scope inheritance
+### Glob rules
 
-**A held scope selects the tag itself and every tag beneath it. Descendants only.**
+**`*` matches any run of characters, including `.`, and may appear anywhere. A pattern with no `*` is
+an exact name.**
 
-Holding `function.engineering` selects things tagged `function.engineering` _and_
-`function.engineering.frontend`. Holding `function.engineering.frontend` selects only that subtree; it
-does **not** reach up to `function.engineering`.
+```
+company/core.*   ->  core.a, core.a.b        (NOT core)
+company/core     ->  core
+company/*        ->  the whole catalog
+```
 
-That rule is the whole resolver, and it runs over the tags items actually carry: nothing registers a
-label, so a tag one level deeper than anything a project foresaw is still reached by whichever held
-scope sits above it. Given a catalog whose items are tagged `core`, `function.engineering` and
-`function.engineering.frontend`, a project holding `function.engineering` gets both engineering
-skills, one directly and one from the nested tag:
+`core.*` says _`core`, a dot, then anything_, and `core` has no dot — so selecting a prefix **and** the
+item named exactly that takes two entries. The wildcard spans `.` because a dot in a name is a
+character and not a level: `core.*` reaches `core.a.b` in one entry, with no depth to agree with.
+
+The qualifier is not globbed. It is an alias from `catalogs:`, so `*/core` asks for a catalog literally
+named `*` and matches nothing — which is exit 3, naming the alias rather than the pattern.
+
+An entry that matches nothing is an error, not a silent miss: a typo'd or stale pattern would otherwise
+leave a bundle quietly missing what the config went out of its way to ask for.
+
+### Why an item is in the bundle
+
+Every selected item carries one reason: the entry that selected it, or the skill that required it.
+`resolve --explain` prints it in the entry's own words, minus the capability list — the namespace is
+already the section the row is in.
 
 ```
 $ ambit resolve --explain
-scopes (2)
-  core
-  function.engineering
-
 skills (3)
-  house-style  company  scope:core
-  code-review  company  scope:function.engineering
-  storybook    company  scope:function.engineering.frontend
+  house-style  company  tag:company/core
+  code-review  company  name:company/function.*
+  storybook    company  required-by:code-review
 ```
 
-A project holding only the child gets only the child:
-
-```
-$ ambit resolve
-scopes (1)
-  function.engineering.frontend
-
-skills (1)
-  storybook  company
-```
+The field is printed as well as the pattern, for the reason the grammar declares it: a reason that
+cannot say whether `company/function.engineering` matched a name or a tag is not an answer. Two entries
+reaching one item tie-break on sorted order. `ambit why <kind>:<name>` walks the `required-by` chain
+back to the entry at the end of it.
 
 ## CLI reference
 
@@ -434,15 +441,15 @@ maintained the way the rest of the repo is: with an editor, and with `ambit cata
 
 ### Exit codes
 
-| Code | Meaning                                                                    |
-| ---- | -------------------------------------------------------------------------- |
-| 0    | Success                                                                    |
-| 1    | Unexpected internal error                                                  |
-| 2    | Config or ownership error                                                  |
-| 3    | Resolution error: unknown scope, missing requirement, cycle, name conflict |
-| 4    | Network or cache error                                                     |
-| 5    | Drift detected (`status --check`, `install --frozen`)                      |
-| 6    | A health check found something (`doctor` failures)                         |
+| Code | Meaning                                                                                 |
+| ---- | --------------------------------------------------------------------------------------- |
+| 0    | Success                                                                                 |
+| 1    | Unexpected internal error                                                               |
+| 2    | Config or ownership error                                                               |
+| 3    | Resolution error: a pattern matching nothing, missing requirement, cycle, name conflict |
+| 4    | Network or cache error                                                                  |
+| 5    | Drift detected (`status --check`, `install --frozen`)                                   |
+| 6    | A health check found something (`doctor` failures)                                      |
 
 A usage error (an unknown flag, a missing argument) is exit 2 at any depth.
 
@@ -451,9 +458,9 @@ A usage error (an unknown flag, a missing argument) is exit 2 at any depth.
 Every error names the offending file, the offending identifier, and one concrete next step.
 
 ```
-error: unknown scope "function.enginering" (ambit.yml line 6)
-       no item in any configured catalog declares it, or anything beneath it
-       did you mean "function.engineering"?
+error: `requires` entry "tag:company/function.enginering" matches nothing (ambit.yml line 6)
+       no skill, MCP server or hook in catalog "company" declares a tag matching "function.enginering"
+       correct the pattern, tag an item with it (`ambit.tags`), or remove the entry
 
 error: requirement cycle
        alpha → beta → gamma → alpha

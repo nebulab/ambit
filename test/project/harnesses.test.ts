@@ -77,6 +77,11 @@ let root: string;
 let catalogDir: string;
 let projectDir: string;
 
+/** One `requires` entry, selecting everything in `catalog` that carries `tag`. */
+function requiresEntry(tag: string, catalog = "company"): string {
+  return `  - { tag: "${catalog}/${tag}", capabilities: [skills, mcps, hooks] }`;
+}
+
 async function writeProfile(harnesses: readonly string[]): Promise<void> {
   await writeFile(
     path.join(projectDir, "ambit.yml"),
@@ -85,9 +90,10 @@ harnesses: [${harnesses.join(", ")}]
 catalogs:
   - name: company
     source: path:../catalog
-scopes:
-  - core
-  - function.engineering
+requires:
+${requiresEntry("core")}
+${requiresEntry("function.engineering")}
+${requiresEntry("function.engineering.*")}
 `,
     "utf8",
   );
@@ -308,7 +314,8 @@ harnesses: [claude, codex]
 catalogs:
   - name: company
     source: path:../catalog
-scopes: [core]
+requires:
+${requiresEntry("core")}
 `,
       "utf8",
     );

@@ -86,16 +86,21 @@ let root: string;
 let catalogDir: string;
 let projectDir: string;
 
-/** Points the project at the fixture catalog and gives it `scopes`. */
-async function writeProfile(scopes: readonly string[]): Promise<void> {
-  const list = scopes.length === 0 ? "[]" : `\n${scopes.map((scope) => `  - ${scope}`).join("\n")}`;
+/** One `requires` entry, selecting everything in `catalog` that carries `tag`. */
+function requiresEntry(tag: string, catalog = CATALOG_NAME): string {
+  return `  - { tag: "${catalog}/${tag}", capabilities: [skills, mcps, hooks] }`;
+}
+
+/** Points the project at the fixture catalog and gives it a `requires` list. */
+async function writeProfile(tags: readonly string[]): Promise<void> {
+  const list = tags.length === 0 ? "[]" : `\n${tags.map((tag) => requiresEntry(tag)).join("\n")}`;
   await writeFile(
     path.join(projectDir, "ambit.yml"),
     `version: 1
 catalogs:
   - name: ${CATALOG_NAME}
     source: path:../catalog
-scopes: ${list}
+requires: ${list}
 `,
     "utf8",
   );
@@ -185,23 +190,23 @@ async function managedBlock(
 }
 
 /**
- * The lock a clean install of `scopes` writes, produced in a throwaway sibling project.
+ * The lock a clean install of `tags` writes, produced in a throwaway sibling project.
  *
  * The point of comparing against this rather than against a hand-written expectation is that it makes
  * the claim the fix is about: what a prune leaves behind is what install would have written for the
  * surviving set, not a document prune assembled by subtracting from the old one. The sibling sits
  * beside the project so its `path:../catalog` names the same fixture.
  */
-async function lockOfFreshInstall(scopes: readonly string[]): Promise<string> {
+async function lockOfFreshInstall(tags: readonly string[]): Promise<string> {
   const reference = await mkdtemp(path.join(root, "reference-"));
-  const list = scopes.length === 0 ? "[]" : `\n${scopes.map((scope) => `  - ${scope}`).join("\n")}`;
+  const list = tags.length === 0 ? "[]" : `\n${tags.map((tag) => requiresEntry(tag)).join("\n")}`;
   await writeFile(
     path.join(reference, "ambit.yml"),
     `version: 1
 catalogs:
   - name: ${CATALOG_NAME}
     source: path:../catalog
-scopes: ${list}
+requires: ${list}
 `,
     "utf8",
   );
@@ -230,7 +235,7 @@ beforeEach(async () => {
   await mkdir(projectDir, { recursive: true });
   // Three skills — `function.engineering` also selects its nested frontend child — plus the
   // `scoped` http server, which declares that same scope.
-  await writeProfile(["core", "function.engineering"]);
+  await writeProfile(["core", "function.engineering", "function.engineering.*"]);
   // The scoped server interpolates this into a header, so what is on disk depends on it.
   vi.stubEnv(SCOPED_KEY_VAR, undefined);
 });
@@ -314,7 +319,9 @@ describe("ambit prune", () => {
     expect(pruned).toBe(await lockOfFreshInstall(["core"]));
 
     // And it really did change — otherwise the assertion above would pass on a prune that wrote nothing.
-    expect(pruned).not.toBe(await lockOfFreshInstall(["core", "function.engineering"]));
+    expect(pruned).not.toBe(
+      await lockOfFreshInstall(["core", "function.engineering", "function.engineering.*"]),
+    );
     expect(pruned).not.toContain(FRONTEND_SKILL);
     expect(pruned).not.toContain(SCOPED_MCP);
   });

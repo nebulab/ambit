@@ -114,11 +114,16 @@ const CATALOG_NAME = "company";
 const CORE_SKILL = "company-context";
 
 /**
- * Enough held scopes to select every skill and server the fixture holds, so each surface has as much
- * to sort as it can. The fourth registered scope is a descendant of `function.engineering` and is
- * reached by the subtree rule rather than held.
+ * Enough tags to select every skill and server the fixture holds, so each surface has as much
+ * to sort as it can. The fourth is a descendant label of the third, which now takes an entry of its
+ * own — there is no subtree rule left to reach it implicitly.
  */
-const HELD_SCOPES = ["core", "function.engineering", "project.acme"];
+const SELECTED_TAGS = [
+  "core",
+  "function.engineering",
+  "function.engineering.frontend",
+  "project.acme",
+];
 
 /**
  * Three hooks written into the catalog copy this file owns, and the one `why` is asked about below.
@@ -200,7 +205,12 @@ let projectDir: string;
 let installed: Record<string, string>;
 let fixture: Record<string, string>;
 
-/** Points a project at a sibling `catalog/` directory and holds every scope the fixture declares. */
+/** One `requires` entry, selecting everything in `catalog` that carries `tag`. */
+function requiresEntry(tag: string, catalog = CATALOG_NAME): string {
+  return `  - { tag: "${catalog}/${tag}", capabilities: [skills, mcps, hooks] }`;
+}
+
+/** Points a project at a sibling `catalog/` directory and selects every tag the fixture declares. */
 async function writeProfile(dir: string): Promise<void> {
   await writeFile(
     path.join(dir, "ambit.yml"),
@@ -208,14 +218,14 @@ async function writeProfile(dir: string): Promise<void> {
 catalogs:
   - name: ${CATALOG_NAME}
     source: path:../catalog
-scopes:
-${HELD_SCOPES.map((scope) => `  - ${scope}`).join("\n")}
+requires:
+${SELECTED_TAGS.map((tag) => requiresEntry(tag)).join("\n")}
 `,
     "utf8",
   );
 }
 
-/** Adds {@link EXTRA_HOOKS} to the catalog, each tagged `core` so the project's scopes reach it. */
+/** Adds {@link EXTRA_HOOKS} to the catalog, each tagged `core` so the project's entries reach it. */
 async function writeExtraHooks(dir: string): Promise<void> {
   for (const [name, lines] of Object.entries(EXTRA_HOOKS)) {
     const target = path.join(dir, "hooks", name);

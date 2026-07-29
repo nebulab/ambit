@@ -144,9 +144,9 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
   },
   { name: "prune", summary: "remove owned artifacts not in the current bundle", mutating: true },
   { name: "clean", summary: "remove everything ambit owns", mutating: true },
-  // Everything this project configures: every catalog it lists, its own declarations, its own held
-  // scopes. A single catalog on its own terms is `ambit catalog validate`, which is a different
-  // subject rather than the same command under a flag.
+  // Everything this project configures: every catalog it lists, its own declarations, its own
+  // `requires` entries. A single catalog on its own terms is `ambit catalog validate`, which is a
+  // different subject rather than the same command under a flag.
   { name: "validate", summary: "validate everything this project configures, for CI" },
   { name: "doctor", summary: "check preconditions, drift, ownership" },
   // Last, because it is the whole of the catalog surface and no consumer reaches into it.

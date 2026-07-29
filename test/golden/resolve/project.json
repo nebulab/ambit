@@ -15,9 +15,6 @@
       "catalog": "company"
     }
   },
-  "scopes": [
-    "project.acme"
-  ],
   "skills": {
     "acme-brief": {
       "catalog": "company",

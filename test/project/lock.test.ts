@@ -39,25 +39,31 @@ let catalogDir: string;
 let projectDir: string;
 
 /**
- * Points the project at the fixture catalog and gives it `scopes`.
+ * Points the project at the fixture catalog and gives it a `requires` list.
  *
- * @param extra further top-level config lines, appended after the scopes list.
+ * @param entries further `requires` entry lines, for the shapes {@link requiresEntry} does not build.
  */
 async function writeProfile(
-  scopes: readonly string[],
-  extra: readonly string[] = [],
+  tags: readonly string[],
+  entries: readonly string[] = [],
 ): Promise<void> {
-  const list = scopes.length === 0 ? "[]" : `\n${scopes.map((scope) => `  - ${scope}`).join("\n")}`;
+  const written = [...tags.map((tag) => requiresEntry(tag)), ...entries];
+  const list = written.length === 0 ? "[]" : `\n${written.join("\n")}`;
   await writeFile(
     path.join(projectDir, "ambit.yml"),
     `version: 1
 catalogs:
   - name: ${CATALOG_NAME}
     source: ${CATALOG_SOURCE}
-scopes: ${list}
-${extra.map((line) => `${line}\n`).join("")}`,
+requires: ${list}
+`,
     "utf8",
   );
+}
+
+/** One `requires` entry, selecting everything in `catalog` that carries `tag`. */
+function requiresEntry(tag: string, catalog = CATALOG_NAME): string {
+  return `  - { tag: "${catalog}/${tag}", capabilities: [skills, mcps, hooks] }`;
 }
 
 /** Runs the CLI against the project, collecting stdout and stderr. */
@@ -126,7 +132,7 @@ beforeEach(async () => {
   projectDir = path.join(root, "project");
   await buildFixtureCatalog(catalogDir);
   await mkdir(projectDir, { recursive: true });
-  await writeProfile(["core", "function.engineering"]);
+  await writeProfile(["core", "function.engineering", "function.engineering.*"]);
 });
 
 afterEach(async () => {
@@ -149,27 +155,27 @@ describe("ambit.lock", () => {
         "  guard-secrets:",
         `    catalog: ${CATALOG_NAME}`,
         "    path: hooks/guard-secrets",
-        "    reason: scope:function.engineering",
+        `    reason: tag:${CATALOG_NAME}/function.engineering`,
         "  session-notes:",
         `    catalog: ${CATALOG_NAME}`,
-        "    reason: scope:core",
+        `    reason: tag:${CATALOG_NAME}/core`,
         "mcps:",
         "  scoped:",
         `    catalog: ${CATALOG_NAME}`,
-        "    reason: scope:function.engineering",
+        `    reason: tag:${CATALOG_NAME}/function.engineering`,
         "skills:",
         `  ${ENGINEERING_SKILL}:`,
         `    catalog: ${CATALOG_NAME}`,
         "    path: skills/code-review",
-        "    reason: scope:function.engineering",
+        `    reason: tag:${CATALOG_NAME}/function.engineering`,
         `  ${CORE_SKILL}:`,
         `    catalog: ${CATALOG_NAME}`,
         "    path: skills/company-context",
-        "    reason: scope:core",
+        `    reason: tag:${CATALOG_NAME}/core`,
         `  ${FRONTEND_SKILL}:`,
         `    catalog: ${CATALOG_NAME}`,
         "    path: skills/design-tokens",
-        "    reason: scope:function.engineering.frontend",
+        `    reason: tag:${CATALOG_NAME}/function.engineering.*`,
         "version: 1",
         "",
       ].join("\n"),
@@ -213,14 +219,21 @@ describe("ambit.lock", () => {
   });
 
   it("records the reason each item was selected, in `--explain`'s form", async () => {
-    await writeProfile(["project.acme"], [`skills:`, `  - ${ENGINEERING_SKILL}`]);
+    await writeProfile(
+      ["project.acme"],
+      [`  - { name: "${CATALOG_NAME}/${ENGINEERING_SKILL}", capabilities: [skills] }`],
+    );
 
     await cli("install");
     const lock = parseYamlMapping(await readLock(), LOCK_FILENAME);
 
     const skills = lock.requireMapping("skills");
-    expect(skills.requireMapping(ENGINEERING_SKILL).requireString("reason")).toBe("explicit");
-    expect(skills.requireMapping(PROJECT_SKILL).requireString("reason")).toBe("scope:project.acme");
+    expect(skills.requireMapping(ENGINEERING_SKILL).requireString("reason")).toBe(
+      `name:${CATALOG_NAME}/${ENGINEERING_SKILL}`,
+    );
+    expect(skills.requireMapping(PROJECT_SKILL).requireString("reason")).toBe(
+      `tag:${CATALOG_NAME}/project.acme`,
+    );
     expect(skills.requireMapping(CORE_SKILL).requireString("reason")).toBe(
       `required-by:${PROJECT_SKILL}`,
     );
@@ -242,7 +255,7 @@ describe("ambit.lock", () => {
     // `LockMcp`'s shape, and `catalog` is all a reader needs to find the document.
     expect(entry.keys()).toEqual(["catalog", "reason"]);
     expect(entry.requireString("catalog")).toBe(CATALOG_NAME);
-    expect(entry.requireString("reason")).toBe("scope:core");
+    expect(entry.requireString("reason")).toBe(`tag:${CATALOG_NAME}/core`);
   });
 
   it("pins where a hook's bytes came from only when it ships a script", async () => {
@@ -279,7 +292,7 @@ describe("ambit.lock", () => {
     expect(shipping.requireString("catalog")).toBe(CATALOG_NAME);
     expect(shipping.requireString("path")).toBe("hooks/block-rm");
     expect(shipping.requireString("commit")).toBe("abc1234");
-    expect(shipping.requireString("reason")).toBe("scope:core");
+    expect(shipping.requireString("reason")).toBe(`tag:${CATALOG_NAME}/core`);
 
     // `npx --yes say done` is a command line, so the same catalog entry ships nothing and pins
     // nothing: a directory holding only the declaration that was already read has no bytes to record.

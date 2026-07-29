@@ -104,16 +104,18 @@ let catalogDir: string;
 let projectDir: string;
 
 /**
- * Points the project at the fixture catalog and gives it `scopes`.
+ * Points the project at the fixture catalog and gives it a `requires` list.
  *
- * @param extra further top-level config lines, a `skills` block among them.
+ * @param tags the tags to select by, each becoming one entry over all three capabilities.
+ * @param entries further `requires` entry lines, for the shapes {@link requiresEntry} does not build.
  */
 async function writeProfile(
-  scopes: readonly string[],
+  tags: readonly string[],
   harnesses?: readonly string[],
-  extra: readonly string[] = [],
+  entries: readonly string[] = [],
 ): Promise<void> {
-  const list = scopes.length === 0 ? "[]" : `\n${scopes.map((scope) => `  - ${scope}`).join("\n")}`;
+  const written = [...tags.map((tag) => requiresEntry(tag)), ...entries];
+  const list = written.length === 0 ? "[]" : `\n${written.join("\n")}`;
   const harnessLine = harnesses === undefined ? "" : `harnesses: [${harnesses.join(", ")}]\n`;
   await writeFile(
     path.join(projectDir, "ambit.yml"),
@@ -121,10 +123,15 @@ async function writeProfile(
 ${harnessLine}catalogs:
   - name: ${CATALOG_NAME}
     source: path:../catalog
-scopes: ${list}
-${extra.map((line) => `${line}\n`).join("")}`,
+requires: ${list}
+`,
     "utf8",
   );
+}
+
+/** One `requires` entry, selecting everything in `catalog` that carries `tag`. */
+function requiresEntry(tag: string, catalog = CATALOG_NAME): string {
+  return `  - { tag: "${catalog}/${tag}", capabilities: [skills, mcps, hooks] }`;
 }
 
 /** Runs the CLI against the project, collecting stdout and stderr. */
@@ -258,7 +265,7 @@ beforeEach(async () => {
   await mkdir(projectDir, { recursive: true });
   // `function.engineering` also selects its nested frontend child, so this profile is three
   // skills — and the `scoped` MCP server, which declares that same scope.
-  await writeProfile(["core", "function.engineering"]);
+  await writeProfile(["core", "function.engineering", "function.engineering.*"]);
   // What lands in `.mcp.json` depends on the environment, so every test pins it rather
   // than inheriting whatever the developer's shell exports.
   vi.stubEnv(SCOPED_KEY_VAR, undefined);
@@ -615,7 +622,7 @@ describe("how a skill's source reaches its target", () => {
 
 describe(".mcp.json", () => {
   /** The scoped server matches this profile by scope; `fixture` only arrives via `requires`. */
-  const BOTH_SERVERS = ["function.engineering", "project.acme"];
+  const BOTH_SERVERS = ["function.engineering", "function.engineering.*", "project.acme"];
 
   const SCOPED_SERVER = {
     type: "http",
@@ -930,7 +937,8 @@ describe("a project as its own catalog", () => {
         "    source: path:../catalog",
         "  - name: local",
         "    source: path:.",
-        `scopes: [${OWN_TAG}]`,
+        "requires:",
+        requiresEntry(OWN_TAG, "local"),
         "",
       ].join("\n"),
       "utf8",
@@ -1250,7 +1258,7 @@ describe("ownership", () => {
   it("does not read owning one skill as permission to overwrite another", async () => {
     await writeProfile(["core"]);
     expect((await cli("install")).code).toBe(ExitCode.Success);
-    await writeProfile(["core", "function.engineering"]);
+    await writeProfile(["core", "function.engineering", "function.engineering.*"]);
     const target = path.join(projectDir, SKILLS_DIR, ENGINEERING_SKILL);
     await mkdir(target, { recursive: true });
     await writeFile(path.join(target, "SKILL.md"), HANDWRITTEN, "utf8");
@@ -1349,7 +1357,7 @@ describe("ownership", () => {
  */
 describe("pruning", () => {
   /** A profile holding both servers, so narrowing to `WIDE` leaves one of them stale. */
-  const BOTH_SERVERS = ["function.engineering", "project.acme"];
+  const BOTH_SERVERS = ["function.engineering", "function.engineering.*", "project.acme"];
   const PROJECT_SKILL = "acme-brief";
   const HANDMADE_SKILL = "hand-written";
 
@@ -1410,7 +1418,7 @@ describe("pruning", () => {
   it("removes only the server keys the new bundle dropped", async () => {
     await writeProfile(BOTH_SERVERS);
     await cli("install");
-    await writeProfile(["function.engineering"]);
+    await writeProfile(["function.engineering", "function.engineering.*"]);
 
     const result = await cli("install");
     expect(result.code, result.stderr).toBe(ExitCode.Success);
@@ -1480,8 +1488,10 @@ describe("pruning", () => {
     expect(await tree(SKILLS_DIR)).toContain(`${HANDMADE_SKILL}/SKILL.md`);
   });
 
-  it("removes an explicitly declared skill once the declaration goes", async () => {
-    await writeProfile([], undefined, ["skills:", `  - ${PROJECT_SKILL}`]);
+  it("removes a skill an entry named once the entry goes", async () => {
+    await writeProfile([], undefined, [
+      `  - { name: "${CATALOG_NAME}/${PROJECT_SKILL}", capabilities: [skills] }`,
+    ]);
     await cli("install");
     // The project skill requires the core skill and `mcp.fixture`, so dropping it drops all three.
     expect(await installedSkills()).toEqual([PROJECT_SKILL, CORE_SKILL]);

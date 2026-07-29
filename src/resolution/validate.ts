@@ -11,15 +11,15 @@
  *
  * What is *not* checked is a tag: nothing registers one, so a misspelled tag inside a catalog is
  * indistinguishable from a new one and there is nowhere to put the check. Only the consumer-side
- * direction still fails — a held scope nothing declares, below.
+ * direction still fails — a `requires` entry that matches nothing, below.
  *
  * Problems are **collected, not thrown**. A CI run that reports the first of six costs six runs to
  * clear, which is what makes a validator people stop trusting. The command prints the list and
  * exits 3 once, at the end.
  *
- * The messages are the same builders resolution throws — `unknownScopeError`,
- * `missingRequirement`, `cycleError`, `unknownExplicitSkill` — so a problem reads identically
- * whether it was listed here or raised there, and neither can drift into its own phrasing.
+ * The messages are the same builders resolution throws — `unmatchedEntryError`,
+ * `missingRequirement`, `cycleError` — so a problem reads identically whether it was listed here or
+ * raised there, and neither can drift into its own phrasing.
  *
  * One boundary is deliberate. A catalog that does not **parse** is still exit 2 at the first
  * error: there is no useful semantic report about a document ambit cannot read. The one exception is
@@ -44,29 +44,31 @@ import {
 import type { ProjectConfig } from "../model/config.js";
 import { loadProjectConfig } from "../model/config.js";
 import type { AmbitError } from "../errors.js";
-import { at } from "../errors.js";
 import type { ItemKind } from "../model/requirement.js";
 import { sortedUniqueRequirements } from "../model/requirement.js";
 import {
   cycleError,
-  declaredTags,
-  inSubtree,
+  entryPosition,
+  matchesAnything,
   missingRequirement,
-  unknownExplicitSkill,
-  unknownScopeError,
+  unmatchedEntryError,
 } from "./resolve.js";
 import type { SourceContext } from "../model/sources.js";
 
 /**
  * What kind of problem a report entry is, so `--json` can be filtered without parsing prose.
  *
- * The three a catalog can hold, plus the two a project's own config contributes: a held scope nothing
- * declares, and a `skills` entry nothing provides. Those two are already resolution errors —
- * `validate` is where they are all listed at once instead of one per run.
+ * The three a catalog can hold, plus the one a project's own config contributes: a `requires` entry
+ * that matches nothing. That one is already a resolution error — `validate` is where every offender
+ * is listed at once instead of one per run.
  *
- * A name two catalogs provide is deliberately *not* one of them any more. It is a problem only where
- * a project selects both copies, which is resolution's judgement to make and not a fact about a
- * catalog — see `assertNoCollisions`.
+ * One kind covers what used to be two, `unknown-scope` and `unknown-skill`, because there is one
+ * grammar now: an exact name is a pattern with no wildcard, so a misspelled name and a stale glob are
+ * the same finding and the message names which entry it is about.
+ *
+ * A name two catalogs provide is deliberately *not* one of them. It is a problem only where a project
+ * selects both copies, which is resolution's judgement to make and not a fact about a catalog — see
+ * `assertNoCollisions`.
  *
  * Each kind names a *class* of problem rather than a namespace: a dangling `requires` on a hook is the
  * same finding it is on a skill, and the message already names which of the three the offender is. So a
@@ -75,8 +77,7 @@ import type { SourceContext } from "../model/sources.js";
 export const VALIDATION_PROBLEM_KINDS = [
   "cycle",
   "name-mismatch",
-  "unknown-scope",
-  "unknown-skill",
+  "unmatched-pattern",
   "unresolvable-requirement",
 ] as const;
 
@@ -102,9 +103,9 @@ export interface ValidationReport {
   readonly checked: ValidationCounts;
   /**
    * Every problem found, in a fixed order: the catalog's own integrity first — name mismatches,
-   * unresolvable requirements, cycles — then how the project uses it. Within each
-   * check, findings are in name order, so the report is a function of the catalog's contents and not
-   * of the order anything was read in.
+   * unresolvable requirements, cycles — then how the project uses it. Within each check, findings
+   * are in name order, or in document order where the subject is the project's own list, so the
+   * report is a function of the inputs and not of the order anything was read in.
    */
   readonly problems: readonly ValidationProblem[];
 }
@@ -118,10 +119,6 @@ function compare(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
-function sortedUnique(values: readonly string[]): readonly string[] {
-  return [...new Set(values)].sort(compare);
-}
-
 /** Wraps what would have been thrown as what is listed instead. */
 function problem(kind: ValidationProblemKind, error: AmbitError): ValidationProblem {
   return { kind, message: error.message, detail: error.detail };
@@ -129,7 +126,7 @@ function problem(kind: ValidationProblemKind, error: AmbitError): ValidationProb
 
 /**
  * Every `requires` entry no catalog can satisfy — across the whole catalog, not only the closure a
- * project's scopes reach.
+ * project's own entries reach.
  *
  * "Provided" is a question about the name, since that is all a `requires` entry names: an entry is
  * satisfied if any catalog provides its target. Two catalogs shipping copies of one broken skill
@@ -232,40 +229,28 @@ function cycleProblems(merged: MergedCatalog): readonly ValidationProblem[] {
 }
 
 /**
- * What a project's own config contributes: held scopes nothing declares, and `skills` entries
- * nothing provides.
+ * What a project's own config contributes: every `requires` entry no item satisfies.
  *
- * Both are already exit-3 resolution errors. Listing them is the point — a config naming four
- * mistyped scopes costs four `resolve` runs to find and one `validate` run.
+ * Already an exit-3 resolution error, which stops at the first offender. Listing them all is the
+ * point — a config holding four mistyped entries costs four `resolve` runs to find and one
+ * `validate` run.
+ *
+ * In the order the entries were written, so the report reads down the file the reader has open. That
+ * is a function of the config alone, which is all determinism asks for here; resolution sorts instead
+ * because it reports one of them and the choice must not fall to incidental ordering.
  */
 function configProblems(
   config: ProjectConfig,
   merged: MergedCatalog,
 ): readonly ValidationProblem[] {
-  const problems: ValidationProblem[] = [];
-
-  const declared = declaredTags(merged);
-  for (const scope of sortedUnique(config.scopes)) {
-    if (declared.some((tag) => inSubtree(scope, tag))) continue;
-    problems.push(
+  return config.requires
+    .filter((entry) => !matchesAnything(entry, merged))
+    .map((entry) =>
       problem(
-        "unknown-scope",
-        unknownScopeError(
-          scope,
-          at(config.origin.file, config.origin.scopeLines.get(scope)),
-          declared,
-        ),
+        "unmatched-pattern",
+        unmatchedEntryError(entry, entryPosition(config, entry), merged.catalogs),
       ),
     );
-  }
-
-  const provided = new Set(merged.skills.map((skill) => skill.name));
-  for (const name of sortedUnique(config.skills)) {
-    if (provided.has(name)) continue;
-    problems.push(problem("unknown-skill", unknownExplicitSkill(name, config)));
-  }
-
-  return problems;
 }
 
 export interface ValidateOptions {
@@ -314,8 +299,7 @@ function collector(parsed: ValidationProblem[]): CatalogParseOptions {
 }
 
 /**
- * Validates everything a project configures: every catalog it lists, and its own held scopes and
- * `skills` entries.
+ * Validates everything a project configures: every catalog it lists, and its own `requires` entries.
  *
  * Runs the same pipeline `resolve` does, minus resolution itself — one merged catalog, built the one
  * way there is to build one, so every finding here is a finding `resolve` would raise.

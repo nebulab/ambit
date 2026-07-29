@@ -2,8 +2,8 @@
  * Validation, for CI — one report in two commands, because there are two subjects to validate.
  *
  * `ambit validate` validates everything a project configures: every catalog it lists, its own
- * declarations, and its own held scopes. `ambit catalog validate` validates one catalog directory on
- * its own terms and reads no `ambit.yml`, since a catalog repo has none.
+ * declarations, and its own `requires` entries. `ambit catalog validate` validates one catalog
+ * directory on its own terms and reads no `ambit.yml`, since a catalog repo has none.
  *
  * They were one command with a `--catalog <dir>` flag that switched which of the two it meant, which
  * put a project flag and a catalog flag on the same command and left `--offline` accepted on a run

@@ -4,13 +4,14 @@
  * Two claims carry this suite, and neither is about the prose. The first is that the scaffold is
  * *emitted*: strip its comments and what is left must be byte-identical to what {@link emitYaml}
  * produces from the same values, so the file cannot drift into an unsorted key or an unquoted value
- * and cannot stop being byte-stable between runs. The second is that it still teaches the
- * selection rule — a scaffold holding `core` without saying why is a scaffold someone
- * deletes the line from.
+ * and cannot stop being byte-stable between runs — and that holds for the commented-out blocks too,
+ * which must be valid config the moment the `# ` comes off. The second is that it still teaches the
+ * entry grammar, which is the part that costs a bundle when it goes missing.
  *
  * The prose itself is deliberately not pinned. It is documentation, free to be reworded; what is
- * pinned is that a comment adjacent to `scopes` says nothing is implicit and that selection is
- * descendants-only, which is the part that costs a bundle when it goes missing.
+ * pinned is that a comment adjacent to `requires` says nothing is implicit and explains the glob
+ * rule, and that the scaffold selects nothing — an entry matching nothing is exit 3, so a fresh
+ * project must hold none.
  */
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -19,17 +20,25 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { parseProjectConfig } from "../../src/model/config.js";
 import { ExitCode } from "../../src/errors.js";
-import { INIT_FILENAME, INIT_SCOPE, scaffoldConfig } from "../../src/project/init.js";
+import { INIT_FILENAME, scaffoldConfig } from "../../src/project/init.js";
 import { run } from "../../src/cli/program.js";
 import { emitYaml } from "../../src/model/yaml.js";
 
 /** What the scaffold sets, stated here rather than imported so the test is an independent claim. */
-const SCAFFOLD_VALUES = { harnesses: ["claude"], scopes: ["core"], version: 1 };
+const SCAFFOLD_VALUES = { harnesses: ["claude"], version: 1 };
 
-/** The same with the commented-out `catalogs` example uncommented, which is what a reader does. */
-const WITH_CATALOG = {
+/** The commented-out `requires` example, which selects nothing until a reader uncomments it. */
+const EXAMPLE_REQUIRES = [
+  { capabilities: ["skills", "mcps", "hooks"], tag: "company/function.engineering" },
+  { capabilities: ["skills"], name: "company/core.*" },
+];
+
+/** The scaffold with both commented-out examples uncommented, which is what a reader does. */
+const WITH_EXAMPLES = {
   catalogs: [{ name: "company", ref: "main", source: "acme/skills" }],
-  ...SCAFFOLD_VALUES,
+  harnesses: ["claude"],
+  requires: EXAMPLE_REQUIRES,
+  version: 1,
 };
 
 const OTHER_CONFIG = "ambit.yaml";
@@ -70,7 +79,7 @@ function values(text: string): string {
 function uncommented(text: string): string {
   return text
     .split("\n")
-    .map((line) => (/^# (?:catalogs:| )/.test(line) ? line.slice(2) : line))
+    .map((line) => (/^# (?:catalogs:|requires:| )/.test(line) ? line.slice(2) : line))
     .join("\n");
 }
 
@@ -106,8 +115,10 @@ describe("ambit init", () => {
     const config = parseProjectConfig(await readConfig(), INIT_FILENAME);
     expect(config.version).toBe(1);
     expect(config.harnesses).toEqual(["claude"]);
-    expect(config.scopes).toEqual([INIT_SCOPE]);
     expect(config.catalogs).toEqual([]);
+    // Nothing selected, which is what keeps `ambit validate` clean on a project nobody has pointed at
+    // a catalog yet: an entry matching nothing is exit 3.
+    expect(config.requires).toEqual([]);
   });
 
   it("is read by the commands that load a project, not merely by the parser", async () => {
@@ -127,13 +138,24 @@ describe("ambit init", () => {
     expect(values(await readConfig())).toBe(emitYaml(SCAFFOLD_VALUES));
   });
 
-  it("stays sorted when the commented-out catalogs example is uncommented", async () => {
+  it("stays sorted, and parses, when both commented-out examples are uncommented", async () => {
     await cli("init");
     const text = uncommented(await readConfig());
 
-    expect(values(text)).toBe(emitYaml(WITH_CATALOG));
-    expect(parseProjectConfig(text, INIT_FILENAME).catalogs).toEqual([
-      { name: "company", ref: "main", source: "acme/skills" },
+    expect(values(text)).toBe(emitYaml(WITH_EXAMPLES));
+
+    const config = parseProjectConfig(text, INIT_FILENAME);
+    expect(config.catalogs).toEqual([{ name: "company", ref: "main", source: "acme/skills" }]);
+    // The `requires` example quotes the alias the `catalogs` example declares, so uncommenting both
+    // leaves a config that agrees with itself.
+    expect(config.requires).toEqual([
+      {
+        field: "tag",
+        pattern: "function.engineering",
+        catalog: "company",
+        capabilities: ["skills", "mcps", "hooks"],
+      },
+      { field: "name", pattern: "core.*", catalog: "company", capabilities: ["skills"] },
     ]);
   });
 
@@ -153,14 +175,18 @@ describe("ambit init", () => {
     expect(first).toBe(scaffoldConfig());
   });
 
-  it("lists `core` under a comment explaining that nothing is implicit", async () => {
+  it("explains the entry grammar above the commented-out `requires` block", async () => {
     await cli("init");
     const text = await readConfig();
-    const comment = commentAbove(text, "scopes").join("\n");
+    const comment = commentAbove(text, "# requires").join("\n");
 
-    expect(text).toContain(`scopes:\n  - ${INIT_SCOPE}\n`);
+    // Commented, so the scaffold selects nothing; and the prose is where the two declarations and the
+    // glob rule are stated, since nothing warns about either at install time.
+    expect(text).toContain("# requires:");
+    expect(text).not.toMatch(/^requires:/m);
     expect(comment).toMatch(/nothing is implicit/i);
-    expect(comment).toMatch(/descendants only/i);
+    expect(comment).toMatch(/capabilities/);
+    expect(comment).toMatch(/not `core` itself/);
   });
 
   it("prints what it created and the one thing left to do", async () => {
@@ -169,7 +195,7 @@ describe("ambit init", () => {
     expect(result.stdout).toBe(
       [
         `created ${INIT_FILENAME}`,
-        "next: add a catalog under `catalogs`, edit `scopes`, then run `ambit install`",
+        "next: add a catalog under `catalogs`, then `requires` entries, then `ambit install`",
       ].join("\n"),
     );
   });

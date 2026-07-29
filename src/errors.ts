@@ -6,7 +6,7 @@ export const ExitCode = {
   Internal: 1,
   /** Config or ownership error. */
   Config: 2,
-  /** Resolution error — unknown scope, missing requirement, cycle, name conflict. */
+  /** Resolution error — a pattern matching nothing, a missing requirement, a cycle, a name conflict. */
   Resolution: 3,
   /** Network or cache error. */
   Network: 4,

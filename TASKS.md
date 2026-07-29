@@ -151,7 +151,7 @@ Unit-tested directly and imported by nothing. Nothing observable changes.
 
 ## 6. `requires:` replaces `scopes:` and `skills:`
 
-- [ ] A project selects by pattern, and the two selection routes become one.
+- [x] A project selects by pattern, and the two selection routes become one.
 
 Per §_Proposal_, §_Addressing: qualified in a project, unqualified in a catalog_ and §_Selection reasons_.
 

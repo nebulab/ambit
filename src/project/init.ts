@@ -2,18 +2,24 @@
  * `ambit init` — scaffold a project's `ambit.yml`.
  *
  * The scaffold is documentation as much as configuration. It is the one place a person meets the
- * selection rule at the moment it matters — while writing the `scopes` list — so the comments say
- * outright that nothing is implicit and that a held scope reaches downward only. Getting
- * that wrong yields a bundle quietly missing the company floor, and by design nothing warns about
- * it; the warning therefore has to live in the file itself.
+ * entry grammar at the moment it matters — while writing the `requires` list — so the comments say
+ * outright that both keys of an entry are declared and that a pattern is matched literally. Getting
+ * that wrong yields a bundle quietly missing what the config asked for, or a refusal whose cause is
+ * a character.
+ *
+ * `requires` is scaffolded **commented out**, unlike the `scopes` list it replaces, and the reason is
+ * the rule that replaced it: an entry matching nothing is exit 3, so any live entry here would fail
+ * on a project that has not been pointed at a catalog yet. An absent `requires` selects nothing and
+ * says so, which is the honest state of a fresh project.
  *
  * The bytes are *emitted*, not templated: the file is a list of {@link ScaffoldBlock}s rendered by
  * {@link renderScaffold}, so stripping the comments from the scaffold leaves exactly what ambit would
- * emit from the same values. `test/init.test.ts` pins that equivalence rather than a
+ * emit from the same values. `test/project/init.test.ts` pins that equivalence rather than a
  * golden copy of the prose, which is free to be reworded.
  *
- * The commented-out `catalogs` example is emitted the same way and then prefixed, so the one part of
- * the file a person is expected to uncomment cannot be malformed YAML.
+ * The commented-out `catalogs` and `requires` examples are emitted the same way and then prefixed, so
+ * the parts of the file a person is expected to uncomment cannot be malformed YAML — and the second
+ * quotes the alias the first declares, so uncommenting both leaves a config that agrees with itself.
  */
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -31,14 +37,8 @@ import { renderScaffold } from "../model/scaffold.js";
 /** The name `init` writes: the first of the two accepted config filenames. */
 export const INIT_FILENAME = CONFIG_FILENAMES[0];
 
-/**
- * The scope the scaffold holds.
- *
- * A convention, not a rule ambit knows: the resolver reserves no names, and a catalog where nothing
- * is tagged `core` rejects this one as a scope nothing declares. Scaffolding it anyway is deliberate
- * — the alternative is an empty `scopes` list, which selects nothing and teaches nothing about why.
- */
-export const INIT_SCOPE = "core";
+/** The alias the commented `catalogs` example declares, which the `requires` example qualifies with. */
+const EXAMPLE_CATALOG = "company";
 
 /**
  * The scaffold, block by block.
@@ -65,7 +65,7 @@ const BLOCKS: readonly ScaffoldBlock[] = [
       '`path:./relative/dir`. Quote a ref that looks like a number — `ref: "1234567"` — or YAML',
       "will read it as one.",
     ],
-    example: { catalogs: [{ name: "company", ref: "main", source: "acme/skills" }] },
+    example: { catalogs: [{ name: EXAMPLE_CATALOG, ref: "main", source: "acme/skills" }] },
   },
   {
     comment: [
@@ -81,18 +81,31 @@ const BLOCKS: readonly ScaffoldBlock[] = [
   },
   {
     comment: [
-      "The scopes this project holds — who this project is, in the catalog's terms.",
+      "What this project selects — who this project is, in its catalogs' terms.",
       "",
-      "Nothing is implicit. ambit reserves no scope names and adds nothing on its own, so a scope",
-      "that is not listed here selects nothing, however universal it looks. `core` is the",
-      "conventional tag for the material everyone needs, and it is scaffolded here because",
-      "forgetting it is the mistake that costs the most and warns the least.",
+      "Nothing is implicit: ambit adds nothing on its own, so an item no entry below reaches is not",
+      "installed, however universal it looks. An entry declares both of its keys and neither is",
+      "guessed — the field to match (`name` or `tag`), because `function.engineering` is a plausible",
+      "name prefix and a plausible tag, and `capabilities`, because hooks execute and an entry",
+      "written thinking about skills must not silently install one.",
       "",
-      "Each entry matches a tag a catalog's items carry, and every tag beneath it —",
-      "descendants only. Holding `function.engineering` also selects something tagged",
-      "`function.engineering.frontend`; holding the child does not reach back up to the parent.",
+      "An address is `<catalog>/<pattern>`, where the catalog is an alias from `catalogs:` above.",
+      "In a pattern, `*` matches any run of characters, including `.`, and a pattern without one is",
+      "an exact name. `core.*` matches `core.a` and `core.a.b` but not `core` itself, so selecting a",
+      "prefix and the item named exactly that takes two entries. `company/*` is the whole catalog.",
+      "",
+      "An entry that matches nothing is an error, not a silent miss — which is why this block is",
+      "commented out rather than scaffolded with an example entry that no catalog could satisfy.",
     ],
-    values: { scopes: [INIT_SCOPE] },
+    example: {
+      requires: [
+        {
+          tag: `${EXAMPLE_CATALOG}/function.engineering`,
+          capabilities: ["skills", "mcps", "hooks"],
+        },
+        { name: `${EXAMPLE_CATALOG}/core.*`, capabilities: ["skills"] },
+      ],
+    },
   },
   {
     comment: ["The config format version. `1` is the only one this build understands."],
