@@ -1,12 +1,14 @@
 /**
- * Full-catalog validation — `ambit validate` for a project, `ambit catalog validate` for one catalog
- * directory on its own terms. They are two commands over one report, so most cases here run the
- * project half and the catalog half is asserted where the subject is what differs: no `ambit.yml`
- * within reach.
+ * Full-catalog validation — `ambit validate`, one command over one subject.
+ *
+ * It was two: `ambit catalog validate` read one catalog directory on its own terms, because a catalog
+ * was not a project and had no `ambit.yml`. A catalog repo lists **itself** now, so the case that
+ * command existed for is a project like any other and is asserted here as one — see
+ * "a catalog repo, which lists itself".
  *
  * Two claims carry this suite. The first is the split from resolution: validation must find what
  * `resolve` deliberately ignores, so the broken-but-unselected cases assert *both* commands — exit 0
- * from one and exit 3 from the other, on the same catalog.
+ * from `resolve` and exit 3 from `validate`, on the same catalog.
  *
  * The second is that a CI command lists every problem. Each case that could stop at the first one
  * plants two problems and asserts both, because "exits 3" would pass either way and the whole point
@@ -168,18 +170,33 @@ async function cli(
   return { code, stdout: out.join("\n"), stderr: err.join("\n") };
 }
 
-/** The same, with no `--project` at all — how a catalog repo's CI invokes the command. */
-async function cliWithoutProject(
+/**
+ * The same, pointed at the catalog directory rather than at the project — how a catalog repo's CI
+ * invokes the command, once the repo carries the three-line `ambit.yml` that lists itself.
+ */
+async function cliInCatalogRepo(
   ...argv: readonly string[]
 ): Promise<{ code: ExitCode; stdout: string; stderr: string }> {
   const out: string[] = [];
   const err: string[] = [];
-  const code = await run([...argv], {
+  const code = await run([...argv, "--project", catalogDir], {
     cwd: root,
     stdout: (line) => out.push(line),
     stderr: (line) => err.push(line),
   });
   return { code, stdout: out.join("\n"), stderr: err.join("\n") };
+}
+
+/**
+ * Turns the fixture catalog into a catalog *repo*: the whole of what §_`ambit validate` validates the
+ * catalog too_ says such a repo carries, and what `ambit init` scaffolds. No `requires:` list at all.
+ */
+async function writeSelfListingConfig(): Promise<void> {
+  await writeFile(
+    path.join(catalogDir, "ambit.yml"),
+    ["version: 1", "catalogs:", "  - name: local", "    source: path:.", ""].join("\n"),
+    "utf8",
+  );
 }
 
 /** One problem's `kind`, `message`, and `detail`, as `--json` reports them. */
@@ -224,16 +241,32 @@ describe("ambit validate", () => {
     expect(result.stdout).toBe(CLEAN_REPORT);
   });
 
-  it("validates a catalog directory with no project config anywhere", async () => {
-    // A catalog is not a project and has no `ambit.yml`, so the CI check for one cannot
-    // depend on finding a config — here there is none within reach of the cwd. That is the whole
-    // reason `catalog validate` is its own command: nothing about it reads a project.
+  it("validates a catalog repo, which lists itself and selects nothing", async () => {
+    // What `ambit catalog validate` was for, and why it is not needed: a catalog repo is a project
+    // that lists its own `skills/`, `mcps/` and `hooks/` as `source: path:.`, and every item in the
+    // merged catalog is checked whether anything selects it or not. Nothing here consumes anything —
+    // there is no `requires:` list at all — and the whole repo is still checked.
+    await writeSelfListingConfig();
     await rm(path.join(projectDir, "ambit.yml"));
 
-    const result = await cliWithoutProject("catalog", "validate", "--catalog", catalogDir);
+    const result = await cliInCatalogRepo("validate");
 
     expect(result.code, result.stderr).toBe(ExitCode.Success);
     expect(result.stdout).toBe(CLEAN_REPORT);
+  });
+
+  it("reports a catalog repo's own broken skill, which nothing selects", async () => {
+    // The claim above, with something to find: the report is about items no `requires` entry reaches,
+    // which is every item in a catalog repo.
+    await writeSelfListingConfig();
+    await writeSkill("broken-unselected", [requires(needs("skills", "absent-skill"))]);
+
+    const result = await cliInCatalogRepo("validate");
+
+    expect(result.code).toBe(ExitCode.Resolution);
+    expect(result.stdout).toContain(
+      '`requires` entry "name:absent-skill" matches nothing (skills/broken-unselected/SKILL.md)',
+    );
   });
 
   it("exits 2 on a catalog that does not parse, rather than reporting about it", async () => {
@@ -580,6 +613,105 @@ describe("ambit validate: the project's own config", () => {
   });
 });
 
+/**
+ * The one finding whose subject is the config alone: a catalog it lists and never selects from.
+ *
+ * This is what a typo'd `source:` escapes into now that a catalog is a directory and nothing else —
+ * a misspelled path is not a parse failure, and where no pattern is qualified with the alias, nothing
+ * else has a reason to look at it. Both of its exemptions are here too, because each of them is what
+ * keeps `validate` passing on something `ambit init` produced.
+ */
+describe("ambit validate: a configured catalog nothing selects from", () => {
+  const SECOND = "personal";
+
+  /** Points the project at the fixture catalog plus one more, selecting only from the fixture. */
+  async function writeTwoCatalogs(name: string, source: string): Promise<void> {
+    await writeFile(
+      path.join(projectDir, "ambit.yml"),
+      [
+        "version: 1",
+        "catalogs:",
+        `  - name: ${CATALOG_NAME}`,
+        "    source: path:../catalog",
+        `  - name: ${name}`,
+        `    source: ${source}`,
+        "requires:",
+        requiresEntry("core"),
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+  }
+
+  it("reports a catalog with items that no entry is qualified with", async () => {
+    await buildFixtureCatalog(path.join(root, SECOND));
+    await writeTwoCatalogs(SECOND, `path:../${SECOND}`);
+
+    const found = await report("validate");
+
+    expect(found.problems).toEqual([
+      {
+        kind: "unselected-catalog",
+        message: `catalog "${SECOND}" is configured but nothing selects from it (ambit.yml)`,
+        detail: [
+          `it provides ${FIXTURE_SKILLS + FIXTURE_MCPS + FIXTURE_HOOKS} items, and no \`requires\` entry is qualified with "${SECOND}/"`,
+          "select what this project needs from it, or drop it from `catalogs:`",
+        ],
+      },
+    ]);
+  });
+
+  it("reports the unmatched pattern instead when an entry does name the catalog", async () => {
+    // Qualified with, not matched by. An entry spelled `personal/nope` mentions the catalog, so the
+    // pattern is the offender and one mistake is reported once.
+    await buildFixtureCatalog(path.join(root, SECOND));
+    await writeFile(
+      path.join(projectDir, "ambit.yml"),
+      [
+        "version: 1",
+        "catalogs:",
+        `  - name: ${CATALOG_NAME}`,
+        "    source: path:../catalog",
+        `  - name: ${SECOND}`,
+        `    source: path:../${SECOND}`,
+        "requires:",
+        requiresEntry("core"),
+        requiresEntry("nope", SECOND),
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const found = await report("validate");
+
+    expect(found.problems.map((problem) => problem.kind)).toEqual(["unmatched-pattern"]);
+  });
+
+  it("says nothing about a catalog with no items, which is just empty", async () => {
+    // `ambit init` scaffolds a live `local` entry against three empty directories and comments out the
+    // entry that would select it, so a finding here would fail `validate` on every fresh project.
+    await mkdir(path.join(root, "empty"), { recursive: true });
+    await writeTwoCatalogs("empty", "path:../empty");
+
+    const result = await cli("validate");
+
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+  });
+
+  it("says nothing about the catalog the project itself is, however many items it holds", async () => {
+    // The guard above stops holding the moment somebody puts a skill in `skills/`, which is what a
+    // catalog repo is. Publishing is not consuming: a repo that ships items and selects none of them
+    // is the normal state of a catalog repo, and `ambit init` scaffolded the entry that says so.
+    await writeSkill("readwise-cli", [], projectDir);
+    await writeTwoCatalogs("local", "path:.");
+
+    const result = await cli("validate");
+
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+    expect(result.stdout).toContain(`checked ${FIXTURE_SKILLS + 1} skills`);
+  });
+});
+
 describe("ambit validate output", () => {
   it("emits the problem list as JSON, with the verdict and what was checked", async () => {
     await writeSkill("broken-thing", [requires(needs("skills", "absent-skill"))]);
@@ -665,10 +797,11 @@ describe("ambit validate output", () => {
     expect(first.stdout).not.toContain(root);
   });
 
-  it("carries no machine paths under `catalog validate` either, where the root is an argument", async () => {
+  it("carries no machine paths in a catalog repo either, where the root is the project", async () => {
+    await writeSelfListingConfig();
     await writeMisnamedSkill("misnamed-thing", "wrong-name");
 
-    const result = await cliWithoutProject("catalog", "validate", "--catalog", catalogDir);
+    const result = await cliInCatalogRepo("validate");
 
     expect(result.code).toBe(ExitCode.Resolution);
     expect(result.stdout).not.toContain(root);

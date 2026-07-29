@@ -843,8 +843,8 @@ export async function loadCatalogs(
       options,
     );
     // `ref` is a fact about the config entry, not about the directory that was parsed, so it is
-    // attached here rather than threaded through parsing — which also keeps a catalog parsed
-    // straight off disk (`ambit catalog validate`) from having to invent one.
+    // attached here rather than threaded through parsing — which also keeps a `path:` catalog, whose
+    // directory has no ref to speak of, from having to invent one.
     catalogs.push({ ...parsed, ...(entry.ref !== undefined && { ref: entry.ref }) });
   }
   return catalogs;

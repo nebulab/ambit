@@ -6,22 +6,18 @@ import { AmbitError, ExitCode } from "../errors.js";
 import type { SourceContext } from "../model/sources.js";
 
 /**
- * What a command acts on. Consumer commands read a project's `ambit.yml`; a catalog command reads a
- * catalog root, which has no `ambit.yml` at all.
- */
-export type CommandSubject = "project" | "catalog";
-
-/**
- * Flags every command accepts.
+ * Flags every command accepts — the same three on every one of them, since every command has the same
+ * subject.
  *
  * They are attached to each subcommand rather than only to the root program so that
  * `ambit install --dry-run` works — Commander only accepts program-level options before the
  * subcommand name.
  *
- * The subject decides the directory flag, because the two are the same flag in different clothes:
- * `--project <dir>` names a project, `--catalog <dir>` names a catalog root, and both default to the
- * cwd. A catalog command also drops `--offline`: it reads one directory on disk, resolves no
- * source, and so has neither a fetch to refuse nor a cache to fall back to.
+ * `--catalog <dir>` was the fourth, on the commands whose subject was one catalog root rather than a
+ * project. Every project is a catalog now — it lists itself as `source: path:.` — so there is one
+ * subject, one directory flag, and no command that reads a directory instead of an `ambit.yml`.
+ * `--offline` becomes uniform with it: it was withheld from the catalog commands because a catalog
+ * directory is read off disk and resolves no source, and there is no such command left.
  *
  * `--quiet` and `--no-color` are deliberately absent. Both were accepted here and read nowhere: ambit
  * prints no progress chatter to suppress and no color to disable, so each parsed cleanly and then did
@@ -29,17 +25,10 @@ export type CommandSubject = "project" | "catalog";
  * passing `--quiet` now gets a usage error instead of silence it never actually asked for. Re-add
  * either only alongside the output it controls.
  */
-function globalOptions(spec: CommandSpec): Option[] {
-  const json = new Option("--json", "machine-readable output");
-
-  if (spec.subject === "catalog") {
-    const catalog = new Option("--catalog <dir>", "catalog directory").default(undefined, "cwd");
-    return [catalog, json];
-  }
-
+function globalOptions(): Option[] {
   return [
     new Option("--project <dir>", "project directory").default(undefined, "cwd"),
-    json,
+    new Option("--json", "machine-readable output"),
     new Option("--offline", "use only cached catalogs"),
   ];
 }
@@ -58,50 +47,31 @@ export interface CommandSpec {
   readonly options?: readonly Option[];
   /** Whether this command mutates its subject, and so takes `--dry-run`. */
   readonly mutating?: boolean;
-  /** What the command acts on. Absent means the project. */
-  readonly subject?: CommandSubject;
   /**
    * Nested commands, for a name that is a group rather than a command.
    *
-   * A group has no action of its own: bare `ambit catalog` prints its usage, the way bare `ambit`
+   * A group has no action of its own: bare `ambit <group>` prints its usage, the way bare `ambit`
    * does. It cannot be given one — a group that also ran a command was how `ambit catalog` came to
    * mean `ambit catalog dump`, and with it one word covering both a project and a catalog directory.
+   *
+   * Nothing declares one: the surface is flat, `catalog` having been the only group and its last
+   * subcommand having been absorbed into `ambit validate`. Kept as the seam a future group hangs off,
+   * the way {@link CommandRule} is kept with `RULES` empty — the group machinery in
+   * {@link buildCommand} is what a second one would need, and it is exercised directly rather than
+   * through the surface (see the group-seam cases in `test/model/catalog.test.ts`).
    */
   readonly subcommands?: readonly CommandSpec[];
 }
 
 /**
- * The catalog surface: every command whose subject is one catalog directory, grouped under the noun
- * it acts on.
- *
- * Nothing a consumer reaches for lives here. It takes `--catalog <dir>` and not `--offline` — a
- * catalog directory is read off disk and resolves no source — and it writes nothing, so it takes no
- * `--dry-run` either.
- *
- * One command, and the word is on its way out with it. Nothing under it writes into a catalog's items
- * any more — an author has an editor, and a second way to produce Markdown and YAML cost more than it
- * saved — and scaffolding a catalog is now `ambit init`, since every project is one.
- *
- * Dumping the *merged* catalog is deliberately not here. That view is several catalogs plus one
- * `ambit.yml`, which no catalog directory contains, so it is `ambit dump-catalog` at the top level:
- * while it shared this word, one name covered two subjects and the group accepted `--project` while
- * every command under it accepted `--catalog`.
- */
-const CATALOG_SUBCOMMANDS: readonly CommandSpec[] = [
-  {
-    // The mirror of `ambit validate`, and a separate command from it for the reason the group exists:
-    // the two check different subjects. This one reads one catalog directory and nothing else — no
-    // `ambit.yml`, no other catalog, no cache — which is exactly what a catalog repo's CI has.
-    name: "validate",
-    summary: "validate this catalog on its own terms, for CI",
-    subject: "catalog",
-  },
-];
-
-/**
  * The full CLI surface, declared in one place so usage output and dispatch
  * cannot drift apart. Commands are wired to behaviour as the build reaches them; until then
  * they report that they are unimplemented rather than pretending to work.
+ *
+ * Ten commands, and flat: one subject, one directory flag, and no word standing for a group. Nothing
+ * writes into a catalog — a catalog is Markdown and YAML in a git repo, and an author has an editor —
+ * and nothing reads a catalog directory instead of an `ambit.yml`, because a catalog repo lists
+ * itself.
  */
 export const COMMAND_SPECS: readonly CommandSpec[] = [
   { name: "init", summary: "scaffold ambit.yml, skills/, mcps/, hooks/", mutating: true },
@@ -138,13 +108,11 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
   },
   { name: "prune", summary: "remove owned artifacts not in the current bundle", mutating: true },
   { name: "clean", summary: "remove everything ambit owns", mutating: true },
-  // Everything this project configures: every catalog it lists, its own declarations, its own
-  // `requires` entries. A single catalog on its own terms is `ambit catalog validate`, which is a
-  // different subject rather than the same command under a flag.
+  // Everything this project configures: every catalog it lists, its own items, its own `requires`
+  // entries. A catalog repo runs this one too — it lists itself, so its items are a catalog like any
+  // other, and every item in the merged catalog is checked whether anything selects it or not.
   { name: "validate", summary: "validate everything this project configures, for CI" },
   { name: "doctor", summary: "check preconditions, drift, ownership" },
-  // Last, because it is the whole of the catalog surface and no consumer reaches into it.
-  { name: "catalog", summary: "check a catalog", subcommands: CATALOG_SUBCOMMANDS },
 ];
 
 export type CommandOptions = Readonly<Record<string, unknown>>;
@@ -181,21 +149,15 @@ export type CommandHandler = (ctx: CommandContext) => Promise<ExitCode> | ExitCo
  */
 export type CommandRule = (ctx: CommandContext) => void;
 
-/** The project directory a command acts on: `--project` if given, otherwise the cwd. */
+/**
+ * The project directory a command acts on: `--project` if given, otherwise the cwd.
+ *
+ * The only directory any command reads. `catalogDirOf` was its mirror, for the commands whose subject
+ * was a catalog root with no `ambit.yml` in it; every project is a catalog now, so there is one
+ * subject and one flag naming it.
+ */
 export function projectDirOf(ctx: CommandContext): string {
   const given = ctx.options.project;
-  return typeof given === "string" ? path.resolve(ctx.cwd, given) : ctx.cwd;
-}
-
-/**
- * The catalog directory a catalog command acts on: `--catalog` if given, otherwise the cwd.
- *
- * The mirror of {@link projectDirOf}, and separate from it on purpose: a catalog is not a project and
- * has no `ambit.yml`, so a command reads exactly one of the two and the flag it accepts says
- * which.
- */
-export function catalogDirOf(ctx: CommandContext): string {
-  const given = ctx.options.catalog;
   return typeof given === "string" ? path.resolve(ctx.cwd, given) : ctx.cwd;
 }
 
@@ -232,8 +194,8 @@ export function sourceContextOf(ctx: CommandContext): SourceContext {
 }
 
 /**
- * Handlers, keyed by the words a user types: `"install"`, `"catalog validate"`. Absent means
- * declared-but-unimplemented.
+ * Handlers, keyed by the words a user types: `"install"`, or `"<group> <command>"` for a nested one.
+ * Absent means declared-but-unimplemented.
  */
 export type CommandHandlers = Readonly<Record<string, CommandHandler>>;
 
@@ -265,8 +227,9 @@ function contextOf(
  * travels out without being dressed up as an error.
  *
  * `trail` is the enclosing group's words, so a nested command finds its handler and names itself in
- * an error by the whole invocation (`catalog validate`) rather than by the leaf. That whole
- * invocation is also the key its handler and its rule are filed under.
+ * an error by the whole invocation (`<group> <command>`) rather than by the leaf. That whole
+ * invocation is also the key its handler and its rule are filed under. No spec declares a group
+ * today — see {@link CommandSpec.subcommands}.
  *
  * @throws {AmbitError} exit 1 when the command is declared in the surface but has no handler yet, and
  *   whatever this command's {@link CommandRule} refuses about the flags it was given.
@@ -294,7 +257,7 @@ export function buildCommand(
   // usage message, and a group holding a flag its children also hold is a flag the group silently
   // eats — which is how `ambit catalog` came to answer to `--project` while `ambit catalog validate`
   // answered to `--catalog`.
-  if (acts) for (const option of globalOptions(spec)) command.addOption(option);
+  if (acts) for (const option of globalOptions()) command.addOption(option);
 
   if (spec.subcommands) {
     // Stop the group's own option parsing at the subcommand name, for the reason `buildProgram` gives:

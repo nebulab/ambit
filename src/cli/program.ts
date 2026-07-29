@@ -11,7 +11,7 @@ import { installHandler } from "./handlers/install.js";
 import { pruneHandler } from "./handlers/prune.js";
 import { resolveHandler } from "./handlers/resolve.js";
 import { statusHandler } from "./handlers/status.js";
-import { catalogValidateHandler, validateHandler } from "./handlers/validate.js";
+import { validateHandler } from "./handlers/validate.js";
 import { whyHandler } from "./handlers/why.js";
 import { VERSION } from "../version.js";
 
@@ -21,11 +21,12 @@ export type Io = Pick<CommandContext, "cwd" | "stdout" | "stderr">;
  * Handlers, keyed by the words a user types. Every command the surface declares now has one; a command
  * added without an entry here reports itself unimplemented (exit 1) rather than silently succeeding.
  *
- * A group is absent on purpose: `catalog` holds commands and runs none itself, so bare
- * `ambit catalog` prints usage rather than dispatching to whichever child was picked as its default.
+ * Ten entries, and no key with a space in it: the surface is flat, `catalog validate` having been
+ * absorbed into `validate` when a catalog stopped being a subject of its own. A group, were one
+ * declared again, would still be absent from here — it holds commands and runs none itself, so bare
+ * `ambit <group>` prints usage rather than dispatching to whichever child was picked as its default.
  */
 export const HANDLERS: CommandHandlers = {
-  "catalog validate": catalogValidateHandler,
   clean: cleanHandler,
   doctor: doctorHandler,
   "dump-catalog": dumpCatalogHandler,
@@ -59,11 +60,13 @@ export const RULES: CommandRules = {};
  * both of the settings that decide how a usage error leaves the process: it writes to the real
  * `process.stderr` and then calls `process.exit`. That bypasses the exit-code contract on every
  * subcommand (and takes the test worker with it). Copying `configureOutput` and `exitOverride` down
- * is what makes an unknown flag on `ambit catalog validate` print through ambit's own output and
- * travel out of {@link run} as a code.
+ * is what makes an unknown flag on `ambit status` print through ambit's own output and travel out of
+ * {@link run} as a code.
  *
- * Runs after the tree is assembled, and top-down, so a group and its children end up with the same
- * settings. It copies wholesale, and the program's value wins: the three settings `buildCommand` also
+ * It recurses, and the surface is flat: with no group declared, the walk is one level deep and the
+ * recursion is there for the day one is. Runs after the tree is assembled, and top-down, so a group
+ * and its children would end up with the same settings. It copies wholesale, and the program's value
+ * wins: the three settings `buildCommand` also
  * touches — `--help`, positional options, and the disabled implicit `help` command — already say the
  * same thing there, but a per-command setting added later has to be applied *after* this or it is lost.
  */
@@ -88,8 +91,8 @@ export function buildProgram(
     .addHelpCommand(false)
     .showHelpAfterError("(run `ambit --help` for usage)")
     // Every flag belongs to the command it follows. Without this, Commander gives an option to
-    // whichever command up the chain declares it, so `ambit catalog validate --json` would leave
-    // `--json` with the `catalog` group and `validate` believing it was never asked for.
+    // whichever command up the chain declares it, so `ambit <group> <command> --json` would leave
+    // `--json` with the group and the command believing it was never asked for.
     .enablePositionalOptions()
     .configureOutput({
       writeOut: (str) => io.stdout(str.replace(/\n$/, "")),

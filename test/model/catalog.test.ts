@@ -7,12 +7,14 @@
 import { cp, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import type { Command } from "commander";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { buildFixtureCatalog } from "../../scripts/fixture-catalog.js";
 import type { MergedCatalog } from "../../src/model/catalog.js";
 import { loadCatalogs, mergeCatalogs, parseCatalogDirectory } from "../../src/model/catalog.js";
 import type { CommandHandlers, CommandRules } from "../../src/cli/commands.js";
+import { COMMAND_SPECS, buildCommand } from "../../src/cli/commands.js";
 import { loadProjectConfig } from "../../src/model/config.js";
 import { AmbitError, ExitCode } from "../../src/errors.js";
 import { HANDLERS, RULES, run } from "../../src/cli/program.js";
@@ -179,10 +181,7 @@ async function invoke(
   return { code, stdout: out.join("\n"), stderr: err.join("\n") };
 }
 
-/**
- * Runs the CLI against the project under test. A `catalog` subcommand takes `--catalog` instead and so
- * cannot go through here — use `invoke` for those.
- */
+/** Runs the CLI against the project under test. */
 async function cli(...argv: readonly string[]): Promise<CliResult> {
   return invoke([...argv, "--project", projectDir]);
 }
@@ -925,29 +924,24 @@ describe("catalog hooks", () => {
 });
 
 /**
- * Spec §6, "Catalog authoring": `catalog` is a command group, and only that — every command under it
- * acts on one catalog directory and takes `--catalog <dir>`.
+ * The command surface itself — which commands exist, what flags each takes, and what one whose
+ * behaviour is not wired up does. Each command's own behaviour is its own suite's.
  *
- * It had a default action once, `dump`, which made bare `ambit catalog` the consumer command that reads
- * a project's `ambit.yml`. That put two subjects under one word: the group answered to `--project`
- * while every command below it answered to `--catalog`. Dumping the merged catalog is
- * `ambit dump-catalog` now, and the uniformity of the group is what the cases below pin.
- *
- * What is asserted here is the surface itself — which commands exist, what each is called, which
- * directory flag it takes, and what one whose behaviour is not wired up does. Each command's own
- * behaviour is its own suite's.
+ * It is **flat**, and that is what these cases pin. `catalog` was a command group, holding every
+ * command whose subject was one catalog directory: it answered to `--catalog <dir>` where a consumer
+ * command answered to `--project <dir>`, and it withheld `--offline` because a directory read off disk
+ * resolves no source. Every project is a catalog now — it lists itself as `source: path:.` — so there
+ * is one subject, `ambit validate` covers what `ambit catalog validate` covered, and the word is gone
+ * from the surface rather than left standing over nothing.
  */
-describe("ambit catalog as a command group", () => {
-  /**
-   * Every subcommand of `catalog`. One: nothing writes into a catalog's items any more, and
-   * scaffolding one is `ambit init`, since every project is a catalog.
-   */
-  const SUBCOMMANDS = ["validate"];
+describe("the command surface", () => {
+  /** Every command the surface declares, which is every command a user can type. */
+  const COMMANDS = COMMAND_SPECS.map((spec) => spec.name);
 
   /**
    * A command's usage, read by running `--help` through the CLI. That is only testable in-process
-   * because a subcommand now inherits `exitOverride` and `configureOutput` (A30); before that it took
-   * the worker with it, and the help text had to be read off the built `Command` instead.
+   * because a subcommand inherits `exitOverride` and `configureOutput` (A30); before that it took the
+   * worker with it, and the help text had to be read off the built `Command` instead.
    */
   async function usage(...words: readonly string[]): Promise<string> {
     const result = await invoke([...words, "--help"]);
@@ -969,85 +963,127 @@ describe("ambit catalog as a command group", () => {
     expect(JSON.parse(dump.stdout)).toMatchObject({ catalogs: [CATALOG_NAME] });
   });
 
-  it("does not answer to `ambit catalog dump`, which no longer exists", async () => {
-    const result = await invoke(["catalog", "dump"]);
-
-    expect(result.code).toBe(ExitCode.Config);
-    // The group takes no positionals, so an unrecognized word is one argument too many rather than an
-    // unknown command — either way it is refused, and nothing dumps a catalog under this word.
-    expect(result.stderr).toContain("too many arguments for 'catalog'");
+  it("declares no command group, so no invocation is two words", () => {
+    // The flatness itself, asserted on the specs rather than on any one command: a group reintroduced
+    // by accident — or a `catalog` spec surviving a rebase — fails here rather than in whichever case
+    // happens to type its name.
+    for (const spec of COMMAND_SPECS) expect(spec.subcommands, spec.name).toBeUndefined();
   });
 
-  it("lists every catalog subcommand in `ambit catalog --help`", async () => {
-    const help = await usage("catalog");
+  it("does not answer to `ambit catalog`, which is not a command any more", async () => {
+    for (const argv of [["catalog"], ["catalog", "validate"], ["catalog", "dump"]]) {
+      const result = await invoke(argv);
 
-    for (const name of SUBCOMMANDS) expect(help).toContain(`\n  ${name} `);
-  });
-
-  it("gives every command under `catalog` the catalog flag and no project flag", async () => {
-    // The two directories are different subjects, not the same one under two names: a catalog read on
-    // its own terms has no `ambit.yml`. `--offline` is absent for the same reason — no source to
-    // resolve.
-    for (const name of SUBCOMMANDS) {
-      const help = await usage("catalog", name);
-
-      expect(help, name).toContain("--catalog <dir>");
-      expect(help, name).not.toContain("--project");
-      expect(help, name).not.toContain("--offline");
+      expect(result.code, argv.join(" ")).toBe(ExitCode.Config);
+      expect(result.stderr).toContain("unknown command 'catalog'");
+      expect(result.stdout).toBe("");
     }
   });
 
-  it("gives `dump-catalog` the project flag and no catalog flag", async () => {
-    const help = await usage("dump-catalog");
+  it("gives every command the same three global flags, and none of them `--catalog`", async () => {
+    // One subject, one directory flag. `--offline` is uniform for the same reason: the rule that
+    // withheld it existed for the catalog commands, and there are none.
+    for (const name of COMMANDS) {
+      const help = await usage(name);
 
-    expect(help).toContain("--project <dir>");
-    expect(help).not.toContain("--catalog");
-  });
-
-  it("prints its usage for a group, which has no action of its own", async () => {
-    // `catalog` is the only group left, and its one child is a leaf.
-    const result = await invoke(["catalog"]);
-
-    expect(result.code, result.stderr).toBe(ExitCode.Success);
-    expect(result.stdout).toContain("Usage: ambit catalog");
-
-    // And the group takes none of the flags its children do, rather than silently eating them.
-    const help = await usage("catalog");
-    for (const flag of ["--project", "--catalog", "--json", "--offline"]) {
-      expect(help).not.toContain(flag);
+      expect(help, name).toContain("--project <dir>");
+      expect(help, name).toContain("--json");
+      expect(help, name).toContain("--offline");
+      expect(help, name).not.toContain("--catalog");
     }
   });
 
-  it("reports a subcommand with no handler as unimplemented, naming the whole invocation", async () => {
+  it("reports a command with no handler as unimplemented, naming the invocation", async () => {
     // Every command the surface declares is now built, so the guard is asserted against a program built
     // with one handler removed rather than against a gap in the surface: this is what a later task
     // adding a spec before its behaviour must see, instead of a command that silently succeeds.
     const withoutValidate = Object.fromEntries(
-      Object.entries(HANDLERS).filter(([key]) => key !== "catalog validate"),
+      Object.entries(HANDLERS).filter(([key]) => key !== "validate"),
     );
-    const result = await invoke(["catalog", "validate", "--catalog", catalogDir], withoutValidate);
+    const result = await invoke(["validate", "--project", projectDir], withoutValidate);
 
     expect(result.code, result.stderr).toBe(ExitCode.Internal);
-    expect(result.stderr).toContain(`command "catalog validate" is not implemented yet`);
+    expect(result.stderr).toContain(`command "validate" is not implemented yet`);
     expect(result.stdout).toBe("");
   });
 });
 
 /**
- * Spec §6's exit-code contract, asserted on the commands furthest from the program: a *Commander*-level
- * usage error — an unknown flag, a missing argument — has to leave through `run()` as a code and print
- * through ambit's own output, exactly as one of ambit's own errors does.
+ * The group seam `CommandSpec.subcommands` is, which no command in the surface declares.
+ *
+ * `catalog` was the only group, and `ambit validate` absorbed its last subcommand. The machinery
+ * stayed — a group prints usage instead of acting, its children are keyed by the whole invocation, and
+ * it takes none of the flags they take — so what is pinned here is the mechanism rather than any
+ * command's behaviour, exactly as the flag-rule cases below pin `RULES` with nothing in it. Each case
+ * therefore builds its own group with {@link buildCommand}, which is also how a second group would
+ * arrive.
+ *
+ * One thing this cannot reach: a Commander-level usage error *below* the top level, which travels out
+ * as an exit code only because `buildProgram` copies `exitOverride` and `configureOutput` down the
+ * whole tree. That needs a nested command inside the real program, and there is none — the flat
+ * surface pins the one-level case instead, under "usage errors and the exit-code contract".
+ */
+describe("the nested-command seam no command uses", () => {
+  /** A group of one, wired to a handler that records the flags it was dispatched with. */
+  function group(handlers: CommandHandlers): Command {
+    return buildCommand(
+      { name: "grp", summary: "a group", subcommands: [{ name: "sub", summary: "a command" }] },
+      handlers,
+      RULES,
+      { cwd: root, stdout: () => {}, stderr: () => {} },
+      () => {},
+    );
+  }
+
+  it("dispatches a nested command through the handler keyed by the whole invocation", async () => {
+    let seen: string | undefined;
+    const command = group({
+      "grp sub": (ctx) => {
+        seen = typeof ctx.options.project === "string" ? ctx.options.project : undefined;
+        return ExitCode.Success;
+      },
+    });
+
+    await command.parseAsync(["sub", "--project", projectDir], { from: "user" });
+
+    // Keyed by `grp sub` and not by `sub`, which is what makes two groups able to hold one leaf name.
+    expect(seen).toBe(projectDir);
+  });
+
+  it("prints usage for the group itself, which has no action of its own", async () => {
+    const printed: string[] = [];
+    const command = buildCommand(
+      { name: "grp", summary: "a group", subcommands: [{ name: "sub", summary: "a command" }] },
+      HANDLERS,
+      RULES,
+      { cwd: root, stdout: (line) => printed.push(line), stderr: () => {} },
+      () => {},
+    );
+
+    await command.parseAsync([], { from: "user" });
+
+    expect(printed.join("\n")).toContain("Usage: grp");
+    // And the group carries none of the flags its children do, rather than silently eating them.
+    for (const flag of ["--project", "--json", "--offline"]) {
+      expect(command.options.some((option) => option.long === flag)).toBe(false);
+    }
+  });
+});
+
+/**
+ * Spec §6's exit-code contract for a *Commander*-level usage error — an unknown flag, a missing
+ * argument. It has to leave through `run()` as a code and print through ambit's own output, exactly as
+ * one of ambit's own errors does.
  *
  * A subcommand added with `addCommand` inherits neither of the two settings that make that true, so
  * before A30 every case here wrote to the real stderr and called `process.exit`, taking the test worker
- * with it. That is why the first two are asserted below the top level rather than only for a
- * top-level command: `catalog validate` is the depth nothing can reach by inheriting from the program
- * alone. Nothing under `catalog` takes a positional any more, so the missing-argument case is
- * `ambit why`'s, at the top level.
+ * with it. `inheritSettings` in `src/cli/program.ts` is what fixes it, and every command in a flat
+ * surface is one level down from the program — so one level down is the depth these cases assert. The
+ * two that asserted it two levels down went with `catalog validate`, the last nested command there was.
  */
-describe("usage errors below the top level", () => {
-  it("returns an exit code for an unknown flag on a nested subcommand", async () => {
-    const result = await invoke(["catalog", "validate", "--jsonn", "--catalog", catalogDir]);
+describe("usage errors and the exit-code contract", () => {
+  it("returns an exit code for an unknown flag, with Commander's suggestion", async () => {
+    const result = await invoke(["validate", "--jsonn", "--project", projectDir]);
 
     expect(result.code).toBe(ExitCode.Config);
     expect(result.stderr).toContain("error: unknown option '--jsonn'");
@@ -1058,11 +1094,11 @@ describe("usage errors below the top level", () => {
     expect(result.stdout).toBe("");
   });
 
-  it("prints a nested subcommand's usage on `--help`, at exit 0", async () => {
-    const result = await invoke(["catalog", "validate", "--help"]);
+  it("prints a command's usage on `--help`, at exit 0", async () => {
+    const result = await invoke(["validate", "--help"]);
 
     expect(result.code, result.stderr).toBe(ExitCode.Success);
-    expect(result.stdout).toContain("Usage: ambit catalog validate");
+    expect(result.stdout).toContain("Usage: ambit validate");
     expect(result.stderr).toBe("");
   });
 
@@ -1071,14 +1107,6 @@ describe("usage errors below the top level", () => {
 
     expect(result.code).toBe(ExitCode.Config);
     expect(result.stderr).toContain("error: missing required argument 'kind:name'");
-    expect(result.stdout).toBe("");
-  });
-
-  it("returns an exit code for an unknown flag on a top-level command", async () => {
-    const result = await invoke(["status", "--nope"]);
-
-    expect(result.code).toBe(ExitCode.Config);
-    expect(result.stderr).toContain("error: unknown option '--nope'");
     expect(result.stdout).toBe("");
   });
 
@@ -1127,20 +1155,16 @@ describe("the flag rules Commander enforces before a handler runs", () => {
   });
 
   it("refuses before the handler, in ambit's own message shape", async () => {
-    const stubbed = stub("catalog validate");
+    const stubbed = stub("validate");
     const rules: CommandRules = {
-      "catalog validate": () => {
+      validate: () => {
         throw new AmbitError(ExitCode.Config, "refused by a rule (mcps/x.yml)", [
           "do something else",
         ]);
       },
     };
 
-    const result = await invoke(
-      ["catalog", "validate", "--catalog", catalogDir],
-      stubbed.handlers,
-      rules,
-    );
+    const result = await invoke(["validate", "--project", projectDir], stubbed.handlers, rules);
 
     expect(result.code).toBe(ExitCode.Config);
     expect(result.stderr).toContain("refused by a rule (mcps/x.yml)");
@@ -1151,35 +1175,35 @@ describe("the flag rules Commander enforces before a handler runs", () => {
   it("dispatches to the handler once a rule accepts the flags it was given", async () => {
     // The control on the case above: a hook wired to the wrong key, or one that refused everything,
     // would pass that one and fail here.
-    const stubbed = stub("catalog validate");
-    const rules: CommandRules = { "catalog validate": () => {} };
+    const stubbed = stub("validate");
+    const rules: CommandRules = { validate: () => {} };
 
-    const result = await invoke(
-      ["catalog", "validate", "--catalog", catalogDir],
-      stubbed.handlers,
-      rules,
-    );
+    const result = await invoke(["validate", "--project", projectDir], stubbed.handlers, rules);
 
     expect(result.code, result.stderr).toBe(ExitCode.Success);
     expect(stubbed.reached()).toBe(true);
   });
 
-  it("runs a rule exactly once, and only for the command it belongs to", async () => {
+  it("runs a rule exactly once, for the command it belongs to", async () => {
     // Commander fires a `preAction` hook for the command that acted and for each of its ancestors, so
     // a rule that hung off a *group* would also see its children's invocations. Only a leaf carries
     // one, and a leaf has nothing below it — this is the case that fails if a rule is ever attached
     // further up.
     const seen: (string | undefined)[] = [];
     const rules: CommandRules = {
-      "catalog validate": (ctx) => {
-        seen.push(typeof ctx.options.catalog === "string" ? ctx.options.catalog : undefined);
+      validate: (ctx) => {
+        seen.push(typeof ctx.options.project === "string" ? ctx.options.project : undefined);
       },
     };
+    // Stubbed, so what is asserted is how often the hook fired rather than what the real command
+    // makes of the project it was pointed at.
+    const stubbed = stub("validate");
 
-    const result = await invoke(["catalog", "validate", "--catalog", catalogDir], HANDLERS, rules);
+    const result = await invoke(["validate", "--project", projectDir], stubbed.handlers, rules);
 
     expect(result.code, result.stderr).toBe(ExitCode.Success);
-    expect(seen).toEqual([catalogDir]);
+    expect(seen).toEqual([projectDir]);
+    expect(stubbed.reached()).toBe(true);
   });
 });
 

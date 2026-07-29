@@ -124,8 +124,8 @@ artifacts (5)
 
 `ambit validate` is the check worth running on every push: it reads every catalog the project lists —
 including the project's own `skills/`, `mcps/` and `hooks/` — and reports every `requires` entry that
-matches nothing, every `requires` cycle, and every item whose declared name disagrees with its path.
-Catching those here is the point. A broken catalog otherwise fails for whoever installs it next, which
+matches nothing, every `requires` cycle, every item whose declared name disagrees with its path, and
+every catalog it fetches and then selects nothing from. Catching those here is the point. A broken catalog otherwise fails for whoever installs it next, which
 is never the person who broke it.
 
 `ambit init` deliberately scaffolds no workflow — a project is routinely an existing application, and
@@ -460,20 +460,23 @@ back to the entry at the end of it.
 
 ### Global flags
 
-| Flag              | Notes                                                                                                                  |
-| ----------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `--project <dir>` | The project to act on. Default: cwd. On consumer commands.                                                             |
-| `--catalog <dir>` | The catalog root to act on. Default: cwd. On catalog commands.                                                         |
-| `--json`          | Machine-readable output. Every command supports it.                                                                    |
-| `--offline`       | Resolve from the cache alone. On consumer commands only: a catalog command reads one directory and resolves no source. |
-| `--dry-run`       | On mutating commands: report what would happen and touch nothing.                                                      |
-| `--help`          | Usage for the program or for any command, at any depth, on stdout at exit 0.                                           |
-| `--version`       | Print the ambit version. Program-level.                                                                                |
+| Flag              | Notes                                                                  |
+| ----------------- | ---------------------------------------------------------------------- |
+| `--project <dir>` | The project to act on. Default: cwd. The only directory flag there is. |
+| `--json`          | Machine-readable output. Every command supports it.                    |
+| `--offline`       | Resolve from the cache alone. Every command accepts it.                |
+| `--dry-run`       | On mutating commands: report what would happen and touch nothing.      |
+| `--help`          | Usage for the program or for any command, on stdout at exit 0.         |
+| `--version`       | Print the ambit version. Program-level.                                |
 
 `--dry-run` still checks ownership and `--frozen`: a preview of an install that would be refused is
 refused, with the same message and exit code.
 
-### Consumer commands
+### Commands
+
+Ten, and one flat surface: every command takes the same three global flags, and no word in it is a
+group. Nothing writes into a catalog — a catalog is Markdown and YAML in a git repo, maintained the
+way the rest of the repo is, with an editor and a validate step in CI.
 
 | Command                                               | What it does                                                                                                                                                                                                             |
 | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -485,18 +488,13 @@ refused, with the same message and exit code.
 | `ambit status [--check]`                              | Compare what is installed against what resolve produces. `--check` exits 5 on drift.                                                                                                                                     |
 | `ambit prune`                                         | Remove owned artifacts not in the current bundle.                                                                                                                                                                        |
 | `ambit clean`                                         | Remove everything ambit owns.                                                                                                                                                                                            |
-| `ambit validate`                                      | Validate everything this project configures, for CI. One catalog on its own is `ambit catalog validate`.                                                                                                                 |
+| `ambit validate`                                      | Validate everything this project configures, for CI — every catalog it lists, the project's own items among them. A catalog repo runs this too: it lists itself.                                                         |
 | `ambit doctor`                                        | Check preconditions, the lock, ownership, drift, materialization mode, and harness limits.                                                                                                                               |
 
-### Catalog commands
-
-```
-ambit catalog validate                          validate this catalog on its own terms, for CI
-```
-
-Nothing here writes into a catalog's items. A catalog is Markdown and YAML in a git repo, and it is
-maintained the way the rest of the repo is: with an editor, and with a validate step in CI.
-Scaffolding one is `ambit init`, since every project is a catalog.
+There is no `ambit catalog`. A catalog repo is a project that lists itself — three lines of
+`ambit.yml`, which `ambit init` writes — so `ambit validate` reads its `skills/`, `mcps/` and `hooks/`
+as an ordinary catalog and checks every item in it, selected or not. Scaffolding a catalog is
+`ambit init` for the same reason: every project is one.
 
 ### Exit codes
 

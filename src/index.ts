@@ -211,7 +211,6 @@ export {
   VALIDATION_PROBLEM_KINDS,
   isValid,
   validateCatalog,
-  validateCatalogDirectory,
   validateProject,
 } from "./resolution/validate.js";
 export type {
@@ -345,7 +344,6 @@ export type {
 // ── cli — presentation and dispatch ───────────────────────────────────────────────────────────
 export {
   COMMAND_SPECS,
-  catalogDirOf,
   dryRunRequested,
   jsonRequested,
   offlineRequested,
@@ -359,7 +357,6 @@ export type {
   CommandRule,
   CommandRules,
   CommandSpec,
-  CommandSubject,
 } from "./cli/commands.js";
 export { buildProgram, run } from "./cli/program.js";
 export type { Io } from "./cli/program.js";

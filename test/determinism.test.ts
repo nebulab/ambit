@@ -148,20 +148,15 @@ const ENV_STUBS: Readonly<Record<string, string>> = {
 };
 
 /**
- * Which of the three directories a surface is pointed at.
+ * Which of the two directories a surface is pointed at.
  *
- * `catalog` is the only one that takes a different flag. `empty` is a project directory with nothing
- * in it, which exists for the one surface whose subject is the *absence* of a project: `ambit init`
- * refuses a directory that already holds a config, so it cannot be aimed at `project` like the rest.
+ * Both are named by `--project`, the only directory flag there is: every command has one subject now
+ * that a catalog repo lists itself, and `--catalog <dir>` went with the command that read one.
+ * `empty` is a project directory with nothing in it, which exists for the one surface whose subject is
+ * the *absence* of a project: `ambit init` refuses a directory that already holds a config, so it
+ * cannot be aimed at `project` like the rest.
  */
-type Subject = "project" | "catalog" | "empty";
-
-/** The directory flag each subject is named by. */
-const FLAG: Readonly<Record<Subject, string>> = {
-  project: "--project",
-  catalog: "--catalog",
-  empty: "--project",
-};
+type Subject = "project" | "empty";
 
 /** One thing ambit prints, and which directory it is pointed at. */
 interface Surface {
@@ -203,7 +198,6 @@ const SURFACES: readonly Surface[] = [
   { argv: ["prune", "--dry-run", "--json"], dir: "project" },
   { argv: ["clean", "--dry-run"], dir: "project" },
   { argv: ["clean", "--dry-run", "--json"], dir: "project" },
-  { argv: ["catalog", "validate"], dir: "catalog" },
 ];
 
 /** What a surface printed, whole: two streams and the code, since all three have to be stable. */
@@ -268,26 +262,19 @@ async function cli(argv: readonly string[], cwd: string): Promise<Output> {
   return { code, stdout: out.join("\n"), stderr: err.join("\n") };
 }
 
-/** Which directory a subject names. Read at call time: the three are assigned in `beforeAll`. */
+/** Which directory a subject names. Read at call time: both are assigned in `beforeAll`. */
 function dirOf(subject: Subject): string {
-  switch (subject) {
-    case "project":
-      return projectDir;
-    case "catalog":
-      return catalogDir;
-    case "empty":
-      return emptyDir;
-  }
+  return subject === "project" ? projectDir : emptyDir;
 }
 
 /** How a surface is typed against the shared fixture. */
 function argvOf(surface: Surface): readonly string[] {
-  return [...surface.argv, FLAG[surface.dir], dirOf(surface.dir)];
+  return [...surface.argv, "--project", dirOf(surface.dir)];
 }
 
 /** How a surface's case is titled: what a reader would have to type to reproduce it. */
 function titleOf(surface: Surface): string {
-  return `ambit ${surface.argv.join(" ")} ${FLAG[surface.dir]} <${surface.dir}>`;
+  return `ambit ${surface.argv.join(" ")} --project <${surface.dir}>`;
 }
 
 async function runSurface(surface: Surface, order: ReadOrder = "natural"): Promise<Output> {
@@ -455,8 +442,10 @@ describe("nothing in the surface table touches disk", () => {
  * the order the directory listed them, so nothing but the entry sort stands between read order and
  * output. Delete `sortedEntries`' sort and this describe is where it shows up.
  *
- * Both are `catalog validate`, which is the surface that reports rather than throws on the first
- * offender, and both catalogs are per-test copies: the shared fixture has to stay valid.
+ * Both are `ambit validate`, the surface that reports rather than throws on the first offender, run
+ * against a broken *catalog repo* — a copy of the fixture carrying the three-line `ambit.yml` that
+ * lists itself, which is how a catalog is validated now that `ambit catalog validate` is gone. Every
+ * catalog here is a per-test copy: the shared fixture has to stay valid.
  */
 describe("a report of problems is in the same order whatever order directories are read in", () => {
   let brokenRoot: string;
@@ -476,9 +465,7 @@ describe("a report of problems is in the same order whatever order directories a
   }
 
   async function validateBroken(order: ReadOrder): Promise<Output> {
-    return withReadOrder(order, () =>
-      cli(["catalog", "validate", "--catalog", brokenCatalog], brokenRoot),
-    );
+    return withReadOrder(order, () => cli(["validate", "--project", brokenCatalog], brokenRoot));
   }
 
   /** Asserts the two shuffles print exactly what the filesystem's own order printed. */
@@ -492,6 +479,12 @@ describe("a report of problems is in the same order whatever order directories a
     brokenRoot = await mkdtemp(path.join(tmpdir(), "ambit-determinism-report-"));
     brokenCatalog = path.join(brokenRoot, "catalog");
     await buildFixtureCatalog(brokenCatalog);
+    // What makes the directory a project as well as a catalog, and so `ambit validate`'s subject.
+    await writeFile(
+      path.join(brokenCatalog, "ambit.yml"),
+      ["version: 1", "catalogs:", "  - name: local", "    source: path:.", ""].join("\n"),
+      "utf8",
+    );
   });
 
   afterEach(async () => {

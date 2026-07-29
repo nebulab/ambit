@@ -221,7 +221,7 @@ threading an overlay through), `catalog-init.ts`, and their tests. `src/model/sc
 
 ## 9. `ambit validate` absorbs `catalog validate`; the `catalog` group goes
 
-- [ ] One flat command surface, and `src/authoring/` is gone as a directory.
+- [x] One flat command surface, and `src/authoring/` is gone as a directory.
 
 Per §_`ambit validate` validates the catalog too, and `ambit catalog` goes_.
 
@@ -237,6 +237,22 @@ Per §_`ambit validate` validates the catalog too, and `ambit catalog` goes_.
 - `src/authoring/` is deleted as a directory. Assert nothing outside `src/cli/` ever imported from it.
   > done in task 8: `catalog validate` reads `src/resolution/validate.ts`, never `src/authoring/`, so
   > removing `editor.ts` and `init.ts` emptied the directory outright.
+
+> decided in task 9, because the issue's two halves collide: _configured catalog nothing selects from_
+> takes a **second** exemption beyond _has items_ — the catalog whose root **is** the project
+> directory. With only the has-items guard, §_`ambit validate` validates the catalog too_ stops being
+> true the moment a catalog repo holds one skill: it lists itself, selects nothing, and would fail its
+> own CI. Publishing is not consuming. `ValidateOptions.own` carries the fact, since which catalog the
+> project _is_ is a fact about where a source resolved to; the argument is in
+> `unselectedCatalogProblems`' own comment.
+
+> the nested-usage-error coverage task 8 flagged: the two cases in `test/model/catalog.test.ts` that
+> asserted the exit-code contract _two_ levels down had `catalog validate` as their only subject, and
+> the surface is flat now. The one-level cases stay, `CommandSpec.subcommands` stays as a seam with
+> nothing declaring it (as `CommandRule` does with `RULES` empty), and the seam's own behaviour — a
+> group printing usage, a child keyed by the whole invocation — is pinned directly against
+> `buildCommand`. What is genuinely gone is the assertion that `inheritSettings` **recurses**: that
+> needs a nested command inside the real program, and there is none to build one from.
 
 **Slice** — a catalog repo lists itself and `ambit validate` checks it, with no `catalog` in the surface.
 
