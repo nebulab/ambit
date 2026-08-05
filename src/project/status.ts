@@ -34,7 +34,7 @@ import type {
   PlannedSkillsLink,
   ProjectPaths,
 } from "../harness/adapter.js";
-import { loadCatalogs, mergeCatalogs, mergeConfigEntities } from "../model/catalog.js";
+import { loadCatalogs, mergeCatalogs } from "../model/catalog.js";
 import { loadProjectConfig } from "../model/config.js";
 import { configError } from "../errors.js";
 import { driverFor, managedKey, readDocumentText } from "../model/documents/index.js";
@@ -483,9 +483,7 @@ export async function projectStatus(
     env: process.env,
     offline: options.offline === true,
   };
-  const loaded = await loadCatalogs(config, context);
-  const catalogs = mergeCatalogs(loaded);
-  const bundle = resolveBundle(config, await mergeConfigEntities(catalogs, config, context));
+  const bundle = resolveBundle(config, mergeCatalogs(await loadCatalogs(config, context)));
 
   // No environment involved on either side: install writes a reference rather than a value, so what
   // a plan says is the same on every machine and a set variable can never read as drift.

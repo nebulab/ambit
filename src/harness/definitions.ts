@@ -70,7 +70,7 @@ const CLAUDE_HOOK_ROOT = `\${CLAUDE_PROJECT_DIR}/${SHARED_HOOKS_DIR}`;
  * Cursor and Codex interpolate nothing in a `command`, so the plain project-relative path is all there
  * is to write. Cursor documents the resolution and documents it as the project root's — "project hooks
  * (`.cursor/hooks.json` in a repository): run from the project root" — with a caution that spells out
- * this exact case: `./hooks/script.sh` "would look for `<project>/hooks/script.sh`". Nothing scopes it to
+ * this exact case: `./hooks/script.sh` "would look for `<project>/hooks/script.sh`". Nothing confines it to
  * `.cursor/`, so a script under `.agents/` is found the same way.
  *
  * Deliberately *not* Codex's own documented suggestion of `$(git rev-parse --show-toplevel)/…`: that

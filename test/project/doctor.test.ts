@@ -9,7 +9,7 @@
  *
  * Environment variables are stubbed per test rather than in `beforeEach`, since which of them are set
  * is the subject of the first check. The fixture's `function.engineering.frontend` skill declares
- * `ACME_FIGMA_TOKEN` and its `scoped` server declares `SCOPED_API_KEY`, which it also interpolates
+ * `ACME_FIGMA_TOKEN` and its `tagged` server declares `TAGGED_API_KEY`, which it also interpolates
  * into a header — so the default profile needs exactly those two.
  */
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
@@ -50,18 +50,16 @@ const CLAUDE_SETTINGS = ".claude/settings.json";
 
 /** The two variables the default profile's bundle declares. */
 const FIGMA_VAR = "ACME_FIGMA_TOKEN";
-const SCOPED_VAR = "SCOPED_API_KEY";
+const TAGGED_VAR = "TAGGED_API_KEY";
 
-/** The inline hook the harness cases declare, and the variable one of them has it want. */
+/** The hook the harness cases put in the catalog, and the variable one of them has it want. */
 const HOOK = "notify";
 const HOOK_VAR = "NOTIFY_WEBHOOK";
 
-const HOOK_LINES: readonly string[] = [
-  `  - name: ${HOOK}`,
-  "    event: Stop",
-  "    type: command",
-  "    command: ./bin/notify",
-];
+/** A tag nothing in the fixture carries, so holding it selects that hook and nothing else. */
+const HOOK_TAG = "harness.cases";
+
+const HOOK_LINES: readonly string[] = ["event: Stop", "type: command", "command: ./bin/notify"];
 
 /** What a healthy project reports: every check named, and both finding lists explicitly empty. */
 const HEALTHY_REPORT = [
@@ -84,33 +82,49 @@ let root: string;
 let catalogDir: string;
 let projectDir: string;
 
-/** Points the project at the fixture catalog and gives it `scopes`. */
-async function writeProfile(scopes: readonly string[]): Promise<void> {
-  const list = scopes.length === 0 ? "[]" : `\n${scopes.map((scope) => `  - ${scope}`).join("\n")}`;
+/** One `requires` entry, selecting everything in `catalog` that carries `tag`. */
+function requiresEntry(tag: string, catalog = CATALOG_NAME): string {
+  return `  - { tag: "${catalog}/${tag}", capabilities: [skills, mcps, hooks] }`;
+}
+
+/** Points the project at the fixture catalog and gives it a `requires` list. */
+async function writeProfile(tags: readonly string[]): Promise<void> {
+  const list = tags.length === 0 ? "[]" : `\n${tags.map((tag) => requiresEntry(tag)).join("\n")}`;
   await writeFile(
     path.join(projectDir, "ambit.yml"),
     `version: 1
 catalogs:
   - name: ${CATALOG_NAME}
     source: path:../catalog
-scopes: ${list}
+requires: ${list}
 `,
     "utf8",
   );
 }
 
 /**
- * A profile holding no scopes, the `harnesses` given, and `hooks` as written — `[]` for a project
- * that configures a harness and selects no hook at all.
+ * A profile configuring `harnesses` whose bundle holds exactly one hook — or none, for `hooks: []`,
+ * the case about a project that configures a harness and selects no hook at all.
  *
- * The hooks are inline rather than out of the fixture catalog, which holds none: a hook needs no
- * catalog to reach a bundle, and what these cases are about is the harness the project configures.
+ * The hook is written into the catalog copy this test owns, carrying a tag the fixture uses nowhere
+ * else, and the project holds that tag alone. That is the only way to declare a hook, so what these
+ * cases are about stays the harness the project configures rather than where the hook came from.
+ *
+ * @param hooks the hook's `HOOK.yml` lines beyond its `name` and its tag; empty writes no hook.
  */
 async function writeHookProfile(
   harnesses: readonly string[],
   hooks: readonly string[] = HOOK_LINES,
 ): Promise<void> {
-  const declared = hooks.length === 0 ? " []" : `\n${hooks.join("\n")}`;
+  if (hooks.length > 0) {
+    const dir = path.join(catalogDir, "hooks", HOOK);
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      path.join(dir, "HOOK.yml"),
+      [`name: ${HOOK}`, `tags: [${HOOK_TAG}]`, ...hooks, ""].join("\n"),
+      "utf8",
+    );
+  }
   await writeFile(
     path.join(projectDir, "ambit.yml"),
     `version: 1
@@ -118,8 +132,7 @@ catalogs:
   - name: ${CATALOG_NAME}
     source: path:../catalog
 harnesses: [${harnesses.join(", ")}]
-scopes: []
-hooks:${declared}
+requires: ${hooks.length === 0 ? "[]" : `\n${requiresEntry(HOOK_TAG)}`}
 `,
     "utf8",
   );
@@ -187,9 +200,9 @@ beforeEach(async () => {
   projectDir = path.join(root, "project");
   await buildFixtureCatalog(catalogDir);
   await mkdir(projectDir, { recursive: true });
-  // Three skills — `function.engineering` also selects its nested frontend child — plus the `scoped`
-  // http server, which declares that same scope.
-  await writeProfile(["core", "function.engineering"]);
+  // Three skills — `function.engineering` also selects its nested frontend child — plus the `tagged`
+  // http server, which declares that same tag.
+  await writeProfile(["core", "function.engineering", "function.engineering.*"]);
 });
 
 afterEach(async () => {
@@ -200,7 +213,7 @@ afterEach(async () => {
 describe("ambit doctor on a healthy project", () => {
   beforeEach(async () => {
     vi.stubEnv(FIGMA_VAR, "figma-token");
-    vi.stubEnv(SCOPED_VAR, "scoped-key");
+    vi.stubEnv(TAGGED_VAR, "tagged-key");
     expect((await cli("install")).code).toBe(ExitCode.Success);
   });
 
@@ -215,7 +228,7 @@ describe("ambit doctor on a healthy project", () => {
     const before = await snapshot();
 
     expect((await cli("doctor")).code).toBe(ExitCode.Success);
-    vi.stubEnv(SCOPED_VAR, undefined);
+    vi.stubEnv(TAGGED_VAR, undefined);
     await rm(path.join(projectDir, LOCK_FILE));
     expect((await cli("doctor")).code).toBe(ExitCode.Doctor);
 
@@ -253,7 +266,7 @@ describe("ambit doctor on an incomplete environment", () => {
     // Installed with neither variable set, so `.mcp.json` holds the placeholder and matches the plan:
     // the only thing wrong with this project is its environment.
     vi.stubEnv(FIGMA_VAR, undefined);
-    vi.stubEnv(SCOPED_VAR, undefined);
+    vi.stubEnv(TAGGED_VAR, undefined);
     expect((await cli("install")).code).toBe(ExitCode.Success);
   });
 
@@ -265,7 +278,7 @@ describe("ambit doctor on an incomplete environment", () => {
     expect(result.stderr).toBe("");
     expect(await findings()).toEqual([
       `expects/fail: unset environment variable "${FIGMA_VAR}"`,
-      `expects/fail: unset environment variable "${SCOPED_VAR}"`,
+      `expects/fail: unset environment variable "${TAGGED_VAR}"`,
     ]);
     expect(await checks()).toEqual([
       "expects=fail",
@@ -285,23 +298,23 @@ describe("ambit doctor on an incomplete environment", () => {
   });
 
   it("names the server, and the reference install left in `.mcp.json` for the harness", async () => {
-    expect(await detailOf(SCOPED_VAR)).toEqual([
-      'MCP server "scoped" expects it',
-      `"mcpServers.scoped" in ${MCP_FILE} references it, for the harness to expand at spawn`,
+    expect(await detailOf(TAGGED_VAR)).toEqual([
+      'MCP server "tagged" expects it',
+      `"mcpServers.tagged" in ${MCP_FILE} references it, for the harness to expand at spawn`,
       // No reinstall in the fix: ambit wrote a reference, so setting the variable is the whole of it.
-      `set ${SCOPED_VAR} in the environment the agent runs in`,
+      `set ${TAGGED_VAR} in the environment the agent runs in`,
     ]);
   });
 
   it("says nothing about a variable set to the empty string, which is a decision someone made", async () => {
     vi.stubEnv(FIGMA_VAR, "");
 
-    expect(await findings()).toEqual([`expects/fail: unset environment variable "${SCOPED_VAR}"`]);
+    expect(await findings()).toEqual([`expects/fail: unset environment variable "${TAGGED_VAR}"`]);
   });
 
   it("goes quiet once the variables are set and install has interpolated them", async () => {
     vi.stubEnv(FIGMA_VAR, "figma-token");
-    vi.stubEnv(SCOPED_VAR, "scoped-key");
+    vi.stubEnv(TAGGED_VAR, "tagged-key");
     expect((await cli("install")).code).toBe(ExitCode.Success);
 
     expect(isHealthy(await diagnoseProject(projectDir))).toBe(true);
@@ -312,7 +325,7 @@ describe("ambit doctor on an incomplete environment", () => {
 describe("ambit doctor against the lock", () => {
   beforeEach(async () => {
     vi.stubEnv(FIGMA_VAR, "figma-token");
-    vi.stubEnv(SCOPED_VAR, "scoped-key");
+    vi.stubEnv(TAGGED_VAR, "tagged-key");
     expect((await cli("install")).code).toBe(ExitCode.Success);
   });
 
@@ -356,7 +369,7 @@ describe("ambit doctor against the lock", () => {
 describe("ambit doctor on an ownership anomaly", () => {
   beforeEach(async () => {
     vi.stubEnv(FIGMA_VAR, "figma-token");
-    vi.stubEnv(SCOPED_VAR, "scoped-key");
+    vi.stubEnv(TAGGED_VAR, "tagged-key");
     expect((await cli("install")).code).toBe(ExitCode.Success);
   });
 
@@ -391,7 +404,7 @@ describe("ambit doctor on an ownership anomaly", () => {
     await rm(path.join(projectDir, STATE_FILE));
 
     expect(await detailOf(MCP_FILE)).toContain(
-      '"mcpServers.scoped" exists but ambit did not create it',
+      '"mcpServers.tagged" exists but ambit did not create it',
     );
   });
 });
@@ -399,7 +412,7 @@ describe("ambit doctor on an ownership anomaly", () => {
 describe("ambit doctor against the project", () => {
   beforeEach(async () => {
     vi.stubEnv(FIGMA_VAR, "figma-token");
-    vi.stubEnv(SCOPED_VAR, "scoped-key");
+    vi.stubEnv(TAGGED_VAR, "tagged-key");
     expect((await cli("install")).code).toBe(ExitCode.Success);
   });
 
@@ -423,7 +436,7 @@ describe("ambit doctor against the project", () => {
   });
 
   it("reports every failure at once rather than stopping at the first", async () => {
-    vi.stubEnv(SCOPED_VAR, undefined);
+    vi.stubEnv(TAGGED_VAR, undefined);
     await rm(path.join(projectDir, CORE_TARGET));
     await rm(path.join(projectDir, LOCK_FILE));
 
@@ -432,7 +445,7 @@ describe("ambit doctor against the project", () => {
     // cannot make the installed file differ from what resolution now produces. An installed config is
     // a function of the bundle alone, which is what stops `doctor` inventing drift from a shell.
     expect(await findings()).toEqual([
-      `expects/fail: unset environment variable "${SCOPED_VAR}"`,
+      `expects/fail: unset environment variable "${TAGGED_VAR}"`,
       `lock/fail: ${LOCK_FILE} is missing`,
       `drift/fail: ${CORE_TARGET} is missing`,
     ]);
@@ -443,7 +456,7 @@ describe("ambit doctor against the project", () => {
 describe("ambit doctor on a project installed with `--copy`", () => {
   beforeEach(async () => {
     vi.stubEnv(FIGMA_VAR, "figma-token");
-    vi.stubEnv(SCOPED_VAR, "scoped-key");
+    vi.stubEnv(TAGGED_VAR, "tagged-key");
     expect((await cli("install", "--copy")).code).toBe(ExitCode.Success);
   });
 
@@ -491,12 +504,12 @@ describe("ambit doctor on a project installed with `--copy`", () => {
 
 /**
  * A hook's `env:` expectation is the fourth route into the one check that reads the environment, and it
- * is the only one of the four with nothing in a config file behind it: a `${VAR}` in a hook's `command`
- * is left for the shell the harness spawns, so the declaration is all there is to report.
+ * is the only one of the four with nothing in a harness config file behind it: a `${VAR}` in a hook's
+ * `command` is left for the shell the harness spawns, so the declaration is all there is to report.
  */
 describe("ambit doctor on a hook's `expects`", () => {
   beforeEach(async () => {
-    await writeHookProfile(["claude"], [...HOOK_LINES, `    expects: [{ env: ${HOOK_VAR} }]`]);
+    await writeHookProfile(["claude"], [...HOOK_LINES, `expects: [{ env: ${HOOK_VAR} }]`]);
     vi.stubEnv(HOOK_VAR, undefined);
     expect((await cli("install")).code).toBe(ExitCode.Success);
   });
@@ -576,7 +589,7 @@ describe("ambit doctor on a project configuring codex", () => {
 describe("ambit doctor before an install", () => {
   it("reports the missing lock and every missing artifact, and exits 6", async () => {
     vi.stubEnv(FIGMA_VAR, "figma-token");
-    vi.stubEnv(SCOPED_VAR, "scoped-key");
+    vi.stubEnv(TAGGED_VAR, "tagged-key");
 
     const result = await cli("doctor");
 
@@ -600,7 +613,9 @@ describe("ambit doctor before an install", () => {
     const result = await cli("doctor");
 
     expect(result.code).toBe(ExitCode.Resolution);
-    expect(result.stderr).toContain('unknown scope "function.enginering"');
+    expect(result.stderr).toContain(
+      `\`requires\` entry "tag:${CATALOG_NAME}/function.enginering" matches nothing`,
+    );
     expect(result.stdout).toBe("");
   });
 });

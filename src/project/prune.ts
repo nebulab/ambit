@@ -1,9 +1,9 @@
 /**
  * Pruning — removing what the last install owned and this one does not.
  *
- * Without it install is purely additive, so dropping a scope from `ambit.yml` changes nothing on
- * disk and the harness keeps loading a skill the project no longer holds. That is not a tidiness
- * problem: an agent acting on withdrawn instructions is the failure the scope list exists to
+ * Without it install is purely additive, so narrowing `requires` in `ambit.yml` changes nothing on
+ * disk and the harness keeps loading a skill the project no longer selects. That is not a tidiness
+ * problem: an agent acting on withdrawn instructions is the failure a selection list exists to
  * prevent.
  *
  * The input is `.ambit/state.json`, never the filesystem. Nothing here walks `.claude/skills`

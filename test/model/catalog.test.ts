@@ -4,15 +4,17 @@
  * Every case runs against the fixture catalog, mutated in place for the malformed ones, so the
  * subject is the same tree the rest of the suite resolves against.
  */
-import { cp, mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import type { Command } from "commander";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { buildFixtureCatalog } from "../../scripts/fixture-catalog.js";
 import type { MergedCatalog } from "../../src/model/catalog.js";
 import { loadCatalogs, mergeCatalogs, parseCatalogDirectory } from "../../src/model/catalog.js";
 import type { CommandHandlers, CommandRules } from "../../src/cli/commands.js";
+import { COMMAND_SPECS, buildCommand } from "../../src/cli/commands.js";
 import { loadProjectConfig } from "../../src/model/config.js";
 import { AmbitError, ExitCode } from "../../src/errors.js";
 import { HANDLERS, RULES, run } from "../../src/cli/program.js";
@@ -21,10 +23,9 @@ import type { SourceContext } from "../../src/model/sources.js";
 const CATALOG_NAME = "company";
 const CODE_REVIEW = "skills/code-review/SKILL.md";
 
-/** The fixture's core skill, and the scope it declares — the pair a second catalog collides with. */
+/** The fixture's core skill, and the tag it declares — the pair a second catalog collides with. */
 const CORE_SKILL = "company-context";
-const CORE_DESCRIPTION = "The universal floor — context everyone needs";
-const ENGINEERING_DESCRIPTION = "Building and shipping software";
+const CORE_TAG = "core";
 
 /** A skill only the second catalog provides, so a merge has something to keep from both. */
 const OWN_SKILL = "jane-notes";
@@ -63,35 +64,19 @@ async function rejection(): Promise<AmbitError> {
 }
 
 /**
- * Builds a catalog beside the fixture that deliberately collides with it: the same `core` scope,
- * the same core skill, and the same `scoped` server, plus a scope and a skill of its own so the
- * merge has something to keep from both.
+ * Builds a catalog beside the fixture that deliberately collides with it: the same core skill and the
+ * same `tagged` server, plus a skill of its own so the merge has something only one catalog provides.
  *
  * @param name the catalog's directory, which is also the name config gives it.
- * @param coreDescription how it describes the shared `core` scope — identical to the fixture's
- *   unless the test is about two catalogs disagreeing.
  */
-async function writeShadowingCatalog(
-  name: string,
-  coreDescription: string = CORE_DESCRIPTION,
-): Promise<void> {
+async function writeCollidingCatalog(name: string): Promise<void> {
   const files: Readonly<Record<string, string>> = {
-    "scopes.yml": [
-      "scopes:",
-      "  core:",
-      `    description: ${JSON.stringify(coreDescription)}`,
-      "  function.engineering:",
-      `    description: ${JSON.stringify(ENGINEERING_DESCRIPTION)}`,
-      "  person.jane:",
-      "    description: Jane's own things",
-      "",
-    ].join("\n"),
     [`skills/${CORE_SKILL.replaceAll(".", "/")}/SKILL.md`]: [
       "---",
       `name: ${CORE_SKILL}`,
       `description: ${name}'s copy of the core skill.`,
       "ambit:",
-      "  scopes: [core]",
+      `  tags: [${CORE_TAG}]`,
       "---",
       "",
       `# ${name}'s copy`,
@@ -102,15 +87,15 @@ async function writeShadowingCatalog(
       `name: ${OWN_SKILL}`,
       "description: Jane's notes, which no other catalog provides.",
       "ambit:",
-      "  scopes: [core, person.jane]",
+      `  tags: [${CORE_TAG}, person.jane]`,
       "---",
       "",
       "# notes",
       "",
     ].join("\n"),
-    "mcps/scoped.yml": [
-      "name: scoped",
-      "scopes: [function.engineering]",
+    "mcps/tagged.yml": [
+      "name: tagged",
+      "tags: [function.engineering]",
       "transport:",
       "  stdio:",
       `    command: ${name}-mcp`,
@@ -126,12 +111,18 @@ async function writeShadowingCatalog(
 }
 
 /**
- * Points the project at the fixture catalog first and the extra catalogs after it, so config order
- * — which is priority order — is the fixture's.
+ * Points the project at the fixture catalog first and the extra catalogs after it.
+ *
+ * The order is only how the file reads: nothing resolves by it, since every catalog's copy of a name
+ * survives the merge.
+ *
+ * @param requires entry lines, built with {@link requiresEntry}. Each carries its own qualifier,
+ *   because that is the whole of what makes two copies of one name individually addressable — and so
+ *   what makes reaching both of them a thing a config has to ask for on purpose.
  */
 async function writeCatalogOrder(
   extra: readonly string[],
-  scopes: readonly string[] = [],
+  requires: readonly string[] = [],
 ): Promise<void> {
   await writeConfig(
     [
@@ -140,10 +131,15 @@ async function writeCatalogOrder(
       `  - name: ${CATALOG_NAME}`,
       "    source: path:../catalog",
       ...extra.flatMap((name) => [`  - name: ${name}`, `    source: path:../${name}`]),
-      `scopes: [${scopes.join(", ")}]`,
+      ...(requires.length === 0 ? ["requires: []"] : ["requires:", ...requires]),
       "",
     ].join("\n"),
   );
+}
+
+/** One `requires` entry, selecting everything in `catalog` that carries `tag`. */
+function requiresEntry(tag: string, catalog = CATALOG_NAME): string {
+  return `  - { tag: "${catalog}/${tag}", capabilities: [skills, mcps, hooks] }`;
 }
 
 /** The merged view of whatever the project's config currently lists. */
@@ -185,10 +181,7 @@ async function invoke(
   return { code, stdout: out.join("\n"), stderr: err.join("\n") };
 }
 
-/**
- * Runs the CLI against the project under test. Authoring commands take `--catalog` instead and so
- * cannot go through here — use `invoke` for those.
- */
+/** Runs the CLI against the project under test. */
 async function cli(...argv: readonly string[]): Promise<CliResult> {
   return invoke([...argv, "--project", projectDir]);
 }
@@ -211,27 +204,18 @@ afterEach(async () => {
 });
 
 describe("catalog parsing", () => {
-  it("reads the registry, every skill, and every MCP entity", async () => {
+  it("reads every skill and every MCP entity, and nothing at the root", async () => {
     const catalog = await parseCatalogDirectory(CATALOG_NAME, "path:../catalog", catalogDir);
 
     expect(catalog.name).toBe(CATALOG_NAME);
     expect(catalog.root).toBe(catalogDir);
-    expect(catalog.scopes).toEqual([
-      { name: "core", description: "The universal floor — context everyone needs" },
-      { name: "function.engineering", description: "Building and shipping software" },
-      {
-        name: "function.engineering.frontend",
-        description: "Browser-side work: components, styling, accessibility",
-      },
-      { name: "project.acme", description: "The Acme engagement" },
-    ]);
     expect(catalog.skills.map((skill) => skill.name)).toEqual([
       "acme-brief",
       "code-review",
       "company-context",
       "design-tokens",
     ]);
-    expect(catalog.mcps.map((mcp) => mcp.name)).toEqual(["fixture", "scoped"]);
+    expect(catalog.mcps.map((mcp) => mcp.name)).toEqual(["fixture", "tagged"]);
   });
 
   it("derives each skill's name and path from its directory", async () => {
@@ -240,7 +224,7 @@ describe("catalog parsing", () => {
 
     expect(frontend).toMatchObject({
       path: "skills/design-tokens",
-      scopes: ["function.engineering.frontend"],
+      tags: ["function.engineering.frontend"],
       requires: [],
       expects: [{ kind: "env", name: "ACME_FIGMA_TOKEN" }],
     });
@@ -260,14 +244,16 @@ describe("catalog parsing", () => {
     });
   });
 
-  it("carries `requires` through, each entry naming its own namespace", async () => {
+  it("carries `requires` through as pattern entries, unqualified", async () => {
     const catalog = await parseCatalogDirectory(CATALOG_NAME, "path:../catalog", catalogDir);
 
-    // In the order the fixture wrote them: a `requires` list is the author's, not a sorted one.
+    // In the order the fixture wrote them: a `requires` list is the author's, not a sorted one. No
+    // `catalog` on any entry — a catalog author cannot write a consumer's alias, and the entry
+    // resolves within this catalog.
     expect(catalog.skills.find((skill) => skill.name === "acme-brief")?.requires).toEqual([
-      { kind: "skill", name: "company-context" },
-      { kind: "mcp", name: "fixture" },
-      { kind: "hook", name: "acme-standup" },
+      { field: "name", pattern: "company-context", capabilities: ["skills"] },
+      { field: "name", pattern: "fixture", capabilities: ["mcps"] },
+      { field: "name", pattern: "acme-standup", capabilities: ["hooks"] },
     ]);
   });
 
@@ -279,10 +265,10 @@ describe("catalog parsing", () => {
       command: "npx",
       args: ["-y", "@acme/fixture-mcp"],
     });
-    expect(catalog.mcps.find((mcp) => mcp.name === "scoped")?.transport).toEqual({
+    expect(catalog.mcps.find((mcp) => mcp.name === "tagged")?.transport).toEqual({
       kind: "http",
       url: "https://mcp.invalid/fixture",
-      headers: { Authorization: "Bearer ${SCOPED_API_KEY}" },
+      headers: { Authorization: "Bearer ${TAGGED_API_KEY}" },
     });
   });
 
@@ -295,7 +281,7 @@ name: code-review
 description: x
 allowed-tools: [Read, Grep]
 ambit:
-  scopes: [function.engineering]
+  tags: [function.engineering]
 ---
 `,
     );
@@ -342,14 +328,14 @@ description: x
 name: code-review
 description: x
 ambit:
-  scope: [function.engineering]
+  tag: [function.engineering]
 ---
 `,
     );
 
     const error = await rejection();
-    expect(error.message).toBe(`unknown key "ambit.scope" (${CODE_REVIEW} line 5)`);
-    expect(error.detail).toContain("accepted keys: expects, requires, scopes");
+    expect(error.message).toBe(`unknown key "ambit.tag" (${CODE_REVIEW} line 5)`);
+    expect(error.detail).toContain("accepted keys: expects, requires, tags");
   });
 
   it("rejects an `ambit:` that is not a mapping", async () => {
@@ -413,6 +399,46 @@ transport:
     expect(error.detail.join("\n")).toContain('declares the name "other"');
   });
 
+  /**
+   * The transport rules, read through the file that is now the only place a server can be written.
+   *
+   * They were asserted through `ambit.yml`'s inline `mcps` while that existed, which was the shorter
+   * document to write; `mcps/<name>.yml` is the same parser and the same messages, minus the key path
+   * a config entry prefixed them with.
+   */
+  const TRANSPORTS: readonly [label: string, body: string, expected: string][] = [
+    ["names no kind", "transport: {}\n", "`transport` names no transport kind"],
+    [
+      "names two kinds",
+      "transport:\n  stdio:\n    command: npx\n  http:\n    url: https://x.invalid\n",
+      "`transport` names 2 transport kinds: http, stdio",
+    ],
+    [
+      "names a kind ambit does not have",
+      "transport:\n  sse:\n    url: https://x.invalid\n",
+      'unknown transport kind "sse"',
+    ],
+    [
+      "gives a stdio transport no command",
+      "transport:\n  stdio: {}\n",
+      'missing required key "transport.stdio.command"',
+    ],
+  ];
+
+  for (const [label, body, expected] of TRANSPORTS) {
+    it(`rejects an MCP entity whose transport ${label}`, async () => {
+      await writeCatalogFile("mcps/broken.yml", `name: broken\n${body}`);
+
+      expect((await rejection()).format()).toContain(expected);
+    });
+  }
+
+  it("lists the transport kinds it does have when one is missing", async () => {
+    await writeCatalogFile("mcps/broken.yml", "name: broken\ntransport: {}\n");
+
+    expect((await rejection()).format()).toContain("supported kinds: http, stdio");
+  });
+
   it("rejects one MCP name defined by two files", async () => {
     await cp(path.join(catalogDir, "mcps/fixture.yml"), path.join(catalogDir, "mcps/fixture.yaml"));
 
@@ -421,16 +447,24 @@ transport:
     );
   });
 
-  it("rejects a catalog with no scope registry", async () => {
-    await rename(path.join(catalogDir, "scopes.yml"), path.join(catalogDir, "scopes.hidden"));
+  it("refuses a catalog that still holds a scopes.yml, naming the rewrite", async () => {
+    // The registry is the one thing at a catalog root ambit still has an opinion about, and the
+    // opinion is that it must not be there.
+    await writeCatalogFile("scopes.yml", "scopes:\n  core:\n    description: A\n");
 
-    expect((await rejection()).message).toBe("scopes.yml is missing");
+    const error = await rejection();
+    expect(error.message).toBe("the scope registry is gone (scopes.yml)");
+    expect(error.detail).toContain(
+      "scopes are gone; tag items with `ambit.tags` and select them with `tag:`",
+    );
   });
 
-  it("requires a description for every registered scope", async () => {
-    await writeCatalogFile("scopes.yml", "scopes:\n  core: {}\n");
+  it("ignores an `ambit.yml` at the catalog root, since a project may publish itself", async () => {
+    await writeCatalogFile("ambit.yml", "version: 1\nrequires: []\n");
 
-    expect((await rejection()).message).toContain('missing required key "scopes.core.description"');
+    const catalog = await parseCatalogDirectory(CATALOG_NAME, "path:../catalog", catalogDir);
+
+    expect(catalog.skills.map((skill) => skill.name)).toContain("company-context");
   });
 
   it("names the catalog an error came from", async () => {
@@ -483,9 +517,9 @@ describe("ambit dump-catalog", () => {
     expect(result.code).toBe(ExitCode.Success);
     expect(JSON.parse(result.stdout)).toEqual({
       catalogs: [CATALOG_NAME],
-      // The fixture's three: one selected by a scope, one shipping a script, and one no scope selects.
+      // The fixture's three: one a `tag: core` entry reaches, one shipping a script, and one tagged nothing.
       hooks: {
-        "acme-standup": {
+        [`${CATALOG_NAME}/acme-standup`]: {
           catalog: CATALOG_NAME,
           type: "command",
           command: 'echo "acme session ended"',
@@ -493,9 +527,9 @@ describe("ambit dump-catalog", () => {
           expects: [],
           event: "SessionEnd",
           path: "hooks/acme-standup",
-          scopes: [],
+          tags: [],
         },
-        "guard-secrets": {
+        [`${CATALOG_NAME}/guard-secrets`]: {
           catalog: CATALOG_NAME,
           type: "script",
           command: "guard.sh",
@@ -504,10 +538,10 @@ describe("ambit dump-catalog", () => {
           event: "PreToolUse",
           matcher: "Bash",
           path: "hooks/guard-secrets",
-          scopes: ["function.engineering"],
+          tags: ["function.engineering"],
           timeout: 10,
         },
-        "session-notes": {
+        [`${CATALOG_NAME}/session-notes`]: {
           catalog: CATALOG_NAME,
           type: "command",
           command: 'echo "acme conventions apply"',
@@ -515,70 +549,62 @@ describe("ambit dump-catalog", () => {
           expects: [],
           event: "SessionStart",
           path: "hooks/session-notes",
-          scopes: ["core"],
+          tags: ["core"],
         },
-      },
-      scopes: {
-        core: { description: "The universal floor — context everyone needs" },
-        "function.engineering": { description: "Building and shipping software" },
-        "function.engineering.frontend": {
-          description: "Browser-side work: components, styling, accessibility",
-        },
-        "project.acme": { description: "The Acme engagement" },
       },
       skills: {
-        "company-context": {
+        [`${CATALOG_NAME}/company-context`]: {
           catalog: CATALOG_NAME,
           description: "Canonical context about Acme — what it sells, to whom, and how it works.",
           expects: [],
           path: "skills/company-context",
           requires: [],
-          scopes: ["core"],
+          tags: ["core"],
         },
-        "design-tokens": {
+        [`${CATALOG_NAME}/design-tokens`]: {
           catalog: CATALOG_NAME,
           description: "Acme's design tokens — color, spacing, and the type scale.",
           expects: [{ kind: "env", name: "ACME_FIGMA_TOKEN" }],
           path: "skills/design-tokens",
           requires: [],
-          scopes: ["function.engineering.frontend"],
+          tags: ["function.engineering.frontend"],
         },
-        "code-review": {
+        [`${CATALOG_NAME}/code-review`]: {
           catalog: CATALOG_NAME,
           description: "How Acme reviews code — what reviewers look for, and in what order.",
           expects: [],
           path: "skills/code-review",
           requires: [],
-          scopes: ["function.engineering"],
+          tags: ["function.engineering"],
         },
-        "acme-brief": {
+        [`${CATALOG_NAME}/acme-brief`]: {
           catalog: CATALOG_NAME,
-          description: "The Acme engagement brief — scope, contacts, and conventions.",
+          description: "The Acme engagement brief — remit, contacts, and conventions.",
           expects: [],
           path: "skills/acme-brief",
           requires: [
-            { kind: "skill", name: "company-context" },
-            { kind: "mcp", name: "fixture" },
-            { kind: "hook", name: "acme-standup" },
+            { capabilities: ["skills"], field: "name", pattern: "company-context" },
+            { capabilities: ["mcps"], field: "name", pattern: "fixture" },
+            { capabilities: ["hooks"], field: "name", pattern: "acme-standup" },
           ],
-          scopes: ["project.acme"],
+          tags: ["project.acme"],
         },
       },
       mcps: {
-        fixture: {
+        [`${CATALOG_NAME}/fixture`]: {
           catalog: CATALOG_NAME,
           expects: [{ kind: "env", name: "FIXTURE_API_KEY" }],
-          scopes: [],
+          tags: [],
           transport: { kind: "stdio", command: "npx", args: ["-y", "@acme/fixture-mcp"] },
         },
-        scoped: {
+        [`${CATALOG_NAME}/tagged`]: {
           catalog: CATALOG_NAME,
-          expects: [{ kind: "env", name: "SCOPED_API_KEY" }],
-          scopes: ["function.engineering"],
+          expects: [{ kind: "env", name: "TAGGED_API_KEY" }],
+          tags: ["function.engineering"],
           transport: {
             kind: "http",
             url: "https://mcp.invalid/fixture",
-            headers: { Authorization: "Bearer ${SCOPED_API_KEY}" },
+            headers: { Authorization: "Bearer ${TAGGED_API_KEY}" },
           },
         },
       },
@@ -600,19 +626,21 @@ describe("ambit dump-catalog", () => {
     expect(result.stdout).not.toContain(root);
   });
 
-  it("lists scopes, skills, and MCPs as text", async () => {
+  it("lists skills with their tags, and MCPs, as text", async () => {
     const result = await cli("dump-catalog");
 
     expect(result.code).toBe(ExitCode.Success);
     expect(result.stdout).toContain(`${CATALOG_NAME}  path:../catalog`);
-    expect(result.stdout).toContain("core                           The universal floor");
+    // No registry section to print: the labels an item carries are shown on the item's own row.
+    expect(result.stdout).not.toContain("tags (");
+    expect(result.stdout).toContain(`company-context  ${CATALOG_NAME}  core`);
     expect(result.stdout).toContain("acme-brief");
     expect(result.stdout).toContain("stdio: npx -y @acme/fixture-mcp");
     expect(result.stdout).toContain("http: https://mcp.invalid/fixture");
   });
 
   it("succeeds with nothing to dump when no catalogs are configured", async () => {
-    await writeConfig("version: 1\nscopes: [core]\n");
+    await writeConfig("version: 1\nrequires: []\n");
 
     const result = await cli("dump-catalog");
     expect(result.code).toBe(ExitCode.Success);
@@ -641,8 +669,8 @@ describe("ambit dump-catalog", () => {
  * `hooks/<name>/HOOK.yml`: the third namespace a catalog distributes, and the one whose declaration is
  * not the whole truth about it.
  *
- * A hook is a directory for the same reason a skill is — it may ship bytes — so it is found, named and
- * shadowed exactly as a skill is, and those cases are the cheap half. The half worth the file is what
+ * A hook is a directory for the same reason a skill is — it may ship bytes — so it is found and named
+ * exactly as a skill is, and those cases are the cheap half. The half worth the file is what
  * happens once a document says `type: script`: the catalog is asked whether the file is really there,
  * so a misspelled script name is a refusal naming what the directory actually holds, rather than a
  * command line quietly written into a harness config and discovered when the hook silently fails to
@@ -657,7 +685,7 @@ describe("catalog hooks", () => {
   const HOOK_FILE = `${HOOK_DIR}/HOOK.yml`;
 
   /** The second catalog, for the one case about two of them providing one hook. */
-  const SHADOWING_CATALOG = "personal";
+  const SECOND_CATALOG = "personal";
 
   /** A hook document, its `name` given separately so a caller writes only what the case is about. */
   function document(name: string, lines: readonly string[]): string {
@@ -689,7 +717,7 @@ describe("catalog hooks", () => {
       HOOK_FILE,
       document(HOOK_NAME, [
         "description: Refuses a destructive rm before it runs",
-        "scopes: [function.engineering]",
+        "tags: [function.engineering]",
         "event: PreToolUse",
         "matcher: Bash",
         "type: command",
@@ -705,7 +733,7 @@ describe("catalog hooks", () => {
         name: HOOK_NAME,
         path: HOOK_DIR,
         description: "Refuses a destructive rm before it runs",
-        scopes: ["function.engineering"],
+        tags: ["function.engineering"],
         event: "PreToolUse",
         matcher: "Bash",
         type: "command",
@@ -825,7 +853,7 @@ describe("catalog hooks", () => {
     await writeCatalogFile(
       HOOK_FILE,
       document(HOOK_NAME, [
-        "scopes: [function.engineering]",
+        "tags: [function.engineering]",
         "event: PreToolUse",
         "matcher: Bash",
         "type: script",
@@ -837,7 +865,7 @@ describe("catalog hooks", () => {
     const emitted = JSON.parse((await cli("dump-catalog", "--json")).stdout) as {
       hooks: Record<string, unknown>;
     };
-    expect(emitted.hooks[HOOK_NAME]).toEqual({
+    expect(emitted.hooks[`${CATALOG_NAME}/${HOOK_NAME}`]).toEqual({
       catalog: CATALOG_NAME,
       type: "script",
       command: "hook.sh",
@@ -845,10 +873,13 @@ describe("catalog hooks", () => {
       expects: [],
       matcher: "Bash",
       path: HOOK_DIR,
-      scopes: ["function.engineering"],
+      tags: ["function.engineering"],
     });
-    // The fixture's own three come along, which the whole-catalog case above pins.
-    expect(Object.keys(emitted.hooks)).toEqual([HOOK_NAME, ...FIXTURE_HOOKS].sort());
+    // The fixture's own three come along, which the whole-catalog case above pins. Each record is
+    // keyed by its address, since a name is not unique across catalogs.
+    expect(Object.keys(emitted.hooks)).toEqual(
+      [HOOK_NAME, ...FIXTURE_HOOKS].sort().map((name) => `${CATALOG_NAME}/${name}`),
+    );
 
     // The row's fields rather than its padding, which widens with whatever else the catalog holds.
     const row = (await cli("dump-catalog")).stdout
@@ -859,86 +890,58 @@ describe("catalog hooks", () => {
     );
   });
 
-  it("lets the earlier catalog win a duplicate hook name, and records the shadowing", async () => {
-    await writeShadowingCatalog(SHADOWING_CATALOG);
+  it("keeps both catalogs' copies of a duplicate hook name, each with its own definition", async () => {
+    await writeCollidingCatalog(SECOND_CATALOG);
     await writeHookIn("catalog", HOOK_NAME, [
       "event: Stop",
       "type: command",
       "command: npx company-notify",
     ]);
-    await writeHookIn(SHADOWING_CATALOG, HOOK_NAME, [
+    await writeHookIn(SECOND_CATALOG, HOOK_NAME, [
       "event: Stop",
       "type: command",
       "command: npx jane-notify",
     ]);
-    await writeCatalogOrder([SHADOWING_CATALOG]);
+    await writeCatalogOrder([SECOND_CATALOG]);
 
     const view = await merged();
 
-    // One entry for the contested name, beside the fixture's own hooks, which only one catalog holds.
+    // Two entries for the contested name, in catalog order, each carrying its own `command` — which
+    // is what says the merge kept both definitions rather than one label twice.
     expect(view.hooks.filter((hook) => hook.name === HOOK_NAME)).toEqual([
       expect.objectContaining({
         name: HOOK_NAME,
         catalog: CATALOG_NAME,
         command: "npx company-notify",
       }),
+      expect.objectContaining({
+        name: HOOK_NAME,
+        catalog: SECOND_CATALOG,
+        command: "npx jane-notify",
+      }),
     ]);
-    expect(view.shadowing.hooks.get(HOOK_NAME)).toEqual({
-      name: HOOK_NAME,
-      catalog: CATALOG_NAME,
-      shadows: [SHADOWING_CATALOG],
-    });
-  });
-
-  it("refuses an inline hook a catalog already provides, since a name means one thing", async () => {
-    await writeCatalogFile(
-      HOOK_FILE,
-      document(HOOK_NAME, ["event: Stop", "type: command", "command: npx x"]),
-    );
-    await writeConfig(
-      [
-        "version: 1",
-        "catalogs:",
-        `  - name: ${CATALOG_NAME}`,
-        "    source: path:../catalog",
-        "hooks:",
-        `  - name: ${HOOK_NAME}`,
-        "    event: Stop",
-        "    type: command",
-        "    command: npx mine",
-        "",
-      ].join("\n"),
-    );
-
-    const result = await cli("resolve");
-    expect(result.code).toBe(ExitCode.Resolution);
-    expect(result.stderr).toContain(
-      `hook "${HOOK_NAME}" is also provided by catalog "${CATALOG_NAME}" (ambit.yml line 6)`,
-    );
   });
 });
 
 /**
- * Spec §6, "Catalog authoring": `catalog` is a command group, and only that — every command under it
- * maintains one catalog directory and takes `--catalog <dir>`.
+ * The command surface itself — which commands exist, what flags each takes, and what one whose
+ * behaviour is not wired up does. Each command's own behaviour is its own suite's.
  *
- * It had a default action once, `dump`, which made bare `ambit catalog` the consumer command that reads
- * a project's `ambit.yml`. That put two subjects under one word: the group answered to `--project`
- * while every command below it answered to `--catalog`. Dumping the merged catalog is
- * `ambit dump-catalog` now, and the uniformity of the group is what the cases below pin.
- *
- * What is asserted here is the surface itself — which commands exist, what each is called, which
- * directory flag it takes, and what one whose behaviour is not wired up does. Each command's own
- * behaviour is its own suite's.
+ * It is **flat**, and that is what these cases pin. `catalog` was a command group, holding every
+ * command whose subject was one catalog directory: it answered to `--catalog <dir>` where a consumer
+ * command answered to `--project <dir>`, and it withheld `--offline` because a directory read off disk
+ * resolves no source. Every project is a catalog now — it lists itself as `source: path:.` — so there
+ * is one subject, `ambit validate` covers what `ambit catalog validate` covered, and the word is gone
+ * from the surface rather than left standing over nothing.
  */
-describe("ambit catalog as a command group", () => {
-  /** Every subcommand of `catalog`. */
-  const SUBCOMMANDS = ["init", "tree", "audit", "validate", "scope", "skill", "mcp", "annotate"];
+describe("the command surface", () => {
+  /** Every command the surface declares, which is every command a user can type. */
+  const COMMANDS = COMMAND_SPECS.map((spec) => spec.name);
 
   /**
    * A command's usage, read by running `--help` through the CLI. That is only testable in-process
-   * because a subcommand now inherits `exitOverride` and `configureOutput` (A30); before that it took
-   * the worker with it, and the help text had to be read off the built `Command` instead.
+   * because a subcommand inherits `exitOverride` and `configureOutput` (A30); before that it took the
+   * worker with it, and the help text had to be read off the built `Command` instead.
    */
   async function usage(...words: readonly string[]): Promise<string> {
     const result = await invoke([...words, "--help"]);
@@ -960,117 +963,150 @@ describe("ambit catalog as a command group", () => {
     expect(JSON.parse(dump.stdout)).toMatchObject({ catalogs: [CATALOG_NAME] });
   });
 
-  it("does not answer to `ambit catalog dump`, which no longer exists", async () => {
-    const result = await invoke(["catalog", "dump"]);
-
-    expect(result.code).toBe(ExitCode.Config);
-    // The group takes no positionals, so an unrecognized word is one argument too many rather than an
-    // unknown command — either way it is refused, and nothing dumps a catalog under this word.
-    expect(result.stderr).toContain("too many arguments for 'catalog'");
+  it("declares no command group, so no invocation is two words", () => {
+    // The flatness itself, asserted on the specs rather than on any one command: a group reintroduced
+    // by accident — or a `catalog` spec surviving a rebase — fails here rather than in whichever case
+    // happens to type its name.
+    for (const spec of COMMAND_SPECS) expect(spec.subcommands, spec.name).toBeUndefined();
   });
 
-  it("lists every authoring subcommand in `ambit catalog --help`", async () => {
-    const help = await usage("catalog");
+  it("does not answer to `ambit catalog`, which is not a command any more", async () => {
+    for (const argv of [["catalog"], ["catalog", "validate"], ["catalog", "dump"]]) {
+      const result = await invoke(argv);
 
-    for (const name of SUBCOMMANDS) expect(help).toContain(`\n  ${name} `);
-  });
-
-  it("gives every command under `catalog` the catalog flag and no project flag", async () => {
-    // The two directories are different subjects, not the same one under two names: a catalog has no
-    // `ambit.yml` to read. `--offline` is absent for the same reason — there is no source to resolve.
-    for (const name of ["init", "tree", "audit", "validate"]) {
-      const help = await usage("catalog", name);
-
-      expect(help, name).toContain("--catalog <dir>");
-      expect(help, name).not.toContain("--project");
-      expect(help, name).not.toContain("--offline");
+      expect(result.code, argv.join(" ")).toBe(ExitCode.Config);
+      expect(result.stderr).toContain("unknown command 'catalog'");
+      expect(result.stdout).toBe("");
     }
   });
 
-  it("gives `dump-catalog` the project flag and no catalog flag", async () => {
-    const help = await usage("dump-catalog");
+  it("gives every command the same three global flags, and none of them `--catalog`", async () => {
+    // One subject, one directory flag. `--offline` is uniform for the same reason: the rule that
+    // withheld it existed for the catalog commands, and there are none.
+    for (const name of COMMANDS) {
+      const help = await usage(name);
 
-    expect(help).toContain("--project <dir>");
-    expect(help).not.toContain("--catalog");
-  });
-
-  it("prints its usage for a group, which has no action of its own", async () => {
-    for (const group of [["catalog"], ["catalog", "scope"]]) {
-      const result = await invoke(group);
-
-      expect(result.code, result.stderr).toBe(ExitCode.Success);
-      expect(result.stdout).toContain(`Usage: ambit ${group.join(" ")}`);
-    }
-
-    // And the group takes none of the flags its children do, rather than silently eating them.
-    const help = await usage("catalog");
-    for (const flag of ["--project", "--catalog", "--json", "--offline"]) {
-      expect(help).not.toContain(flag);
+      expect(help, name).toContain("--project <dir>");
+      expect(help, name).toContain("--json");
+      expect(help, name).toContain("--offline");
+      expect(help, name).not.toContain("--catalog");
     }
   });
 
-  it("reports a subcommand with no handler as unimplemented, naming the whole invocation", async () => {
+  it("reports a command with no handler as unimplemented, naming the invocation", async () => {
     // Every command the surface declares is now built, so the guard is asserted against a program built
     // with one handler removed rather than against a gap in the surface: this is what a later task
     // adding a spec before its behaviour must see, instead of a command that silently succeeds.
-    const withoutTree = Object.fromEntries(
-      Object.entries(HANDLERS).filter(([key]) => key !== "catalog tree"),
+    const withoutValidate = Object.fromEntries(
+      Object.entries(HANDLERS).filter(([key]) => key !== "validate"),
     );
-    const result = await invoke(["catalog", "tree", "--catalog", catalogDir], withoutTree);
+    const result = await invoke(["validate", "--project", projectDir], withoutValidate);
 
     expect(result.code, result.stderr).toBe(ExitCode.Internal);
-    expect(result.stderr).toContain(`command "catalog tree" is not implemented yet`);
+    expect(result.stderr).toContain(`command "validate" is not implemented yet`);
     expect(result.stdout).toBe("");
   });
 });
 
 /**
- * Spec §6's exit-code contract, asserted on the commands furthest from the program: a *Commander*-level
- * usage error — an unknown flag, a missing argument — has to leave through `run()` as a code and print
- * through ambit's own output, exactly as one of ambit's own errors does.
+ * The group seam `CommandSpec.subcommands` is, which no command in the surface declares.
+ *
+ * `catalog` was the only group, and `ambit validate` absorbed its last subcommand. The machinery
+ * stayed — a group prints usage instead of acting, its children are keyed by the whole invocation, and
+ * it takes none of the flags they take — so what is pinned here is the mechanism rather than any
+ * command's behaviour, exactly as the flag-rule cases below pin `RULES` with nothing in it. Each case
+ * therefore builds its own group with {@link buildCommand}, which is also how a second group would
+ * arrive.
+ *
+ * One thing this cannot reach: a Commander-level usage error *below* the top level, which travels out
+ * as an exit code only because `buildProgram` copies `exitOverride` and `configureOutput` down the
+ * whole tree. That needs a nested command inside the real program, and there is none — the flat
+ * surface pins the one-level case instead, under "usage errors and the exit-code contract".
+ */
+describe("the nested-command seam no command uses", () => {
+  /** A group of one, wired to a handler that records the flags it was dispatched with. */
+  function group(handlers: CommandHandlers): Command {
+    return buildCommand(
+      { name: "grp", summary: "a group", subcommands: [{ name: "sub", summary: "a command" }] },
+      handlers,
+      RULES,
+      { cwd: root, stdout: () => {}, stderr: () => {} },
+      () => {},
+    );
+  }
+
+  it("dispatches a nested command through the handler keyed by the whole invocation", async () => {
+    let seen: string | undefined;
+    const command = group({
+      "grp sub": (ctx) => {
+        seen = typeof ctx.options.project === "string" ? ctx.options.project : undefined;
+        return ExitCode.Success;
+      },
+    });
+
+    await command.parseAsync(["sub", "--project", projectDir], { from: "user" });
+
+    // Keyed by `grp sub` and not by `sub`, which is what makes two groups able to hold one leaf name.
+    expect(seen).toBe(projectDir);
+  });
+
+  it("prints usage for the group itself, which has no action of its own", async () => {
+    const printed: string[] = [];
+    const command = buildCommand(
+      { name: "grp", summary: "a group", subcommands: [{ name: "sub", summary: "a command" }] },
+      HANDLERS,
+      RULES,
+      { cwd: root, stdout: (line) => printed.push(line), stderr: () => {} },
+      () => {},
+    );
+
+    await command.parseAsync([], { from: "user" });
+
+    expect(printed.join("\n")).toContain("Usage: grp");
+    // And the group carries none of the flags its children do, rather than silently eating them.
+    for (const flag of ["--project", "--json", "--offline"]) {
+      expect(command.options.some((option) => option.long === flag)).toBe(false);
+    }
+  });
+});
+
+/**
+ * Spec §6's exit-code contract for a *Commander*-level usage error — an unknown flag, a missing
+ * argument. It has to leave through `run()` as a code and print through ambit's own output, exactly as
+ * one of ambit's own errors does.
  *
  * A subcommand added with `addCommand` inherits neither of the two settings that make that true, so
  * before A30 every case here wrote to the real stderr and called `process.exit`, taking the test worker
- * with it. That is why they are asserted two levels down rather than only for a top-level command:
- * `catalog scope add` is the depth nothing can reach by inheriting from the program alone.
+ * with it. `inheritSettings` in `src/cli/program.ts` is what fixes it, and every command in a flat
+ * surface is one level down from the program — so one level down is the depth these cases assert. The
+ * two that asserted it two levels down went with `catalog validate`, the last nested command there was.
  */
-describe("usage errors below the top level", () => {
-  const NESTED = ["catalog", "scope", "add"];
-
-  it("returns an exit code for an unknown flag on a nested subcommand", async () => {
-    const before = await readFile(path.join(catalogDir, "scopes.yml"), "utf8");
-    const result = await invoke([
-      ...NESTED,
-      "person.jane",
-      "--descriptoin",
-      "Jane's own things",
-      "--catalog",
-      catalogDir,
-    ]);
+describe("usage errors and the exit-code contract", () => {
+  it("returns an exit code for an unknown flag, with Commander's suggestion", async () => {
+    const result = await invoke(["validate", "--jsonn", "--project", projectDir]);
 
     expect(result.code).toBe(ExitCode.Config);
-    expect(result.stderr).toContain("error: unknown option '--descriptoin'");
+    expect(result.stderr).toContain("error: unknown option '--jsonn'");
     // Commander's suggestion is half of what makes the message useful, and it reaches the reader only
     // through ambit's own writer.
-    expect(result.stderr).toContain("--description");
-    expect(result.stdout).toBe("");
-    // Refused before the handler ran, so the mutation it named did not happen.
-    expect(await readFile(path.join(catalogDir, "scopes.yml"), "utf8")).toBe(before);
-  });
-
-  it("returns an exit code for a missing argument on a nested subcommand", async () => {
-    const result = await invoke([...NESTED, "--description", "Jane's own things"]);
-
-    expect(result.code).toBe(ExitCode.Config);
-    expect(result.stderr).toContain("error: missing required argument 'name'");
+    expect(result.stderr).toContain("--json");
+    // Refused before the handler ran, so nothing it would have printed reached stdout.
     expect(result.stdout).toBe("");
   });
 
-  it("returns an exit code for an unknown flag on a top-level command", async () => {
-    const result = await invoke(["scopes", "--nope"]);
+  it("prints a command's usage on `--help`, at exit 0", async () => {
+    const result = await invoke(["validate", "--help"]);
+
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+    expect(result.stdout).toContain("Usage: ambit validate");
+    expect(result.stderr).toBe("");
+  });
+
+  it("returns an exit code for a missing argument", async () => {
+    const result = await invoke(["why", "--project", projectDir]);
 
     expect(result.code).toBe(ExitCode.Config);
-    expect(result.stderr).toContain("error: unknown option '--nope'");
+    expect(result.stderr).toContain("error: missing required argument 'kind:name'");
     expect(result.stdout).toBe("");
   });
 
@@ -1079,32 +1115,24 @@ describe("usage errors below the top level", () => {
     // suppress and no color to disable. Rejecting them is the intended behaviour — a script passing
     // `--quiet` should hear that ambit cannot honour it, not be silently ignored.
     for (const flag of ["--quiet", "--no-color"]) {
-      const result = await invoke(["scopes", flag]);
+      const result = await invoke(["status", flag]);
 
       expect(result.code).toBe(ExitCode.Config);
       expect(result.stderr).toContain(`error: unknown option '${flag}'`);
       expect(result.stdout).toBe("");
     }
   });
-
-  it("prints a nested subcommand's usage on `--help`, at exit 0", async () => {
-    const result = await invoke([...NESTED, "--help"]);
-
-    expect(result.code, result.stderr).toBe(ExitCode.Success);
-    expect(result.stdout).toContain("Usage: ambit catalog scope add");
-    expect(result.stderr).toBe("");
-  });
 });
 
 /**
- * The flag rules Commander runs before it dispatches (`RULES` in `src/cli/program.ts`): the three rules
- * `.makeOptionMandatory()` and `.conflicts()` cannot state without giving up the message shape
- * required, declared with the command as a `preAction` hook instead of enforced by the handler that follows.
+ * The flag-rule seam Commander runs before it dispatches (`RULES` in `src/cli/program.ts`): a rule
+ * declared with its command as a `preAction` hook, for the refusals `.makeOptionMandatory()` and
+ * `.conflicts()` cannot word without giving up the message shape required.
  *
- * Each case runs against a wiring whose handler would succeed and only record that it was reached, so
- * what is asserted is that the refusal arrived *before* the handler — the whole of what moving the rule
- * onto Commander changed — while the wording each rule produces stays pinned where it always was, in
- * `test/catalog-scope.test.ts`, `test/catalog-mcp.test.ts` and `test/catalog-annotate.test.ts`.
+ * `RULES` is empty — the four rules that filled it belonged to the catalog mutators and went with them —
+ * so what is pinned here is the mechanism rather than any command's wording: a rule refuses *before*
+ * the handler, and it runs once, for the command it belongs to. Each case therefore injects its own
+ * rule, which is also how the seam would be exercised by a command that acquires one.
  */
 describe("the flag rules Commander enforces before a handler runs", () => {
   /** A wiring in which one command's handler succeeds, doing nothing but recording the visit. */
@@ -1122,98 +1150,60 @@ describe("the flag rules Commander enforces before a handler runs", () => {
     };
   }
 
-  it("refuses `scope add` with no description before the handler, naming the registry", async () => {
-    const stubbed = stub("catalog scope add");
-
-    const result = await invoke(
-      ["catalog", "scope", "add", "person.jane", "--catalog", catalogDir],
-      stubbed.handlers,
-    );
-
-    expect(result.code).toBe(ExitCode.Config);
-    expect(result.stderr).toContain('scope "person.jane" needs a description (scopes.yml)');
-    expect(result.stderr).toContain("--description");
-    expect(stubbed.reached()).toBe(false);
+  it("declares no rule, every command's flags being ones Commander can refuse itself", () => {
+    expect(Object.keys(RULES)).toEqual([]);
   });
 
-  it("refuses `mcp new` naming no transport before the handler, naming its file", async () => {
-    const stubbed = stub("catalog mcp new");
+  it("refuses before the handler, in ambit's own message shape", async () => {
+    const stubbed = stub("validate");
+    const rules: CommandRules = {
+      validate: () => {
+        throw new AmbitError(ExitCode.Config, "refused by a rule (mcps/x.yml)", [
+          "do something else",
+        ]);
+      },
+    };
 
-    const result = await invoke(
-      ["catalog", "mcp", "new", "notes", "--catalog", catalogDir],
-      stubbed.handlers,
-    );
-
-    expect(result.code).toBe(ExitCode.Config);
-    expect(result.stderr).toContain('MCP server "notes" names no transport (mcps/notes.yml)');
-    expect(result.stderr).toContain("supported kinds: http, stdio");
-    expect(stubbed.reached()).toBe(false);
-  });
-
-  it("refuses an `annotate` contradiction before the handler, naming both flags", async () => {
-    const stubbed = stub("catalog annotate");
-
-    const result = await invoke(
-      [
-        "catalog",
-        "annotate",
-        `skill:${CORE_SKILL}`,
-        "--add-scope",
-        "core",
-        "--remove-scope",
-        "core",
-        "--catalog",
-        catalogDir,
-      ],
-      stubbed.handlers,
-    );
+    const result = await invoke(["validate", "--project", projectDir], stubbed.handlers, rules);
 
     expect(result.code).toBe(ExitCode.Config);
-    expect(result.stderr).toContain(
-      "`--add-scope core` and `--remove-scope core` contradict each other (skills)",
-    );
+    expect(result.stderr).toContain("refused by a rule (mcps/x.yml)");
+    expect(result.stderr).toContain("do something else");
     expect(stubbed.reached()).toBe(false);
   });
 
   it("dispatches to the handler once a rule accepts the flags it was given", async () => {
-    // The control on the three above: a hook that refused everything, or one wired to the wrong key,
-    // would pass them all and fail here.
-    const stubbed = stub("catalog scope add");
+    // The control on the case above: a hook wired to the wrong key, or one that refused everything,
+    // would pass that one and fail here.
+    const stubbed = stub("validate");
+    const rules: CommandRules = { validate: () => {} };
 
-    const result = await invoke(
-      [
-        "catalog",
-        "scope",
-        "add",
-        "person.jane",
-        "--description",
-        "Jane's own things",
-        "--catalog",
-        catalogDir,
-      ],
-      stubbed.handlers,
-    );
+    const result = await invoke(["validate", "--project", projectDir], stubbed.handlers, rules);
 
     expect(result.code, result.stderr).toBe(ExitCode.Success);
     expect(stubbed.reached()).toBe(true);
   });
 
-  it("runs a rule exactly once, and only for the command it belongs to", async () => {
+  it("runs a rule exactly once, for the command it belongs to", async () => {
     // Commander fires a `preAction` hook for the command that acted and for each of its ancestors, so
     // a rule that hung off a *group* would also see its children's invocations. Only a leaf carries
     // one, and a leaf has nothing below it — this is the case that fails if a rule is ever attached
     // further up.
     const seen: (string | undefined)[] = [];
     const rules: CommandRules = {
-      "catalog tree": (ctx) => {
-        seen.push(typeof ctx.options.catalog === "string" ? ctx.options.catalog : undefined);
+      validate: (ctx) => {
+        seen.push(typeof ctx.options.project === "string" ? ctx.options.project : undefined);
       },
     };
+    // Stubbed, so what is asserted is how often the hook fired rather than what the real command
+    // makes of the project it was pointed at.
+    const stubbed = stub("validate");
 
-    const result = await invoke(["catalog", "tree", "--catalog", catalogDir], HANDLERS, rules);
+    const result = await invoke(["validate", "--project", projectDir], stubbed.handlers, rules);
 
     expect(result.code, result.stderr).toBe(ExitCode.Success);
-    expect(seen).toEqual([catalogDir]);
+    expect(seen).toEqual([projectDir]);
+    expect(stubbed.reached()).toBe(true);
   });
 });
 
@@ -1229,7 +1219,7 @@ describe("merging", () => {
     }
   });
 
-  it("lets the earlier catalog win a duplicate name", async () => {
+  it("keeps every catalog's copy of a duplicate name, grouped by name then catalog", async () => {
     const other = path.join(root, "other");
     await buildFixtureCatalog(other);
     const config = await loadProjectConfig(projectDir);
@@ -1241,132 +1231,152 @@ describe("merging", () => {
 
     const merged = mergeCatalogs([...first, ...second]);
     expect(merged.catalogs).toEqual([CATALOG_NAME, "personal"]);
-    expect(new Set(merged.skills.map((skill) => skill.catalog))).toEqual(new Set([CATALOG_NAME]));
-    expect(merged.skills).toHaveLength(4);
+    // Two identical catalogs, so every name is provided twice and nothing is dropped.
+    expect(merged.skills).toHaveLength(8);
+    expect(merged.skills.map((skill) => `${skill.name} ${skill.catalog}`)).toEqual([
+      `acme-brief ${CATALOG_NAME}`,
+      "acme-brief personal",
+      `code-review ${CATALOG_NAME}`,
+      "code-review personal",
+      `company-context ${CATALOG_NAME}`,
+      "company-context personal",
+      `design-tokens ${CATALOG_NAME}`,
+      "design-tokens personal",
+    ]);
   });
 });
 
 /**
- * Spec §4.4–§4.5: several catalogs merge into one namespace per kind, the earlier one in config
- * order wins a duplicate name, and the loss is recorded rather than discarded — a shadowed copy that
- * vanishes silently is the failure someone adding a personal catalog cannot debug.
+ * Spec §4.4–§4.5: several catalogs merge into one namespace per kind, and **every** copy of a name
+ * survives — `catalogs:` order settles nothing, because there is no precedence left to establish.
+ *
+ * A name two catalogs provide is a non-event here. It becomes a refusal only where a project selects
+ * both copies, and then at resolve rather than at the merge: harness layout is flat, so the two would
+ * be installed at one path, and choosing one would be ambit deciding which half of the request the
+ * project meant.
  *
  * The second catalog is written per test rather than added to the shared fixture: a catalog whose
  * whole purpose is to collide with another one has no business in the tree every other profile
  * resolves against.
  */
-describe("multi-catalog merge and shadowing", () => {
+describe("multi-catalog merge", () => {
   const SECOND = "personal";
   const THIRD = "backup";
 
-  it("keeps the earlier catalog's copy of a duplicate name, and records the shadowing", async () => {
-    await writeShadowingCatalog(SECOND);
+  it("keeps both catalogs' copies of a duplicate name", async () => {
+    await writeCollidingCatalog(SECOND);
     await writeCatalogOrder([SECOND]);
 
     const view = await merged();
 
     expect(view.catalogs).toEqual([CATALOG_NAME, SECOND]);
-    expect(view.skills.find((skill) => skill.name === CORE_SKILL)?.catalog).toBe(CATALOG_NAME);
-    expect(view.shadowing.skills.get(CORE_SKILL)).toEqual({
-      name: CORE_SKILL,
-      catalog: CATALOG_NAME,
-      shadows: [SECOND],
-    });
-    expect(view.shadowing.mcps.get("scoped")).toEqual({
-      name: "scoped",
-      catalog: CATALOG_NAME,
-      shadows: [SECOND],
-    });
+    expect(
+      view.skills.filter((skill) => skill.name === CORE_SKILL).map((skill) => skill.catalog),
+    ).toEqual([CATALOG_NAME, SECOND]);
+    expect(view.mcps.filter((mcp) => mcp.name === "tagged").map((mcp) => mcp.catalog)).toEqual([
+      CATALOG_NAME,
+      SECOND,
+    ]);
   });
 
-  it("keeps what the later catalog alone provides, and records nothing about it", async () => {
-    await writeShadowingCatalog(SECOND);
+  it("keeps what one catalog alone provides, exactly once", async () => {
+    await writeCollidingCatalog(SECOND);
     await writeCatalogOrder([SECOND]);
 
     const view = await merged();
 
-    expect(view.skills.find((skill) => skill.name === OWN_SKILL)?.catalog).toBe(SECOND);
-    expect(view.shadowing.skills.has(OWN_SKILL)).toBe(false);
-    expect([...view.shadowing.skills.keys()]).toEqual([CORE_SKILL]);
-    expect([...view.shadowing.mcps.keys()]).toEqual(["scoped"]);
+    expect(view.skills.filter((skill) => skill.name === OWN_SKILL)).toEqual([
+      expect.objectContaining({ name: OWN_SKILL, catalog: SECOND }),
+    ]);
   });
 
-  it("keeps the winner's definition, not merely its label", async () => {
-    // The transports differ, so this is the assertion that the merge dropped the shadowed entry
-    // rather than keeping its body under the winning catalog's name.
-    await writeShadowingCatalog(SECOND);
+  it("keeps each copy's own definition, not one body under two catalog names", async () => {
+    // The transports differ, so this is the assertion that both bodies are in the merged view rather
+    // than one of them twice — and that a name-keyed JSON record did not quietly drop one.
+    await writeCollidingCatalog(SECOND);
     await writeCatalogOrder([SECOND]);
 
     const dumped = JSON.parse((await cli("dump-catalog", "--json")).stdout) as {
-      mcps: Record<string, { catalog: string; transport: { kind: string } }>;
+      mcps: Record<string, { catalog: string; transport: Record<string, unknown> }>;
     };
 
-    expect(dumped.mcps.scoped).toMatchObject({
+    expect(dumped.mcps[`${CATALOG_NAME}/tagged`]).toMatchObject({
       catalog: CATALOG_NAME,
       transport: { kind: "http" },
     });
+    expect(dumped.mcps[`${SECOND}/tagged`]).toMatchObject({
+      catalog: SECOND,
+      transport: { kind: "stdio", command: `${SECOND}-mcp` },
+    });
   });
 
-  it("names every catalog a duplicate was shadowed in, in config order", async () => {
-    await writeShadowingCatalog(SECOND);
-    await writeShadowingCatalog(THIRD);
+  it("keeps all three copies when three catalogs provide one name", async () => {
+    await writeCollidingCatalog(SECOND);
+    await writeCollidingCatalog(THIRD);
     await writeCatalogOrder([SECOND, THIRD]);
 
-    expect((await merged()).shadowing.skills.get(CORE_SKILL)?.shadows).toEqual([SECOND, THIRD]);
+    // In catalog order rather than config order: the merged view is sorted by name and then catalog,
+    // so which copy is listed first depends on the names alone.
+    expect(
+      (await merged()).skills
+        .filter((skill) => skill.name === CORE_SKILL)
+        .map((skill) => skill.catalog),
+    ).toEqual([THIRD, CATALOG_NAME, SECOND]);
   });
 
-  it("merges a scope two catalogs describe identically, keeping one registration", async () => {
-    await writeShadowingCatalog(SECOND);
-    await writeCatalogOrder([SECOND]);
-
-    const view = await merged();
-
-    expect(view.scopes.map((scope) => scope.name)).toEqual([
-      "core",
-      "function.engineering",
-      "function.engineering.frontend",
-      "person.jane",
-      "project.acme",
-    ]);
-    expect(view.scopes.find((scope) => scope.name === "core")?.description).toBe(CORE_DESCRIPTION);
-  });
-
-  it("exits 3 for a scope two catalogs describe differently, naming both", async () => {
-    await writeShadowingCatalog(SECOND, "Everything, all of it");
-    await writeCatalogOrder([SECOND], ["core"]);
+  it("refuses a selection that reaches both copies of a skill, naming both catalogs", async () => {
+    // Two entries, one per catalog: reaching both copies is something a qualified address makes a
+    // project ask for deliberately, which is exactly why refusing it is not second-guessing anyone.
+    await writeCollidingCatalog(SECOND);
+    await writeCatalogOrder([SECOND], [requiresEntry(CORE_TAG), requiresEntry(CORE_TAG, SECOND)]);
 
     const result = await cli("resolve");
 
     expect(result.code).toBe(ExitCode.Resolution);
-    expect(result.stderr).toContain('conflicting descriptions for scope "core" (scopes.yml)');
+    expect(result.stderr).toContain(`skill "${CORE_SKILL}" is selected from more than one catalog`);
+    expect(result.stderr).toContain(`provided by: ${CATALOG_NAME}, ${SECOND}`);
     expect(result.stderr).toContain(
-      `catalog "${CATALOG_NAME}" describes it as "${CORE_DESCRIPTION}"`,
+      "a harness reads one entry per name, so both copies would be installed at the same path",
     );
-    expect(result.stderr).toContain(`catalog "${SECOND}" describes it as "Everything, all of it"`);
-    expect(result.stderr).toContain("make the two descriptions identical");
+    expect(result.stderr).toContain(
+      "select only one copy: narrow a `requires` pattern, or drop the entry that reaches the other catalog",
+    );
   });
 
-  it("reports the shadowing beside the reason under `resolve --explain`", async () => {
-    await writeShadowingCatalog(SECOND);
-    await writeCatalogOrder([SECOND], ["core"]);
+  it("refuses a selected MCP server two catalogs provide, as it does a skill", async () => {
+    // `function.engineering` reaches the `tagged` server in both catalogs, and no skill twice — so
+    // this is the namespace the refusal is reported for.
+    await writeCollidingCatalog(SECOND);
+    await writeCatalogOrder(
+      [SECOND],
+      [requiresEntry("function.engineering"), requiresEntry("function.engineering", SECOND)],
+    );
+
+    const result = await cli("resolve");
+
+    expect(result.code).toBe(ExitCode.Resolution);
+    expect(result.stderr).toContain('MCP server "tagged" is selected from more than one catalog');
+  });
+
+  it("resolves normally, with no whose-copy column, when one copy is selected", async () => {
+    // A tag only the second catalog's own skill carries, so two catalogs are configured and nothing
+    // collides. `--explain` ends at the reason: there is nothing left to say about which copy this is.
+    await writeCollidingCatalog(SECOND);
+    await writeCatalogOrder([SECOND], [requiresEntry("person.jane", SECOND)]);
 
     const result = await cli("resolve", "--explain");
 
     expect(result.code, result.stderr).toBe(ExitCode.Success);
     expect(result.stdout).toBe(
       [
-        "scopes (1)",
-        "  core",
-        "",
-        "skills (2)",
-        `  ${CORE_SKILL}  ${CATALOG_NAME.padEnd(SECOND.length)}  scope:core  catalog:${CATALOG_NAME} (shadows ${SECOND})`,
-        `  ${OWN_SKILL.padEnd(CORE_SKILL.length)}  ${SECOND}  scope:core`,
+        "skills (1)",
+        `  ${OWN_SKILL}  ${SECOND}  tag:${SECOND}/person.jane`,
         "",
         "mcps (0)",
         "  (none)",
         "",
-        "hooks (1)",
-        `  session-notes  ${CATALOG_NAME}  SessionStart  scope:core`,
+        "hooks (0)",
+        "  (none)",
         "",
         "expects (0)",
         "  (none)",
@@ -1374,29 +1384,21 @@ describe("multi-catalog merge and shadowing", () => {
     );
   });
 
-  it("adds the shadowed catalogs to `--explain --json`, and only there", async () => {
-    await writeShadowingCatalog(SECOND);
-    await writeCatalogOrder([SECOND], ["core", "function.engineering"]);
+  it("carries nothing about other copies into `--explain --json`", async () => {
+    await writeCollidingCatalog(SECOND);
+    await writeCatalogOrder([SECOND], [requiresEntry("person.jane", SECOND)]);
 
     const explained = JSON.parse((await cli("resolve", "--explain", "--json")).stdout) as {
-      skills: Record<string, { catalog: string; shadows?: readonly string[] }>;
-      mcps: Record<string, { catalog: string; reason?: string; shadows?: readonly string[] }>;
+      skills: Record<string, Record<string, unknown>>;
     };
 
-    expect(explained.skills[CORE_SKILL]?.shadows).toEqual([SECOND]);
-    expect(explained.skills[OWN_SKILL]).not.toHaveProperty("shadows");
-    // A server the fixture and the second catalog both provide, selected by its own scope.
-    expect(explained.mcps.scoped).toEqual({
-      catalog: CATALOG_NAME,
-      reason: "scope:function.engineering",
-      shadows: [SECOND],
+    // Keyed by name, because a bundle holds one item per name — the collision refusal is what makes
+    // that true — and carrying only what the bundle knows: where it came from, and why.
+    expect(Object.keys(explained.skills)).toEqual([OWN_SKILL]);
+    expect(explained.skills[OWN_SKILL]).toEqual({
+      catalog: SECOND,
+      path: `skills/${OWN_SKILL}`,
+      reason: `tag:${SECOND}/person.jane`,
     });
-
-    const plain = JSON.parse((await cli("resolve", "--json")).stdout) as {
-      skills: Record<string, unknown>;
-      mcps: Record<string, unknown>;
-    };
-    expect(plain.skills[CORE_SKILL]).not.toHaveProperty("shadows");
-    expect(plain.mcps.scoped).not.toHaveProperty("shadows");
   });
 });

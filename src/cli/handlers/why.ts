@@ -2,9 +2,9 @@
  * `ambit why <kind>:<name>` — explain why one item is in the bundle.
  *
  * The chain is the answer, not the reason on its own: being told a skill arrived through
- * `required-by:acme-brief` only moves the question one level up, and it is the held scope at the
- * far end that a reader can actually change. So this prints every link from the root cause down to
- * the item asked about.
+ * `required-by:acme-brief` only moves the question one level up, and it is the `requires` entry at
+ * the far end that a reader can actually change. So this prints every link from the root cause down
+ * to the item asked about.
  *
  * A bundle item is the only subject. An `expects` entry is not one: nothing provides an environment
  * variable, so there is no chain to walk and no selection to explain, and the question of whether the
@@ -21,7 +21,7 @@
  * there — no catalog provides it, or nothing selects it — call for different fixes.
  */
 import type { MergedCatalog, MergedHook, MergedMcp, MergedSkill } from "../../model/catalog.js";
-import { loadCatalogs, mergeCatalogs, mergeConfigEntities } from "../../model/catalog.js";
+import { loadCatalogs, mergeCatalogs } from "../../model/catalog.js";
 import type { CommandHandler } from "../commands.js";
 import { jsonRequested, sourceContextOf } from "../commands.js";
 import type { ProjectConfig } from "../../model/config.js";
@@ -42,8 +42,8 @@ import {
   reasonOf,
   resolveBundle,
 } from "../../resolution/resolve.js";
-import { parseSubject } from "../../model/reference.js";
-import { REQUIRES, requirementYaml } from "../../model/requirement.js";
+import { CAPABILITY_OF_KIND, REQUIRES_KEY, entryYaml } from "../../model/pattern.js";
+import { parseItemSubject } from "../../model/requirement.js";
 
 /** How an item is named in messages, one entry per namespace so a fourth is a type error. */
 const SUBJECTS: Readonly<Record<ItemKind, string>> = {
@@ -64,49 +64,76 @@ function subject(item: BundleItem): string {
   return `${SUBJECTS[item.kind]} "${item.name}"`;
 }
 
-/** The merged-catalog entry a candidate names, if anything provides it. */
-function provided(
+/**
+ * Every merged-catalog entry a candidate names — several, where more than one catalog provides the
+ * name.
+ *
+ * All of them rather than the first, because there is no first: no catalog takes precedence, and an
+ * answer naming one copy of a name two catalogs ship would leave a reader editing the wrong catalog.
+ * In the merged catalog's order, so the answer is a function of the names alone.
+ */
+function providers(
   merged: MergedCatalog,
   item: BundleItem,
-): MergedSkill | MergedMcp | MergedHook | undefined {
+): readonly (MergedSkill | MergedMcp | MergedHook)[] {
   switch (item.kind) {
     case "skill":
-      return merged.skills.find((skill) => skill.name === item.name);
+      return merged.skills.filter((skill) => skill.name === item.name);
     case "mcp":
-      return merged.mcps.find((mcp) => mcp.name === item.name);
+      return merged.mcps.filter((mcp) => mcp.name === item.name);
     case "hook":
-      return merged.hooks.find((hook) => hook.name === item.name);
+      return merged.hooks.filter((hook) => hook.name === item.name);
   }
 }
 
-/** How to get an item that exists into the bundle, given what it declares. */
-function selectionAdvice(item: BundleItem, scopes: readonly string[]): string {
-  const hold = scopes.length === 0 ? undefined : `hold one of its scopes (${scopes.join(", ")})`;
-  // A skill is the one namespace a project can name outright in a way resolution reaches by name;
-  // a server and a hook a *catalog* provides are reached by a scope or by a `requires` edge.
-  const otherwise =
-    item.kind === "skill"
-      ? "list it under `skills`"
-      : `have a selected skill require it, with \`${requirementYaml(item)}\``;
-
-  return hold === undefined ? otherwise : `${hold}, or ${otherwise}`;
+/**
+ * The `requires` entry that would select an item, written out for the reader to paste.
+ *
+ * By exact name and qualified with the catalog that provides it, because that is the one entry
+ * guaranteed to select this copy and nothing else: a tag entry would reach every other item carrying
+ * the label, and an unqualified address is not a spelling a project config has.
+ *
+ * One entry for one namespace, since `capabilities` is not defaulted — the item's own kind is the
+ * only member that could belong there.
+ */
+function selectionEntry(item: BundleItem, catalog: string): string {
+  return entryYaml({
+    field: "name",
+    pattern: item.name,
+    catalog,
+    capabilities: [CAPABILITY_OF_KIND[item.kind]],
+  });
 }
 
 /**
- * The error for an item a catalog provides but nothing selects.
+ * The error for an item one or more catalogs provide but nothing selects.
  *
- * Names the catalog it came from, so a reader knows the config is otherwise fine, and says which
- * scopes would reach it rather than leaving them to be looked up. Only a catalog can be named here:
- * everything the config declares itself is selected outright, so it is never the unselected one.
+ * Names every catalog it could have come from, so a reader knows the config is otherwise fine, and
+ * says which tags would reach it rather than leaving them to be looked up.
+ *
+ * The advice is one entry, on the first providing catalog in merged order. There is only one route
+ * into a bundle now, so there is no second suggestion to make: a hook and a server are addressable
+ * exactly as a skill is, which is what folding the explicit list into `requires` bought.
+ *
+ * The tags are the union across the copies, since an entry on any one of them selects at least one
+ * copy — and if it selects two, the collision refusal at resolve is the better message for that.
  */
 function notSelected(
   item: BundleItem,
-  entry: MergedSkill | MergedMcp | MergedHook,
+  entries: readonly (MergedSkill | MergedMcp | MergedHook)[],
   config: ProjectConfig,
 ): AmbitError {
+  const names = entries.map((entry) => `"${entry.catalog}"`).join(", ");
+  const provided =
+    entries.length === 1 ? `catalog ${names} provides it` : `catalogs ${names} provide it`;
+  const tags = [...new Set(entries.flatMap((entry) => entry.tags))].sort((a, b) =>
+    a < b ? -1 : a > b ? 1 : 0,
+  );
+
   return resolutionError(`${subject(item)} is not in the bundle`, [
-    `catalog "${entry.catalog}" provides it, but nothing ${config.origin.file} holds selects it`,
-    selectionAdvice(item, entry.scopes),
+    `${provided}, but no \`${REQUIRES_KEY}\` entry in ${config.origin.file} selects it`,
+    ...(tags.length === 0 ? [] : [`it declares tags: ${tags.join(", ")}`]),
+    `select it with \`${selectionEntry(item, entries[0]!.catalog)}\``,
   ]);
 }
 
@@ -140,32 +167,16 @@ function locate(
   merged: MergedCatalog,
   config: ProjectConfig,
 ): BundleItem {
-  const item = parseSubject<ItemKind>(
-    REQUIRES,
-    name,
-    `\`why ${name}\` does not say what to explain`,
-  );
+  const item = parseItemSubject(name, `\`why ${name}\` does not say what to explain`);
   if (isSelected(bundle, item)) return item;
 
-  const entry = provided(merged, item);
-  if (entry === undefined) throw unknownName(item, config);
-  throw notSelected(item, entry, config);
-}
-
-/**
- * The reason as `why` shows it: with the held scope too, when the item declares a different one and
- * the subtree rule did the rest.
- */
-function reasonLabel(reason: SelectionReason): string {
-  const label = formatReason(reason);
-  return reason.kind === "scope" && reason.held !== reason.scope
-    ? `${label} (held ${reason.held})`
-    : label;
+  const entries = providers(merged, item);
+  if (entries.length === 0) throw unknownName(item, config);
+  throw notSelected(item, entries, config);
 }
 
 function linkJson(link: ReasonedItem): Readonly<Record<string, unknown>> {
   return {
-    ...(link.reason.kind === "scope" && { held: link.reason.held }),
     kind: link.kind,
     name: link.name,
     reason: formatReason(link.reason),
@@ -187,7 +198,7 @@ function toText(item: BundleItem, chain: readonly ReasonedItem[]): readonly stri
     "",
     ...section(
       "chain",
-      chain.map((link) => [link.name, link.kind, reasonLabel(link.reason)]),
+      chain.map((link) => [link.name, link.kind, formatReason(link.reason)]),
     ),
   ];
 }
@@ -204,8 +215,7 @@ export const whyHandler: CommandHandler = async (ctx) => {
 
   const context = sourceContextOf(ctx);
   const config = await loadProjectConfig(context.projectDir);
-  const catalogs = mergeCatalogs(await loadCatalogs(config, context));
-  const merged = await mergeConfigEntities(catalogs, config, context);
+  const merged = mergeCatalogs(await loadCatalogs(config, context));
   const bundle = resolveBundle(config, merged);
 
   const item = locate(name, bundle, merged, config);

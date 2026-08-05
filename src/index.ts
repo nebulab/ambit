@@ -5,8 +5,8 @@
  * API is a deliberate edit here rather than a side effect of exporting it from its own module.
  *
  * The order follows `src/`'s dependency layers, top to bottom: ambient, then what is on disk
- * (`model/`), what is derived from it (`resolution/`), and the three consumers — `harness/`,
- * `authoring/`, `project/` — with `cli/` last.
+ * (`model/`), what is derived from it (`resolution/`), and the two consumers — `harness/` and
+ * `project/` — with `cli/` last.
  */
 
 // ── ambient ───────────────────────────────────────────────────────────────────────────────────
@@ -17,20 +17,18 @@ export { VERSION } from "./version.js";
 export {
   AMBIT_FRONTMATTER_KEY,
   ANNOTATION_KEYS,
+  CATALOG_SEPARATOR,
   HOOKS_DIRNAME,
   HOOK_FILENAME,
   MCPS_DIRNAME,
   MCP_EXTENSIONS,
-  SCOPES_FILENAME,
   SKILLS_DIRNAME,
   SKILL_FILENAME,
-  formatShadowing,
   hookCommand,
   loadCatalogs,
-  loadSourceSkill,
   mergeCatalogs,
-  mergeConfigEntities,
   parseCatalogDirectory,
+  qualifiedName,
   resolveCatalogRoot,
   skillNameFromPath,
 } from "./model/catalog.js";
@@ -39,16 +37,12 @@ export type {
   Catalog,
   CatalogHook,
   CatalogMcp,
-  CatalogOverlay,
   CatalogParseOptions,
   CatalogSkill,
   MergedCatalog,
   MergedHook,
   MergedMcp,
   MergedSkill,
-  ScopeDefinition,
-  Shadowing,
-  Shadowings,
 } from "./model/catalog.js";
 export {
   CONFIG_FILENAMES,
@@ -59,14 +53,7 @@ export {
   loadProjectConfig,
   parseProjectConfig,
 } from "./model/config.js";
-export type {
-  CatalogRef,
-  CatalogSkillRequest,
-  ConfigOrigin,
-  ProjectConfig,
-  SkillRequest,
-  SourceSkillRequest,
-} from "./model/config.js";
+export type { CatalogRef, ConfigOrigin, ProjectConfig } from "./model/config.js";
 export {
   DIGEST_LENGTH,
   DOCUMENT_FORMATS,
@@ -128,7 +115,6 @@ export {
 } from "./model/state.js";
 export type { ArtifactKind, ArtifactMode, OwnedArtifact, State } from "./model/state.js";
 export {
-  EditableYaml,
   YamlMapping,
   emitYaml,
   parseFrontmatterMapping,
@@ -138,63 +124,61 @@ export {
   splitFrontmatter,
 } from "./model/yaml.js";
 export type { FrontmatterSplit, PositionedString } from "./model/yaml.js";
+export type { Reference } from "./model/reference.js";
+export { ITEM_KINDS, KIND_SEPARATOR, parseItemSubject } from "./model/requirement.js";
+export type { ItemKind } from "./model/requirement.js";
 export {
-  KIND_SEPARATOR,
-  formatReference,
-  isReference,
-  parseReference,
-  parseReferenceList,
-  parseSubject,
-  referenceYaml,
-  sameReference,
-  sortedUniqueReferences,
-} from "./model/reference.js";
-export type { Reference, ReferenceGrammar, ReferenceGrammarOf } from "./model/reference.js";
-export {
-  ITEM_KINDS,
-  KIND_NOUNS,
-  REQUIRES,
-  formatRequirement,
-  isRequirementReference,
-  parseRequirement,
-  parseRequirements,
-  requirementYaml,
-  sameRequirement,
-  sortedUniqueRequirements,
-} from "./model/requirement.js";
-export type { ItemKind, Requirement } from "./model/requirement.js";
+  CAPABILITIES,
+  CAPABILITIES_KEY,
+  CAPABILITY_OF_KIND,
+  PATTERN_FIELDS,
+  REQUIRES_KEY,
+  entryAddress,
+  entryYaml,
+  formatEntry,
+  matches,
+  matchesPattern,
+  parseEntries,
+  sameEntry,
+  uniqueEntries,
+} from "./model/pattern.js";
+export type {
+  Addressing,
+  Capability,
+  PatternEntry,
+  PatternField,
+  PatternItem,
+} from "./model/pattern.js";
 export {
   EXPECTATION_KINDS,
   EXPECTATION_NOUNS,
-  EXPECTS,
-  expectationYaml,
   expectedEnv,
-  formatExpectation,
-  parseExpectation,
   parseExpectations,
-  sameExpectation,
-  sortedUniqueExpectations,
   unionExpectations,
 } from "./model/expectation.js";
 export type { Expectation, ExpectationKind, ExpectationSet } from "./model/expectation.js";
 
 // ── resolution — derive and verify the selected closure ───────────────────────────────────────
 export {
-  SCOPE_SEPARATOR,
-  assertScopesRegistered,
+  assertEntriesMatch,
+  assertNoCollisions,
   closeOverRequires,
   cycleError,
+  entryCatalog,
+  entryPosition,
   explainSelection,
   formatReason,
-  inSubtree,
   isSelected,
-  missingRequirement,
+  matchesAnything,
+  matchesOwnCatalog,
   reasonOf,
+  requiredEntries,
+  requiredItems,
+  requirerPosition,
   resolveBundle,
-  scopeSuggestion,
+  selectingEntry,
   skillFile,
-  unknownExplicitSkill,
-  unknownScopeError,
+  unmatchedEntryError,
 } from "./resolution/resolve.js";
 export type {
   Bundle,
@@ -208,7 +192,6 @@ export {
   VALIDATION_PROBLEM_KINDS,
   isValid,
   validateCatalog,
-  validateCatalogDirectory,
   validateProject,
 } from "./resolution/validate.js";
 export type {
@@ -252,99 +235,6 @@ export {
 } from "./harness/env.js";
 export type { EnvRefStyle } from "./harness/env.js";
 
-// ── authoring — the `ambit catalog …` command family ──────────────────────────────────────────
-export {
-  annotate,
-  annotationDirname,
-  annotationSubject,
-  assertReferenceRefs,
-} from "./authoring/annotate.js";
-export type {
-  AnnotateOptions,
-  AnnotateResult,
-  AnnotatedItem,
-  AnnotatedKind,
-  AnnotatedList,
-  AnnotationEdit,
-} from "./authoring/annotate.js";
-export {
-  AUDIT_FINDING_KINDS,
-  auditCatalog,
-  auditCatalogDirectory,
-  isTidy,
-} from "./authoring/audit.js";
-export type {
-  AuditCounts,
-  AuditFinding,
-  AuditFindingKind,
-  AuditReport,
-} from "./authoring/audit.js";
-export {
-  CatalogDocument,
-  applyCatalogEdit,
-  catalogFilePath,
-  hookDirectoryPath,
-  hookDocumentPath,
-  mcpDocumentPath,
-  skillDirectoryPath,
-  skillDocumentPath,
-} from "./authoring/editor.js";
-export type {
-  CatalogChange,
-  CatalogFileChange,
-  CatalogTreeChange,
-  EditOptions,
-  EditResult,
-  EditedFile,
-} from "./authoring/editor.js";
-export { newHook, removeHook, unknownHook } from "./authoring/hook.js";
-export type {
-  HookDeclaration,
-  HookEdit,
-  HookNewOptions,
-  HookNewResult,
-  HookRemoveResult,
-  HookSummary,
-} from "./authoring/hook.js";
-export {
-  CATALOG_INIT_SCOPE,
-  CATALOG_KEEP_FILENAME,
-  CATALOG_README_FILENAME,
-  CATALOG_WORKFLOW_FILENAME,
-  initCatalog,
-  scaffoldCatalog,
-} from "./authoring/init.js";
-export type { CatalogInitOptions, CatalogInitResult } from "./authoring/init.js";
-export { mcpDocumentFile, mcpTarget, newMcp, removeMcp, unknownMcp } from "./authoring/mcp.js";
-export type {
-  McpEdit,
-  McpNewOptions,
-  McpNewResult,
-  McpRemoveResult,
-  McpSummary,
-} from "./authoring/mcp.js";
-export { addScope, assertRegisteredScopes, removeScope, renameScope } from "./authoring/scope.js";
-export type {
-  ScopeAddResult,
-  ScopeEdit,
-  ScopeRemoveResult,
-  ScopeRename,
-  ScopeRenameResult,
-} from "./authoring/scope.js";
-export { newSkill, removeSkill, renameSkill, unknownSkill } from "./authoring/skill.js";
-export type {
-  SkillAnnotations,
-  SkillEdit,
-  SkillNewOptions,
-  SkillNewResult,
-  SkillRemoveResult,
-  SkillRename,
-  SkillRenameResult,
-  SkillSummary,
-} from "./authoring/skill.js";
-export { buildScopeTree, flattenScopeTree, scopeTree, selectionSize } from "./authoring/tree.js";
-export type { ScopeNode, ScopeSelection } from "./authoring/tree.js";
-
 // ── project — act on a consuming project ──────────────────────────────────────────────────────
 export { cleanProject, pruneProject } from "./project/clean.js";
 export type { CleanOptions, CleanResult, PruneOptions, PruneResult } from "./project/clean.js";
@@ -379,8 +269,15 @@ export {
   writeGitignoreBlocks,
 } from "./project/gitignore.js";
 export type { GitignoreStatus, IgnoreBlock } from "./project/gitignore.js";
-export { INIT_FILENAME, INIT_SCOPE, initProject, scaffoldConfig } from "./project/init.js";
-export type { InitOptions, InitResult } from "./project/init.js";
+export {
+  INIT_FILENAME,
+  KEEP_FILENAME,
+  LOCAL_CATALOG,
+  initProject,
+  scaffoldConfig,
+  scaffoldProject,
+} from "./project/init.js";
+export type { InitOptions, InitResult, ScaffoldedFile } from "./project/init.js";
 export {
   ADAPTERS,
   adaptersFor,
@@ -428,12 +325,9 @@ export type {
 // ── cli — presentation and dispatch ───────────────────────────────────────────────────────────
 export {
   COMMAND_SPECS,
-  catalogDirOf,
   dryRunRequested,
   jsonRequested,
   offlineRequested,
-  optionList,
-  positional,
   projectDirOf,
   sourceContextOf,
 } from "./cli/commands.js";
@@ -444,9 +338,6 @@ export type {
   CommandRule,
   CommandRules,
   CommandSpec,
-  CommandSubject,
 } from "./cli/commands.js";
-export { changeKindOf, diffLines, diffSection, treeChangeSummary } from "./cli/diff.js";
-export type { ChangeKind } from "./cli/diff.js";
 export { buildProgram, run } from "./cli/program.js";
 export type { Io } from "./cli/program.js";

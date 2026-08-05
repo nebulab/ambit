@@ -27,12 +27,12 @@ const CORE_SKILL = "company-context";
 const ENGINEERING_SKILL = "code-review";
 const FRONTEND_SKILL = "design-tokens";
 
-/** The fixture's scope-matched http server, and the one only `requires` reaches. */
-const SCOPED_MCP = "scoped";
+/** The fixture's tag-matched http server, and the one only `requires` reaches. */
+const TAGGED_MCP = "tagged";
 const FIXTURE_MCP = "fixture";
 
-/** The variable the scoped server interpolates into its `Authorization` header. */
-const SCOPED_KEY_VAR = "SCOPED_API_KEY";
+/** The variable the tagged server interpolates into its `Authorization` header. */
+const TAGGED_KEY_VAR = "TAGGED_API_KEY";
 
 /** The default profile's artifacts, by project-relative path and in status's order. */
 const CORE_TARGET = `${SKILLS_DIR}/${CORE_SKILL}`;
@@ -53,16 +53,21 @@ let root: string;
 let catalogDir: string;
 let projectDir: string;
 
-/** Points the project at the fixture catalog and gives it `scopes`. */
-async function writeProfile(scopes: readonly string[]): Promise<void> {
-  const list = scopes.length === 0 ? "[]" : `\n${scopes.map((scope) => `  - ${scope}`).join("\n")}`;
+/** One `requires` entry, selecting everything in `catalog` that carries `tag`. */
+function requiresEntry(tag: string, catalog = CATALOG_NAME): string {
+  return `  - { tag: "${catalog}/${tag}", capabilities: [skills, mcps, hooks] }`;
+}
+
+/** Points the project at the fixture catalog and gives it a `requires` list. */
+async function writeProfile(tags: readonly string[]): Promise<void> {
+  const list = tags.length === 0 ? "[]" : `\n${tags.map((tag) => requiresEntry(tag)).join("\n")}`;
   await writeFile(
     path.join(projectDir, "ambit.yml"),
     `version: 1
 catalogs:
   - name: ${CATALOG_NAME}
     source: path:../catalog
-scopes: ${list}
+requires: ${list}
 `,
     "utf8",
   );
@@ -138,10 +143,10 @@ beforeEach(async () => {
   await buildFixtureCatalog(catalogDir);
   await mkdir(projectDir, { recursive: true });
   // Three skills — `function.engineering` also selects its nested frontend child — plus the
-  // `scoped` http server, which declares that same scope.
-  await writeProfile(["core", "function.engineering"]);
-  // The scoped server interpolates this into a header, so what is on disk depends on it.
-  vi.stubEnv(SCOPED_KEY_VAR, undefined);
+  // `tagged` http server, which declares that same tag.
+  await writeProfile(["core", "function.engineering", "function.engineering.*"]);
+  // The tagged server interpolates this into a header, so what is on disk depends on it.
+  vi.stubEnv(TAGGED_KEY_VAR, undefined);
 });
 
 afterEach(async () => {
@@ -274,10 +279,10 @@ describe("ambit status after a manual edit", () => {
   });
 
   it("reports an edited server as modified, naming the key", async () => {
-    await writeMcpFile({ mcpServers: { [SCOPED_MCP]: { command: "my-own-thing" } } });
+    await writeMcpFile({ mcpServers: { [TAGGED_MCP]: { command: "my-own-thing" } } });
 
     expect(await detailOf(MCP_FILE)).toBe(
-      `"mcpServers.${SCOPED_MCP}" is not what install would write`,
+      `"mcpServers.${TAGGED_MCP}" is not what install would write`,
     );
     expect(await states()).toContain(`${MCP_FILE}=modified`);
   });
@@ -285,7 +290,7 @@ describe("ambit status after a manual edit", () => {
   it("reports a deleted server as absent rather than as modified", async () => {
     await writeMcpFile({ mcpServers: {} });
 
-    expect(await detailOf(MCP_FILE)).toBe(`"mcpServers.${SCOPED_MCP}" is absent`);
+    expect(await detailOf(MCP_FILE)).toBe(`"mcpServers.${TAGGED_MCP}" is absent`);
     expect(await states()).toContain(`${MCP_FILE}=missing`);
   });
 
@@ -297,10 +302,10 @@ describe("ambit status after a manual edit", () => {
 
   it("does not read a reordered server as drift: ambit owns the key, not the layout", async () => {
     const document = await readMcpConfig();
-    const scoped =
-      (document.mcpServers as Record<string, Record<string, unknown>>)[SCOPED_MCP] ?? {};
+    const tagged =
+      (document.mcpServers as Record<string, Record<string, unknown>>)[TAGGED_MCP] ?? {};
     await writeMcpFile({
-      mcpServers: { [SCOPED_MCP]: { headers: scoped.headers, url: scoped.url, type: scoped.type } },
+      mcpServers: { [TAGGED_MCP]: { headers: tagged.headers, url: tagged.url, type: tagged.type } },
     });
 
     expect(isClean(await projectStatus(projectDir))).toBe(true);
@@ -336,7 +341,7 @@ describe("ambit status after a manual edit", () => {
   it("reports a change in the catalog, not only one in the project", async () => {
     await writeFile(
       path.join(catalogDir, "skills/company-context/SKILL.md"),
-      "---\nname: company-context\nambit:\n  scopes: [core]\n---\n\n# rewritten upstream\n",
+      "---\nname: company-context\nambit:\n  tags: [core]\n---\n\n# rewritten upstream\n",
       "utf8",
     );
 
@@ -356,7 +361,7 @@ describe("ambit status on a symlinked install", () => {
 
     await writeFile(
       path.join(projectDir, CORE_TARGET, "SKILL.md"),
-      "---\nname: company-context\nambit:\n  scopes: [core]\n---\n\n# edited in place\n",
+      "---\nname: company-context\nambit:\n  tags: [core]\n---\n\n# edited in place\n",
       "utf8",
     );
 
@@ -426,7 +431,7 @@ describe("ambit status before an install", () => {
     const target = path.join(projectDir, CORE_TARGET);
     await mkdir(target, { recursive: true });
     await writeFile(path.join(target, "SKILL.md"), "---\nname: not ambit's\n---\n", "utf8");
-    await writeMcpFile({ mcpServers: { [SCOPED_MCP]: { command: "not ambit's either" } } });
+    await writeMcpFile({ mcpServers: { [TAGGED_MCP]: { command: "not ambit's either" } } });
 
     expect(await states()).toEqual([
       `${HOOK_TARGET}=missing`,
@@ -440,7 +445,7 @@ describe("ambit status before an install", () => {
     ]);
     expect(await detailOf(CORE_TARGET)).toBe("it exists but ambit did not create it");
     expect(await detailOf(MCP_FILE)).toBe(
-      `"mcpServers.${SCOPED_MCP}" exists but ambit did not create it`,
+      `"mcpServers.${TAGGED_MCP}" exists but ambit did not create it`,
     );
   });
 
@@ -477,10 +482,10 @@ describe("ambit status after the profile narrows", () => {
   });
 
   it("reports a single stale server key in a file whose other keys still match", async () => {
-    // Both servers: `scoped` by scope, `fixture` through the project skill's `requires`.
-    await writeProfile(["function.engineering", "project.acme"]);
+    // Both servers: `tagged` by tag, `fixture` through the project skill's `requires`.
+    await writeProfile(["function.engineering", "function.engineering.*", "project.acme"]);
     expect((await cli("install")).code).toBe(ExitCode.Success);
-    await writeProfile(["function.engineering"]);
+    await writeProfile(["function.engineering", "function.engineering.*"]);
 
     expect(await detailOf(MCP_FILE)).toBe(`"mcpServers.${FIXTURE_MCP}" is no longer selected`);
     expect(await states()).toContain(`${MCP_FILE}=stale`);

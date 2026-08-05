@@ -35,7 +35,7 @@ describe("hook entity", () => {
         [
           "name: block-rm",
           "description: Refuses a destructive rm before it runs",
-          "scopes: [function.engineering, core]",
+          "tags: [function.engineering, core]",
           "event: PreToolUse",
           "matcher: Bash",
           "type: script",
@@ -48,7 +48,7 @@ describe("hook entity", () => {
     ).toEqual({
       name: "block-rm",
       description: "Refuses a destructive rm before it runs",
-      scopes: ["function.engineering", "core"],
+      tags: ["function.engineering", "core"],
       event: "PreToolUse",
       matcher: "Bash",
       type: "script",
@@ -63,7 +63,7 @@ describe("hook entity", () => {
 
     expect(hook).toEqual({
       name: "greet",
-      scopes: [],
+      tags: [],
       event: "SessionStart",
       type: "command",
       command: "echo hi",
@@ -182,7 +182,7 @@ describe("hook entity", () => {
 
     expect(error.format()).toContain('unknown key "matchers"');
     expect(error.format()).toContain(
-      "accepted keys: command, description, event, expects, matcher, name, scopes, timeout, type",
+      "accepted keys: command, description, event, expects, matcher, name, tags, timeout, type",
     );
   });
 

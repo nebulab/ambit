@@ -403,7 +403,7 @@ command = "npx"
   });
 
   it("edits a file whose *other* tables use the shapes it refuses for its own", () => {
-    // The refusals are scoped to the managed section. A person's inline tables and dotted keys
+    // The refusals are confined to the managed section. A person's inline tables and dotted keys
     // elsewhere are none of ambit's business, and refusing them would make the driver useless.
     const text = `profile = { name = "default" }
 tools.web_search = true

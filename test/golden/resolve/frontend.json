@@ -6,9 +6,6 @@
   },
   "hooks": {},
   "mcps": {},
-  "scopes": [
-    "function.engineering.frontend"
-  ],
   "skills": {
     "design-tokens": {
       "catalog": "company",

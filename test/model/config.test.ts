@@ -19,6 +19,16 @@ import { AmbitError, ExitCode } from "../../src/errors.js";
 
 const FILE = "ambit.yml";
 
+/** One `requires` entry, for the cases about which file was read rather than about what it said. */
+const ONE_ENTRY = 'requires: [{ name: "c/core", capabilities: [skills] }]\n';
+
+const ONE_ENTRY_PARSED = {
+  field: "name",
+  pattern: "core",
+  catalog: "c",
+  capabilities: ["skills"],
+};
+
 /** Parses `text`, asserting it was rejected as a config error (exit 2). */
 function rejection(text: string): AmbitError {
   try {
@@ -34,10 +44,13 @@ function rejection(text: string): AmbitError {
 const FULL_CONFIG = `version: 1
 harnesses: [claude]
 
-scopes:
-  - core
-  - function.engineering
-  - project.vision-group
+requires:
+  - tag: "company/function.engineering"
+    capabilities: [skills, mcps, hooks]
+  - name: "company/core.*"
+    capabilities: [skills]
+  - name: "personal/luma"
+    capabilities: [skills]
 
 catalogs:
   - name: company
@@ -46,37 +59,6 @@ catalogs:
   - name: personal
     source: git@github.com:jane/skills-private.git
     ref: main
-
-skills:
-  - luma
-  - name: readwise-cli
-    source: https://github.com/readwiseio/readwise-skills
-    path: skills/readwise-cli
-
-mcps:
-  - name: custom
-    transport:
-      stdio:
-        command: npx
-        args: ["-y", "some-server"]
-    expects: [{ env: SOME_TOKEN }]
-  - name: remote
-    scopes: [function.sales]
-    transport:
-      http:
-        url: https://api.close.com/mcp
-        headers:
-          Authorization: "Bearer \${CLOSE_API_KEY}"
-    expects: [{ env: CLOSE_API_KEY }]
-
-hooks:
-  - name: format-on-write
-    event: PostToolUse
-    matcher: "Edit|Write"
-    type: command
-    command: npm run format
-    timeout: 60
-    expects: [{ env: SOME_TOKEN }]
 `;
 
 describe("project config", () => {
@@ -85,65 +67,26 @@ describe("project config", () => {
       version: 1,
       origin: {
         file: FILE,
-        scopeLines: new Map([
-          ["core", 5],
-          ["function.engineering", 6],
-          ["project.vision-group", 7],
+        entryLines: new Map([
+          ['- { tag: "company/function.engineering", capabilities: [skills, mcps, hooks] }', 5],
+          ['- { name: "company/core.*", capabilities: [skills] }', 7],
+          ['- { name: "personal/luma", capabilities: [skills] }', 9],
         ]),
-        skillLines: new Map([
-          ["luma", 18],
-          ["readwise-cli", 19],
-        ]),
-        mcpLines: new Map([
-          ["custom", 24],
-          ["remote", 30],
-        ]),
-        hookLines: new Map([["format-on-write", 40]]),
       },
       harnesses: ["claude"],
-      scopes: ["core", "function.engineering", "project.vision-group"],
       catalogs: [
         { name: "company", source: "git@github.com:acme/skills.git", ref: "a1b2c3d4" },
         { name: "personal", source: "git@github.com:jane/skills-private.git", ref: "main" },
       ],
-      skills: [
-        { kind: "catalog", name: "luma" },
+      requires: [
         {
-          kind: "source",
-          name: "readwise-cli",
-          source: "https://github.com/readwiseio/readwise-skills",
-          path: "skills/readwise-cli",
+          field: "tag",
+          pattern: "function.engineering",
+          catalog: "company",
+          capabilities: ["skills", "mcps", "hooks"],
         },
-      ],
-      mcps: [
-        {
-          name: "custom",
-          scopes: [],
-          transport: { kind: "stdio", command: "npx", args: ["-y", "some-server"] },
-          expects: [{ kind: "env", name: "SOME_TOKEN" }],
-        },
-        {
-          name: "remote",
-          scopes: ["function.sales"],
-          transport: {
-            kind: "http",
-            url: "https://api.close.com/mcp",
-            headers: { Authorization: "Bearer ${CLOSE_API_KEY}" },
-          },
-          expects: [{ kind: "env", name: "CLOSE_API_KEY" }],
-        },
-      ],
-      hooks: [
-        {
-          name: "format-on-write",
-          scopes: [],
-          event: "PostToolUse",
-          matcher: "Edit|Write",
-          type: "command",
-          command: "npm run format",
-          timeout: 60,
-          expects: [{ kind: "env", name: "SOME_TOKEN" }],
-        },
+        { field: "name", pattern: "core.*", catalog: "company", capabilities: ["skills"] },
+        { field: "name", pattern: "luma", catalog: "personal", capabilities: ["skills"] },
       ],
     });
   });
@@ -151,109 +94,79 @@ describe("project config", () => {
   it("defaults everything but the version", () => {
     expect(parseProjectConfig("version: 1\n", FILE)).toEqual({
       version: 1,
-      origin: {
-        file: FILE,
-        scopeLines: new Map(),
-        skillLines: new Map(),
-        mcpLines: new Map(),
-        hookLines: new Map(),
-      },
+      origin: { file: FILE, entryLines: new Map() },
       harnesses: DEFAULT_HARNESSES,
-      scopes: [],
       catalogs: [],
-      skills: [],
-      mcps: [],
-      hooks: [],
+      requires: [],
     });
   });
 
-  it("records the line each held scope was written on", () => {
-    // Resolution rejects an unregistered scope long after this parse, and the error is still expected
-    // to name the line, so the positions have to survive parsing.
-    const config = parseProjectConfig("version: 1\nscopes:\n  - core\n  - function.sales\n", FILE);
+  it("records the line each `requires` entry was written on", () => {
+    // Resolution rejects an entry that matches nothing long after this parse, and the error is still
+    // expected to name the line, so the positions have to survive parsing.
+    const config = parseProjectConfig(
+      ["version: 1", "requires:", "  - { tag: c/core, capabilities: [skills] }", ""].join("\n"),
+      FILE,
+    );
 
     expect(config.origin).toEqual({
       file: FILE,
-      scopeLines: new Map([
-        ["core", 3],
-        ["function.sales", 4],
-      ]),
-      skillLines: new Map(),
-      mcpLines: new Map(),
-      hookLines: new Map(),
+      entryLines: new Map([['- { tag: "c/core", capabilities: [skills] }', 3]]),
     });
   });
 
-  it("records the line each `skills` and `mcps` entry was written on", () => {
-    // The same reason scopes carry theirs: an explicit skill no catalog provides is
-    // rejected long after this parse, and the error still has to name the line.
+  it("keys the lines by the whole entry, so two that differ only in capabilities keep both", () => {
+    // `formatEntry` drops the capability list, and these two entries agree on everything it keeps —
+    // yet they sit on separate lines, and a refusal about either has to name its own.
     const config = parseProjectConfig(
       [
         "version: 1",
-        "skills:",
-        "  - house-style",
-        "  - name: two",
-        "    source: path:../two",
-        "mcps:",
-        "  - name: three",
-        "    transport:",
-        "      stdio:",
-        "        command: three-mcp",
+        "requires:",
+        "  - { tag: c/core, capabilities: [skills] }",
+        "  - { tag: c/core, capabilities: [hooks] }",
         "",
       ].join("\n"),
       FILE,
     );
 
-    expect(config.origin.skillLines).toEqual(
+    expect(config.origin.entryLines).toEqual(
       new Map([
-        ["house-style", 3],
-        ["two", 4],
+        ['- { tag: "c/core", capabilities: [skills] }', 3],
+        ['- { tag: "c/core", capabilities: [hooks] }', 4],
       ]),
     );
-    expect(config.origin.mcpLines).toEqual(new Map([["three", 7]]));
   });
 
-  it("records the line each `hooks` entry was written on", () => {
+  it("keeps the first line of an entry written twice, and the entry once", () => {
     const config = parseProjectConfig(
       [
         "version: 1",
-        "hooks:",
-        "  - name: one",
-        "    event: SessionStart",
-        "    type: command",
-        "    command: one.sh",
-        "  - name: two",
-        "    event: Stop",
-        "    type: command",
-        "    command: two.sh",
+        "requires:",
+        "  - { tag: c/core, capabilities: [skills] }",
+        "  - { tag: c/core, capabilities: [skills] }",
         "",
       ].join("\n"),
       FILE,
     );
 
-    expect(config.origin.hookLines).toEqual(
-      new Map([
-        ["one", 3],
-        ["two", 7],
-      ]),
+    expect(config.requires).toHaveLength(1);
+    expect(config.origin.entryLines.get('- { tag: "c/core", capabilities: [skills] }')).toBe(3);
+  });
+
+  it("keeps the entries exactly as listed, adding nothing", () => {
+    // Spec §2: nothing is implicit. A config that selects one thing selects one thing.
+    const config = parseProjectConfig(
+      'version: 1\nrequires: [{ tag: "c/function.sales", capabilities: [skills] }]\n',
+      FILE,
     );
+
+    expect(config.requires).toEqual([
+      { field: "tag", pattern: "function.sales", catalog: "c", capabilities: ["skills"] },
+    ]);
   });
 
-  it("keeps the first line of a scope listed twice", () => {
-    const config = parseProjectConfig("version: 1\nscopes:\n  - core\n  - core\n", FILE);
-
-    expect(config.origin.scopeLines.get("core")).toBe(3);
-  });
-
-  it("keeps held scopes exactly as listed, adding nothing", () => {
-    // Spec §2: nothing is implicit. A config that forgets `core` gets no `core`.
-    const config = parseProjectConfig("version: 1\nscopes: [function.sales]\n", FILE);
-
-    expect(config.scopes).toEqual(["function.sales"]);
-  });
-
-  it("reads an empty scopes list as selecting nothing", () => {
-    expect(parseProjectConfig("version: 1\nscopes: []\n", FILE).scopes).toEqual([]);
+  it("reads an empty requires list as selecting nothing", () => {
+    expect(parseProjectConfig("version: 1\nrequires: []\n", FILE).requires).toEqual([]);
   });
 
   it("omits an absent catalog ref rather than inventing one", () => {
@@ -266,7 +179,7 @@ describe("project config", () => {
     expect(Object.keys(config.catalogs[0]!)).not.toContain("ref");
   });
 
-  it("keeps catalogs in config order, since the first wins a collision", () => {
+  it("keeps catalogs in config order, which is what the config says and nothing more", () => {
     const config = parseProjectConfig(
       "version: 1\ncatalogs:\n  - name: b\n    source: x/b\n  - name: a\n    source: x/a\n",
       FILE,
@@ -277,16 +190,16 @@ describe("project config", () => {
 
   describe("rejections", () => {
     it("rejects an unknown top-level key", () => {
-      const error = rejection("version: 1\nscope:\n  - core\n");
+      const error = rejection("version: 1\nrequire:\n  - core\n");
 
-      expect(error.format()).toContain(`unknown key "scope" (${FILE} line 2)`);
-      expect(error.format()).toContain(
-        "accepted keys: catalogs, harnesses, hooks, mcps, scopes, skills, version",
-      );
+      expect(error.format()).toContain(`unknown key "require" (${FILE} line 2)`);
+      expect(error.format()).toContain("accepted keys: catalogs, harnesses, requires, version");
     });
 
     it("requires a version", () => {
-      expect(rejection("scopes: [core]\n").format()).toContain('missing required key "version"');
+      expect(rejection("harnesses: [claude]\n").format()).toContain(
+        'missing required key "version"',
+      );
     });
 
     it("rejects a version it does not understand", () => {
@@ -314,6 +227,25 @@ describe("project config", () => {
       expect(error.format()).toContain("first declared on line 3");
     });
 
+    it("rejects a catalog name holding the address separator, which nothing could select from", () => {
+      // An alias is the qualifier half of `<catalog>/<pattern>`. One holding a `/` is addressable by
+      // nothing: `a/b/x` reads as two separators and is refused, while `validate` calls the catalog
+      // unselected and advises qualifying an entry with `a/b/`. Refused where it is written instead.
+      const error = rejection("version: 1\ncatalogs:\n  - name: a/b\n    source: x/y\n");
+
+      expect(error.format()).toContain(`catalog name "a/b" holds a \`/\` (${FILE} line 3)`);
+      expect(error.format()).toContain("rename the catalog to something without a `/`");
+    });
+
+    it("accepts a catalog name holding a dot, which is why the separator is not one", () => {
+      const config = parseProjectConfig(
+        "version: 1\ncatalogs:\n  - name: acme.company\n    source: x/y\n",
+        FILE,
+      );
+
+      expect(config.catalogs.map((entry) => entry.name)).toEqual(["acme.company"]);
+    });
+
     it("rejects an unknown key inside a catalog entry", () => {
       expect(
         rejection(
@@ -322,142 +254,139 @@ describe("project config", () => {
       ).toContain('unknown key "catalogs[0].branch"');
     });
 
-    it("rejects two `skills` entries naming the same skill, naming both lines", () => {
-      // Resolution looks each name up once, so a repeat is never a merge — and a bare name beside
-      // a mapping for the same name is two answers to which source provides it.
-      const error = rejection(
-        "version: 1\nskills:\n  - a.b\n  - name: a.b\n    source: path:../a\n",
+    it("rejects a `requires` entry that declares no capabilities", () => {
+      // The grammar's own refusals are `pattern.test.ts`'s; this is the claim that a project config
+      // reads its `requires` through them rather than through a second, looser parser.
+      expect(rejection('version: 1\nrequires: [{ tag: "c/core" }]\n').format()).toContain(
+        '`requires` entry "c/core" declares no capabilities',
       );
-
-      expect(error.format()).toContain(`duplicate skills entry "a.b" (${FILE} line 4)`);
-      expect(error.format()).toContain("first declared on line 3");
     });
 
-    it("rejects two `mcps` entries defining the same server", () => {
+    it("rejects a `requires` address that names no catalog", () => {
+      const error = rejection('version: 1\nrequires: [{ tag: "core", capabilities: [skills] }]\n');
+
+      expect(error.format()).toContain('`requires` entry "core" names no catalog');
+      expect(error.format()).toContain("qualify it: `<catalog>/core`");
+    });
+  });
+
+  /**
+   * The three forms that used to put a definition in `ambit.yml` itself.
+   *
+   * Every one of them is a hard break with no compatibility reader, so the refusal *is* the migration
+   * path — which means each message has to carry both halves of the move: the file the definition goes
+   * into, and the `catalogs:` entry that makes the file reachable.
+   */
+  describe("inline definitions, refused", () => {
+    it("refuses a top-level `mcps`, naming the file and the catalog entry", () => {
+      const error = rejection(
+        "version: 1\nmcps:\n  - name: x\n    transport:\n      stdio:\n        command: npx\n",
+      );
+
+      expect(error.format()).toContain(`top-level \`mcps\` is gone (${FILE} line 2)`);
+      expect(error.format()).toContain(
+        "an MCP server is defined by a file of its own: move each entry to `mcps/<name>.yml`",
+      );
+      expect(error.format()).toContain(
+        "then list this project as a catalog: `- name: local` with `source: path:.`",
+      );
+    });
+
+    it("refuses a top-level `hooks`, naming the file and the catalog entry", () => {
+      const error = rejection(
+        "version: 1\nhooks:\n  - name: x\n    event: Stop\n    type: command\n    command: x.sh\n",
+      );
+
+      expect(error.format()).toContain(`top-level \`hooks\` is gone (${FILE} line 2)`);
+      expect(error.format()).toContain(
+        "a hook is defined by a file of its own: move each entry to `hooks/<name>/HOOK.yml`",
+      );
+      expect(error.format()).toContain(
+        "then list this project as a catalog: `- name: local` with `source: path:.`",
+      );
+    });
+
+    it("refuses them ahead of the unknown-key check, which would call one a typo", () => {
+      // `mcps` is not in the accepted set any more, so `rejectUnknownKeys` would fire first and say
+      // the wrong thing — that the key is misspelled, rather than that its contents moved.
+      expect(rejection("version: 1\nmcps: []\n").format()).not.toContain("unknown key");
+    });
+  });
+
+  /**
+   * The two keys a project used to select with.
+   *
+   * Both are a hard break with no compatibility reader, so the refusal *is* the migration path —
+   * which means it has to carry the rewrite per line, not merely announce that the key is gone. The
+   * catalog alias is in the same file, so the printed entry is the one the reader can paste.
+   */
+  describe("the deleted selection keys, refused", () => {
+    const CATALOGS = "catalogs:\n  - name: company\n    source: acme/skills\n";
+
+    it("refuses a top-level `scopes`, naming the entry each held scope becomes", () => {
+      const error = rejection(
+        `version: 1\n${CATALOGS}scopes:\n  - core\n  - function.engineering\n`,
+      );
+
+      expect(error.format()).toContain(`top-level \`scopes\` is gone (${FILE} line 5)`);
+      expect(error.format()).toContain(
+        'line 6: `core` becomes `- { tag: "company/core", capabilities: [skills, mcps, hooks] }`',
+      );
+      expect(error.format()).toContain(
+        'line 7: `function.engineering` becomes `- { tag: "company/function.engineering", capabilities: [skills, mcps, hooks] }`',
+      );
+      // The subtree rule went with the key, and a pattern says so explicitly, so a faithful rewrite
+      // of one held scope is two entries.
+      expect(error.format()).toContain("also reached every tag beneath it");
+      expect(error.format()).toContain("rename the key to `requires`");
+    });
+
+    it("refuses a top-level `skills`, naming the name entry each becomes", () => {
+      const error = rejection(`version: 1\n${CATALOGS}skills:\n  - house-style\n`);
+
+      expect(error.format()).toContain(`top-level \`skills\` is gone (${FILE} line 5)`);
+      expect(error.format()).toContain(
+        'line 6: `house-style` becomes `- { name: "company/house-style", capabilities: [skills] }`',
+      );
+      // A name entry says nothing about a subtree, so nothing about one is suggested.
+      expect(error.format()).not.toContain("beneath it");
+    });
+
+    it("stands in for the alias when the config declares more than one catalog", () => {
+      // A held scope reached every catalog at once; which of several an entry should now name is the
+      // reader's call, and proposing one would be a guess.
       const error = rejection(
         [
           "version: 1",
-          "mcps:",
-          "  - name: x",
-          "    transport:",
-          "      stdio:",
-          "        command: one",
-          "  - name: x",
-          "    transport:",
-          "      stdio:",
-          "        command: two",
+          "catalogs:",
+          "  - name: company",
+          "    source: acme/skills",
+          "  - name: personal",
+          "    source: jane/skills",
+          "scopes: [core]",
           "",
         ].join("\n"),
-      );
-
-      expect(error.format()).toContain(`duplicate mcps entry "x" (${FILE} line 7)`);
-      expect(error.format()).toContain("define each server once");
-    });
-
-    it("rejects two `hooks` entries defining the same hook", () => {
-      const error = rejection(
-        [
-          "version: 1",
-          "hooks:",
-          "  - name: x",
-          "    event: SessionStart",
-          "    type: command",
-          "    command: one.sh",
-          "  - name: x",
-          "    event: Stop",
-          "    type: command",
-          "    command: two.sh",
-          "",
-        ].join("\n"),
-      );
-
-      expect(error.format()).toContain(`duplicate hooks entry "x" (${FILE} line 7)`);
-      expect(error.format()).toContain("define each hook once");
-    });
-
-    it("rejects an inline hook that says it ships a script, which it has nowhere to put", () => {
-      // The one hook rule this surface adds of its own: `type: script` is legal in a catalog and
-      // impossible here, because the script lives in a directory `ambit.yml` does not have.
-      const error = rejection(
-        "version: 1\nhooks:\n  - name: x\n    event: Stop\n    type: script\n    command: guard.sh\n",
       );
 
       expect(error.format()).toContain(
-        `hook "x" cannot ship a script from ${FILE} (${FILE} line 5)`,
+        '`core` becomes `- { tag: "<catalog>/core", capabilities: [skills, mcps, hooks] }`',
       );
       expect(error.format()).toContain(
-        "say `type: command`, or move the hook into a catalog at `hooks/<name>/HOOK.yml`",
+        "qualifying each entry with the alias it should select from",
       );
     });
 
-    it("names the `hooks` entry's key path when the hook itself is malformed", () => {
-      // The entity parser is shared with `HOOK.yml`, so the only thing this surface adds is where
-      // in the config the offending value sits.
-      expect(
-        rejection("version: 1\nhooks:\n  - name: x\n    event: Stop\n    type: command\n").format(),
-      ).toContain('missing required key "hooks[0].command"');
-    });
-
-    it("rejects an unknown hook event, listing the supported set", () => {
-      const error = rejection(
-        "version: 1\nhooks:\n  - name: x\n    event: OnSave\n    type: command\n    command: x.sh\n",
-      );
-
-      expect(error.format()).toContain(`unknown hook event "OnSave" (${FILE} line 4)`);
-      expect(error.format()).toContain("supported events: SessionStart");
-    });
-
-    it("rejects an unknown key inside a skill entry", () => {
-      expect(
-        rejection(
-          "version: 1\nskills:\n  - name: s\n    source: a/b\n    dir: skills/s\n",
-        ).format(),
-      ).toContain('unknown key "skills[0].dir"');
-    });
-
-    it("requires a source on a mapping skill entry", () => {
-      expect(rejection("version: 1\nskills:\n  - name: s\n").format()).toContain(
-        'missing required key "skills[0].source"',
+    it("still names the rewrite when `catalogs` is malformed, rather than reporting that first", () => {
+      // The alias is a courtesy in this message; a broken `catalogs:` is refused on its own terms
+      // once the removed key is gone.
+      expect(rejection("version: 1\ncatalogs: nope\nscopes: [core]\n").format()).toContain(
+        "top-level `scopes` is gone",
       );
     });
 
-    it("rejects a transport naming no kind", () => {
-      const error = rejection("version: 1\nmcps:\n  - name: x\n    transport: {}\n");
-
-      expect(error.format()).toContain("`transport` names no transport kind");
-      expect(error.format()).toContain("supported kinds: http, stdio");
-    });
-
-    it("rejects a transport naming two kinds", () => {
-      const error = rejection(
-        [
-          "version: 1",
-          "mcps:",
-          "  - name: x",
-          "    transport:",
-          "      stdio:",
-          "        command: npx",
-          "      http:",
-          "        url: https://x.invalid",
-          "",
-        ].join("\n"),
-      );
-
-      expect(error.format()).toContain("`transport` names 2 transport kinds: http, stdio");
-    });
-
-    it("rejects an unrecognized transport kind", () => {
-      const error = rejection(
-        "version: 1\nmcps:\n  - name: x\n    transport:\n      sse:\n        url: https://x.invalid\n",
-      );
-
-      expect(error.format()).toContain('unknown transport kind "sse"');
-    });
-
-    it("requires a command for a stdio transport", () => {
-      expect(
-        rejection("version: 1\nmcps:\n  - name: x\n    transport:\n      stdio: {}\n").format(),
-      ).toContain('missing required key "mcps[0].transport.stdio.command"');
+    it("refuses them ahead of the unknown-key check, which would call one a typo", () => {
+      expect(rejection("version: 1\nscopes: []\n").format()).not.toContain("unknown key");
+      expect(rejection("version: 1\nskills: []\n").format()).not.toContain("unknown key");
     });
   });
 
@@ -469,8 +398,8 @@ describe("project config", () => {
     const CASES: readonly [label: string, text: string, expected: RegExp][] = [
       [
         "a duplicate key",
-        "version: 1\nscopes: [a]\nscopes: [b]\n",
-        /duplicate key "scopes" \(ambit\.yml line 3\)/,
+        "version: 1\nrequires: [a]\nrequires: [b]\n",
+        /duplicate key "requires" \(ambit\.yml line 3\)/,
       ],
       [
         "tab indentation",
@@ -479,7 +408,7 @@ describe("project config", () => {
       ],
       [
         "a custom tag",
-        "version: 1\nscopes: !!python/object []\n",
+        "version: 1\nrequires: !!python/object []\n",
         /custom YAML tag .* \(ambit\.yml line 2\)/,
       ],
       ["an empty document", "", /ambit\.yml is empty/],
@@ -516,20 +445,20 @@ describe("project config", () => {
     });
 
     it("loads ambit.yml", async () => {
-      await writeFile(path.join(dir, "ambit.yml"), "version: 1\nscopes: [core]\n", "utf8");
+      await writeFile(path.join(dir, "ambit.yml"), `version: 1\n${ONE_ENTRY}`, "utf8");
 
       expect(await findConfigFile(dir)).toEqual({
         path: path.join(dir, "ambit.yml"),
         file: "ambit.yml",
       });
-      expect((await loadProjectConfig(dir)).scopes).toEqual(["core"]);
+      expect((await loadProjectConfig(dir)).requires).toEqual([ONE_ENTRY_PARSED]);
     });
 
     it("accepts ambit.yaml", async () => {
-      await writeFile(path.join(dir, "ambit.yaml"), "version: 1\nscopes: [core]\n", "utf8");
+      await writeFile(path.join(dir, "ambit.yaml"), `version: 1\n${ONE_ENTRY}`, "utf8");
 
       expect((await findConfigFile(dir)).file).toBe("ambit.yaml");
-      expect((await loadProjectConfig(dir)).scopes).toEqual(["core"]);
+      expect((await loadProjectConfig(dir)).requires).toEqual([ONE_ENTRY_PARSED]);
     });
 
     it("refuses to guess when both exist", async () => {
@@ -550,13 +479,13 @@ describe("project config", () => {
     });
 
     it("names the file it actually read in errors", async () => {
-      await writeFile(path.join(dir, "ambit.yaml"), "version: 1\nscopes: core\n", "utf8");
+      await writeFile(path.join(dir, "ambit.yaml"), "version: 1\nrequires: core\n", "utf8");
 
       const error = await loadProjectConfig(dir).catch((cause: unknown) => cause);
 
       expect(error).toBeInstanceOf(AmbitError);
       expect((error as AmbitError).format()).toContain(
-        '"scopes" must be a sequence of strings (ambit.yaml line 2)',
+        '"requires" must be a sequence of strings or mappings (ambit.yaml line 2)',
       );
     });
   });

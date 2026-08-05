@@ -1,8 +1,9 @@
 /**
  * MCP entity parsing.
  *
- * The same shape appears in two places — `mcps/<name>.yml` in a catalog, and inline `mcps`
- * entries in `ambit.yml` — so one parser serves both.
+ * One shape, one place it can be written: `mcps/<name>.yml` in a catalog. A project that defines a
+ * server of its own lists itself as a catalog and puts it there, so this parser has one caller and no
+ * variant to reconcile.
  */
 import type { Expectation } from "./expectation.js";
 import { parseExpectations } from "./expectation.js";
@@ -30,8 +31,11 @@ export type McpTransport = StdioTransport | HttpTransport;
 
 export interface McpEntity {
   readonly name: string;
-  /** Declared scopes. Empty means reachable only via `requires` or an explicit listing. */
-  readonly scopes: readonly string[];
+  /**
+   * Declared tags: free-form labels, registered nowhere, that a consumer can select on. Empty means
+   * reachable by a `name:` entry or a `requires` edge, and by nothing else.
+   */
+  readonly tags: readonly string[];
   readonly transport: McpTransport;
   /** What must be true of the world for this server to work — its credentials, today. */
   readonly expects: readonly Expectation[];
@@ -39,11 +43,11 @@ export interface McpEntity {
 
 /**
  * The transport kinds ambit understands. `transport` carries exactly one of these as a nested
- * key, so the kind's own fields stay scoped to it and a new kind adds nothing at the top level.
+ * key, so the kind's own fields stay under it and a new kind adds nothing at the top level.
  */
 export const MCP_TRANSPORT_KINDS = ["http", "stdio"] as const;
 
-const ENTITY_KEYS = ["expects", "name", "scopes", "transport"] as const;
+const ENTITY_KEYS = ["expects", "name", "tags", "transport"] as const;
 
 function parseTransport(mapping: YamlMapping): McpTransport {
   const transport = mapping.requireMapping("transport");
@@ -103,7 +107,7 @@ export function parseMcpEntity(mapping: YamlMapping): McpEntity {
 
   return {
     name: mapping.requireString("name"),
-    scopes: mapping.optionalStringList("scopes") ?? [],
+    tags: mapping.optionalStringList("tags") ?? [],
     transport: parseTransport(mapping),
     expects: parseExpectations(mapping),
   };

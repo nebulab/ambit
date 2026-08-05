@@ -2,7 +2,7 @@
   "expects": {
     "env": [
       "ACME_FIGMA_TOKEN",
-      "SCOPED_API_KEY"
+      "TAGGED_API_KEY"
     ]
   },
   "hooks": {
@@ -12,13 +12,10 @@
     }
   },
   "mcps": {
-    "scoped": {
+    "tagged": {
       "catalog": "company"
     }
   },
-  "scopes": [
-    "function.engineering"
-  ],
   "skills": {
     "code-review": {
       "catalog": "company",

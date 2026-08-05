@@ -42,7 +42,7 @@ export interface LockCatalog {
 
 /** One selected skill, pinned and explained. */
 export interface LockSkill {
-  /** Where it came from: a catalog name, or the `source` a config-declared skill named. */
+  /** The catalog it came from. */
   readonly catalog: string;
   /** Its directory within that source, `/`-separated. */
   readonly path: string;
@@ -56,11 +56,10 @@ export interface LockSkill {
  * One selected MCP server, explained.
  *
  * No `commit`, deliberately: a server is a handful of config values rather than a tree of files, so
- * the catalog entry's commit already says everything a reader could act on — and an inline `mcps`
- * entry comes from `ambit.yml` itself, which has no revision to record.
+ * the catalog entry's commit already says everything a reader could act on.
  */
 export interface LockMcp {
-  /** Where it came from: a catalog name, or the config file that declared it inline. */
+  /** The catalog it came from. */
   readonly catalog: string;
   /** Why it is in the bundle, in `--explain`'s short form. */
   readonly reason: string;
@@ -72,16 +71,15 @@ export interface LockMcp {
  * A hook is both kinds of thing the two sections above are: a set of config values that a harness
  * file renders, and — when its `command` names a script the hook's own directory ships — a tree of
  * files that gets materialized. So `path` and `commit` appear only in the second case, for the same
- * reason {@link LockSkill} carries them and {@link LockMcp} does not: there are bytes to pin. An
- * inline hook, and a catalog hook whose command is a command line, are config values and take
- * {@link LockMcp}'s shape.
+ * reason {@link LockSkill} carries them and {@link LockMcp} does not: there are bytes to pin. A hook
+ * whose command is a command line is config values, and takes {@link LockMcp}'s shape.
  *
  * `path` is the hook's directory within its source, as {@link LockSkill.path} is — never the command
  * ambit writes into a harness file. That command is rewritten per harness, so it is not one value
  * the lock could hold.
  */
 export interface LockHook {
-  /** Where it came from: a catalog name, or the config file that declared it inline. */
+  /** The catalog it came from. */
   readonly catalog: string;
   /** Its directory within that source, `/`-separated. Present only when it ships a script. */
   readonly path?: string;
@@ -173,7 +171,7 @@ export function buildLock(catalogs: readonly Catalog[], bundle: Bundle): Lock {
         catalog: hook.catalog,
         // A hook that ships no script has no bytes of its own to pin, so it records neither where
         // they live nor which commit they came from — see LockHook.
-        ...(hook.type === "script" && hook.path !== undefined && { path: hook.path }),
+        ...(hook.type === "script" && { path: hook.path }),
         ...(hook.type === "script" && hook.commit !== undefined && { commit: hook.commit }),
         reason: formatReason(reasonOf(bundle, { kind: "hook", name: hook.name })),
       }),

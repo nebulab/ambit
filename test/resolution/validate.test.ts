@@ -1,12 +1,14 @@
 /**
- * Full-catalog validation — `ambit validate` for a project, `ambit catalog validate` for one catalog
- * directory on its own terms. They are two commands over one report, so most cases here run the
- * project half and the catalog half is asserted where the subject is what differs: no `ambit.yml`
- * within reach, and nothing to say about shadowing when only one catalog was read.
+ * Full-catalog validation — `ambit validate`, one command over one subject.
+ *
+ * It was two: `ambit catalog validate` read one catalog directory on its own terms, because a catalog
+ * was not a project and had no `ambit.yml`. A catalog repo lists **itself** now, so the case that
+ * command existed for is a project like any other and is asserted here as one — see
+ * "a catalog repo, which lists itself".
  *
  * Two claims carry this suite. The first is the split from resolution: validation must find what
  * `resolve` deliberately ignores, so the broken-but-unselected cases assert *both* commands — exit 0
- * from one and exit 3 from the other, on the same catalog.
+ * from `resolve` and exit 3 from `validate`, on the same catalog.
  *
  * The second is that a CI command lists every problem. Each case that could stop at the first one
  * plants two problems and asserts both, because "exits 3" would pass either way and the whole point
@@ -28,17 +30,16 @@ import { run } from "../../src/cli/program.js";
 const CATALOG_NAME = "company";
 
 /** The fixture's shape, which a clean report counts back. */
-const FIXTURE_SCOPES = 4;
 const FIXTURE_SKILLS = 4;
 const FIXTURE_MCPS = 2;
 const FIXTURE_HOOKS = 3;
 
-/** `writeProfile` puts the first held scope here, after the four-line preamble and `scopes:`. */
-const FIRST_SCOPE_LINE = 6;
+/** `writeProfile` puts the first `requires` entry here, after the four-line preamble and the key. */
+const FIRST_ENTRY_LINE = 6;
 
 /** What a clean catalog reports: what was checked, and an explicitly empty problem list. */
 const CLEAN_REPORT = [
-  `checked ${FIXTURE_SCOPES} scopes, ${FIXTURE_SKILLS} skills, ${FIXTURE_MCPS} mcps, ${FIXTURE_HOOKS} hooks`,
+  `checked ${FIXTURE_SKILLS} skills, ${FIXTURE_MCPS} mcps, ${FIXTURE_HOOKS} hooks`,
   "",
   "problems (0)",
   "  (none)",
@@ -48,42 +49,70 @@ let root: string;
 let catalogDir: string;
 let projectDir: string;
 
+/** One `requires` entry, selecting everything in `catalog` that carries `tag`. */
+function requiresEntry(tag: string, catalog = CATALOG_NAME): string {
+  return `  - { tag: "${catalog}/${tag}", capabilities: [skills, mcps, hooks] }`;
+}
+
 /**
- * Points the project at the fixture catalog and gives it `scopes`.
+ * Points the project at the fixture catalog and gives it a `requires` list.
  *
- * @param extra further top-level config lines, appended after the scopes list so the line each held
- *   scope sits on does not depend on them.
+ * @param tags the tags to select by, each becoming one entry over all three capabilities.
+ * @param extra further top-level config lines, appended after the list so the line each entry sits
+ *   on does not depend on them.
  */
-async function writeProfile(
-  scopes: readonly string[],
-  extra: readonly string[] = [],
-): Promise<void> {
-  const list = scopes.length === 0 ? "[]" : `\n${scopes.map((scope) => `  - ${scope}`).join("\n")}`;
+async function writeProfile(tags: readonly string[], extra: readonly string[] = []): Promise<void> {
+  const list = tags.length === 0 ? "[]" : `\n${tags.map((tag) => requiresEntry(tag)).join("\n")}`;
   await writeFile(
     path.join(projectDir, "ambit.yml"),
     `version: 1
 catalogs:
   - name: ${CATALOG_NAME}
     source: path:../catalog
-scopes: ${list}
+requires: ${list}
 ${extra.map((line) => `${line}\n`).join("")}`,
     "utf8",
   );
 }
 
 /**
+ * One entry of a skill's own `requires`, **unqualified** — the spelling a catalog demands, since the
+ * alias in `catalogs:` belongs to the consumer and a catalog author cannot write it.
+ *
+ * By exact name, a pattern with no wildcard, because what these cases are about is which edges the
+ * report finds rather than what a glob reaches.
+ */
+function needs(capability: string, name: string): string {
+  return `{ name: "${name}", capabilities: [${capability}] }`;
+}
+
+/** A skill's whole `requires` list as one annotation line, from {@link needs} entries. */
+function requires(...entries: readonly string[]): string {
+  return `requires: [${entries.join(", ")}]`;
+}
+
+/**
  * The annotation lines as §3.2 nests them: under a top-level `ambit:`, indented with it.
  *
- * Callers still pass `scopes:` and `requires:` as they are tabulated, so a fixture reads like the
+ * Callers still pass `tags:` and `requires:` as they are tabulated, so a fixture reads like the
  * format's own documentation and only one place knows where the block goes.
  */
 function ambitBlock(annotations: readonly string[]): readonly string[] {
   return annotations.length === 0 ? [] : ["ambit:", ...annotations.map((line) => `  ${line}`)];
 }
 
-/** Adds a skill to the catalog copy this test owns, its name derived from its path per §2. */
-async function writeSkill(relative: string, annotations: readonly string[] = []): Promise<void> {
-  const target = path.join(catalogDir, "skills", relative, "SKILL.md");
+/**
+ * Adds a skill to the catalog copy this test owns, its name derived from its path per §2.
+ *
+ * @param within the catalog root to write it into, so a case about two catalogs providing one name can
+ *   put a copy in each.
+ */
+async function writeSkill(
+  relative: string,
+  annotations: readonly string[] = [],
+  within = catalogDir,
+): Promise<void> {
+  const target = path.join(within, "skills", relative, "SKILL.md");
   await mkdir(path.dirname(target), { recursive: true });
   await writeFile(
     target,
@@ -112,34 +141,10 @@ async function writeMisnamedSkill(relative: string, declared: string): Promise<v
 }
 
 /**
- * Adds an MCP entity, its name taken from its filename per §3.3.
- *
- * @param extension which of §3.3's two extensions to write it as, since which one is on disk is what
- *   a problem about the entity has to cite.
- */
-async function writeMcp(
-  name: string,
-  annotations: readonly string[] = [],
-  extension = ".yml",
-): Promise<void> {
-  await writeFile(
-    path.join(catalogDir, "mcps", `${name}${extension}`),
-    [
-      `name: ${name}`,
-      ...annotations,
-      "transport:",
-      "  stdio:",
-      "    command: fixture-mcp",
-      "",
-    ].join("\n"),
-    "utf8",
-  );
-}
-
-/**
  * Adds a hook, its name derived from its directory per §2.
  *
- * @param within the catalog root to write it into, so a shadowing case can put one copy in each.
+ * @param within the catalog root to write it into, so a case about two catalogs providing one name can
+ *   put a copy in each.
  */
 async function writeHook(
   name: string,
@@ -165,18 +170,33 @@ async function cli(
   return { code, stdout: out.join("\n"), stderr: err.join("\n") };
 }
 
-/** The same, with no `--project` at all — how a catalog repo's CI invokes the command. */
-async function cliWithoutProject(
+/**
+ * The same, pointed at the catalog directory rather than at the project — how a catalog repo's CI
+ * invokes the command, once the repo carries the three-line `ambit.yml` that lists itself.
+ */
+async function cliInCatalogRepo(
   ...argv: readonly string[]
 ): Promise<{ code: ExitCode; stdout: string; stderr: string }> {
   const out: string[] = [];
   const err: string[] = [];
-  const code = await run([...argv], {
+  const code = await run([...argv, "--project", catalogDir], {
     cwd: root,
     stdout: (line) => out.push(line),
     stderr: (line) => err.push(line),
   });
   return { code, stdout: out.join("\n"), stderr: err.join("\n") };
+}
+
+/**
+ * Turns the fixture catalog into a catalog *repo*: the whole of what §_`ambit validate` validates the
+ * catalog too_ says such a repo carries, and what `ambit init` scaffolds. No `requires:` list at all.
+ */
+async function writeSelfListingConfig(): Promise<void> {
+  await writeFile(
+    path.join(catalogDir, "ambit.yml"),
+    ["version: 1", "catalogs:", "  - name: local", "    source: path:.", ""].join("\n"),
+    "utf8",
+  );
 }
 
 /** One problem's `kind`, `message`, and `detail`, as `--json` reports them. */
@@ -221,167 +241,62 @@ describe("ambit validate", () => {
     expect(result.stdout).toBe(CLEAN_REPORT);
   });
 
-  it("validates a catalog directory with no project config anywhere", async () => {
-    // A catalog is not a project and has no `ambit.yml`, so the CI check for one cannot
-    // depend on finding a config — here there is none within reach of the cwd. That is the whole
-    // reason `catalog validate` is its own command: nothing about it reads a project.
+  it("validates a catalog repo, which lists itself and selects nothing", async () => {
+    // What `ambit catalog validate` was for, and why it is not needed: a catalog repo is a project
+    // that lists its own `skills/`, `mcps/` and `hooks/` as `source: path:.`, and every item in the
+    // merged catalog is checked whether anything selects it or not. Nothing here consumes anything —
+    // there is no `requires:` list at all — and the whole repo is still checked.
+    await writeSelfListingConfig();
     await rm(path.join(projectDir, "ambit.yml"));
 
-    const result = await cliWithoutProject("catalog", "validate", "--catalog", catalogDir);
+    const result = await cliInCatalogRepo("validate");
 
     expect(result.code, result.stderr).toBe(ExitCode.Success);
     expect(result.stdout).toBe(CLEAN_REPORT);
   });
 
+  it("reports a catalog repo's own broken skill, which nothing selects", async () => {
+    // The claim above, with something to find: the report is about items no `requires` entry reaches,
+    // which is every item in a catalog repo.
+    await writeSelfListingConfig();
+    await writeSkill("broken-unselected", [requires(needs("skills", "absent-skill"))]);
+
+    const result = await cliInCatalogRepo("validate");
+
+    expect(result.code).toBe(ExitCode.Resolution);
+    expect(result.stdout).toContain(
+      '`requires` entry "name:absent-skill" matches nothing (skills/broken-unselected/SKILL.md)',
+    );
+  });
+
   it("exits 2 on a catalog that does not parse, rather than reporting about it", async () => {
     // The deliberate boundary: there is no semantic report to build about a document ambit cannot
     // read, so parsing failures stay the exit-2 errors they are everywhere else.
-    await writeFile(path.join(catalogDir, "scopes.yml"), "scopes:\n  core: {}\n", "utf8");
+    await writeFile(path.join(catalogDir, "mcps", "broken.yml"), "name: broken\n", "utf8");
 
     const result = await cli("validate");
 
     expect(result.code).toBe(ExitCode.Config);
     expect(result.stdout).toBe("");
-    expect(result.stderr).toContain('missing required key "scopes.core.description"');
+    expect(result.stderr).toContain('missing required key "transport"');
   });
-});
 
-describe("ambit validate: unregistered scopes", () => {
-  it("reports a scope a skill declares that no registry knows, and suggests the near one", async () => {
-    await writeSkill("typo-thing", ["scopes: [function.enginering]"]);
+  it("refuses a catalog that still holds a scopes.yml, naming the rewrite", async () => {
+    // The registry is gone, and a file that still parses as one would otherwise sit there looking
+    // like it labels something. Exit 2 with the migration in the message is the whole of the path.
+    await writeFile(
+      path.join(catalogDir, "scopes.yml"),
+      "scopes:\n  core:\n    description: A\n",
+      "utf8",
+    );
 
     const result = await cli("validate");
 
-    expect(result.code).toBe(ExitCode.Resolution);
-    expect(result.stdout).toContain(
-      'unregistered scope "function.enginering" (skills/typo-thing/SKILL.md)',
+    expect(result.code).toBe(ExitCode.Config);
+    expect(result.stderr).toContain("the scope registry is gone (scopes.yml)");
+    expect(result.stderr).toContain(
+      "scopes are gone; tag items with `ambit.tags` and select them with `tag:`",
     );
-    expect(result.stdout).toContain(
-      'skill "typo-thing" declares it, but no catalog\'s scopes.yml registers it',
-    );
-    expect(result.stdout).toContain('did you mean "function.engineering"?');
-  });
-
-  it("reports one for an MCP entity too, naming the server and its catalog", async () => {
-    await writeMcp("loose", ["scopes: [marketing]"]);
-
-    const found = await report("validate");
-
-    expect(found.valid).toBe(false);
-    expect(found.problems).toHaveLength(1);
-    expect(found.problems[0]).toMatchObject({
-      kind: "unregistered-scope",
-      message: 'unregistered scope "marketing" (mcps/loose.yml)',
-    });
-    expect(found.problems[0]?.detail[0]).toBe(
-      'MCP server "loose" (catalog "company") declares it, but no catalog\'s scopes.yml registers it',
-    );
-  });
-
-  it("reports one for a hook too, naming the hook and its catalog", async () => {
-    await writeHook("guard", [
-      "scopes: [marketing]",
-      "event: Stop",
-      "type: command",
-      "command: npx notify",
-    ]);
-
-    const found = await report("validate");
-
-    expect(found.valid).toBe(false);
-    expect(found.problems).toHaveLength(1);
-    expect(found.problems[0]).toMatchObject({
-      kind: "unregistered-scope",
-      message: 'unregistered scope "marketing" (hooks/guard/HOOK.yml)',
-    });
-    expect(found.problems[0]?.detail[0]).toBe(
-      'hook "guard" (catalog "company") declares it, but no catalog\'s scopes.yml registers it',
-    );
-  });
-
-  it("cites the config file for a hook the project declares inline, which has no directory", async () => {
-    await writeProfile(
-      ["core"],
-      [
-        "hooks:",
-        "  - name: custom",
-        "    scopes: [marketing]",
-        "    event: Stop",
-        "    type: command",
-        "    command: x",
-      ],
-    );
-
-    const found = await report("validate");
-
-    expect(found.problems.map((problem) => problem.message)).toEqual([
-      'unregistered scope "marketing" (ambit.yml)',
-    ]);
-    expect(found.problems[0]?.detail[0]).toBe(
-      'hook "custom" (catalog "ambit.yml") declares it, but no catalog\'s scopes.yml registers it',
-    );
-  });
-
-  it("cites the file an entity is written as, not the extension ambit would have chosen", async () => {
-    // `mcps/<name>.yml` is what ambit writes, but §3.3 accepts `.yaml` too — and a problem reported
-    // against the file that is *not* there sends the reader nowhere.
-    await writeMcp("loose", ["scopes: [marketing]"], ".yaml");
-
-    const found = await report("validate");
-
-    expect(found.problems.map((problem) => problem.message)).toEqual([
-      'unregistered scope "marketing" (mcps/loose.yaml)',
-    ]);
-    expect(found.problems[0]?.message).not.toContain("mcps/loose.yml");
-  });
-
-  it("cites the config file for an entity the project declares inline, which has no file", async () => {
-    // An inline `mcps` entry (§3.1) is a document ambit never wrote and never will; `ambit.yml` is
-    // where a reader goes to change it, so that is what the problem names.
-    await writeProfile(
-      ["core"],
-      [
-        "mcps:",
-        "  - name: custom",
-        "    scopes: [marketing]",
-        "    transport:",
-        "      stdio:",
-        "        command: fixture-mcp",
-      ],
-    );
-
-    const found = await report("validate");
-
-    expect(found.problems.map((problem) => problem.message)).toEqual([
-      'unregistered scope "marketing" (ambit.yml)',
-    ]);
-    expect(found.problems[0]?.detail[0]).toBe(
-      'MCP server "custom" (catalog "ambit.yml") declares it, but no catalog\'s scopes.yml registers it',
-    );
-  });
-
-  it("says how to register a scope nothing resembles rather than guessing", async () => {
-    await writeSkill("typo-thing", ["scopes: [marmalade]"]);
-
-    const result = await cli("validate");
-
-    expect(result.stdout).toContain(
-      "register it in a catalog's scopes.yml, or correct the spelling",
-    );
-    expect(result.stdout).not.toContain("did you mean");
-  });
-
-  it("lists every offending scope, not the first", async () => {
-    await writeSkill("typo-one", ["scopes: [alpha.unknown, zeta.unknown]"]);
-    await writeSkill("typo-two", ["scopes: [middle.unknown]"]);
-
-    const found = await report("validate");
-
-    expect(found.problems.map((problem) => problem.message)).toEqual([
-      'unregistered scope "alpha.unknown" (skills/typo-one/SKILL.md)',
-      'unregistered scope "zeta.unknown" (skills/typo-one/SKILL.md)',
-      'unregistered scope "middle.unknown" (skills/typo-two/SKILL.md)',
-    ]);
   });
 });
 
@@ -392,7 +307,7 @@ describe("ambit validate: unregistered scopes", () => {
  */
 describe("ambit validate: requirements and cycles", () => {
   it("reports a dangling requirement `resolve` deliberately ignores", async () => {
-    await writeSkill("broken-unselected", ["requires: [{skill: absent-skill}]"]);
+    await writeSkill("broken-unselected", [requires(needs("skills", "absent-skill"))]);
 
     const resolved = await cli("resolve");
     const validated = await cli("validate");
@@ -400,23 +315,25 @@ describe("ambit validate: requirements and cycles", () => {
     expect(resolved.code, resolved.stderr).toBe(ExitCode.Success);
     expect(validated.code).toBe(ExitCode.Resolution);
     expect(validated.stdout).toContain(
-      'unresolvable requirement "skill:absent-skill" (skills/broken-unselected/SKILL.md)',
+      '`requires` entry "name:absent-skill" matches nothing (skills/broken-unselected/SKILL.md)',
     );
-    expect(validated.stdout).toContain('broken-unselected requires a skill named "absent-skill"');
+    expect(validated.stdout).toContain(
+      `no skill in catalog "${CATALOG_NAME}" has a name matching "absent-skill"`,
+    );
   });
 
-  it("reports a missing MCP entity by its bare name", async () => {
-    await writeSkill("broken-unselected", ["requires: [{mcp: absent}]"]);
+  it("reports an entry that reaches no MCP entity, naming the namespace it asked for", async () => {
+    await writeSkill("broken-unselected", [requires(needs("mcps", "absent"))]);
 
     const found = await report("validate");
 
     expect(found.problems).toHaveLength(1);
-    expect(found.problems[0]?.kind).toBe("unresolvable-requirement");
-    expect(found.problems[0]?.detail[0]).toContain('an MCP entity named "absent"');
+    expect(found.problems[0]?.kind).toBe("unmatched-pattern");
+    expect(found.problems[0]?.detail[0]).toContain('no MCP server in catalog "company"');
   });
 
   it("reports a missing hook by its bare name", async () => {
-    await writeSkill("broken-unselected", ["requires: [{hook: absent}]"]);
+    await writeSkill("broken-unselected", [requires(needs("hooks", "absent"))]);
 
     const resolved = await cli("resolve");
     const found = await report("validate");
@@ -425,31 +342,30 @@ describe("ambit validate: requirements and cycles", () => {
     // edge and only `validate` reports it.
     expect(resolved.code, resolved.stderr).toBe(ExitCode.Success);
     expect(found.problems).toHaveLength(1);
-    expect(found.problems[0]?.kind).toBe("unresolvable-requirement");
-    expect(found.problems[0]?.detail[0]).toContain('a hook named "absent"');
-    expect(found.problems[0]?.detail[1]).toContain("hooks/");
+    expect(found.problems[0]?.kind).toBe("unmatched-pattern");
+    expect(found.problems[0]?.detail[0]).toContain('no hook in catalog "company"');
   });
 
-  it("resolves a `hook:` requirement against the hooks a catalog provides", async () => {
+  it("resolves a `[hooks]` requirement against the hooks a catalog provides", async () => {
     await writeHook("guard", ["event: Stop", "type: command", "command: npx notify"]);
-    await writeSkill("well-formed", ["requires: [{hook: guard}]"]);
+    await writeSkill("well-formed", [requires(needs("hooks", "guard"))]);
 
     expect((await report("validate")).problems).toEqual([]);
   });
 
   it("follows no edge out of a hook when hunting cycles, since a hook has no `requires`", async () => {
     // A hook named like a skill in the cycle would send a one-step walk round it twice; the entry
-    // declares its namespace, so the edge simply ends.
+    // declares its capabilities, so the edge reaches the hook and stops there.
     await writeHook("cycle-a", ["event: Stop", "type: command", "command: npx notify"]);
-    await writeSkill("cycle-a", ["requires: [{hook: cycle-a}]"]);
+    await writeSkill("cycle-a", [requires(needs("hooks", "cycle-a"))]);
 
     expect((await report("validate")).problems).toEqual([]);
   });
 
-  it("reports a cycle among skills no scope selects, printing the whole path", async () => {
-    await writeSkill("cycle-a", ["requires: [{skill: cycle-b}]"]);
-    await writeSkill("cycle-b", ["requires: [{skill: cycle-c}]"]);
-    await writeSkill("cycle-c", ["requires: [{skill: cycle-a}]"]);
+  it("reports a cycle among skills nothing selects, printing the whole path", async () => {
+    await writeSkill("cycle-a", [requires(needs("skills", "cycle-b"))]);
+    await writeSkill("cycle-b", [requires(needs("skills", "cycle-c"))]);
+    await writeSkill("cycle-c", [requires(needs("skills", "cycle-a"))]);
 
     const resolved = await cli("resolve");
     const validated = await cli("validate");
@@ -458,14 +374,15 @@ describe("ambit validate: requirements and cycles", () => {
     expect(validated.code).toBe(ExitCode.Resolution);
     expect(validated.stdout).toContain("requirement cycle");
     expect(validated.stdout).toContain("cycle-a → cycle-b → cycle-c → cycle-a");
-    expect(validated.stdout).toContain("break the cycle by removing one `requires` edge");
+    expect(validated.stdout).toContain("closed by `name:cycle-a` in skills/cycle-c/SKILL.md");
+    expect(validated.stdout).toContain("break the cycle by removing one `requires` entry");
   });
 
   it("reports two independent cycles as two problems", async () => {
-    await writeSkill("one-a", ["requires: [{skill: one-b}]"]);
-    await writeSkill("one-b", ["requires: [{skill: one-a}]"]);
-    await writeSkill("two-a", ["requires: [{skill: two-b}]"]);
-    await writeSkill("two-b", ["requires: [{skill: two-a}]"]);
+    await writeSkill("one-a", [requires(needs("skills", "one-b"))]);
+    await writeSkill("one-b", [requires(needs("skills", "one-a"))]);
+    await writeSkill("two-a", [requires(needs("skills", "two-b"))]);
+    await writeSkill("two-b", [requires(needs("skills", "two-a"))]);
 
     const found = await report("validate");
 
@@ -476,10 +393,10 @@ describe("ambit validate: requirements and cycles", () => {
   });
 
   it("reports one loop once, however many skills lead into it", async () => {
-    await writeSkill("entry-left", ["requires: [{skill: cycle-a}]"]);
-    await writeSkill("entry-right", ["requires: [{skill: cycle-b}]"]);
-    await writeSkill("cycle-a", ["requires: [{skill: cycle-b}]"]);
-    await writeSkill("cycle-b", ["requires: [{skill: cycle-a}]"]);
+    await writeSkill("entry-left", [requires(needs("skills", "cycle-a"))]);
+    await writeSkill("entry-right", [requires(needs("skills", "cycle-b"))]);
+    await writeSkill("cycle-a", [requires(needs("skills", "cycle-b"))]);
+    await writeSkill("cycle-b", [requires(needs("skills", "cycle-a"))]);
 
     const found = await report("validate");
 
@@ -488,23 +405,20 @@ describe("ambit validate: requirements and cycles", () => {
   });
 
   it("reports a dangling requirement and a cycle from one run", async () => {
-    await writeSkill("broken-dangling", ["requires: [{skill: absent-skill}]"]);
-    await writeSkill("cycle-a", ["requires: [{skill: cycle-b}]"]);
-    await writeSkill("cycle-b", ["requires: [{skill: cycle-a}]"]);
+    await writeSkill("broken-dangling", [requires(needs("skills", "absent-skill"))]);
+    await writeSkill("cycle-a", [requires(needs("skills", "cycle-b"))]);
+    await writeSkill("cycle-b", [requires(needs("skills", "cycle-a"))]);
 
     const found = await report("validate");
 
-    expect(found.problems.map((problem) => problem.kind)).toEqual([
-      "unresolvable-requirement",
-      "cycle",
-    ]);
+    expect(found.problems.map((problem) => problem.kind)).toEqual(["unmatched-pattern", "cycle"]);
   });
 });
 
 describe("ambit validate: name↔path agreement", () => {
   it("lists a mismatch as a problem instead of stopping the run at it", async () => {
     await writeMisnamedSkill("misnamed-thing", "wrong-name");
-    await writeSkill("broken-dangling", ["requires: [{skill: absent-skill}]"]);
+    await writeSkill("broken-dangling", [requires(needs("skills", "absent-skill"))]);
 
     const validated = await cli("validate");
     const found = await report("validate");
@@ -513,7 +427,7 @@ describe("ambit validate: name↔path agreement", () => {
     // The mismatch alone would be exit 2 anywhere else; here it is one entry of a longer list.
     expect(found.problems.map((problem) => problem.kind)).toEqual([
       "name-mismatch",
-      "unresolvable-requirement",
+      "unmatched-pattern",
     ]);
     expect(found.problems[0]?.message).toContain('skill name "wrong-name" does not match its path');
     expect(found.problems[0]?.detail).toEqual([
@@ -527,7 +441,7 @@ describe("ambit validate: name↔path agreement", () => {
     // Continuing past the mismatch is only worth anything if the rest of the skill is still checked,
     // and the path is the name every other tool would have installed it under.
     await writeMisnamedSkill("misnamed-thing", "wrong-name");
-    await writeSkill("needs-it", ["requires: [{skill: misnamed-thing}]"]);
+    await writeSkill("needs-it", [requires(needs("skills", "misnamed-thing"))]);
 
     const found = await report("validate");
 
@@ -545,16 +459,19 @@ describe("ambit validate: name↔path agreement", () => {
 });
 
 /**
- * Spec §4.5: resolution has a well-defined answer for a duplicate name — the earlier catalog wins —
- * and `validate` still calls it a problem, because in a catalog the losing copy is instructions
- * somebody maintains and nothing installs.
+ * A name two catalogs provide is not a `validate` finding any more.
+ *
+ * It was one while resolution silently dropped a copy: an unreachable skill somebody maintains is
+ * worse than an absent one. Now nothing is dropped, both copies are addressable, and the only place
+ * two copies are a conflict is a project that selects both — which is resolution's judgement, not a
+ * fact about a catalog. So this suite's claim is inverted: `validate` reports nothing, and `resolve`
+ * on the very same project refuses.
  */
-describe("ambit validate: shadowing", () => {
+describe("ambit validate: a name two catalogs provide", () => {
   const SECOND = "personal";
 
   beforeEach(async () => {
-    // An exact copy of the fixture, so every name collides and the scope descriptions agree — a
-    // description conflict is a different error and would mask this one.
+    // An exact copy of the fixture, so every name is provided twice.
     await buildFixtureCatalog(path.join(root, SECOND));
     await writeFile(
       path.join(projectDir, "ambit.yml"),
@@ -565,83 +482,69 @@ describe("ambit validate: shadowing", () => {
         "    source: path:../catalog",
         `  - name: ${SECOND}`,
         `    source: path:../${SECOND}`,
-        "scopes: [core]",
+        "requires:",
+        requiresEntry("core"),
+        requiresEntry("core", SECOND),
         "",
       ].join("\n"),
       "utf8",
     );
   });
 
-  it("reports every shadowed name, naming the winner and the losers", async () => {
+  it("exits 0, counting every copy it checked", async () => {
     const found = await report("validate");
 
-    expect(found.valid).toBe(false);
-    expect(found.problems).toHaveLength(FIXTURE_SKILLS + FIXTURE_MCPS + FIXTURE_HOOKS);
-    expect(new Set(found.problems.map((problem) => problem.kind))).toEqual(
-      new Set(["shadowed-name"]),
-    );
-    expect(found.problems[0]).toMatchObject({
-      message: `shadowed skill "acme-brief" (catalog "${CATALOG_NAME}")`,
-      detail: [
-        `catalog "${CATALOG_NAME}" provides the copy resolution uses`,
-        `also provided by: ${SECOND}`,
-        "rename one of the copies, or drop the catalog that should not provide it",
-      ],
+    expect(found.valid).toBe(true);
+    expect(found.problems).toEqual([]);
+    // Both copies, not both names: each is a document this run read and checked on its own terms.
+    expect(found.checked).toEqual({
+      skills: FIXTURE_SKILLS * 2,
+      mcps: FIXTURE_MCPS * 2,
+      hooks: FIXTURE_HOOKS * 2,
     });
   });
 
-  it("reports a hook two catalogs provide, after the skills and the servers", async () => {
-    await writeHook("guard", ["event: Stop", "type: command", "command: npx notify"]);
-    await writeHook(
-      "guard",
-      ["event: Stop", "type: command", "command: npx notify"],
-      path.join(root, SECOND),
-    );
+  it("leaves the collision to `resolve`, which refuses the same project", async () => {
+    // The split, in the opposite direction from the rest of this file: `validate` passes a catalog
+    // pair that is perfectly well-formed, and the project selecting both copies is what fails.
+    expect((await cli("validate")).code).toBe(ExitCode.Success);
+
+    const resolved = await cli("resolve");
+    expect(resolved.code).toBe(ExitCode.Resolution);
+    expect(resolved.stderr).toContain("is selected from more than one catalog");
+  });
+
+  it("reports a broken skill once per copy, because two copies are two documents", async () => {
+    const dangling = [requires(needs("skills", "absent"))];
+    await writeSkill("dangling", dangling);
+    await writeSkill("dangling", dangling, path.join(root, SECOND));
 
     const found = await report("validate");
+    const problems = found.problems.filter((problem) => problem.message.includes("name:absent"));
 
-    expect(
-      found.problems.find((problem) => problem.message.includes('hook "guard"')),
-    ).toMatchObject({
-      kind: "shadowed-name",
-      message: `shadowed hook "guard" (catalog "${CATALOG_NAME}")`,
-      detail: [
-        `catalog "${CATALOG_NAME}" provides the copy resolution uses`,
-        `also provided by: ${SECOND}`,
-        "rename one of the copies, or drop the catalog that should not provide it",
-      ],
-    });
-
-    // The hooks are the trailing group: every problem from the first hook on is one, so none of them
-    // is interleaved with a skill or a server.
-    const messages = found.problems.map((problem) => problem.message);
-    const first = messages.findIndex((message) => message.startsWith("shadowed hook"));
-    expect(first).toBeGreaterThan(0);
-    expect(messages.slice(first).every((message) => message.startsWith("shadowed hook"))).toBe(
-      true,
+    expect(problems).toHaveLength(2);
+    expect(new Set(problems.map((problem) => problem.kind))).toEqual(
+      new Set(["unmatched-pattern"]),
     );
   });
 
-  it("keeps each kind in name order, kinds in report order", async () => {
+  it("does not let one catalog's copy satisfy the other's `requires`", async () => {
+    // The tightening a bare pattern inside a catalog buys: `personal` ships `needed`, `company` does
+    // not, and `company`'s skill asking for it is unsatisfied however plainly the merged view holds a
+    // match. A catalog can only require what it ships.
+    await writeSkill("needs-across", [requires(needs("skills", "needed"))]);
+    await writeSkill("needed", [], path.join(root, SECOND));
+
     const found = await report("validate");
 
     expect(found.problems.map((problem) => problem.message)).toEqual([
-      `shadowed skill "acme-brief" (catalog "${CATALOG_NAME}")`,
-      `shadowed skill "code-review" (catalog "${CATALOG_NAME}")`,
-      `shadowed skill "company-context" (catalog "${CATALOG_NAME}")`,
-      `shadowed skill "design-tokens" (catalog "${CATALOG_NAME}")`,
-      `shadowed MCP server "fixture" (catalog "${CATALOG_NAME}")`,
-      `shadowed MCP server "scoped" (catalog "${CATALOG_NAME}")`,
-      `shadowed hook "acme-standup" (catalog "${CATALOG_NAME}")`,
-      `shadowed hook "guard-secrets" (catalog "${CATALOG_NAME}")`,
-      `shadowed hook "session-notes" (catalog "${CATALOG_NAME}")`,
+      '`requires` entry "name:needed" matches nothing (skills/needs-across/SKILL.md)',
     ]);
-  });
-
-  it("says nothing about shadowing when `catalog validate` reads only one catalog", async () => {
-    const result = await cliWithoutProject("catalog", "validate", "--catalog", catalogDir);
-
-    expect(result.code, result.stderr).toBe(ExitCode.Success);
+    expect(found.problems[0]?.detail).toEqual([
+      `no skill in catalog "${CATALOG_NAME}" has a name matching "needed"`,
+      "a catalog's own `requires` resolves within that catalog, which can only require what it ships",
+      "correct the pattern, add the item to a catalog, or remove the entry",
+    ]);
   });
 });
 
@@ -650,61 +553,168 @@ describe("ambit validate: shadowing", () => {
  * error builders, so the assertion is that `validate` lists what `resolve` stops at.
  */
 describe("ambit validate: the project's own config", () => {
-  it("lists every mistyped held scope and every unknown explicit skill in one run", async () => {
-    await writeProfile(["core", "zeta.unknown", "alpha.unknown"], ["skills:", "  - absent-skill"]);
+  it("lists every entry that matches nothing in one run, in document order", async () => {
+    await writeProfile(["core", "zeta.unknown", "alpha.unknown"]);
 
     const resolved = await cli("resolve");
     const found = await report("validate");
 
-    // `resolve` reports the alphabetically first offender and nothing else.
+    // `resolve` reports the alphabetically first offender and nothing else, so which one it names
+    // does not fall to the order the config happens to list them in.
     expect(resolved.code).toBe(ExitCode.Resolution);
-    expect(resolved.stderr).toContain('unknown scope "alpha.unknown"');
+    expect(resolved.stderr).toContain(`"tag:${CATALOG_NAME}/alpha.unknown" matches nothing`);
     expect(resolved.stderr).not.toContain("zeta.unknown");
 
+    // `validate` lists all of them, down the file the reader has open.
     expect(found.problems.map((problem) => problem.message)).toEqual([
-      `unknown scope "alpha.unknown" (ambit.yml line ${FIRST_SCOPE_LINE + 2})`,
-      `unknown scope "zeta.unknown" (ambit.yml line ${FIRST_SCOPE_LINE + 1})`,
-      `unknown skill "absent-skill" (ambit.yml line ${FIRST_SCOPE_LINE + 4})`,
+      `\`requires\` entry "tag:${CATALOG_NAME}/zeta.unknown" matches nothing (ambit.yml line ${FIRST_ENTRY_LINE + 1})`,
+      `\`requires\` entry "tag:${CATALOG_NAME}/alpha.unknown" matches nothing (ambit.yml line ${FIRST_ENTRY_LINE + 2})`,
     ]);
     expect(found.problems.map((problem) => problem.kind)).toEqual([
-      "unknown-scope",
-      "unknown-scope",
-      "unknown-skill",
+      "unmatched-pattern",
+      "unmatched-pattern",
     ]);
   });
 
-  it("accepts a skill the config declares with its own source", async () => {
-    const extra = path.join(root, "extra", "skills", "readwise-cli");
-    await mkdir(extra, { recursive: true });
+  it("checks the project's own `skills/` when the project lists itself as a catalog", async () => {
+    // The replacement for a `skills` entry that carried its own `source`: a project that publishes
+    // something is a catalog, so `validate` reads it with no special case — and a broken skill it
+    // ships is a finding like any other, whether the project selects it or not.
+    await writeSkill("readwise-cli", [requires(needs("skills", "absent-skill"))], projectDir);
     await writeFile(
-      path.join(extra, "SKILL.md"),
-      ["---", "name: readwise-cli", "---", "", "# fixture", ""].join("\n"),
+      path.join(projectDir, "ambit.yml"),
+      [
+        "version: 1",
+        "catalogs:",
+        `  - name: ${CATALOG_NAME}`,
+        "    source: path:../catalog",
+        "  - name: local",
+        "    source: path:.",
+        "requires:",
+        requiresEntry("core"),
+        "",
+      ].join("\n"),
       "utf8",
-    );
-    await writeProfile(
-      ["core"],
-      ["skills:", "  - name: readwise-cli", "    source: path:../extra"],
     );
 
     const result = await cli("validate");
 
-    // Folded into the merged catalog, so it is neither an unknown name nor an unregistered scope.
-    expect(result.code, result.stderr).toBe(ExitCode.Success);
+    expect(result.code).toBe(ExitCode.Resolution);
+    expect(result.stdout).toContain(`checked ${FIXTURE_SKILLS + 1} skills`);
     expect(result.stdout).toContain(
-      `checked ${FIXTURE_SCOPES} scopes, ${FIXTURE_SKILLS + 1} skills`,
+      '`requires` entry "name:absent-skill" matches nothing (skills/readwise-cli/SKILL.md)',
     );
   });
 
-  it("reports nothing about a held scope registered by any configured catalog", async () => {
-    await writeProfile(["core", "function.engineering", "project.acme"]);
+  it("reports nothing about an entry some configured catalog's items satisfy", async () => {
+    await writeProfile(["core", "function.engineering", "function.engineering.*", "project.acme"]);
 
     expect((await cli("validate")).code).toBe(ExitCode.Success);
   });
 });
 
+/**
+ * The one finding whose subject is the config alone: a catalog it lists and never selects from.
+ *
+ * This is what a typo'd `source:` escapes into now that a catalog is a directory and nothing else —
+ * a misspelled path is not a parse failure, and where no pattern is qualified with the alias, nothing
+ * else has a reason to look at it. Both of its exemptions are here too, because each of them is what
+ * keeps `validate` passing on something `ambit init` produced.
+ */
+describe("ambit validate: a configured catalog nothing selects from", () => {
+  const SECOND = "personal";
+
+  /** Points the project at the fixture catalog plus one more, selecting only from the fixture. */
+  async function writeTwoCatalogs(name: string, source: string): Promise<void> {
+    await writeFile(
+      path.join(projectDir, "ambit.yml"),
+      [
+        "version: 1",
+        "catalogs:",
+        `  - name: ${CATALOG_NAME}`,
+        "    source: path:../catalog",
+        `  - name: ${name}`,
+        `    source: ${source}`,
+        "requires:",
+        requiresEntry("core"),
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+  }
+
+  it("reports a catalog with items that no entry is qualified with", async () => {
+    await buildFixtureCatalog(path.join(root, SECOND));
+    await writeTwoCatalogs(SECOND, `path:../${SECOND}`);
+
+    const found = await report("validate");
+
+    expect(found.problems).toEqual([
+      {
+        kind: "unselected-catalog",
+        message: `catalog "${SECOND}" is configured but nothing selects from it (ambit.yml)`,
+        detail: [
+          `it provides ${FIXTURE_SKILLS + FIXTURE_MCPS + FIXTURE_HOOKS} items, and no \`requires\` entry is qualified with "${SECOND}/"`,
+          "select what this project needs from it, or drop it from `catalogs:`",
+        ],
+      },
+    ]);
+  });
+
+  it("reports the unmatched pattern instead when an entry does name the catalog", async () => {
+    // Qualified with, not matched by. An entry spelled `personal/nope` mentions the catalog, so the
+    // pattern is the offender and one mistake is reported once.
+    await buildFixtureCatalog(path.join(root, SECOND));
+    await writeFile(
+      path.join(projectDir, "ambit.yml"),
+      [
+        "version: 1",
+        "catalogs:",
+        `  - name: ${CATALOG_NAME}`,
+        "    source: path:../catalog",
+        `  - name: ${SECOND}`,
+        `    source: path:../${SECOND}`,
+        "requires:",
+        requiresEntry("core"),
+        requiresEntry("nope", SECOND),
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const found = await report("validate");
+
+    expect(found.problems.map((problem) => problem.kind)).toEqual(["unmatched-pattern"]);
+  });
+
+  it("says nothing about a catalog with no items, which is just empty", async () => {
+    // `ambit init` scaffolds a live `local` entry against three empty directories and comments out the
+    // entry that would select it, so a finding here would fail `validate` on every fresh project.
+    await mkdir(path.join(root, "empty"), { recursive: true });
+    await writeTwoCatalogs("empty", "path:../empty");
+
+    const result = await cli("validate");
+
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+  });
+
+  it("says nothing about the catalog the project itself is, however many items it holds", async () => {
+    // The guard above stops holding the moment somebody puts a skill in `skills/`, which is what a
+    // catalog repo is. Publishing is not consuming: a repo that ships items and selects none of them
+    // is the normal state of a catalog repo, and `ambit init` scaffolded the entry that says so.
+    await writeSkill("readwise-cli", [], projectDir);
+    await writeTwoCatalogs("local", "path:.");
+
+    const result = await cli("validate");
+
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+    expect(result.stdout).toContain(`checked ${FIXTURE_SKILLS + 1} skills`);
+  });
+});
+
 describe("ambit validate output", () => {
   it("emits the problem list as JSON, with the verdict and what was checked", async () => {
-    await writeSkill("typo-thing", ["scopes: [marmalade]"]);
+    await writeSkill("broken-thing", [requires(needs("skills", "absent-skill"))]);
 
     const result = await cli("validate", "--json");
 
@@ -713,17 +723,18 @@ describe("ambit validate output", () => {
       checked: {
         hooks: FIXTURE_HOOKS,
         mcps: FIXTURE_MCPS,
-        scopes: FIXTURE_SCOPES,
         skills: FIXTURE_SKILLS + 1,
       },
       problems: [
         {
           detail: [
-            'skill "typo-thing" declares it, but no catalog\'s scopes.yml registers it',
-            "register it in a catalog's scopes.yml, or correct the spelling",
+            `no skill in catalog "${CATALOG_NAME}" has a name matching "absent-skill"`,
+            "a catalog's own `requires` resolves within that catalog, which can only require what it ships",
+            "correct the pattern, add the item to a catalog, or remove the entry",
           ],
-          kind: "unregistered-scope",
-          message: 'unregistered scope "marmalade" (skills/typo-thing/SKILL.md)',
+          kind: "unmatched-pattern",
+          message:
+            '`requires` entry "name:absent-skill" matches nothing (skills/broken-thing/SKILL.md)',
         },
       ],
       valid: false,
@@ -735,7 +746,6 @@ describe("ambit validate output", () => {
       checked: {
         hooks: FIXTURE_HOOKS,
         mcps: FIXTURE_MCPS,
-        scopes: FIXTURE_SCOPES,
         skills: FIXTURE_SKILLS,
       },
       problems: [],
@@ -750,35 +760,35 @@ describe("ambit validate output", () => {
 
     expect(result.code, result.stderr).toBe(ExitCode.Success);
     expect(result.stdout).toContain(
-      `checked ${FIXTURE_SCOPES} scopes, ${FIXTURE_SKILLS} skills, ${FIXTURE_MCPS} mcps, ${FIXTURE_HOOKS + 1} hooks`,
+      `checked ${FIXTURE_SKILLS} skills, ${FIXTURE_MCPS} mcps, ${FIXTURE_HOOKS + 1} hooks`,
     );
     expect((await report("validate")).checked).toEqual({
       hooks: FIXTURE_HOOKS + 1,
       mcps: FIXTURE_MCPS,
-      scopes: FIXTURE_SCOPES,
       skills: FIXTURE_SKILLS,
     });
   });
 
   it("prints each problem's detail indented under its summary", async () => {
-    await writeSkill("typo-thing", ["scopes: [marmalade]"]);
+    await writeSkill("broken-thing", [requires(needs("skills", "absent-skill"))]);
 
     const result = await cli("validate");
 
     expect(result.stdout).toBe(
       [
-        `checked ${FIXTURE_SCOPES} scopes, ${FIXTURE_SKILLS + 1} skills, ${FIXTURE_MCPS} mcps, ${FIXTURE_HOOKS} hooks`,
+        `checked ${FIXTURE_SKILLS + 1} skills, ${FIXTURE_MCPS} mcps, ${FIXTURE_HOOKS} hooks`,
         "",
         "problems (1)",
-        '  unregistered scope "marmalade" (skills/typo-thing/SKILL.md)',
-        '      skill "typo-thing" declares it, but no catalog\'s scopes.yml registers it',
-        "      register it in a catalog's scopes.yml, or correct the spelling",
+        '  `requires` entry "name:absent-skill" matches nothing (skills/broken-thing/SKILL.md)',
+        `      no skill in catalog "${CATALOG_NAME}" has a name matching "absent-skill"`,
+        "      a catalog's own `requires` resolves within that catalog, which can only require what it ships",
+        "      correct the pattern, add the item to a catalog, or remove the entry",
       ].join("\n"),
     );
   });
 
   it("emits byte-identical JSON on a second run, and carries no machine paths", async () => {
-    await writeSkill("typo-thing", ["scopes: [marmalade]"]);
+    await writeSkill("broken-thing", [requires(needs("skills", "absent-skill"))]);
 
     const first = await cli("validate", "--json");
     const second = await cli("validate", "--json");
@@ -787,10 +797,11 @@ describe("ambit validate output", () => {
     expect(first.stdout).not.toContain(root);
   });
 
-  it("carries no machine paths under `catalog validate` either, where the root is an argument", async () => {
+  it("carries no machine paths in a catalog repo either, where the root is the project", async () => {
+    await writeSelfListingConfig();
     await writeMisnamedSkill("misnamed-thing", "wrong-name");
 
-    const result = await cliWithoutProject("catalog", "validate", "--catalog", catalogDir);
+    const result = await cliInCatalogRepo("validate");
 
     expect(result.code).toBe(ExitCode.Resolution);
     expect(result.stdout).not.toContain(root);

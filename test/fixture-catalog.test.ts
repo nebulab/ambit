@@ -62,8 +62,7 @@ const EXPECTED_FILES = [
   "hooks/guard-secrets/guard.sh",
   "hooks/session-notes/HOOK.yml",
   "mcps/fixture.yml",
-  "mcps/scoped.yml",
-  "scopes.yml",
+  "mcps/tagged.yml",
   "skills/company-context/SKILL.md",
   "skills/design-tokens/SKILL.md",
   "skills/code-review/SKILL.md",
@@ -100,36 +99,31 @@ describe("fixture catalog", () => {
     expect(await listFiles(dir)).toEqual(EXPECTED_FILES);
   });
 
-  it("registers every scope a skill, MCP or hook declares, with a description", async () => {
-    const registry = parse(await readFile(path.join(dir, "scopes.yml"), "utf8")) as {
-      scopes: Record<string, { description: string }>;
-    };
+  it("carries no catalog-side config, and tags items with a nested label among them", async () => {
+    // A catalog is a directory and nothing else, so the interesting claim is what the fixture does
+    // *not* hold. The tags are free-form: nothing lists them, which is why they are collected here
+    // from the items themselves rather than compared against a file.
+    expect(EXPECTED_FILES).not.toContain("scopes.yml");
+    expect(EXPECTED_FILES).not.toContain("ambit.yml");
 
-    expect(Object.keys(registry.scopes).sort()).toEqual([
+    const declared = new Set<string>();
+    for (const skill of SKILL_PATHS) {
+      for (const tag of (annotations(await readFile(path.join(dir, skill), "utf8")).tags ??
+        []) as string[]) {
+        declared.add(tag);
+      }
+    }
+    for (const entity of [...["mcps/fixture.yml", "mcps/tagged.yml"], ...HOOK_PATHS]) {
+      const parsed = parse(await readFile(path.join(dir, entity), "utf8")) as { tags?: string[] };
+      for (const tag of parsed.tags ?? []) declared.add(tag);
+    }
+
+    expect([...declared].sort()).toEqual([
       "core",
       "function.engineering",
       "function.engineering.frontend",
       "project.acme",
     ]);
-    for (const [name, entry] of Object.entries(registry.scopes)) {
-      expect(entry.description, `${name} has no description`).toBeTruthy();
-    }
-
-    const declared = new Set<string>();
-    for (const skill of SKILL_PATHS) {
-      for (const scope of (annotations(await readFile(path.join(dir, skill), "utf8")).scopes ??
-        []) as string[]) {
-        declared.add(scope);
-      }
-    }
-    for (const entity of [...["mcps/fixture.yml", "mcps/scoped.yml"], ...HOOK_PATHS]) {
-      const parsed = parse(await readFile(path.join(dir, entity), "utf8")) as { scopes?: string[] };
-      for (const scope of parsed.scopes ?? []) declared.add(scope);
-    }
-
-    for (const scope of declared) {
-      expect(Object.keys(registry.scopes), `${scope} is unregistered`).toContain(scope);
-    }
   });
 
   it("names every skill after its path", async () => {
@@ -151,14 +145,14 @@ describe("fixture catalog", () => {
     }
   });
 
-  it("covers one skill per scope, including a nested one", async () => {
-    const scopesByName: Record<string, unknown> = {};
+  it("covers one skill per tag, including a nested one", async () => {
+    const tagsByName: Record<string, unknown> = {};
     for (const skill of SKILL_PATHS) {
       const source = await readFile(path.join(dir, skill), "utf8");
-      scopesByName[frontmatter(source).name as string] = annotations(source).scopes;
+      tagsByName[frontmatter(source).name as string] = annotations(source).tags;
     }
 
-    expect(scopesByName).toEqual({
+    expect(tagsByName).toEqual({
       "company-context": ["core"],
       "code-review": ["function.engineering"],
       "design-tokens": ["function.engineering.frontend"],
@@ -169,12 +163,12 @@ describe("fixture catalog", () => {
   it("has a project skill that reaches a skill, an MCP and a hook by requires alone", async () => {
     const meta = annotations(await readFile(path.join(dir, "skills/acme-brief/SKILL.md"), "utf8"));
 
-    // One key per entry, each naming its own namespace — read through the raw parser, so this is the
-    // document's shape rather than ambit's reading of it.
+    // A field and its capabilities per entry, unqualified — read through the raw parser, so this is
+    // the document's shape rather than ambit's reading of it.
     expect(meta.requires).toEqual([
-      { skill: "company-context" },
-      { mcp: "fixture" },
-      { hook: "acme-standup" },
+      { name: "company-context", capabilities: ["skills"] },
+      { name: "fixture", capabilities: ["mcps"] },
+      { name: "acme-standup", capabilities: ["hooks"] },
     ]);
   });
 
@@ -186,29 +180,29 @@ describe("fixture catalog", () => {
     expect(frontend.expects).toEqual([{ env: "ACME_FIGMA_TOKEN" }]);
   });
 
-  it("defines a requires-only stdio server and a scoped http server", async () => {
+  it("defines a requires-only stdio server and a tagged http server", async () => {
     const required = parse(await readFile(path.join(dir, "mcps/fixture.yml"), "utf8"));
-    const scoped = parse(await readFile(path.join(dir, "mcps/scoped.yml"), "utf8"));
+    const tagged = parse(await readFile(path.join(dir, "mcps/tagged.yml"), "utf8"));
 
     expect(required).toEqual({
       name: "fixture",
       transport: { stdio: { command: "npx", args: ["-y", "@acme/fixture-mcp"] } },
       expects: [{ env: "FIXTURE_API_KEY" }],
     });
-    expect(scoped).toEqual({
-      name: "scoped",
-      scopes: ["function.engineering"],
+    expect(tagged).toEqual({
+      name: "tagged",
+      tags: ["function.engineering"],
       transport: {
         http: {
           url: "https://mcp.invalid/fixture",
-          headers: { Authorization: "Bearer ${SCOPED_API_KEY}" },
+          headers: { Authorization: "Bearer ${TAGGED_API_KEY}" },
         },
       },
-      expects: [{ env: "SCOPED_API_KEY" }],
+      expects: [{ env: "TAGGED_API_KEY" }],
     });
 
     // `transport` is the discriminator, so it must never carry more or less than one kind.
-    for (const entity of [required, scoped] as { transport: Record<string, unknown> }[]) {
+    for (const entity of [required, tagged] as { transport: Record<string, unknown> }[]) {
       expect(Object.keys(entity.transport)).toHaveLength(1);
     }
   });
@@ -219,7 +213,7 @@ describe("fixture catalog", () => {
 
     expect(await read("hooks/session-notes/HOOK.yml")).toEqual({
       name: "session-notes",
-      scopes: ["core"],
+      tags: ["core"],
       description: "Reminds a session that Acme's conventions apply.",
       event: "SessionStart",
       type: "command",
@@ -227,7 +221,7 @@ describe("fixture catalog", () => {
     });
     expect(await read("hooks/guard-secrets/HOOK.yml")).toEqual({
       name: "guard-secrets",
-      scopes: ["function.engineering"],
+      tags: ["function.engineering"],
       description: "Inspects a Bash command before Acme's tooling runs it.",
       event: "PreToolUse",
       matcher: "Bash",
@@ -269,7 +263,7 @@ describe("fixture catalog", () => {
   });
 
   it("names each MCP entity after its filename stem", async () => {
-    for (const file of ["mcps/fixture.yml", "mcps/scoped.yml"]) {
+    for (const file of ["mcps/fixture.yml", "mcps/tagged.yml"]) {
       const entity = parse(await readFile(path.join(dir, file), "utf8")) as { name: string };
       expect(entity.name).toBe(path.posix.basename(file, ".yml"));
     }
@@ -283,7 +277,7 @@ describe("fixture catalog", () => {
   });
 
   it("removes stale files left by a previous build", async () => {
-    await writeFile(path.join(dir, "scopes.yaml"), "scopes: {}\n", "utf8");
+    await writeFile(path.join(dir, "stale.yml"), "name: stale\n", "utf8");
     await mkdir(path.join(dir, "skills/stale"), { recursive: true });
     await writeFile(path.join(dir, "skills/stale/SKILL.md"), "---\nname: stale\n---\n", "utf8");
 

@@ -39,7 +39,7 @@ import type {
 } from "../harness/adapter.js";
 import { PROFILES } from "../harness/definitions.js";
 import { adapterFor } from "../harness/profile.js";
-import { loadCatalogs, mergeCatalogs, mergeConfigEntities } from "../model/catalog.js";
+import { loadCatalogs, mergeCatalogs } from "../model/catalog.js";
 import { loadProjectConfig } from "../model/config.js";
 import { configError } from "../errors.js";
 import type { GitignoreStatus } from "./gitignore.js";
@@ -262,8 +262,7 @@ export async function planInstall(
   };
 
   const loaded = await loadCatalogs(config, context);
-  const catalogs = mergeCatalogs(loaded);
-  const bundle = resolveBundle(config, await mergeConfigEntities(catalogs, config, context));
+  const bundle = resolveBundle(config, mergeCatalogs(loaded));
 
   // Serialized up front so `--frozen` compares the same bytes the run would go on to write, rather
   // than a second rendering that could differ from it.

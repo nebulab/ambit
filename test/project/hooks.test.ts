@@ -1,5 +1,6 @@
 /**
- * Hooks end to end: an inline `hooks:` declaration through `install`, `status`, `prune` and `clean`.
+ * Hooks end to end: a project's own `hooks/<name>/HOOK.yml` through `install`, `status`, `prune` and
+ * `clean`.
  *
  * `.claude/settings.json` is what this whole capability turns on. It is not ambit's document — a
  * person's `model`, their `permissions` and hooks they wrote themselves live in it — and the tool
@@ -16,10 +17,11 @@
  * it and declares one is warned and left installed — the case that must not be an error, since one
  * harness's limitation cannot be allowed to cost every other harness its hooks.
  *
- * No catalog in any of that: an inline hook is selected because it was declared, so a project needs
- * nothing else to walk the entire path — and a test that resolves nothing cannot be reading some
- * fixture's hooks by accident. The last block is the one exception, and it has to be: a hook can only
- * ship a script from a directory, which only a catalog gives it.
+ * No catalog but the project itself in any of that. Every definition lives in a file, so a project that
+ * declares a hook of its own puts it in `hooks/` and lists itself with `source: path:.` — which is both
+ * the shortest way to walk the entire path and the case worth walking, since it is what a project
+ * shipping its own hook actually writes. The last block is the one exception, and it has to be: it needs
+ * two catalogs' worth of nothing, only a hook whose script lives somewhere the project does not.
  */
 import { chmod, lstat, mkdir, mkdtemp, readFile, readlink, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -37,23 +39,29 @@ import { parseState, STATE_DIRNAME, STATE_FILENAME } from "../../src/model/state
 /** The file Claude Code reads, and VS Code with it. */
 const SETTINGS = ".claude/settings.json";
 
+/** One hook as its own document: the directory it sits in, and the lines beyond `name` and `tags`. */
+interface Hook {
+  readonly name: string;
+  readonly lines: readonly string[];
+}
+
 /** The hook whose event array a person has already written into. */
-const FORMAT_HOOK = [
-  "- name: format",
-  "  event: PostToolUse",
-  "  matcher: Write",
-  "  type: command",
-  "  command: npx prettier --write",
-  "  timeout: 30",
-];
+const FORMAT_HOOK: Hook = {
+  name: "format",
+  lines: [
+    "event: PostToolUse",
+    "matcher: Write",
+    "type: command",
+    "command: npx prettier --write",
+    "timeout: 30",
+  ],
+};
 
 /** The hook whose event array is ambit's alone, so removing it empties one. */
-const NOTIFY_HOOK = [
-  "- name: notify",
-  "  event: Stop",
-  "  type: command",
-  "  command: ./bin/notify",
-];
+const NOTIFY_HOOK: Hook = {
+  name: "notify",
+  lines: ["event: Stop", "type: command", "command: ./bin/notify"],
+};
 
 /** What each of them is written as — the renderer's output, which the digest is taken over. */
 const FORMAT_ENTRY = {
@@ -70,25 +78,47 @@ let root: string;
 let projectDir: string;
 
 /**
- * Points a project at nothing at all, and gives it `hooks`.
+ * Points a project at itself as its only catalog, and gives it `hooks` to ship.
  *
- * @param hooks the `hooks` list's lines, unindented; empty declares no hooks.
+ * Each hook is tagged `core`, which the project then holds, so shipping it is what puts it in the
+ * bundle — and a project declaring none holds nothing, since an entry no item matches is exit 3.
+ *
+ * `hooks/` is rebuilt from scratch on every call, because the cases that narrow a declaration have to
+ * *remove* a hook rather than leave its document beside a config that no longer selects it.
+ *
+ * @param hooks the hooks the project ships; empty declares none.
  * @param harnesses the `harnesses` list; the default is what `ambit.yml` defaults to.
  */
 async function writeProfile(
-  hooks: readonly string[],
+  hooks: readonly Hook[],
   harnesses: readonly string[] = ["claude"],
 ): Promise<void> {
-  const block =
-    hooks.length === 0 ? "" : `hooks:\n${hooks.map((line) => `  ${line}`).join("\n")}\n`;
+  await rm(path.join(projectDir, "hooks"), { recursive: true, force: true });
+  for (const hook of hooks) {
+    const dir = path.join(projectDir, "hooks", hook.name);
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      path.join(dir, "HOOK.yml"),
+      [`name: ${hook.name}`, "tags: [core]", ...hook.lines, ""].join("\n"),
+      "utf8",
+    );
+  }
   await writeFile(
     path.join(projectDir, "ambit.yml"),
     `version: 1
 harnesses: [${harnesses.join(", ")}]
-scopes: []
-${block}`,
+catalogs:
+  - name: local
+    source: path:.
+requires: ${hooks.length === 0 ? "[]" : `\n${requiresEntry("core", "local")}`}
+`,
     "utf8",
   );
+}
+
+/** One `requires` entry, selecting everything in `catalog` that carries `tag`. */
+function requiresEntry(tag: string, catalog = "local"): string {
+  return `  - { tag: "${catalog}/${tag}", capabilities: [skills, mcps, hooks] }`;
 }
 
 async function cli(
@@ -152,9 +182,9 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-describe("an inline hook installed into .claude/settings.json", () => {
+describe("a project's own hook installed into .claude/settings.json", () => {
   beforeEach(async () => {
-    await writeProfile([...FORMAT_HOOK, ...NOTIFY_HOOK]);
+    await writeProfile([FORMAT_HOOK, NOTIFY_HOOK]);
   });
 
   it("writes one entry per hook, and records each entry's digest as owned", async () => {
@@ -190,7 +220,7 @@ describe("an inline hook installed into .claude/settings.json", () => {
 
   it("prunes the entry a narrowed config no longer declares, leaving the array behind", async () => {
     await cli("install");
-    await writeProfile(FORMAT_HOOK);
+    await writeProfile([FORMAT_HOOK]);
 
     expect((await cli("prune")).code).toBe(ExitCode.Success);
 
@@ -227,7 +257,7 @@ describe("an inline hook installed into .claude/settings.json", () => {
  */
 describe("claude and vscode together", () => {
   beforeEach(async () => {
-    await writeProfile(FORMAT_HOOK, ["claude", "vscode"]);
+    await writeProfile([FORMAT_HOOK], ["claude", "vscode"]);
   });
 
   it("writes the shared file once, and records it once", async () => {
@@ -314,7 +344,7 @@ describe("a settings file a person wrote", () => {
   }
 
   beforeEach(async () => {
-    await writeProfile([...FORMAT_HOOK, ...NOTIFY_HOOK]);
+    await writeProfile([FORMAT_HOOK, NOTIFY_HOOK]);
     await mkdir(path.join(projectDir, ".claude"), { recursive: true });
     await writeFile(path.join(projectDir, SETTINGS), HANDWRITTEN, "utf8");
   });
@@ -372,7 +402,7 @@ describe("a hand-written entry identical to one ambit would install", () => {
   const ADOPTED = `${JSON.stringify({ hooks: { PostToolUse: [FORMAT_ENTRY] } }, null, 2)}\n`;
 
   beforeEach(async () => {
-    await writeProfile(FORMAT_HOOK);
+    await writeProfile([FORMAT_HOOK]);
     await mkdir(path.join(projectDir, ".claude"), { recursive: true });
     await writeFile(path.join(projectDir, SETTINGS), ADOPTED, "utf8");
   });
@@ -424,15 +454,17 @@ describe("a hand-written entry identical to one ambit would install", () => {
  * state claims, so the next install takes it out and writes the current one: one entry, not two.
  */
 describe("an entry whose digest no longer matches what state recorded", () => {
-  /** The same hook with its timeout raised — what a person editing `ambit.yml` would leave. */
-  const RETIMED_HOOK = [
-    "- name: format",
-    "  event: PostToolUse",
-    "  matcher: Write",
-    "  type: command",
-    "  command: npx prettier --write",
-    "  timeout: 45",
-  ];
+  /** The same hook with its timeout raised — what a person editing `HOOK.yml` would leave. */
+  const RETIMED_HOOK: Hook = {
+    name: "format",
+    lines: [
+      "event: PostToolUse",
+      "matcher: Write",
+      "type: command",
+      "command: npx prettier --write",
+      "timeout: 45",
+    ],
+  };
   const RETIMED_ENTRY = {
     matcher: "Write",
     hooks: [{ type: "command", command: "npx prettier --write", timeout: 45 }],
@@ -466,7 +498,7 @@ describe("an entry whose digest no longer matches what state recorded", () => {
   }
 
   beforeEach(async () => {
-    await writeProfile(FORMAT_HOOK);
+    await writeProfile([FORMAT_HOOK]);
     expect((await cli("install")).code).toBe(ExitCode.Success);
   });
 
@@ -505,7 +537,7 @@ describe("an entry whose digest no longer matches what state recorded", () => {
   });
 
   it("reports the digest a changed declaration now wants as missing", async () => {
-    await writeProfile(RETIMED_HOOK);
+    await writeProfile([RETIMED_HOOK]);
 
     // The new digest, not the old one: the row is a function of the bundle, so it names the entry
     // install would write rather than the one that happens to be in the file.
@@ -521,7 +553,7 @@ describe("an entry whose digest no longer matches what state recorded", () => {
   });
 
   it("prunes the stale digest and writes the current one, leaving no duplicate", async () => {
-    await writeProfile(RETIMED_HOOK);
+    await writeProfile([RETIMED_HOOK]);
 
     expect((await cli("install")).code).toBe(ExitCode.Success);
 
@@ -541,19 +573,17 @@ describe("an entry whose digest no longer matches what state recorded", () => {
  * hooks that ambit seeds and a person owns. None of which the install path knows — it is the same code
  * that wrote Claude's file above, reading a different profile.
  */
-describe("an inline hook installed into .cursor/hooks.json", () => {
+describe("a project's own hook installed into .cursor/hooks.json", () => {
   const HOOKS_JSON = ".cursor/hooks.json";
 
   /** A hook with nothing optional on it, so an event is the only thing varying below. */
   const WATCH_ENTRY = { command: "./bin/watch" };
 
-  function watchHook(event: string): readonly string[] {
-    return [
-      "- name: watch",
-      `  event: ${event}`,
-      "  type: command",
-      `  command: ${WATCH_ENTRY.command}`,
-    ];
+  function watchHook(event: string): Hook {
+    return {
+      name: "watch",
+      lines: [`event: ${event}`, "type: command", `command: ${WATCH_ENTRY.command}`],
+    };
   }
 
   /**
@@ -574,7 +604,7 @@ describe("an inline hook installed into .cursor/hooks.json", () => {
   ];
 
   it.each(EVENTS)("puts a %s hook in Cursor's `%s` array", async (event, spelling) => {
-    await writeProfile(watchHook(event), ["cursor"]);
+    await writeProfile([watchHook(event)], ["cursor"]);
 
     const result = await cli("install");
     expect(result.code, result.stderr).toBe(ExitCode.Success);
@@ -598,7 +628,7 @@ describe("an inline hook installed into .cursor/hooks.json", () => {
   });
 
   it("changes no bytes on a second install, and reports no drift", async () => {
-    await writeProfile(watchHook("PreCompact"), ["cursor"]);
+    await writeProfile([watchHook("PreCompact")], ["cursor"]);
     await cli("install");
     const written = await fileText(HOOKS_JSON);
 
@@ -611,11 +641,10 @@ describe("an inline hook installed into .cursor/hooks.json", () => {
   it("drops a `matcher`, which Cursor has no field for", async () => {
     await writeProfile(
       [
-        "- name: guard",
-        "  event: PreToolUse",
-        "  matcher: Bash",
-        "  type: command",
-        "  command: ./bin/guard",
+        {
+          name: "guard",
+          lines: ["event: PreToolUse", "matcher: Bash", "type: command", "command: ./bin/guard"],
+        },
       ],
       ["cursor"],
     );
@@ -641,7 +670,7 @@ describe("an inline hook installed into .cursor/hooks.json", () => {
       null,
       2,
     )}\n`;
-    await writeProfile(watchHook("Stop"), ["cursor"]);
+    await writeProfile([watchHook("Stop")], ["cursor"]);
     await mkdir(path.join(projectDir, ".cursor"), { recursive: true });
     await writeFile(path.join(projectDir, HOOKS_JSON), HANDWRITTEN, "utf8");
 
@@ -671,11 +700,11 @@ describe("an inline hook installed into .cursor/hooks.json", () => {
  * table is an array-of-tables, which the TOML driver refuses. So the test also pins that ambit leaves
  * `config.toml` alone — a project on Codex with hooks and no servers acquires no TOML at all.
  */
-describe("an inline hook installed into .codex/hooks.json", () => {
+describe("a project's own hook installed into .codex/hooks.json", () => {
   const CODEX_HOOKS = ".codex/hooks.json";
 
   beforeEach(async () => {
-    await writeProfile([...FORMAT_HOOK, ...NOTIFY_HOOK], ["codex"]);
+    await writeProfile([FORMAT_HOOK, NOTIFY_HOOK], ["codex"]);
   });
 
   it("writes Claude's own entries, under Claude's own event names", async () => {
@@ -741,7 +770,7 @@ describe("an inline hook installed into .codex/hooks.json", () => {
   });
 
   it("writes each of Claude and Codex its own file, from one rendering", async () => {
-    await writeProfile(NOTIFY_HOOK, ["claude", "codex"]);
+    await writeProfile([NOTIFY_HOOK], ["claude", "codex"]);
 
     const result = await cli("install");
     expect(result.code, result.stderr).toBe(ExitCode.Success);
@@ -768,7 +797,7 @@ describe("an inline hook installed into .codex/hooks.json", () => {
  */
 describe("a hook selected while opencode is configured", () => {
   it("warns, exits 0, and writes opencode nothing", async () => {
-    await writeProfile(NOTIFY_HOOK, ["opencode"]);
+    await writeProfile([NOTIFY_HOOK], ["opencode"]);
 
     const result = await cli("install");
 
@@ -784,7 +813,7 @@ describe("a hook selected while opencode is configured", () => {
   });
 
   it("installs the hook everywhere else, and warns only for opencode", async () => {
-    await writeProfile(NOTIFY_HOOK, ["claude", "opencode"]);
+    await writeProfile([NOTIFY_HOOK], ["claude", "opencode"]);
 
     const result = await cli("install");
     expect(result.code).toBe(ExitCode.Success);
@@ -798,7 +827,7 @@ describe("a hook selected while opencode is configured", () => {
   });
 
   it("says the same thing on a dry run, having written nothing", async () => {
-    await writeProfile(NOTIFY_HOOK, ["opencode"]);
+    await writeProfile([NOTIFY_HOOK], ["opencode"]);
 
     const result = await cli("install", "--dry-run");
 
@@ -808,7 +837,7 @@ describe("a hook selected while opencode is configured", () => {
   });
 
   it("carries the skip in `--json`, as the reason rather than the sentence", async () => {
-    await writeProfile(NOTIFY_HOOK, ["opencode"]);
+    await writeProfile([NOTIFY_HOOK], ["opencode"]);
 
     const result = await cli("install", "--json");
     expect(result.code).toBe(ExitCode.Success);
@@ -829,7 +858,7 @@ describe("a hook selected while opencode is configured", () => {
  */
 describe("claude and cursor together", () => {
   it("writes each harness its own file, in that harness's own shape", async () => {
-    await writeProfile(NOTIFY_HOOK, ["claude", "cursor"]);
+    await writeProfile([NOTIFY_HOOK], ["claude", "cursor"]);
 
     const result = await cli("install");
     expect(result.code, result.stderr).toBe(ExitCode.Success);
@@ -888,7 +917,7 @@ describe("a hook that ships its own script", () => {
     hooks: [{ type: "command", command: CLAUDE_COMMAND }],
   };
 
-  /** The inline hook in the same catalog, which ships nothing. */
+  /** The hook in the same catalog whose `command` is a command line, so it ships nothing. */
   const ANNOUNCE_ENTRY = { hooks: [{ type: "command", command: "npx --yes say done" }] };
 
   /** Both entries' keys, in the order state records them. */
@@ -901,17 +930,16 @@ describe("a hook that ships its own script", () => {
    * A catalog beside the project holding one hook that ships a script and one that does not.
    *
    * Two hooks rather than one, because "only a script-shipping hook plans a directory" is half the
-   * claim: an inline hook in the same bundle has to plan a config entry and nothing else.
+   * claim: a command-line hook in the same bundle has to plan a config entry and nothing else.
    *
    * @param harnesses the `harnesses` list; the default is the one file most of these cases read.
    */
   async function writeCatalog(harnesses: readonly string[] = ["claude"]): Promise<void> {
     const catalogDir = path.join(root, "catalog");
     const files: Readonly<Record<string, string>> = {
-      "scopes.yml": "scopes:\n  core:\n    description: Everyone\n",
       [`hooks/${SCRIPT_HOOK}/HOOK.yml`]: [
         `name: ${SCRIPT_HOOK}`,
-        "scopes: [core]",
+        "tags: [core]",
         "event: PreToolUse",
         "matcher: Bash",
         "type: script",
@@ -921,7 +949,7 @@ describe("a hook that ships its own script", () => {
       [`hooks/${SCRIPT_HOOK}/${SCRIPT}`]: SCRIPT_BODY,
       "hooks/announce/HOOK.yml": [
         "name: announce",
-        "scopes: [core]",
+        "tags: [core]",
         "event: Stop",
         "type: command",
         "command: npx --yes say done",
@@ -943,7 +971,8 @@ harnesses: [${harnesses.join(", ")}]
 catalogs:
   - name: company
     source: path:../catalog
-scopes: [core]
+requires:
+${requiresEntry("core", "company")}
 `,
       "utf8",
     );
@@ -978,7 +1007,7 @@ scopes: [core]
     ]);
   });
 
-  it("plans no directory for the inline hook beside it", async () => {
+  it("plans no directory for the command-line hook beside it", async () => {
     await cli("install");
 
     // `npx --yes say done` names no file the catalog holds, so it is a command line: config entry, no

@@ -39,11 +39,11 @@ const CATALOG_NAME = "company";
 const CORE_SKILL = "company-context";
 const SKILLS_DIR = ".agents/skills";
 
-/** Selects three skills and the `scoped` server, so the comparison covers every artifact kind. */
-const SCOPES: readonly string[] = ["core", "function.engineering"];
+/** Selects three skills and the `tagged` server, so the comparison covers every artifact kind. */
+const TAGS: readonly string[] = ["core", "function.engineering", "function.engineering.*"];
 
-/** The variable the scoped server interpolates into a header; pinned so the file is predictable. */
-const SCOPED_KEY_VAR = "SCOPED_API_KEY";
+/** The variable the tagged server interpolates into a header; pinned so the file is predictable. */
+const TAGGED_KEY_VAR = "TAGGED_API_KEY";
 
 let root: string;
 let cacheDir: string;
@@ -55,7 +55,7 @@ let pathProject: string;
 /**
  * Writes a project pointing one catalog at `source`.
  *
- * @param extra further top-level config lines, appended after the scopes list.
+ * @param extra further top-level config lines, appended after the `requires` list.
  */
 async function writeProject(
   dir: string,
@@ -71,11 +71,16 @@ async function writeProject(
 catalogs:
   - name: ${CATALOG_NAME}
     source: ${source}
-${refLine}scopes:
-${SCOPES.map((scope) => `  - ${scope}`).join("\n")}
+${refLine}requires:
+${TAGS.map((tag) => requiresEntry(tag)).join("\n")}
 ${extra.map((line) => `${line}\n`).join("")}`,
     "utf8",
   );
+}
+
+/** One `requires` entry, selecting everything in `catalog` that carries `tag`. */
+function requiresEntry(tag: string, catalog = CATALOG_NAME): string {
+  return `  - { tag: "${catalog}/${tag}", capabilities: [skills, mcps, hooks] }`;
 }
 
 /** Runs the CLI against one project, collecting stdout and stderr. */
@@ -158,7 +163,7 @@ beforeEach(async () => {
   // The cache is machine-wide, so every test points it somewhere disposable rather than
   // writing into the developer's real one.
   vi.stubEnv("XDG_CACHE_HOME", cacheDir);
-  vi.stubEnv(SCOPED_KEY_VAR, undefined);
+  vi.stubEnv(TAGGED_KEY_VAR, undefined);
 
   catalogDir = path.join(root, "catalog");
   await buildFixtureCatalog(catalogDir);
@@ -212,7 +217,9 @@ describe("a catalog fetched from git", () => {
 
     const { clone, checkouts } = cachePaths();
     expect(await pathExists(path.join(clone, "HEAD"))).toBe(true);
-    expect(await pathExists(path.join(checkouts, fixture.commit, "scopes.yml"))).toBe(true);
+    expect(
+      await pathExists(path.join(checkouts, fixture.commit, "skills/company-context/SKILL.md")),
+    ).toBe(true);
     expect(clone.startsWith(path.join(cacheDir, "ambit"))).toBe(true);
   });
 
@@ -276,27 +283,6 @@ describe("a catalog fetched from git", () => {
       "local",
     ]);
   });
-
-  it("installs a skill from a git source with no catalog behind it", async () => {
-    await writeFile(
-      path.join(gitProject, "ambit.yml"),
-      `version: 1
-scopes: []
-skills:
-  - name: ${CORE_SKILL}
-    source: ${fixture.url}
-    ref: "${fixture.tag}"
-`,
-      "utf8",
-    );
-
-    const result = await cli(gitProject, "install");
-    expect(result.code, result.stderr).toBe(ExitCode.Success);
-
-    expect(Object.keys(await installed(gitProject))).toContain(
-      `${SKILLS_DIR}/${CORE_SKILL}/SKILL.md`,
-    );
-  });
 });
 
 /**
@@ -326,31 +312,6 @@ describe("the lock a git source writes", () => {
 
     const entry = (await lock(gitProject)).requireMapping("skills").requireMapping(CORE_SKILL);
     expect(entry.requireString("catalog")).toBe(CATALOG_NAME);
-    expect(entry.requireString("commit")).toBe(fixture.commit);
-  });
-
-  it("pins a skill carrying its own source, which has no catalog entry to inherit from", async () => {
-    await writeFile(
-      path.join(gitProject, "ambit.yml"),
-      `version: 1
-scopes: []
-skills:
-  - name: ${CORE_SKILL}
-    source: ${fixture.url}
-    ref: "${fixture.tag}"
-`,
-      "utf8",
-    );
-
-    const result = await cli(gitProject, "install");
-    expect(result.code, result.stderr).toBe(ExitCode.Success);
-
-    const document = await lock(gitProject);
-    expect(document.requireMapping("catalogs").keys()).toEqual([]);
-    const entry = document.requireMapping("skills").requireMapping(CORE_SKILL);
-    // No catalog provided it, so the column that would name one names the source, exactly as
-    // `resolve --json` reports it.
-    expect(entry.requireString("catalog")).toBe(fixture.url);
     expect(entry.requireString("commit")).toBe(fixture.commit);
   });
 
@@ -438,7 +399,9 @@ describe("--offline", () => {
     const result = await cli(gitProject, "install", "--offline");
 
     expect(result.code, result.stderr).toBe(ExitCode.Success);
-    expect(await pathExists(path.join(checkouts, fixture.commit, "scopes.yml"))).toBe(true);
+    expect(
+      await pathExists(path.join(checkouts, fixture.commit, "skills/company-context/SKILL.md")),
+    ).toBe(true);
   });
 
   it("exits 4 naming the catalog it would have had to clone, and clones nothing", async () => {
@@ -467,24 +430,6 @@ describe("--offline", () => {
     );
     // The online path would have tried a fetch before deciding, and said so.
     expect(result.stderr).not.toContain("cannot fetch");
-  });
-
-  it("exits 4 naming a skill whose own source is not cached", async () => {
-    await writeFile(
-      path.join(gitProject, "ambit.yml"),
-      `version: 1
-scopes: []
-skills:
-  - name: ${CORE_SKILL}
-    source: ${fixture.url}
-`,
-      "utf8",
-    );
-
-    const result = await cli(gitProject, "install", "--offline");
-
-    expect(result.code).toBe(ExitCode.Network);
-    expect(result.stderr).toContain(`skill "${CORE_SKILL}" is not in the cache`);
   });
 
   it("has nothing to say about a catalog read from a directory", async () => {

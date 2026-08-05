@@ -1,10 +1,15 @@
 /**
  * Catalog parsing.
  *
- * A catalog is a plain skills repo: skills at `skills/<name>/SKILL.md`, MCP
- * entities at `mcps/<name>.yml`, hooks at `hooks/<name>/HOOK.yml`, and a `scopes.yml` registry at the
- * root. Nothing here is ambit-specific except one extra frontmatter key and the extra directories,
- * which other tools ignore — that compatibility is a hard requirement.
+ * A catalog is a plain skills repo, and nothing else: skills at `skills/<name>/SKILL.md`, MCP
+ * entities at `mcps/<name>.yml`, hooks at `hooks/<name>/HOOK.yml`. Nothing here is ambit-specific
+ * except one extra frontmatter key and the extra directories, which other tools ignore — that
+ * compatibility is a hard requirement.
+ *
+ * There is no catalog-side config: parsing scans those three directories and takes what is there.
+ * A file at the root ambit would read as a *project's* config is therefore ignored rather than
+ * refused, because a project that publishes its own items lists itself as `source: path:.` — so a
+ * directory that is both a catalog and a project is the ordinary case, not a mistake.
  *
  * A skill's name is not stored anywhere authoritative: it is derived from the path, and the
  * frontmatter `name` must agree. Disagreement is an error rather than a preference for one over
@@ -15,35 +20,35 @@
  * or a git repository fetched into the cache — is `sources.ts`'s job, so parsing is identical
  * whichever a catalog came from.
  *
- * A project can also declare a skill, a server or a hook itself, and those are folded into the
- * same merged namespace here rather than handled beside it — see {@link mergeConfigEntities} — so
- * resolution has exactly one place to look a name up.
+ * Every definition ambit reads arrives this way. A project that ships a skill, a server or a hook of
+ * its own puts it in `skills/`, `mcps/` or `hooks/` and lists itself as a catalog, so there is one
+ * kind of thing to merge and resolution has exactly one place to look a name up.
  */
 import { readdir, stat } from "node:fs/promises";
 import path from "node:path";
 
-import type { CatalogRef, ConfigOrigin, ProjectConfig, SourceSkillRequest } from "./config.js";
-import { AmbitError, at, configError, resolutionError } from "../errors.js";
+import type { CatalogRef, ProjectConfig } from "./config.js";
+import { AmbitError, at, configError } from "../errors.js";
 import type { HookEntity } from "./hook-entity.js";
 import { commandProgram, parseHookEntity, scriptReference } from "./hook-entity.js";
 import type { McpEntity } from "./mcp-entity.js";
 import { parseMcpEntity } from "./mcp-entity.js";
 import type { Expectation } from "./expectation.js";
 import { parseExpectations } from "./expectation.js";
-import type { Requirement } from "./requirement.js";
-import { parseRequirements } from "./requirement.js";
-import type { ResolvedSource, SourceContext, SourceRequest } from "./sources.js";
+import type { PatternEntry } from "./pattern.js";
+import { parseEntries } from "./pattern.js";
+import type { ResolvedSource, SourceContext } from "./sources.js";
 import { resolveSource } from "./sources.js";
 import type { YamlMapping } from "./yaml.js";
-import {
-  parseFrontmatterMapping,
-  parseYamlMapping,
-  readFrontmatterMapping,
-  readYamlMapping,
-} from "./yaml.js";
+import { readFrontmatterMapping, readYamlMapping } from "./yaml.js";
 
-/** The catalog's scope registry. */
-export const SCOPES_FILENAME = "scopes.yml";
+/**
+ * The registry a catalog used to carry, kept only so its presence can be refused.
+ *
+ * Not exported: nothing reads this file any more, and the one thing left to say about it is the
+ * rewrite in {@link removedRegistry}.
+ */
+const REMOVED_REGISTRY_FILENAME = "scopes.yml";
 
 /** Where skills live within a catalog. */
 export const SKILLS_DIRNAME = "skills";
@@ -69,42 +74,36 @@ export const HOOK_FILENAME = "HOOK.yml";
 /**
  * MCP entity extensions, in preference order. One stem carrying both is an error.
  *
- * Exported because an authoring command that edits an existing entity has to find the file the
- * author actually wrote, not the one ambit would have written (see `mcpDocumentFile`).
+ * Both are read because both are what an author may have written; `.yml` is the one ambit names in a
+ * refusal, since a message telling someone to rename a file has to pick one.
  */
 export const MCP_EXTENSIONS: readonly string[] = [".yml", ".yaml"];
-
-const SCOPES_KEYS = ["scopes"] as const;
-const SCOPE_KEYS = ["description"] as const;
 
 /**
  * The one top-level `SKILL.md` frontmatter key ambit owns.
  *
  * Every annotation lives under it, so the block a harness reads and the block ambit reads cannot
- * collide however either grows: a harness that one day defines its own `scopes` or `requires` takes
+ * collide however either grows: a harness that one day defines its own `tags` or `requires` takes
  * the top-level name, and ambit's are a level down where they always were. The cost is one line of
  * nesting; the alternative was a standing bet that no harness ever picks those two words.
  */
 export const AMBIT_FRONTMATTER_KEY = "ambit";
 
 /**
- * The keys ambit reads under {@link AMBIT_FRONTMATTER_KEY}, in the order the format tabulates them —
- * which is also the order `catalog annotate` reports them in, so the report reads like the format's
- * own documentation.
+ * The keys ambit reads under {@link AMBIT_FRONTMATTER_KEY}, in the order the format tabulates them, so
+ * a message about one of them reads like the format's own documentation.
  *
- * Lives here rather than beside the command that edits them because this is where they are *read*:
- * one list, so the parser and the writer cannot drift apart on what an annotation is.
+ * One list, in the layer that reads them, so nothing can drift apart on what an annotation is.
  */
-export const ANNOTATION_KEYS = ["scopes", "requires", "expects"] as const;
+export const ANNOTATION_KEYS = ["tags", "requires", "expects"] as const;
 
 export type AnnotationKey = (typeof ANNOTATION_KEYS)[number];
 
 /**
  * How a catalog is parsed when the caller wants every problem rather than only the first — the validation split.
  *
- * Only validation passes one — both `validate` commands, and every authoring mutation checking its
- * own result. Everything else parses strictly, because a resolution that
- * carried on past a broken skill would install something nobody described.
+ * Only validation passes one — both `validate` commands. Everything else parses strictly, because a
+ * resolution that carried on past a broken skill would install something nobody described.
  */
 export interface CatalogParseOptions {
   /**
@@ -117,26 +116,6 @@ export interface CatalogParseOptions {
    * and there is no useful report to build on top of that.
    */
   readonly collect?: (problem: AmbitError) => void;
-  /** Files to read instead of what is on disk — see {@link CatalogOverlay}. */
-  readonly overlay?: CatalogOverlay;
-}
-
-/**
- * Files an in-flight edit would write, keyed by catalog-relative `/`-separated path: the text to parse
- * instead of what is on disk, or `null` for a file the edit removes.
- *
- * This is how an authoring mutation validates its own *result* before writing it. The alternative — write, validate, undo — leaves a window in which the catalog on disk is
- * broken, which is the one thing rule 4 exists to prevent.
- */
-export type CatalogOverlay = ReadonlyMap<string, string | null>;
-
-/** Nothing pending: what every read path outside an edit parses through. */
-const NO_OVERLAY: CatalogOverlay = new Map();
-
-/** One registered scope. The description is the picker label a consuming tool renders. */
-export interface ScopeDefinition {
-  readonly name: string;
-  readonly description: string;
 }
 
 /** A skill as the catalog declares it. */
@@ -145,15 +124,22 @@ export interface CatalogSkill {
   readonly name: string;
   /** The skill directory, relative to the catalog root, `/`-separated. */
   readonly path: string;
-  /** The harness's own summary, carried through for `catalog` and `scopes` output. */
+  /** The harness's own summary, carried through to every report that lists the skill. */
   readonly description?: string;
-  /** Declared scopes. Empty means reachable only via `requires` or an explicit listing. */
-  readonly scopes: readonly string[];
   /**
-   * What this skill pulls into a bundle with it, each entry naming its own namespace — see
-   * {@link Requirement}. In the order the author wrote them.
+   * Declared tags: free-form labels, registered nowhere and described nowhere, that a consumer can
+   * select on. Empty means reachable by a `name:` entry or a `requires` edge, and by nothing else.
    */
-  readonly requires: readonly Requirement[];
+  readonly tags: readonly string[];
+  /**
+   * What this skill pulls into a bundle with it: a `requires` list in the same entry grammar a
+   * project selects with, minus the qualifier — see {@link PatternEntry}. In the order the author
+   * wrote them.
+   *
+   * Unqualified, and therefore confined to this catalog: the alias belongs to the consumer's config,
+   * so a catalog author cannot write one, and a catalog can only require what it ships.
+   */
+  readonly requires: readonly PatternEntry[];
   /**
    * What must be true of the world for this skill to work, each entry naming its own kind — see
    * {@link Expectation}. In the order the author wrote them.
@@ -199,8 +185,6 @@ export interface Catalog {
    * revision — a working directory is whatever it currently says.
    */
   readonly commit?: string;
-  /** Registered scopes, sorted by name. */
-  readonly scopes: readonly ScopeDefinition[];
   /** Skills, sorted by name. */
   readonly skills: readonly CatalogSkill[];
   /** MCP entities, sorted by name. */
@@ -213,11 +197,12 @@ export interface Catalog {
 export interface MergedSkill extends CatalogSkill {
   readonly catalog: string;
   /**
-   * The commit the skill's bytes came from, when its source has one: a catalog skill inherits its
-   * catalog's, and a `source` skill carries its own. Absent for a `path:` source.
+   * The commit the skill's bytes came from, inherited from its catalog. Absent for a `path:` source,
+   * which has no revision.
    *
-   * Recorded per skill rather than left to the catalog entry alone because a `source` skill has no
-   * catalog entry to inherit from, and pinning it is the whole point of the lock.
+   * Recorded per skill rather than left to the catalog entry alone because pinning the bytes is the
+   * whole point of the lock, and every surface that writes one reads the item rather than looking its
+   * catalog up again.
    */
   readonly commit?: string;
   /**
@@ -234,11 +219,10 @@ export interface MergedMcp extends McpEntity {
   /**
    * The file that defines it inside that catalog, catalog-relative — see {@link CatalogMcp.file}.
    *
-   * Absent for an entity a project declares inline in its `ambit.yml`, which has no
-   * document of its own. There is nothing to invent in that case: `catalog` already names the config
-   * file, which is where a reader goes to change it, so an error still has a real file to cite.
+   * Always present: every definition lives in a file, so there is no server without a document to
+   * cite, and nothing downstream has to invent a location for one.
    */
-  readonly file?: string;
+  readonly file: string;
 }
 
 /**
@@ -253,70 +237,97 @@ export interface MergedHook extends HookEntity {
   /**
    * The hook directory inside that catalog, catalog-relative.
    *
-   * Absent for a hook a project declares inline in its `ambit.yml`, which has no directory of its own
-   * — the same argument {@link MergedMcp.file} makes: `catalog` already names the config file, which
-   * is where a reader goes to change it.
+   * Always present, for the reason {@link MergedMcp.file} is: a hook is a directory holding
+   * `HOOK.yml`, and there is no other way to declare one.
    */
-  readonly path?: string;
+  readonly path: string;
   /** The commit the hook's bytes came from, when its catalog has one — see {@link MergedSkill.commit}. */
   readonly commit?: string;
   /**
    * Absolute path to that catalog's root on disk, so materialization can find the script without
-   * looking the catalog up again. Absent for an inline hook, and deliberately absent from every
-   * output surface: it is machine-specific.
+   * looking the catalog up again. Deliberately absent from every output surface: it is
+   * machine-specific.
    */
-  readonly catalogRoot?: string;
+  readonly catalogRoot: string;
 }
 
 /**
- * One name more than one catalog provides.
+ * Every configured catalog, merged into one namespace per kind — every catalog's copy of every name.
  *
- * Recorded rather than merely resolved, because the loss is otherwise silent in a way nobody can
- * debug: someone who adds a personal catalog and finds their copy of a skill ignored has no way to
- * see that a company catalog earlier in the list is the one being installed. Which copy *should*
- * win is not ambit's call — config order already decided that — but that a choice was made has to
- * be visible.
+ * A name is not an identity here. Two catalogs may both provide `house-style`, and both copies
+ * survive the merge, each identified by its catalog *and* its name — see {@link qualifiedName}. So
+ * anything that keys, groups or looks up a merged item keys on the pair, and a lookup by name alone
+ * answers with a set rather than an item.
+ *
+ * There is no name-keyed grouping helper here to do that with. One was added when the merge stopped
+ * collapsing copies, on the expectation that the callers of the name-keyed `Map` it replaced would
+ * want it, and not one of them did. `ambit why` wants a *filter*: one name it already has, in one
+ * namespace it already knows, so grouping the whole namespace to read a single bucket out of it is
+ * work for nothing. Resolution's collision check wants the opposite — every name at once — but keyed
+ * by *catalog* rather than by item, since what its message needs is where each copy came from. Two
+ * call sites, two shapes, neither of them a lookup.
  */
-export interface Shadowing {
-  readonly name: string;
-  /** The catalog whose copy is in the merged view: the earliest in config order. */
-  readonly catalog: string;
-  /** The catalogs whose copies were dropped, in config order — so the list reads as priority does. */
-  readonly shadows: readonly string[];
-}
-
-/** Every shadowed name, keyed by name within each namespace. Empty when nothing collided. */
-export interface Shadowings {
-  readonly skills: ReadonlyMap<string, Shadowing>;
-  readonly mcps: ReadonlyMap<string, Shadowing>;
-  readonly hooks: ReadonlyMap<string, Shadowing>;
-}
-
-/** Every configured catalog, merged into one namespace per kind. */
 export interface MergedCatalog {
-  /** Catalog names, in config order — which is priority order. */
+  /**
+   * Catalog names, in config order.
+   *
+   * A record of what the config listed, and nothing more: the order settles nothing, because no
+   * copy of a name is dropped and no catalog takes precedence over another.
+   */
   readonly catalogs: readonly string[];
-  readonly scopes: readonly ScopeDefinition[];
   readonly skills: readonly MergedSkill[];
   readonly mcps: readonly MergedMcp[];
   readonly hooks: readonly MergedHook[];
-  /** Which names came from more than one catalog, for `--explain` and `validate`. */
-  readonly shadowing: Shadowings;
 }
 
 /**
- * How a shadowing reads in `--explain`: `catalog:company (shadows personal)`.
+ * What separates a catalog from a name in the address of a merged item.
  *
- * The winning catalog is named even though the item's own `catalog` column already says it, so the
- * annotation still answers "which copy is this?" when it is read on its own — which is how it is
- * read, one row at a time.
+ * `/` rather than `.`, so an address introduces no phantom level into the dotted name space a
+ * catalog already has — `company/core.a` is the item `core.a` in the catalog `company`, and a dot in
+ * a catalog's alias needs no refusing.
  */
-export function formatShadowing(shadowing: Shadowing): string {
-  return `catalog:${shadowing.catalog} (shadows ${shadowing.shadows.join(", ")})`;
+export const CATALOG_SEPARATOR = "/";
+
+/**
+ * The address of one item in the merged catalog: `<catalog>/<name>`.
+ *
+ * The identity a bare name stopped being once every catalog's copy survives the merge. Anything that
+ * needs one string per item — a `Map` key, a JSON record key, a set of what a walk has already
+ * followed — uses this, so two catalogs' copies of `house-style` cannot collapse into one entry by
+ * accident, which is the silent loss the merge no longer performs.
+ *
+ * A *bundle* is the one view where a bare name is still an identity, and it is one because
+ * resolution refuses a selection holding two copies of a name (`assertNoCollisions`) rather than
+ * because the merge guarantees it.
+ */
+export function qualifiedName(item: { readonly catalog: string; readonly name: string }): string {
+  return `${item.catalog}${CATALOG_SEPARATOR}${item.name}`;
 }
 
+function compareStrings(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+/** One catalog's items in name order, which is a total order within a single catalog. */
 function byName<T extends { readonly name: string }>(items: readonly T[]): readonly T[] {
-  return [...items].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  return [...items].sort((a, b) => compareStrings(a.name, b.name));
+}
+
+/**
+ * Merged items in name order, then catalog order.
+ *
+ * Name first, so two catalogs' copies of one name sit next to each other in every listing that walks
+ * this — a reader scanning `dump-catalog` sees the pair rather than having to notice it. Catalog
+ * second, because a name alone is no longer a total order, and an order that fell back to the order
+ * catalogs happened to be read in would make every downstream listing depend on config order again.
+ */
+function byNameThenCatalog<T extends { readonly name: string; readonly catalog: string }>(
+  items: readonly T[],
+): readonly T[] {
+  return [...items].sort(
+    (a, b) => compareStrings(a.name, b.name) || compareStrings(a.catalog, b.catalog),
+  );
 }
 
 async function isDirectory(target: string): Promise<boolean> {
@@ -354,76 +365,46 @@ async function sortedEntries(dir: string): Promise<readonly CatalogEntry[]> {
 }
 
 /**
- * A catalog's files, read through an edit's pending contents where it has any.
+ * A catalog's files, addressed the way its own errors and reports address them.
  *
- * Every read parsing does goes through here, so an authoring command validating its own result sees
- * exactly what the next `ambit catalog validate` would see — including files the edit creates, which
- * are in no directory listing yet, and files it removes, which are still in one.
+ * Every read parsing does goes through here, which is what keeps a catalog-relative `/`-separated
+ * path the only kind of path the walk below deals in: the root is joined on in one place, so nothing
+ * that reports a file has an absolute one to accidentally print.
+ *
+ * It used to do more. An in-flight authoring edit handed its pending bytes to parsing as an overlay,
+ * so a mutation could validate its own result before writing it, and every read had to consult that
+ * overlay first. Nothing mutates a catalog any more, so the pending case is gone and these are five
+ * plain reads.
  */
 class CatalogFiles {
-  constructor(
-    private readonly root: string,
-    private readonly overlay: CatalogOverlay,
-  ) {}
+  constructor(private readonly root: string) {}
 
   private absolute(relative: string): string {
     return path.join(this.root, relative);
   }
 
   async isFile(relative: string): Promise<boolean> {
-    const pending = this.overlay.get(relative);
-    if (pending !== undefined) return pending !== null;
     return isFile(this.absolute(relative));
   }
 
-  /** Whether a directory holds anything: on disk, or only in the edit. */
   async isDirectory(relative: string): Promise<boolean> {
-    if (await isDirectory(this.absolute(relative))) return true;
-    const prefix = `${relative}/`;
-    return [...this.overlay].some(([file, text]) => text !== null && file.startsWith(prefix));
+    return isDirectory(this.absolute(relative));
   }
 
-  /** The entries of a directory, in name order, with the edit's additions and removals applied. */
+  /** The entries of a directory, in name order, or none at all when it is not there. */
   async entries(relative: string): Promise<readonly CatalogEntry[]> {
-    const found = new Map<string, boolean>();
-    if (await isDirectory(this.absolute(relative))) {
-      for (const entry of await sortedEntries(this.absolute(relative))) {
-        found.set(entry.name, entry.directory);
-      }
-    }
-
-    const prefix = relative === "" ? "" : `${relative}/`;
-    for (const [file, text] of this.overlay) {
-      if (!file.startsWith(prefix)) continue;
-      const rest = file.slice(prefix.length);
-      const slash = rest.indexOf("/");
-      if (slash === -1) {
-        if (text === null) found.delete(rest);
-        else found.set(rest, false);
-      } else if (text !== null) {
-        found.set(rest.slice(0, slash), true);
-      }
-      // A removal deeper down leaves the directories above it listed: the walk simply finds no
-      // `SKILL.md` inside, which is the same answer as an emptied directory on disk.
-    }
-
-    return byEntryName([...found].map(([name, directory]) => ({ name, directory })));
+    if (!(await isDirectory(this.absolute(relative)))) return [];
+    return sortedEntries(this.absolute(relative));
   }
 
   /** Parses a YAML file under the §3.0 rules. */
   async mapping(relative: string): Promise<YamlMapping> {
-    const pending = this.overlay.get(relative);
-    return typeof pending === "string"
-      ? parseYamlMapping(pending, relative)
-      : readYamlMapping(this.absolute(relative), relative);
+    return readYamlMapping(this.absolute(relative), relative);
   }
 
   /** Parses a Markdown file's frontmatter block under the §3.0 rules. */
   async frontmatter(relative: string): Promise<YamlMapping> {
-    const pending = this.overlay.get(relative);
-    return typeof pending === "string"
-      ? parseFrontmatterMapping(pending, relative)
-      : readFrontmatterMapping(this.absolute(relative), relative);
+    return readFrontmatterMapping(this.absolute(relative), relative);
   }
 }
 
@@ -451,18 +432,18 @@ export async function resolveCatalogRoot(
   );
 }
 
-/** Parses `scopes.yml`. Descriptions are required: they are the picker's labels, not decoration. */
-function parseScopeRegistry(root: YamlMapping): readonly ScopeDefinition[] {
-  root.rejectUnknownKeys(SCOPES_KEYS);
-  const scopes = root.requireMapping("scopes");
-
-  return byName(
-    scopes.keys().map((name) => {
-      const entry = scopes.requireMapping(name);
-      entry.rejectUnknownKeys(SCOPE_KEYS);
-      return { name, description: entry.requireString("description") };
-    }),
-  );
+/**
+ * The refusal for a catalog that still holds the registry.
+ *
+ * A hard break, and loud on purpose: the file parses as YAML and every scope in it looks like it is
+ * still doing something, so silence would leave an author believing a catalog is labelled when
+ * nothing in it is. The message carries the whole rewrite, since it is short enough to state.
+ */
+function removedRegistry(): AmbitError {
+  return configError(`the scope registry is gone (${REMOVED_REGISTRY_FILENAME})`, [
+    "scopes are gone; tag items with `ambit.tags` and select them with `tag:`",
+    `delete ${REMOVED_REGISTRY_FILENAME}, carrying each scope over as a tag on the items that declared it`,
+  ]);
 }
 
 /**
@@ -519,8 +500,11 @@ async function findHookDirectories(files: CatalogFiles): Promise<readonly string
  * Two opposite stances on unknown keys, and both are deliberate. At the top level they are allowed,
  * unlike everywhere else, because that block is the harness's and ambit is a guest in it. Under
  * `ambit:` they are rejected like everywhere else, because that block is ambit's: a misspelled
- * `scope:` there would otherwise be a skill that declares nothing and warns nobody, which is the
+ * `tag:` there would otherwise be a skill that declares nothing and warns nobody, which is the
  * same silence the namespace exists to remove.
+ *
+ * A *value* under `tags` is unguarded by contrast — a misspelled tag is a new tag, and nothing can
+ * tell the difference. That is the cost of dropping the registry, paid here.
  *
  * @throws {AmbitError} exit 2 for an `ambit:` that is not a mapping, or a key under it that §3.2
  *   does not define.
@@ -532,8 +516,10 @@ function skillAnnotations(mapping: YamlMapping): Omit<CatalogSkill, "name" | "pa
 
   return {
     ...(description !== undefined && { description }),
-    scopes: ambit?.optionalStringList("scopes") ?? [],
-    requires: ambit === undefined ? [] : parseRequirements(ambit),
+    tags: ambit?.optionalStringList("tags") ?? [],
+    // Unqualified: a catalog author cannot write a consumer's alias, so the pattern stands alone and
+    // the entry resolves within this catalog.
+    requires: ambit === undefined ? [] : parseEntries(ambit, "unqualified"),
     expects: ambit === undefined ? [] : parseExpectations(ambit),
   };
 }
@@ -764,9 +750,9 @@ function fromCatalog(name: string, problem: AmbitError): AmbitError {
  * @param name the catalog's name, as errors report it.
  * @param source the `source` it was resolved from.
  * @param commit the commit the directory holds, for a git source.
- * @param options a collector for the one problem parsing can continue past, and an edit's pending
- *   files to read through — see {@link CatalogParseOptions}.
- * @throws {AmbitError} exit 2 for a missing registry, a malformed file, or a name that
+ * @param options a collector for the one problem parsing can continue past — see
+ *   {@link CatalogParseOptions}.
+ * @throws {AmbitError} exit 2 for a leftover scope registry, a malformed file, or a name that
  *   disagrees with its path.
  */
 export async function parseCatalogDirectory(
@@ -781,17 +767,14 @@ export async function parseCatalogDirectory(
     collect === undefined
       ? undefined
       : (problem: AmbitError) => collect(fromCatalog(name, problem));
-  const files = new CatalogFiles(root, options.overlay ?? NO_OVERLAY);
+  const files = new CatalogFiles(root);
 
   try {
-    if (!(await files.isFile(SCOPES_FILENAME))) {
-      throw configError(`${SCOPES_FILENAME} is missing`, [
-        "a catalog must register every scope its skills and MCPs declare",
-        `add ${SCOPES_FILENAME} at the catalog root`,
-      ]);
-    }
-
-    const scopes = parseScopeRegistry(await files.mapping(SCOPES_FILENAME));
+    // The one file at a catalog root ambit still has an opinion about, and the opinion is that it
+    // must not be there. Nothing else is read: a directory holding none of the three subdirectories
+    // is a catalog with zero items, which the patterns selecting from it report far better than a
+    // missing-file error here could.
+    if (await files.isFile(REMOVED_REGISTRY_FILENAME)) throw removedRegistry();
 
     const skills: CatalogSkill[] = [];
     for (const relative of await findSkillDirectories(files)) {
@@ -813,7 +796,6 @@ export async function parseCatalogDirectory(
       source,
       root,
       ...(commit !== undefined && { commit }),
-      scopes,
       skills: byName(skills),
       mcps: byName(mcps),
       hooks: byName(hooks),
@@ -850,265 +832,37 @@ export async function loadCatalogs(
       options,
     );
     // `ref` is a fact about the config entry, not about the directory that was parsed, so it is
-    // attached here rather than threaded through parsing — which also keeps a catalog parsed
-    // straight off disk (`ambit catalog validate`) from having to invent one.
+    // attached here rather than threaded through parsing — which also keeps a `path:` catalog, whose
+    // directory has no ref to speak of, from having to invent one.
     catalogs.push({ ...parsed, ...(entry.ref !== undefined && { ref: entry.ref }) });
   }
   return catalogs;
 }
 
-/** Where a skill sits inside a source that follows the catalog convention. */
-function skillPathFromName(name: string): string {
-  return `${SKILLS_DIRNAME}/${name.replaceAll(".", "/")}`;
-}
-
 /**
- * Loads one skill declared with its own `source` rather than through a catalog.
+ * Merges catalogs into one namespace per kind, keeping every catalog's copy of every name.
  *
- * A source need not be a catalog: only the one skill directory is read, nothing expects a
- * `scopes.yml`, and `path` may point anywhere inside it. What the skill declares still counts —
- * `requires` is closed over as usual — so an explicit entry can carry dependencies with it.
+ * Nothing is dropped and nothing is arbitrated. Two catalogs both providing `house-style` is a
+ * non-event here: both copies are in the merged view, each addressable by its catalog and its name,
+ * and `catalogs:` order therefore settles nothing — there is no precedence left to establish.
  *
- * The config's `name` is authoritative, since it is what resolution, `requires`, and the installed
- * directory all use; a frontmatter `name` that disagrees is an error for the same reason a catalog
- * skill's must match its path.
+ * The collision this function used to decide is decided at *materialization* instead. Harness layout
+ * is flat and externally imposed — Claude reads `.claude/skills/<name>` — so two copies of one name
+ * that are both *selected* would want one path, and resolution refuses that (`assertNoCollisions`).
+ * Refusing a selection is a different thing from refusing a catalog: a name two catalogs ship costs
+ * nothing until a project asks for both.
  *
- * @param origin where the config's `skills` entry was written, so errors can cite the line.
- * @throws {AmbitError} exit 2 for a source ambit cannot read, a skill directory that is not there,
- *   malformed frontmatter, or a `name` that disagrees with the config's; exit 4 if a fetch fails.
- */
-export async function loadSourceSkill(
-  request: SourceSkillRequest,
-  context: SourceContext,
-  origin: ConfigOrigin,
-): Promise<MergedSkill> {
-  const subject = `skill "${request.name}"`;
-  const where = at(origin.file, origin.skillLines.get(request.name));
-  const source: SourceRequest = {
-    source: request.source,
-    ...(request.ref !== undefined && { ref: request.ref }),
-    subject,
-    where,
-  };
-  const { root, commit } = await resolveSource(source, context);
-
-  const directory = request.path ?? skillPathFromName(request.name);
-  const file = `${directory}/${SKILL_FILENAME}`;
-
-  if (!(await isFile(path.join(root, file)))) {
-    throw configError(`${subject} is not in its source ${where}`, [
-      `${root} has no ${file}`,
-      request.path === undefined
-        ? "add `path:` naming the skill's directory within the source"
-        : "correct `path`, or point `source` at the directory that holds it",
-    ]);
-  }
-
-  try {
-    const mapping = await readFrontmatterMapping(path.join(root, file), file);
-    const declared = mapping.requireString("name");
-    if (declared !== request.name) {
-      throw mapping.keyError(
-        "name",
-        `skill name "${declared}" does not match the name it is declared under`,
-        [`${origin.file} lists it as "${request.name}"`, "correct one of the two so they agree"],
-      );
-    }
-
-    return {
-      name: request.name,
-      path: directory,
-      ...skillAnnotations(mapping),
-      // No catalog provided it, so the column that would name one names the source instead: with
-      // `path` it locates the skill, and it is how the config refers to it.
-      catalog: request.source,
-      ...(commit !== undefined && { commit }),
-      catalogRoot: root,
-    };
-  } catch (error) {
-    throw inSource(`skill source "${request.source}"`, root, error);
-  }
-}
-
-/**
- * The error for a config declaration a catalog already provides.
- *
- * Spec §3.1 describes both surfaces as being for things no catalog defines, so a collision means
- * one of the two declarations is a mistake — and which one ambit cannot know, so it refuses rather
- * than letting either quietly win.
- */
-function declarationConflict(
-  kind: string,
-  name: string,
-  provider: string,
-  where: string,
-  advice: string,
-): AmbitError {
-  return resolutionError(`${kind} "${name}" is also provided by catalog "${provider}" ${where}`, [
-    `catalog "${provider}" already defines "${name}", and a name means one thing`,
-    advice,
-  ]);
-}
-
-/**
- * Folds a project's own declarations into the merged catalog: `skills` entries carrying their own
- * `source`, inline `mcps`, and inline `hooks`.
- *
- * They join the same namespace rather than sitting beside it, so resolution has exactly one place
- * to look a name up — which also lets a catalog skill's `requires` reach a server the project
- * defined inline.
- *
- * @throws {AmbitError} exit 2 for a skill source that cannot be read; exit 3 for a name a catalog
- *   already provides; exit 4 if a fetch fails.
- */
-export async function mergeConfigEntities(
-  merged: MergedCatalog,
-  config: ProjectConfig,
-  context: SourceContext,
-): Promise<MergedCatalog> {
-  const skills = [...merged.skills];
-  const mcps = [...merged.mcps];
-  const hooks = [...merged.hooks];
-
-  for (const request of config.skills) {
-    if (request.kind !== "source") continue;
-    const shadowed = merged.skills.find((skill) => skill.name === request.name);
-    if (shadowed !== undefined) {
-      throw declarationConflict(
-        "skill",
-        request.name,
-        shadowed.catalog,
-        at(config.origin.file, config.origin.skillLines.get(request.name)),
-        "drop `source` to take the catalog's copy, or rename one of the two",
-      );
-    }
-    skills.push(await loadSourceSkill(request, context, config.origin));
-  }
-
-  for (const entity of config.mcps) {
-    const shadowed = merged.mcps.find((mcp) => mcp.name === entity.name);
-    if (shadowed !== undefined) {
-      throw declarationConflict(
-        "MCP server",
-        entity.name,
-        shadowed.catalog,
-        at(config.origin.file, config.origin.mcpLines.get(entity.name)),
-        "remove the `mcps` entry to take the catalog's, or rename one of the two",
-      );
-    }
-    // Defined in the config itself, so that is what the origin column says: it is where a reader
-    // goes to change it, and it carries no path of its own.
-    mcps.push({ ...entity, catalog: config.origin.file });
-  }
-
-  for (const entity of config.hooks) {
-    const shadowed = merged.hooks.find((hook) => hook.name === entity.name);
-    if (shadowed !== undefined) {
-      throw declarationConflict(
-        "hook",
-        entity.name,
-        shadowed.catalog,
-        at(config.origin.file, config.origin.hookLines.get(entity.name)),
-        "remove the `hooks` entry to take the catalog's, or rename one of the two",
-      );
-    }
-    // `type: script` was already refused for an inline hook when the config parsed, so whatever
-    // arrives here is a command line and needs no directory.
-    hooks.push({ ...entity, catalog: config.origin.file });
-  }
-
-  return { ...merged, skills: byName(skills), mcps: byName(mcps), hooks: byName(hooks) };
-}
-
-/** One scope registration, remembering which catalog made it so a conflict can name both. */
-interface RegisteredScope {
-  readonly catalog: string;
-  readonly definition: ScopeDefinition;
-}
-
-/**
- * The error for one scope two catalogs describe differently.
- *
- * Identical descriptions merge silently — two catalogs agreeing about a shared scope is how a
- * company catalog and a personal one are meant to overlap. Disagreeing ones are rejected because
- * the description is what a consuming tool shows a human in the picker, and quietly
- * keeping one of two contradictory labels would make a project's own catalog order decide what a
- * scope appears to mean.
- */
-function scopeDescriptionConflict(first: RegisteredScope, second: RegisteredScope): AmbitError {
-  const name = first.definition.name;
-  return resolutionError(`conflicting descriptions for scope "${name}" (${SCOPES_FILENAME})`, [
-    `catalog "${first.catalog}" describes it as "${first.definition.description}"`,
-    `catalog "${second.catalog}" describes it as "${second.definition.description}"`,
-    "make the two descriptions identical, or rename the scope in one of the two catalogs",
-  ]);
-}
-
-/**
- * Notes that `loser` also provides `name`, which `winner` already did.
- *
- * Appends rather than replaces, so a name three catalogs provide records both losers in the order
- * config listed them.
- */
-function recordShadowing(
-  shadowed: Map<string, Shadowing>,
-  name: string,
-  winner: string,
-  loser: string,
-): void {
-  const existing = shadowed.get(name);
-  shadowed.set(name, {
-    name,
-    catalog: winner,
-    shadows: [...(existing?.shadows ?? []), loser],
-  });
-}
-
-/** A name-keyed map in name order, so iterating it never depends on the order catalogs were read. */
-function mapByName<T>(entries: ReadonlyMap<string, T>): ReadonlyMap<string, T> {
-  return new Map([...entries].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
-}
-
-/**
- * Merges catalogs into one namespace per kind.
- *
- * On a duplicate skill, MCP or hook name the earlier catalog in config order wins, and the shadowing is
- * recorded rather than discarded — see {@link Shadowing}. Scope registries merge on
- * matching descriptions and are rejected on differing ones.
- *
- * A config-declared skill or server colliding with a catalog is deliberately *not* this: that is an
- * error, not a precedence question, because both config surfaces are for
- * things no catalog defines. See {@link mergeConfigEntities}.
- *
- * @throws {AmbitError} exit 3 for one scope two catalogs describe differently.
+ * Every item in the result came out of a catalog directory, since that is the only place a definition
+ * can be written — so there is nothing to fold in beside these lists, and no item without a file.
  */
 export function mergeCatalogs(catalogs: readonly Catalog[]): MergedCatalog {
-  const scopes = new Map<string, RegisteredScope>();
-  const skills = new Map<string, MergedSkill>();
-  const mcps = new Map<string, MergedMcp>();
-  const hooks = new Map<string, MergedHook>();
-  const shadowedSkills = new Map<string, Shadowing>();
-  const shadowedMcps = new Map<string, Shadowing>();
-  const shadowedHooks = new Map<string, Shadowing>();
+  const skills: MergedSkill[] = [];
+  const mcps: MergedMcp[] = [];
+  const hooks: MergedHook[] = [];
 
   for (const catalog of catalogs) {
-    for (const definition of catalog.scopes) {
-      const registered = scopes.get(definition.name);
-      const here: RegisteredScope = { catalog: catalog.name, definition };
-      if (registered === undefined) {
-        scopes.set(definition.name, here);
-      } else if (registered.definition.description !== definition.description) {
-        throw scopeDescriptionConflict(registered, here);
-      }
-    }
-
     for (const skill of catalog.skills) {
-      const winner = skills.get(skill.name);
-      if (winner !== undefined) {
-        recordShadowing(shadowedSkills, skill.name, winner.catalog, catalog.name);
-        continue;
-      }
-      skills.set(skill.name, {
+      skills.push({
         ...skill,
         catalog: catalog.name,
         ...(catalog.commit !== undefined && { commit: catalog.commit }),
@@ -1117,24 +871,14 @@ export function mergeCatalogs(catalogs: readonly Catalog[]): MergedCatalog {
     }
 
     for (const mcp of catalog.mcps) {
-      const winner = mcps.get(mcp.name);
-      if (winner !== undefined) {
-        recordShadowing(shadowedMcps, mcp.name, winner.catalog, catalog.name);
-        continue;
-      }
-      mcps.set(mcp.name, { ...mcp, catalog: catalog.name });
+      mcps.push({ ...mcp, catalog: catalog.name });
     }
 
     for (const hook of catalog.hooks) {
-      const winner = hooks.get(hook.name);
-      if (winner !== undefined) {
-        recordShadowing(shadowedHooks, hook.name, winner.catalog, catalog.name);
-        continue;
-      }
       // `catalogRoot` for the same reason a skill carries one: a hook that ships a script is
       // materialized out of the catalog it came from, and nothing downstream should have to look the
       // catalog up again to find it.
-      hooks.set(hook.name, {
+      hooks.push({
         ...hook,
         catalog: catalog.name,
         ...(catalog.commit !== undefined && { commit: catalog.commit }),
@@ -1145,14 +889,8 @@ export function mergeCatalogs(catalogs: readonly Catalog[]): MergedCatalog {
 
   return {
     catalogs: catalogs.map((catalog) => catalog.name),
-    scopes: byName([...scopes.values()].map((registered) => registered.definition)),
-    skills: byName([...skills.values()]),
-    mcps: byName([...mcps.values()]),
-    hooks: byName([...hooks.values()]),
-    shadowing: {
-      skills: mapByName(shadowedSkills),
-      mcps: mapByName(shadowedMcps),
-      hooks: mapByName(shadowedHooks),
-    },
+    skills: byNameThenCatalog(skills),
+    mcps: byNameThenCatalog(mcps),
+    hooks: byNameThenCatalog(hooks),
   };
 }

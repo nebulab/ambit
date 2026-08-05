@@ -41,12 +41,12 @@ const ENGINEERING_SKILL = "code-review";
 const FRONTEND_SKILL = "design-tokens";
 const ALL_SKILLS = [ENGINEERING_SKILL, CORE_SKILL, FRONTEND_SKILL];
 
-/** The fixture's scope-matched http server, and the variable its `Authorization` header names. */
-const SCOPED_MCP = "scoped";
-const SCOPED_KEY_VAR = "SCOPED_API_KEY";
+/** The fixture's tag-matched http server, and the variable its `Authorization` header names. */
+const TAGGED_MCP = "tagged";
+const TAGGED_KEY_VAR = "TAGGED_API_KEY";
 
 /**
- * The fixture's two scope-matched hooks: one inline command on `core`, one shipping a script on
+ * The fixture's two tag-matched hooks: one inline command on `core`, one shipping a script on
  * `function.engineering`. Both harness families here read a Claude-shaped entry and differ in one
  * string — how each spells the way to a materialized script — which is why the keys are built from the
  * entry per root rather than written out.
@@ -77,6 +77,11 @@ let root: string;
 let catalogDir: string;
 let projectDir: string;
 
+/** One `requires` entry, selecting everything in `catalog` that carries `tag`. */
+function requiresEntry(tag: string, catalog = "company"): string {
+  return `  - { tag: "${catalog}/${tag}", capabilities: [skills, mcps, hooks] }`;
+}
+
 async function writeProfile(harnesses: readonly string[]): Promise<void> {
   await writeFile(
     path.join(projectDir, "ambit.yml"),
@@ -85,9 +90,10 @@ harnesses: [${harnesses.join(", ")}]
 catalogs:
   - name: company
     source: path:../catalog
-scopes:
-  - core
-  - function.engineering
+requires:
+${requiresEntry("core")}
+${requiresEntry("function.engineering")}
+${requiresEntry("function.engineering.*")}
 `,
     "utf8",
   );
@@ -171,10 +177,10 @@ describe("two harnesses of the same family", () => {
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     expect(Object.keys(JSON.parse(await read(".mcp.json")).mcpServers as object)).toEqual([
-      SCOPED_MCP,
+      TAGGED_MCP,
     ]);
     expect(Object.keys(JSON.parse(await read(".cursor/mcp.json")).mcpServers as object)).toEqual([
-      SCOPED_MCP,
+      TAGGED_MCP,
     ]);
     expect((await readdir(path.join(projectDir, SKILLS_DIR))).sort()).toEqual(
       [...ALL_SKILLS].sort(),
@@ -232,18 +238,18 @@ describe("two harnesses from different families", () => {
 
     expect(JSON.parse(await read(".mcp.json"))).toEqual({
       mcpServers: {
-        [SCOPED_MCP]: {
+        [TAGGED_MCP]: {
           type: "http",
           url: "https://mcp.invalid/fixture",
-          headers: { Authorization: `Bearer \${${SCOPED_KEY_VAR}}` },
+          headers: { Authorization: `Bearer \${${TAGGED_KEY_VAR}}` },
         },
       },
     });
-    expect(await read(".codex/config.toml")).toBe(`[mcp_servers.scoped]
+    expect(await read(".codex/config.toml")).toBe(`[mcp_servers.tagged]
 url = "https://mcp.invalid/fixture"
 
-[mcp_servers.scoped.http_headers]
-Authorization = "Bearer \${${SCOPED_KEY_VAR}}"
+[mcp_servers.tagged.http_headers]
+Authorization = "Bearer \${${TAGGED_KEY_VAR}}"
 `);
   });
 
@@ -277,7 +283,7 @@ Authorization = "Bearer \${${SCOPED_KEY_VAR}}"
           path: ".codex/config.toml",
           kind: "harness-config",
           format: "toml",
-          managedKeys: [`mcp_servers.${SCOPED_MCP}`],
+          managedKeys: [`mcp_servers.${TAGGED_MCP}`],
         },
         {
           path: ".codex/hooks.json",
@@ -292,7 +298,7 @@ Authorization = "Bearer \${${SCOPED_KEY_VAR}}"
           path: ".mcp.json",
           kind: "harness-config",
           format: "json",
-          managedKeys: [`mcpServers.${SCOPED_MCP}`],
+          managedKeys: [`mcpServers.${TAGGED_MCP}`],
         },
       ],
     );
@@ -308,7 +314,8 @@ harnesses: [claude, codex]
 catalogs:
   - name: company
     source: path:../catalog
-scopes: [core]
+requires:
+${requiresEntry("core")}
 `,
       "utf8",
     );
@@ -379,14 +386,14 @@ describe("all five harnesses at once", () => {
     await cli("install");
     // Every variable the bundle references, whichever entity declared it: `doctor` reads the
     // environment rather than the files, so a reference in five formats is still one question.
-    process.env[SCOPED_KEY_VAR] = "s3cret";
+    process.env[TAGGED_KEY_VAR] = "s3cret";
     process.env.ACME_FIGMA_TOKEN = "figma-token";
 
     try {
       const result = await cli("doctor");
       expect(result.code, result.stderr).toBe(ExitCode.Success);
     } finally {
-      delete process.env[SCOPED_KEY_VAR];
+      delete process.env[TAGGED_KEY_VAR];
       delete process.env.ACME_FIGMA_TOKEN;
     }
   });
@@ -405,7 +412,7 @@ describe("a variable referenced by a header and not declared in `env`", () => {
     await writeFile(
       path.join(catalogDir, "mcps/undeclared.yml"),
       `name: undeclared
-scopes: [core]
+tags: [core]
 
 transport:
   http:

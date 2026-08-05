@@ -81,7 +81,7 @@ describe("the managed blocks' contents", () => {
 
   it("leaves a co-owned config file out: `.mcp.json` is a file a team commits", () => {
     const artifacts: readonly OwnedArtifact[] = [
-      { path: ".mcp.json", kind: "harness-config", managedKeys: ["mcpServers.scoped"] },
+      { path: ".mcp.json", kind: "harness-config", managedKeys: ["mcpServers.tagged"] },
     ];
 
     expect(gitignoreBlocks(artifacts)).toEqual([

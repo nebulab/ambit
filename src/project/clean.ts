@@ -11,7 +11,7 @@
  *
  * The difference that matters is that `clean` resolves nothing. It answers from `.ambit/state.json`
  * alone, so it still works on a project whose catalog is unreachable, whose config no longer parses,
- * or whose scopes were deleted — which is the state a project is usually in when someone reaches for
+ * or whose `requires` entries were deleted — which is the state a project is usually in when someone reaches for
  * it. `prune` cannot: "not in the current bundle" is a question only resolution can answer.
  *
  * That asymmetry is also why only `prune` rewrites `ambit.lock`. Having resolved, it knows exactly what

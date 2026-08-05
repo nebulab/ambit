@@ -1,8 +1,9 @@
 /**
  * Hook entity parsing.
  *
- * The same shape appears in two places — `hooks/<name>/HOOK.yml` in a catalog, and inline `hooks`
- * entries in `ambit.yml` — so one parser serves both.
+ * One shape, one place it can be written: `hooks/<name>/HOOK.yml` in a catalog. A project that defines
+ * a hook of its own lists itself as a catalog and puts it there, so this parser has one caller and no
+ * variant to reconcile.
  */
 import type { Expectation } from "./expectation.js";
 import { parseExpectations } from "./expectation.js";
@@ -48,8 +49,11 @@ export interface HookEntity {
   readonly name: string;
   /** Carried into reports. */
   readonly description?: string;
-  /** Declared scopes. Empty means reachable only via `requires` or an explicit listing. */
-  readonly scopes: readonly string[];
+  /**
+   * Declared tags: free-form labels, registered nowhere, that a consumer can select on. Empty means
+   * reachable by a `name:` entry or a `requires` edge, and by nothing else.
+   */
+  readonly tags: readonly string[];
   readonly event: HookEvent;
   /** Tool-name filter. Only ever set on one of {@link MATCHABLE_EVENTS}. */
   readonly matcher?: string;
@@ -79,7 +83,7 @@ const ENTITY_KEYS = [
   "expects",
   "matcher",
   "name",
-  "scopes",
+  "tags",
   "timeout",
   "type",
 ] as const;
@@ -152,10 +156,10 @@ function parseType(mapping: YamlMapping): HookType {
 /**
  * Rejects a `type: script` whose `command` cannot name a file inside the hook's own directory.
  *
- * Shape only — whether the file is actually there is a question for whoever holds the directory, and
- * an inline hook holds none. What is refused here is a reference that could not be inside it under any
- * contents: an absolute path, and one climbing out through `..`. An empty one cannot reach this at all,
- * because `requireString` has already refused a blank `command`.
+ * Shape only — whether the file is actually there is a question for whoever holds the directory, which
+ * is the catalog rather than this parser. What is refused here is a reference that could not be inside
+ * it under any contents: an absolute path, and one climbing out through `..`. An empty one cannot reach
+ * this at all, because `requireString` has already refused a blank `command`.
  *
  * Under the old derivation these were silently reclassified as command lines, which is how
  * `command: /usr/bin/guard.sh` on a hook that meant to ship one installed a hook pointing at a file
@@ -205,7 +209,7 @@ export function parseHookEntity(mapping: YamlMapping): HookEntity {
   return {
     name,
     ...(description !== undefined && { description }),
-    scopes: mapping.optionalStringList("scopes") ?? [],
+    tags: mapping.optionalStringList("tags") ?? [],
     event,
     ...(matcher !== undefined && { matcher }),
     type,

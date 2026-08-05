@@ -10,19 +10,11 @@
  * the same bundle, and a reader comparing the two should not have to re-find their bearings. The
  * reason is deliberately the short form — `ambit why` is where a whole chain belongs.
  *
- * Shadowing is annotated beside the reason rather than in place of it. Spec §6 lists
- * `catalog:company (shadows personal)` alongside the three selection reasons, but the two answer
- * different questions — *why is this here* and *whose copy is this* — and only one item in a bundle
- * can be shadowed while every item has a reason. Folding the first into the second would cost a
- * shadowed item its reason, in `--explain` and in `ambit why`'s chain both.
+ * There is nothing to annotate about *whose* copy an item is. Every row already names its catalog,
+ * and a bundle holds one item per name — a selection reaching two catalogs' copies of one name is
+ * refused at resolve rather than reported here, since both would be installed at one path.
  */
-import type { MergedCatalog, Shadowing } from "../../model/catalog.js";
-import {
-  formatShadowing,
-  loadCatalogs,
-  mergeCatalogs,
-  mergeConfigEntities,
-} from "../../model/catalog.js";
+import { loadCatalogs, mergeCatalogs } from "../../model/catalog.js";
 import type { CommandHandler } from "../commands.js";
 import { jsonRequested, sourceContextOf } from "../commands.js";
 import { loadProjectConfig } from "../../model/config.js";
@@ -37,55 +29,20 @@ function reason(bundle: Bundle, item: BundleItem, explain: boolean): string | un
   return explain ? formatReason(reasonOf(bundle, item)) : undefined;
 }
 
-/** The shadowings of the namespace `kind` names, so a lookup never has to know which map that is. */
-function shadowingsOf(
-  merged: MergedCatalog,
-  kind: BundleItem["kind"],
-): ReadonlyMap<string, Shadowing> {
-  switch (kind) {
-    case "skill":
-      return merged.shadowing.skills;
-    case "mcp":
-      return merged.shadowing.mcps;
-    case "hook":
-      return merged.shadowing.hooks;
-  }
-}
-
-/**
- * The shadowing an item carries, present only under `--explain` and only where two catalogs both
- * provided the name.
- */
-function shadowing(
-  merged: MergedCatalog,
-  item: BundleItem,
-  explain: boolean,
-): Shadowing | undefined {
-  if (!explain) return undefined;
-  return shadowingsOf(merged, item.kind).get(item.name);
-}
-
-function toJson(
-  bundle: Bundle,
-  merged: MergedCatalog,
-  explain: boolean,
-): Readonly<Record<string, unknown>> {
+function toJson(bundle: Bundle, explain: boolean): Readonly<Record<string, unknown>> {
   return {
     expects: bundle.expects,
     hooks: keyed(
       bundle.hooks,
       (hook) => hook.name,
       (hook) => {
-        const item: BundleItem = { kind: "hook", name: hook.name };
-        const why = reason(bundle, item, explain);
-        const shadowed = shadowing(merged, item, explain);
-        // The event beside the origin, not instead of it: a hook a project declares inline names
-        // `ambit.yml` there, and the event is what a reader scanning the list is looking for.
+        const why = reason(bundle, { kind: "hook", name: hook.name }, explain);
+        // The event beside the catalog, not instead of it: the catalog says where to change the hook,
+        // and the event is what a reader scanning the list is looking for.
         return {
           catalog: hook.catalog,
           event: hook.event,
           ...(why !== undefined && { reason: why }),
-          ...(shadowed !== undefined && { shadows: shadowed.shadows }),
         };
       },
     ),
@@ -93,91 +50,58 @@ function toJson(
       bundle.mcps,
       (mcp) => mcp.name,
       (mcp) => {
-        const item: BundleItem = { kind: "mcp", name: mcp.name };
-        const why = reason(bundle, item, explain);
-        const shadowed = shadowing(merged, item, explain);
+        const why = reason(bundle, { kind: "mcp", name: mcp.name }, explain);
         return {
           catalog: mcp.catalog,
           ...(why !== undefined && { reason: why }),
-          ...(shadowed !== undefined && { shadows: shadowed.shadows }),
         };
       },
     ),
-    scopes: bundle.scopes,
     skills: keyed(
       bundle.skills,
       (skill) => skill.name,
       (skill) => {
-        const item: BundleItem = { kind: "skill", name: skill.name };
-        const why = reason(bundle, item, explain);
-        const shadowed = shadowing(merged, item, explain);
+        const why = reason(bundle, { kind: "skill", name: skill.name }, explain);
         return {
           catalog: skill.catalog,
           path: skill.path,
           ...(why !== undefined && { reason: why }),
-          // Structured rather than the `--explain` string: the record already names the winning
-          // catalog, so a consumer needs the losers, not a sentence about them.
-          ...(shadowed !== undefined && { shadows: shadowed.shadows }),
         };
       },
     ),
   };
 }
 
-/**
- * A row with the reason appended, or the row unchanged when nothing was asked to explain it.
- *
- * The shadowing cell is emitted empty rather than omitted where there is none, so the reason column
- * is padded identically down the whole section — a table where one row's last column is aligned and
- * the next row's is not reads as a bug.
- */
-function row(
-  cells: readonly string[],
-  why: string | undefined,
-  shadowed: Shadowing | undefined,
-): readonly string[] {
-  if (why === undefined) return cells;
-  return [...cells, why, shadowed === undefined ? "" : formatShadowing(shadowed)];
+/** A row with the reason appended, or the row unchanged when nothing was asked to explain it. */
+function row(cells: readonly string[], why: string | undefined): readonly string[] {
+  return why === undefined ? cells : [...cells, why];
 }
 
-function toText(bundle: Bundle, merged: MergedCatalog, explain: boolean): readonly string[] {
+function toText(bundle: Bundle, explain: boolean): readonly string[] {
   return [
     ...section(
-      "scopes",
-      bundle.scopes.map((scope) => [scope]),
-    ),
-    ...section(
       "skills",
-      bundle.skills.map((skill) => {
-        const item: BundleItem = { kind: "skill", name: skill.name };
-        return row(
+      bundle.skills.map((skill) =>
+        row(
           [skill.name, skill.catalog],
-          reason(bundle, item, explain),
-          shadowing(merged, item, explain),
-        );
-      }),
+          reason(bundle, { kind: "skill", name: skill.name }, explain),
+        ),
+      ),
     ),
     ...section(
       "mcps",
-      bundle.mcps.map((mcp) => {
-        const item: BundleItem = { kind: "mcp", name: mcp.name };
-        return row(
-          [mcp.name, mcp.catalog],
-          reason(bundle, item, explain),
-          shadowing(merged, item, explain),
-        );
-      }),
+      bundle.mcps.map((mcp) =>
+        row([mcp.name, mcp.catalog], reason(bundle, { kind: "mcp", name: mcp.name }, explain)),
+      ),
     ),
     ...section(
       "hooks",
-      bundle.hooks.map((hook) => {
-        const item: BundleItem = { kind: "hook", name: hook.name };
-        return row(
+      bundle.hooks.map((hook) =>
+        row(
           [hook.name, hook.catalog, hook.event],
-          reason(bundle, item, explain),
-          shadowing(merged, item, explain),
-        );
-      }),
+          reason(bundle, { kind: "hook", name: hook.name }, explain),
+        ),
+      ),
     ),
     // One row per precondition, its kind in its own column: the kind is what says how the thing is
     // checked, so a reader scanning the section can see `env` and the `bin` beside it for what they are
@@ -194,15 +118,14 @@ export const resolveHandler: CommandHandler = async (ctx) => {
 
   const context = sourceContextOf(ctx);
   const config = await loadProjectConfig(context.projectDir);
-  const catalogs = mergeCatalogs(await loadCatalogs(config, context));
-  const merged = await mergeConfigEntities(catalogs, config, context);
+  const merged = mergeCatalogs(await loadCatalogs(config, context));
   const bundle = resolveBundle(config, merged);
 
   if (jsonRequested(ctx)) {
-    ctx.stdout(JSON.stringify(toJson(bundle, merged, explain), null, 2));
+    ctx.stdout(JSON.stringify(toJson(bundle, explain), null, 2));
     return ExitCode.Success;
   }
 
-  printSections(toText(bundle, merged, explain), ctx.stdout);
+  printSections(toText(bundle, explain), ctx.stdout);
   return ExitCode.Success;
 };

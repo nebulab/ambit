@@ -68,7 +68,7 @@ export interface PlannedSkillDir {
  * are looking at — a hook directory is not a skill and reporting it as one would be a lie in every one
  * of those places.
  *
- * Planned only for a hook whose `command` names a file its directory holds. An inline hook is a command
+ * Planned only for a hook whose `command` names a file its directory holds. Any other hook is a command
  * line and some config values, so it plans a config entry and nothing else.
  */
 export interface PlannedHookDir {
