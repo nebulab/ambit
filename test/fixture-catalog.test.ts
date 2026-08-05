@@ -10,6 +10,7 @@ import {
   FIXTURE_MARKER,
   buildFixtureCatalog,
   buildFixtureGitCatalog,
+  commitFixtureGitRevision,
 } from "../scripts/fixture-catalog.js";
 
 /** Every file under `dir`, as `/`-separated relative paths, sorted. */
@@ -330,6 +331,26 @@ describe("fixture git catalog", () => {
     expect(await readFile(path.join(first.repo, "HEAD"), "utf8")).toBe(
       `ref: refs/heads/${first.branch}\n`,
     );
+  });
+
+  it("moves the branch and leaves the tag behind when a second revision is committed", async () => {
+    const fixture = await buildFixtureGitCatalog(path.join(root, "a"));
+
+    const moved = await commitFixtureGitRevision(fixture, {
+      "skills/second/SKILL.md": "---\nname: second\nambit:\n  tags: [core]\n---\n\n# second\n",
+    });
+
+    const git = promisify(execFile);
+    const revision = async (ref: string): Promise<string> =>
+      (
+        await git("git", ["--git-dir", fixture.repo, "rev-parse", ref], { encoding: "utf8" })
+      ).stdout.trim();
+
+    // What `ambit outdated` needs and no other suite does: one repository whose branch has somewhere
+    // new to point and whose tag still names the commit the first build made.
+    expect(moved).not.toBe(fixture.commit);
+    expect(await revision(fixture.branch)).toBe(moved);
+    expect(await revision(fixture.tag)).toBe(fixture.commit);
   });
 
   it("records the hook script as executable in the commit", async () => {

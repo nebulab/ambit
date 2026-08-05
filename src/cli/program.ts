@@ -8,9 +8,11 @@ import { doctorHandler } from "./handlers/doctor.js";
 import { dumpCatalogHandler } from "./handlers/dump-catalog.js";
 import { initHandler } from "./handlers/init.js";
 import { installHandler } from "./handlers/install.js";
+import { outdatedHandler, refusesOfflineRule } from "./handlers/outdated.js";
 import { pruneHandler } from "./handlers/prune.js";
 import { resolveHandler } from "./handlers/resolve.js";
 import { statusHandler } from "./handlers/status.js";
+import { updateHandler } from "./handlers/update.js";
 import { validateHandler } from "./handlers/validate.js";
 import { whyHandler } from "./handlers/why.js";
 import { VERSION } from "../version.js";
@@ -21,7 +23,7 @@ export type Io = Pick<CommandContext, "cwd" | "stdout" | "stderr">;
  * Handlers, keyed by the words a user types. Every command the surface declares now has one; a command
  * added without an entry here reports itself unimplemented (exit 1) rather than silently succeeding.
  *
- * Ten entries, and no key with a space in it: the surface is flat, `catalog validate` having been
+ * Twelve entries, and no key with a space in it: the surface is flat, `catalog validate` having been
  * absorbed into `validate` when a catalog stopped being a subject of its own. A group, were one
  * declared again, would still be absent from here — it holds commands and runs none itself, so bare
  * `ambit <group>` prints usage rather than dispatching to whichever child was picked as its default.
@@ -32,9 +34,11 @@ export const HANDLERS: CommandHandlers = {
   "dump-catalog": dumpCatalogHandler,
   init: initHandler,
   install: installHandler,
+  outdated: outdatedHandler,
   prune: pruneHandler,
   resolve: resolveHandler,
   status: statusHandler,
+  update: updateHandler,
   validate: validateHandler,
   why: whyHandler,
 };
@@ -44,14 +48,23 @@ export const HANDLERS: CommandHandlers = {
  * was given, before it is dispatched (`buildCommand` hangs each one off its command as a `preAction`
  * hook).
  *
- * Empty, and honestly so. The four rules that lived here belonged to the commands that wrote into a
- * catalog — one about a label needing a description, one about a server needing exactly one transport,
- * one about an annotation contradicting itself — and went when those commands did. Nothing writes into
- * a catalog now, and no command left has a flag shape Commander cannot word a refusal
- * for: `install`'s `--copy`/`--link` is on `.conflicts()`, whose wording for two flags that cannot
+ * Two commands need one. The four rules that used to sit beside them belonged to the commands that
+ * wrote into a catalog — one about a label needing a description, one about a server needing exactly
+ * one transport, one about an annotation contradicting itself — and went when those commands did.
+ * What is left is here rather than on a Commander primitive for the usual reason:
+ * `.makeOptionMandatory()` and `.conflicts()` produce a message that names no file and gives no next
+ * step, which every error a user can reach has to give. `install`'s `--copy`/`--link` is the
+ * counter-example that stayed on `.conflicts()` — Commander's wording for two flags that cannot
  * appear together is already the whole of what there is to say.
+ *
+ * The two are the same rule twice, which is the point: `outdated` and `update` both exist to ask
+ * a remote where a ref points now, so `--offline` is a flag neither can honour, and one refusal keeps
+ * them saying so identically.
  */
-export const RULES: CommandRules = {};
+export const RULES: CommandRules = {
+  outdated: refusesOfflineRule,
+  update: refusesOfflineRule,
+};
 
 /**
  * Copies the program's settings down the whole command tree.

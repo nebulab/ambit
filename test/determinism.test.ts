@@ -198,6 +198,13 @@ const SURFACES: readonly Surface[] = [
   { argv: ["prune", "--dry-run", "--json"], dir: "project" },
   { argv: ["clean", "--dry-run"], dir: "project" },
   { argv: ["clean", "--dry-run", "--json"], dir: "project" },
+  // The project's one catalog is a `path:` source, so both of these reach no remote and report it as
+  // `unversioned` — which is the case worth pinning here rather than in spite of it: a report whose
+  // rows depend on nothing outside the fixture is exactly what a determinism table can assert.
+  { argv: ["outdated"], dir: "project" },
+  { argv: ["outdated", "--json"], dir: "project" },
+  { argv: ["update", "--dry-run"], dir: "project" },
+  { argv: ["update", "--dry-run", "--json"], dir: "project" },
 ];
 
 /** What a surface printed, whole: two streams and the code, since all three have to be stable. */

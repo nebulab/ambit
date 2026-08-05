@@ -18,6 +18,7 @@ ambit makes picking them declarative:
 - [Concepts](#concepts)
 - [File formats](#file-formats)
 - [Resolution](#resolution)
+- [Staying up to date](#staying-up-to-date)
 - [CLI reference](#cli-reference)
 - [Migration](#migration)
 - [Development](#development)
@@ -109,6 +110,7 @@ Then:
 ```
 $ ambit resolve --explain      # what you would get, and why
 $ ambit install                # write the lock, materialize the bundle, prune what left it
+$ ambit outdated               # has any catalog moved, and would it change anything?
 ```
 
 ```
@@ -421,7 +423,9 @@ scope over as a tag on the items that declared it.
 ## Resolution
 
 1. **Load and validate config.** Malformed → exit 2 naming the field.
-2. **Fetch catalogs**, each into the local cache, at its `ref`, resolved to a commit SHA.
+2. **Fetch catalogs**, each into the local cache, at its `ref`, resolved to a commit SHA. A cached
+   clone is refetched only when it cannot answer the `ref`, so a moving one keeps meaning what it
+   meant — see [Staying up to date](#staying-up-to-date).
 3. **Parse each catalog:** every `skills/**/SKILL.md`, every `mcps/*.yml`, every `hooks/**/HOOK.yml`.
    A skill or hook whose declared `name` disagrees with its directory path is an error. A leftover
    `scopes.yml` → exit 2 naming the rewrite.
@@ -494,41 +498,94 @@ cannot say whether `company/function.engineering` matched a name or a tag is not
 reaching one item tie-break on sorted order. `ambit why <kind>:<name>` walks the `required-by` chain
 back to the entry at the end of it.
 
+## Staying up to date
+
+A catalog is fetched into a local cache, and the cache is refetched only when it cannot answer the
+`ref` it was asked for. So `ref: main` keeps meaning whichever commit it meant the first time, and
+`ambit install` run twice a week apart installs the same bytes. Moving forward is a decision, and
+these are the two commands that make it:
+
+```
+$ ambit outdated
+catalogs (2)
+  company   outdated  a1b2c3d → f9e1a04
+  personal  current   3f1a99b
+
+skills (3)
+  +  code-review  tag:company/function.engineering
+  +  storybook    required-by:code-review
+  ~  house-style  description changed
+
+mcps (2)
+  ~  sentry  transport.http.url changed
+  -  linear  was tag:company/function.engineering
+
+hooks (1)
+  +  guard-secrets  PreToolUse Bash — runs .agents/hooks/guard-secrets/guard.sh
+```
+
+**The report is about capabilities, not commits.** Both refs are resolved in one process and the two
+bundles are compared directly, so a branch that advanced over two hundred commits touching nothing
+this project selects reports a moved commit and an empty diff — which is the answer you wanted. A
+changed item names the field that moved (`transport.http.url changed`) in preference to the file, and
+falls back to `content changed` only when nothing it declares moved. An arriving hook says what will
+run, because that is the question an update actually raises.
+
+| Freshness     | Meaning                                                                                                                                                |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `outdated`    | The `ref` names a different commit than the project resolves to now.                                                                                   |
+| `current`     | It names the same one.                                                                                                                                 |
+| `pinned`      | The `ref` is a commit, so there is nothing for it to name differently.                                                                                 |
+| `unversioned` | A `path:` source. It has no revision, so it cannot be _behind_ — `ambit status` is the command for whether its bundle still matches what is installed. |
+
+`ambit outdated` reaches the remote and still changes nothing: the answer lands in a private ref
+namespace inside the cache that resolution never reads, so running it never moves a pin and never
+changes what a later `ambit install` installs. `ambit update` is the command that does move it, and
+`ambit update --dry-run` is exactly `ambit outdated` restricted to the catalogs you named.
+
+Neither accepts `--offline`. Only the remote knows where a branch points now, so a cached answer
+would be a confident wrong one; both refuse with exit 4 instead.
+
+Every source a project has is a catalog — an item cannot be declared anywhere else — so there is no
+second kind of `ref:` left for `ambit update` to miss.
+
 ## CLI reference
 
 ### Global flags
 
-| Flag              | Notes                                                                  |
-| ----------------- | ---------------------------------------------------------------------- |
-| `--project <dir>` | The project to act on. Default: cwd. The only directory flag there is. |
-| `--json`          | Machine-readable output. Every command supports it.                    |
-| `--offline`       | Resolve from the cache alone. Every command accepts it.                |
-| `--dry-run`       | On mutating commands: report what would happen and touch nothing.      |
-| `--help`          | Usage for the program or for any command, on stdout at exit 0.         |
-| `--version`       | Print the ambit version. Program-level.                                |
+| Flag              | Notes                                                                                          |
+| ----------------- | ---------------------------------------------------------------------------------------------- |
+| `--project <dir>` | The project to act on. Default: cwd. The only directory flag there is.                         |
+| `--json`          | Machine-readable output. Every command supports it.                                            |
+| `--offline`       | Resolve from the cache alone. Refused by `outdated` and `update`, which exist to ask a remote. |
+| `--dry-run`       | On mutating commands: report what would happen and touch nothing.                              |
+| `--help`          | Usage for the program or for any command, on stdout at exit 0.                                 |
+| `--version`       | Print the ambit version. Program-level.                                                        |
 
 `--dry-run` still checks ownership and `--frozen`: a preview of an install that would be refused is
 refused, with the same message and exit code.
 
 ### Commands
 
-Ten, and one flat surface: every one of them takes the same three global flags — `--project`, `--json`,
-`--offline` — and no word in the surface is a group. Nothing writes into a catalog: a catalog is
-Markdown and YAML in a git repo, maintained the way the rest of the repo is, with an editor and a
-validate step in CI.
+Twelve, and one flat surface: every one of them takes `--project` and `--json`, and no word in the
+surface is a group. `--offline` is the one flag not every command answers to — `outdated` and `update`
+exist to ask a remote, so they refuse it. Nothing writes into a catalog: a catalog is Markdown and YAML
+in a git repo, maintained the way the rest of the repo is, with an editor and a validate step in CI.
 
-| Command                                               | What it does                                                                                                                                                                                                             |
-| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `ambit init`                                          | Scaffold `ambit.yml`, `skills/`, `mcps/` and `hooks/`, and a live `catalogs:` entry naming the project itself. Refuses a directory that already holds a config, `--dry-run` included, and does not create a missing one. |
-| `ambit dump-catalog`                                  | Dump the merged catalog: every item in every catalog the project lists, the project's own among them, whether anything selects it or not.                                                                                |
-| `ambit resolve [--explain]`                           | Compute the bundle and print it.                                                                                                                                                                                         |
-| `ambit why <kind:name>`                               | Explain why one item is in the bundle, as a chain. The subject declares its namespace, as everything that names an item does.                                                                                            |
-| `ambit install [--frozen] [--adopt] [--copy\|--link]` | Resolve, write `ambit.lock`, materialize the bundle, prune what left it.                                                                                                                                                 |
-| `ambit status [--check]`                              | Compare what is installed against what resolve produces. `--check` exits 5 on drift.                                                                                                                                     |
-| `ambit prune`                                         | Remove owned artifacts not in the current bundle.                                                                                                                                                                        |
-| `ambit clean`                                         | Remove everything ambit owns.                                                                                                                                                                                            |
-| `ambit validate`                                      | Validate everything this project configures, for CI — every catalog it lists, the project's own items among them. A catalog repo runs this too: it lists itself.                                                         |
-| `ambit doctor`                                        | Check preconditions, the lock, ownership, drift, materialization mode, and harness limits.                                                                                                                               |
+| Command                                                | What it does                                                                                                                                                                                                             |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ambit init`                                           | Scaffold `ambit.yml`, `skills/`, `mcps/` and `hooks/`, and a live `catalogs:` entry naming the project itself. Refuses a directory that already holds a config, `--dry-run` included, and does not create a missing one. |
+| `ambit dump-catalog`                                   | Dump the merged catalog: every item in every catalog the project lists, the project's own among them, whether anything selects it or not.                                                                                |
+| `ambit resolve [--explain]`                            | Compute the bundle and print it.                                                                                                                                                                                         |
+| `ambit why <kind:name>`                                | Explain why one item is in the bundle, as a chain. The subject declares its namespace, as everything that names an item does.                                                                                            |
+| `ambit install [--frozen] [--adopt] [--copy\|--link]`  | Resolve, write `ambit.lock`, materialize the bundle, prune what left it.                                                                                                                                                 |
+| `ambit outdated`                                       | Ask each catalog's remote where its `ref` points now, and report what moving there would change.                                                                                                                         |
+| `ambit update [<catalog>…] [--adopt] [--copy\|--link]` | Move those pins forward, then install. Every catalog when none is named.                                                                                                                                                 |
+| `ambit status [--check]`                               | Compare what is installed against what resolve produces. `--check` exits 5 on drift.                                                                                                                                     |
+| `ambit prune`                                          | Remove owned artifacts not in the current bundle.                                                                                                                                                                        |
+| `ambit clean`                                          | Remove everything ambit owns.                                                                                                                                                                                            |
+| `ambit validate`                                       | Validate everything this project configures, for CI — every catalog it lists, the project's own items among them. A catalog repo runs this too: it lists itself.                                                         |
+| `ambit doctor`                                         | Check preconditions, the lock, ownership, drift, materialization mode, and harness limits.                                                                                                                               |
 
 There is no `ambit catalog`. A catalog repo is a project that lists itself — three lines of
 `ambit.yml`, which `ambit init` writes — so `ambit validate` reads its `skills/`, `mcps/` and `hooks/`
