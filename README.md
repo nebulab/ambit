@@ -390,8 +390,11 @@ npm run build
 ```
 
 `test/golden/` holds recorded program output and is exempt from Prettier. Regenerate it with
-`UPDATE_GOLDEN=1 npm test` and read the diff. `npm run fixture` builds the fixture catalog the suite
-resolves against. `AMBIT_SKIP_NETWORK_TESTS=1` skips the dotagents compatibility test.
+`UPDATE_GOLDEN=1 npm test` and read the diff.
+
+`npm run fixture` builds the fixture catalog the suite resolves against.
+
+`AMBIT_SKIP_NETWORK_TESTS=1` skips the dotagents compatibility test.
 
 ## License
 
