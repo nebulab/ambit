@@ -15,7 +15,6 @@ You write a few lines of config. ambit fetches, resolves, and writes the files.
 - [Quick start](#quick-start)
 - [What you can select](#what-you-can-select)
 - [Configuring your project](#configuring-your-project)
-- [Selecting items by name](#selecting-items-by-name)
 - [Authoring a catalog](#authoring-a-catalog)
 - [Staying up to date](#staying-up-to-date)
 - [Checking it in CI](#checking-it-in-ci)
@@ -92,12 +91,12 @@ $ ambit outdated            # has any catalog moved, and would it change anythin
 
 A **catalog** is a git repo (or a local directory) holding up to four kinds of thing:
 
-| Kind      | Lives in                 | What it is                               |
-| --------- | ------------------------ | ---------------------------------------- |
-| **Skill** | `skills/<name>/SKILL.md` | Instructions the agent can load          |
-| **MCP**   | `mcps/<name>.yml`        | A server definition                      |
-| **Hook**  | `hooks/<name>/hook.yml`  | A command that runs on one harness event |
-| **Pack**  | `packs/<name>.yml`       | A named group of the other three         |
+| Kind      | Lives in                 | What it is                                                                   |
+| --------- | ------------------------ | ---------------------------------------------------------------------------- |
+| **Skill** | `skills/<name>/SKILL.md` | Instructions the agent can load                                              |
+| **MCP**   | `mcps/<name>.yml`        | A server definition                                                          |
+| **Hook**  | `hooks/<name>/hook.yml`  | A command that runs on one harness event                                     |
+| **Pack**  | `packs/<name>.yml`       | A named group of the other three. ambit's own idea, invisible to the harness |
 
 An item's name is its path inside its directory, with `/` read as `.`. So
 `skills/close-crm/SKILL.md` is the skill `close-crm`, and `packs/function/engineering.yml` is the
@@ -146,34 +145,6 @@ requires:
 **Source formats:** `owner/repo`, `owner/repo@ref` (GitHub shorthand),
 `https://github.com/owner/repo`, `git@host:owner/repo.git`, `git:<any-git-url>`,
 `path:./relative/dir`.
-
-## Selecting items by name
-
-`*` matches any run of characters, including `.`, and may appear anywhere. A pattern with no `*` is
-an exact name.
-
-```
-skill: "company/core.*"   ->  core.a, core.a.b        (NOT core)
-skill: "company/core"     ->  core
-skill: "company/*"        ->  every skill in the catalog
-```
-
-`core.*` means _`core`, a dot, then anything_, and `core` has no dot. Selecting a prefix **and** the
-item named exactly that takes two entries.
-
-The catalog name is not globbed. It is an alias from `catalogs:`, so `*/core` asks for a catalog
-literally called `*`.
-
-An entry that matches nothing is an error, not a silent miss. `ambit search` uses the same patterns,
-so what you typed to find an item is what selects it:
-
-```
-$ ambit search --capability pack "*"       # every group the catalogs named
-$ ambit search --capability skill "core.*" # skills under the `core` prefix
-$ ambit search --catalog company "*lint*"  # one catalog, anything with `lint` in the name
-```
-
-Repeating a flag widens (`--catalog a --catalog b` means _either_); different flags narrow.
 
 ## Authoring a catalog
 
@@ -279,8 +250,10 @@ Hook support varies by harness:
 
 ### Packs
 
-A pack is a named group. It ships no files and installs nowhere. What it does is give a grouping a
-name, so one `requires` entry takes the lot.
+**A pack is ambit's own invention.** Skills, MCP servers, and hooks are things your harness already
+understands. A pack is not: it exists only inside ambit, ships no files, and installs nowhere. No
+harness ever sees one. What it does is give a group of the other three a name, so one `requires`
+entry takes the lot.
 
 ```yaml
 # packs/function/engineering.yml
