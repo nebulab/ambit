@@ -5,11 +5,11 @@ ambit is a dependency manager for your AI agent's harness.
 All agent harnesses (Claude Code, Codex, Cursor, opencode, etc.) load skills, hooks, and MCP servers.
 ambit makes picking them declarative:
 
-1. An ambit catalog is a directory of skills, hooks and MCP servers, each named by its path and
-   tagged with whatever labels its author thinks say who needs it.
-2. An ambit project declares the catalogs it draws from and, per catalog, the patterns it selects —
-   by name or by tag.
-3. ambit resolves those patterns into a bundle and writes it into your harness's configuration.
+1. An ambit catalog is a directory of skills, hooks and MCP servers, each named by its path — plus
+   **packs**, which are named groups of the other three.
+2. An ambit project declares the catalogs it draws from and, per catalog, what it selects: a pack, or
+   an individual skill, server or hook, by name or by glob.
+3. ambit resolves those into a bundle and writes it into your harness's configuration.
 
 ## Table of contents
 
@@ -20,7 +20,6 @@ ambit makes picking them declarative:
 - [Resolution](#resolution)
 - [Staying up to date](#staying-up-to-date)
 - [CLI reference](#cli-reference)
-- [Migration](#migration)
 - [Development](#development)
 - [License](#license)
 
@@ -41,10 +40,11 @@ and lists itself — so one command scaffolds both halves:
 
 ```
 $ ambit init
-created (4)
+created (5)
   ambit.yml
   hooks/.gitkeep
   mcps/.gitkeep
+  packs/.gitkeep
   skills/.gitkeep
 
 kept (0)
@@ -59,12 +59,12 @@ The `ambit.yml` it writes lists the project itself as a catalog:
 ```yaml
 catalogs:
   - name: local
-    source: path:. # this project's own skills/, mcps/, hooks/
+    source: path:. # this project's own packs/, skills/, mcps/, hooks/
 ```
 
-That entry is live; the `requires` entry selecting it is scaffolded **commented out**, because an
-entry matching nothing is exit 3 and a fresh project's `local` catalog is three empty directories.
-Uncomment it once there is something to take.
+That entry is live; the `requires` entries selecting it are scaffolded **commented out**, because an
+entry matching nothing is exit 3 and a fresh project's `local` catalog is four empty directories.
+Uncomment them once there is something to take.
 
 An existing `ambit.yml` is refused, and so is a project directory that does not exist — `--project`
 naming the wrong path should not leave a project where nobody meant one. An existing `.gitkeep` is
@@ -72,17 +72,38 @@ left byte-identical and reported as `kept`.
 
 ### Authoring a catalog
 
-A catalog is a plain git repo, and a catalog is a directory: three item directories, and no config
-file of its own. `ambit init` scaffolds one; write its skills, servers and hooks with your editor.
+A catalog is a plain git repo, and a catalog is a directory: four item directories, and no config
+file of its own. `ambit init` scaffolds one; write its contents with your editor.
 
 Add a skill by writing `skills/<name>/SKILL.md`, a server by writing `mcps/<name>.yml`, a hook by
-writing `hooks/<name>/hook.yml`, and tag each with the labels that say who needs it. Every format is
-documented below, and `ambit validate` checks the result. There is no command that writes into a
-catalog: it is Markdown and YAML, and you have an editor.
+writing `hooks/<name>/hook.yml`. Every format is documented below, and `ambit validate` checks the
+result. There is no command that writes into a catalog: it is Markdown and YAML, and you have an
+editor.
 
-Tags are free-form: nothing registers one, nothing describes one, and no file in the catalog has to
-agree about which tags exist. The cost is that a misspelled tag is silently a new tag, reaching
-nobody — nothing can catch that.
+Then group them. A **pack** is a fourth kind of capability whose only job is to pull in the other
+three:
+
+```yaml
+# packs/function/engineering.yml
+name: function.engineering
+description: Everything an Acme engineer needs — reviews, tooling, and the guards around them.
+
+requires:
+  - pack: core
+  - skill: code-review
+  - mcp: linter
+  - hook: guard-secrets
+```
+
+A pack ships no bytes and installs nowhere. What it does is give a grouping a **name in the catalog**
+— so `ambit dump-catalog` can list it, it carries a description saying what it is for, and a
+`requires` entry naming one that does not exist fails the install rather than reaching nobody. A pack
+may require other packs, which is how a large grouping is built out of small ones.
+
+That is deliberately the author's call rather than the consumer's. The free-form labels this replaced
+let a consumer invent a grouping the catalog had never blessed; a pack does not. The catalog decides
+what `function.engineering` means, in one place, and a consumer who wants a different set writes the
+entries for it or asks the catalog for a pack.
 
 ### Consuming a catalog
 
@@ -99,10 +120,8 @@ catalogs:
     ref: main
 
 requires:
-  - tag: "company/function.engineering"
-    capabilities: [skills, mcps, hooks]
-  - name: "company/core.*"
-    capabilities: [skills]
+  - pack: "company/function.engineering" # everything that pack names, transitively
+  - skill: "company/core.*" # everything beneath the `core` name prefix
 ```
 
 Then:
@@ -129,9 +148,9 @@ artifacts (5)
 ### Checking it in CI
 
 `ambit validate` is the check worth running on every push: it reads every catalog the project lists —
-including the project's own `skills/`, `mcps/` and `hooks/` — and reports every `requires` entry that
-matches nothing, every `requires` cycle, every item whose declared name disagrees with its path, and
-every catalog it fetches and then selects nothing from. Catching those here is the point: a broken
+including the project's own `packs/`, `skills/`, `mcps/` and `hooks/` — and reports every `requires`
+entry that matches nothing, every `requires` cycle, every item whose declared name disagrees with its
+path, and every catalog it fetches and then selects nothing from. Catching those here is the point: a broken
 catalog otherwise fails for whoever installs it next, which is never the person who broke it.
 
 `ambit init` deliberately scaffolds no workflow — a project is routinely an existing application, and
@@ -160,18 +179,18 @@ Add `ambit status --check` beside it to fail on drift between `ambit.lock` and w
 
 ## Concepts
 
-| Term                | Meaning                                                                                                                                                                                                                                        |
-| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Catalog**         | A source of skills, MCP definitions and hooks: a git repo or a local directory.                                                                                                                                                                |
-| **Skill**           | A directory containing `SKILL.md`. Its name is its path under `skills/`, so `skills/close-crm/` is `close-crm`. A nested directory joins its segments with `.`.                                                                                |
-| **MCP entity**      | A server definition in the catalog's `mcps/` directory.                                                                                                                                                                                        |
-| **Hook**            | A directory containing `hook.yml` (lowercase — ambit is its only reader), named from its path under `hooks/` the way a skill is. It runs a command on one harness event.                                                                       |
-| **Tag**             | A label a catalog item carries, saying _who needs it_: `function.engineering`, `project.vision-group`, `person.jane-doe`. Free-form, registered nowhere, and the dots are a convention rather than a structure — nothing reads them as levels. |
-| **Entry**           | One member of a `requires` list, in a project or in a skill: a field to match (`name` or `tag`), a glob to match it with, and the capabilities to match it against.                                                                            |
-| **Project**         | A directory containing `ambit.yml`.                                                                                                                                                                                                            |
-| **Bundle**          | The resolved set of skills, MCP servers and hooks for a project.                                                                                                                                                                               |
-| **Harness adapter** | Code that writes a bundle into one agent tool's layout: `claude`, `codex`, `cursor`, `opencode`, `vscode`.                                                                                                                                     |
-| **Owned artifact**  | A file or directory ambit created, recorded in `.ambit/state.json`. ambit never touches anything else.                                                                                                                                         |
+| Term                | Meaning                                                                                                                                                                                                               |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Catalog**         | A source of packs, skills, MCP definitions and hooks: a git repo or a local directory.                                                                                                                                |
+| **Skill**           | A directory containing `SKILL.md`. Its name is its path under `skills/`, so `skills/close-crm/` is `close-crm`. A nested directory joins its segments with `.`.                                                       |
+| **MCP entity**      | A server definition in the catalog's `mcps/` directory.                                                                                                                                                               |
+| **Hook**            | A directory containing `hook.yml` (lowercase — ambit is its only reader), named from its path under `hooks/` the way a skill is. It runs a command on one harness event.                                              |
+| **Pack**            | A `requires` list with a name and a description, at `packs/<name>.yml`. It ships no bytes and installs nowhere: what it does is name a group of the other three, so one entry takes the lot. Packs may require packs. |
+| **Entry**           | One member of a `requires` list, in a project or in a catalog: one key naming a namespace (`pack`, `skill`, `mcp`, `hook`), carrying the glob to match names in it.                                                   |
+| **Project**         | A directory containing `ambit.yml`.                                                                                                                                                                                   |
+| **Bundle**          | The resolved set of packs, skills, MCP servers and hooks for a project.                                                                                                                                               |
+| **Harness adapter** | Code that writes a bundle into one agent tool's layout: `claude`, `codex`, `cursor`, `opencode`, `vscode`.                                                                                                            |
+| **Owned artifact**  | A file or directory ambit created, recorded in `.ambit/state.json`. ambit never touches anything else.                                                                                                                |
 
 ## File formats
 
@@ -192,72 +211,96 @@ catalogs:
     ref: main
 
 # What this project selects. Nothing is implicit: an item no entry reaches is not
-# installed. Every entry declares both keys — the field, because
-# `function.engineering` is a plausible name prefix and a plausible tag, and
-# `capabilities`, because hooks execute. An address is `<catalog>/<pattern>`,
-# where the catalog is an alias from `catalogs:` above.
+# installed. Each entry is one key naming a namespace — `pack`, `skill`, `mcp`,
+# `hook` — carrying the glob to match names in it. An address is
+# `<catalog>/<pattern>`, where the catalog is an alias from `catalogs:` above.
 requires:
-  - tag: "company/function.engineering"
-    capabilities: [skills, mcps, hooks]
-  - name: "company/core.*" # everything beneath the `core` name prefix
-    capabilities: [skills]
-  - name: "personal/luma" # one skill, exactly
-    capabilities: [skills]
+  - pack: "company/function.engineering" # everything that pack names, transitively
+  - skill: "company/core.*" # everything beneath the `core` name prefix
+  - skill: "personal/luma" # one skill, exactly
+  - hook: "company/guards.*"
 ```
 
 Every definition lives in a file a catalog holds: a skill in `skills/<name>/SKILL.md`, a server in
-`mcps/<name>.yml`, a hook in `hooks/<name>/hook.yml`. A project that ships one of its own puts it
-there and lists **itself** as a catalog:
+`mcps/<name>.yml`, a hook in `hooks/<name>/hook.yml`, a pack in `packs/<name>.yml`. A project that
+ships one of its own puts it there and lists **itself** as a catalog:
 
 ```yaml
 catalogs:
   - name: local
-    source: path:. # this project's own skills/, mcps/, hooks/
+    source: path:. # this project's own packs/, skills/, mcps/, hooks/
 ```
 
 A top-level `mcps:` or `hooks:` is refused rather than ignored, naming both halves of the rewrite:
 the file to move the definition into, and the `catalogs:` entry that makes it reachable. A top-level
-`scopes:` or `skills:` is refused the same way, naming the `requires` entry each of its members
-becomes, per line — the catalog alias is in the same file, so the message prints something pasteable.
+`scopes:` or `skills:` is refused the same way — `skills:` naming the `requires` entry each of its
+members becomes, per line, and `scopes:` naming the pack that does its job now.
 
-| Field       | Type         | Required | Notes                                                                                                                                                                                |
-| ----------- | ------------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `version`   | int          | yes      | Must be `1`.                                                                                                                                                                         |
-| `harnesses` | string[]     | no       | Any of `claude`, `codex`, `cursor`, `opencode`, `vscode`. Default `[claude]`. An unknown name is an error naming the five.                                                           |
-| `catalogs`  | list of maps | no       | `name`, `source`, `ref?`. `name` unique, and holding no `/` — it is the qualifier half of an address, so an alias holding one could be selected from by nothing. A dot is fine.      |
-| `requires`  | list of maps | no       | Each entry: exactly one of `name`/`tag` carrying `<catalog>/<pattern>`, plus a non-empty `capabilities` drawn from `skills`, `mcps`, `hooks`. An entry matching nothing is an error. |
+| Field       | Type         | Required | Notes                                                                                                                                                                           |
+| ----------- | ------------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `version`   | int          | yes      | Must be `1`.                                                                                                                                                                    |
+| `harnesses` | string[]     | no       | Any of `claude`, `codex`, `cursor`, `opencode`, `vscode`. Default `[claude]`. An unknown name is an error naming the five.                                                      |
+| `catalogs`  | list of maps | no       | `name`, `source`, `ref?`. `name` unique, and holding no `/` — it is the qualifier half of an address, so an alias holding one could be selected from by nothing. A dot is fine. |
+| `requires`  | list of maps | no       | Each entry: exactly one key of `pack`/`skill`/`mcp`/`hook`, carrying `<catalog>/<pattern>`. An entry matching nothing is an error.                                              |
 
 **Source formats:** `owner/repo`, `owner/repo@ref` (GitHub shorthand), `https://github.com/owner/repo`,
 `git@host:owner/repo.git`, `git:<any-git-url>`, `path:./relative/dir`. A `@ref` shorthand that
 contradicts the entry's own `ref` is an error.
 
-#### Why an entry declares both keys
+#### Why an entry names its namespace
 
-There is no shorter spelling. An entry is a mapping of two keys, both written out, neither guessed:
+There is no shorter spelling. An entry is a mapping of one key, written out and never guessed:
 
 ```yaml
-- tag: "company/function.engineering"
-  capabilities: [skills, mcps, hooks]
+- pack: "company/function.engineering"
 ```
 
-**The field is declared because a bare pattern cannot say which one it matches.**
-`company/function.engineering` is a plausible name prefix and a plausible tag, and there is no way to
-tell from the string which the author meant. Guessing would mean an entry that stops selecting the day
-a catalog grows an item whose name happens to collide with a tag — so `name:` or `tag:` is stated, the
-same rule that makes `ambit why` take `<kind>:<name>` rather than a bare name.
+**A catalog's namespaces are flat and independent**, so a skill at `skills/mcp/sentry/SKILL.md` is
+legitimately named `mcp.sentry` while an MCP entity called `sentry` sits one namespace over. A bare
+`- company/mcp.sentry` cannot say which of the two it means. Stating the key is the same rule that
+makes `ambit why` take `<kind>:<name>` rather than a bare name.
 
-**`capabilities` is declared because hooks execute.** Defaulting it to all three is tempting: it is
-what the mechanism this replaced did, and it is what would make the common entry one line instead of
-two. It is refused anyway. An entry written while thinking about skills would otherwise install every
-hook carrying that tag, and a hook is a command line the harness runs — the one class of surprise
-worth two lines of YAML to avoid.
+It also means **hooks are opt-in by construction**. A hook is a command line the harness runs, and no
+`skill:` or `pack:` entry can reach one by accident: taking a hook is either a `hook:` entry or a
+pack whose document says, in the catalog, that the hook belongs to it.
 
-The list is a list, rather than a `<kind>.<field>` key, because selection by tag is inherently
-multi-namespace: _everything the author tagged for engineers_ is one thought, and spending three
-entries on it would be a regression against the mechanism it replaces.
+**One entry, one namespace.** An author who wants one name to reach a skill, a server and a hook at
+once declares a **pack** and a consumer writes `- pack: company/engineering`. That is the whole of what
+replaced the free-form tags this grammar used to select on — and the trade is deliberate. A tag let a
+consumer invent a grouping the catalog had never blessed; a pack does not, and in exchange the
+grouping is a document with a name, a description and an enumerable membership, so `ambit
+dump-catalog` can show it and a misspelling in it is an error rather than a label reaching nobody.
 
-The cost is that the common single-namespace entry takes two lines. Adding a shorthand later stays
-backward-compatible; removing one would not, so there is none yet.
+### `packs/<name>.yml`: packs
+
+A pack is a `requires` list with a name and a description. It ships no bytes, runs nothing, and
+installs nowhere — what it contributes to a bundle is the items it names.
+
+```yaml
+name: function.engineering
+description: Everything an Acme engineer needs — reviews, tooling, and the guards around them.
+
+requires:
+  - pack: core # packs compose: a big grouping built out of small ones
+  - skill: code-review
+  - skill: guides.* # a glob, like anywhere else
+  - mcp: linter
+  - hook: guard-secrets
+```
+
+| Key           | Type   | Required | Notes                                                                                                                                                         |
+| ------------- | ------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`        | string | yes      | Must match the path under `packs/`, with the extension dropped and `/` read as `.`, the way a skill's does. `.yml` and `.yaml` are both accepted.             |
+| `description` | string | no       | What the pack is for. Carried into `ambit dump-catalog`, which is the point of a pack being a document.                                                       |
+| `requires`    | map[]  | no       | Each entry: exactly one key of `pack`/`skill`/`mcp`/`hook`, carrying a **bare** pattern. Resolved within this catalog. An entry matching nothing is an error. |
+
+`packs/` nests, unlike `mcps/`: `packs/function/engineering.yml` and `packs/function.engineering.yml`
+both declare `function.engineering`, and declaring the same name both ways is refused rather than
+arbitrated. Group them into directories or not, as you prefer.
+
+There is no `expects` on a pack. An expectation says something must be true of the world, and every
+one of those is read by something that runs — a skill's instructions, a server's credentials, a hook's
+command. A pack runs nothing, and the items it names carry their own.
 
 ### `SKILL.md` frontmatter: skill annotations
 
@@ -266,40 +309,36 @@ backward-compatible; removing one would not, so there is none yet.
 name: close-crm
 description: "Calls the Close CRM REST API…"
 ambit:
-  tags: [function.sales]
   requires: # resolved into the bundle; exit 3 if an entry matches nothing
-    - name: company-context
-      capabilities: [skills]
-    - tag: guards
-      capabilities: [hooks]
+    - skill: company-context
+    - hook: guards.*
   expects: # checked by `doctor`; exit 6 if unsatisfied
     - env: CLOSE_API_KEY
 ---
 ```
 
-| Key              | Type     | Required | Notes                                                                                                                                                                      |
-| ---------------- | -------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ambit`          | map      | no       | Every annotation below. Absent means the skill declares nothing.                                                                                                           |
-| `ambit.tags`     | string[] | no       | Free-form labels a `tag:` entry selects on. Absent or empty: reachable by a `name:` entry or a `requires` edge, and by nothing else.                                       |
-| `ambit.requires` | map[]    | no       | Each entry: exactly one of `name`/`tag` carrying a **bare** pattern, plus a non-empty `capabilities`. Resolved within this catalog. An entry matching nothing is an error. |
-| `ambit.expects`  | map[]    | no       | One entry per precondition, each a single key naming its kind. Today: `env:`.                                                                                              |
+| Key              | Type  | Required | Notes                                                                                                                                                         |
+| ---------------- | ----- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ambit`          | map   | no       | Every annotation below. Absent means the skill declares nothing.                                                                                              |
+| `ambit.requires` | map[] | no       | Each entry: exactly one key of `pack`/`skill`/`mcp`/`hook`, carrying a **bare** pattern. Resolved within this catalog. An entry matching nothing is an error. |
+| `ambit.expects`  | map[] | no       | One entry per precondition, each a single key naming its kind. Today: `env:`.                                                                                 |
 
-**A skill's `requires` is a project's `requires` minus the qualifier.** Same two declared keys, same
-glob rules, so a skill can say _everything tagged `guards`, as hooks_ as readily as a project can. The
-qualifier is refused rather than optional: the alias belongs to the consumer's `catalogs:`, and the same
-catalog is `company` in one project and `acme` in the next. So a bare pattern resolves **within the
-catalog that ships the requiring skill** — a catalog is self-contained, and can only require what it
-ships.
+**A skill's `requires` is a pack's `requires`, and both are a project's minus the qualifier.** Same one
+declared key, same glob rules. What differs is why they exist: a pack's list _is_ the pack, and a
+skill's says what that skill cannot work without — so a project reaching a skill gets a working bundle
+rather than a plausible-looking broken one.
+
+The qualifier is refused rather than optional: the alias belongs to the consumer's `catalogs:`, and the
+same catalog is `company` in one project and `acme` in the next. So a bare pattern resolves **within
+the catalog that ships the requiring document** — a catalog is self-contained, and can only require
+what it ships.
 
 Three consequences worth knowing. A catalog's `requires` cannot reach another catalog's skill, however
 plainly the merged view holds a match. A wildcard is live: adding `skills/core/internal-notes` to a
-catalog grows a dependency for every skill requiring `name: core.*`, at install, with no message —
-accepted, and silent. And a pattern that matches the requiring skill **itself** is a one-step cycle, so
-`core.a` cannot require `name: core.*` — which is why the cycle refusal names the entry that closed the
-loop and the file it is in.
-
-The spelling before this one — `- skill: company-context`, one key naming a namespace — is refused
-rather than read, naming the entry it becomes: `- { name: "company-context", capabilities: [skills] }`.
+catalog grows a dependency for everything requiring `skill: core.*`, at install, with no message —
+accepted, and silent. And a pattern that matches the requiring item **itself** is a one-step cycle, so
+the skill `core.a` cannot require `skill: core.*` — which is why the cycle refusal names the entry that
+closed the loop and the file it is in.
 
 Where only a string will do — `ambit why skill:mcp.sentry`, `ambit why mcp:sentry` — an item is named
 `<kind>:<name>`. Nothing guesses a namespace there either: a bare name is refused rather than resolved
@@ -322,14 +361,13 @@ and one answer to _why does this entry fail my install and that one doesn't_.
 `env:` is `expects`' only kind today, and the list is the shape the next precondition arrives in: a
 skill whose instructions shell out to `docker` has something to declare that no `env:` can carry, and
 `bin:` lands as one more entry rather than as another top-level key meaning _check this_. It is also
-the one annotation all three kinds of entity share — a skill, a server and a hook each read something
-from the world — while only a skill carries `requires`.
+the one annotation the three _executable_ kinds share — a skill, a server and a hook each read
+something from the world — while `requires` is carried by a skill and by a pack.
 
 ### `mcps/<name>.yml`: MCP entities
 
 ```yaml
 name: sentry
-tags: [function.engineering]
 
 transport:
   http:
@@ -350,7 +388,6 @@ expects:
 | Key                       | Type     | Required      | Notes                                                               |
 | ------------------------- | -------- | ------------- | ------------------------------------------------------------------- |
 | `name`                    | string   | yes           | Must match the filename stem. `.yml` and `.yaml` are both accepted. |
-| `tags`                    | string[] | no            | Same semantics as skills.                                           |
 | `transport`               | map      | yes           | Exactly one key, naming the kind: `stdio` or `http`.                |
 | `transport.stdio.command` | string   | yes for stdio | Executable to spawn.                                                |
 | `transport.stdio.args`    | string[] | no            | Arguments, in order.                                                |
@@ -367,7 +404,6 @@ is lowercase, unlike `SKILL.md`, because ambit is the only thing that reads it.
 ```yaml
 name: block-rm
 description: Refuses a destructive rm before it runs
-tags: [function.engineering]
 
 event: PreToolUse
 matcher: Bash
@@ -379,17 +415,16 @@ expects:
   - env: SOME_TOKEN
 ```
 
-| Key           | Type     | Required | Notes                                                                                                                                     |
-| ------------- | -------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `name`        | string   | yes      | Must match the directory path under `hooks/`, same rule as a skill.                                                                       |
-| `description` | string   | no       | Carried into reports.                                                                                                                     |
-| `tags`        | string[] | no       | Same semantics as skills.                                                                                                                 |
-| `event`       | string   | yes      | One of `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`, `SubagentStop`, `PreCompact`, `SessionEnd`.               |
-| `matcher`     | string   | no       | Tool-name filter. Meaningful only for `PreToolUse` and `PostToolUse`; on any other event it is an error rather than a value quietly lost. |
-| `type`        | string   | yes      | `command` or `script` — how to read `command`.                                                                                            |
-| `command`     | string   | yes      | What to run, per `type`.                                                                                                                  |
-| `timeout`     | int      | no       | Seconds. Written where the harness has a field for it.                                                                                    |
-| `expects`     | map[]    | no       | Preconditions, each a single key naming its kind. Today: `env:`. Checked by `doctor`.                                                     |
+| Key           | Type   | Required | Notes                                                                                                                                     |
+| ------------- | ------ | -------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`        | string | yes      | Must match the directory path under `hooks/`, same rule as a skill.                                                                       |
+| `description` | string | no       | Carried into reports.                                                                                                                     |
+| `event`       | string | yes      | One of `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`, `SubagentStop`, `PreCompact`, `SessionEnd`.               |
+| `matcher`     | string | no       | Tool-name filter. Meaningful only for `PreToolUse` and `PostToolUse`; on any other event it is an error rather than a value quietly lost. |
+| `type`        | string | yes      | `command` or `script` — how to read `command`.                                                                                            |
+| `command`     | string | yes      | What to run, per `type`.                                                                                                                  |
+| `timeout`     | int    | no       | Seconds. Written where the harness has a field for it.                                                                                    |
+| `expects`     | map[]  | no       | Preconditions, each a single key naming its kind. Today: `env:`. Checked by `doctor`.                                                     |
 
 **Whether a hook ships a script is declared, not guessed.** `type: command` is a command line the
 harness runs exactly as written — `npx prettier --write`, `node tools/check.js`. `type: script` names
@@ -414,12 +449,12 @@ are not ambit's and survive `install`, `prune` and `clean` byte-identically.
 
 ### The catalog root
 
-Nothing. A catalog is a directory holding some of `skills/`, `mcps/` and `hooks/`, and parsing takes
-what is there — there is no catalog-side config file, and nothing registers or describes a tag. A
-directory holding none of the three is a catalog with zero items.
+Nothing. A catalog is a directory holding some of `packs/`, `skills/`, `mcps/` and `hooks/`, and
+parsing takes what is there — there is no catalog-side config file. A directory holding none of the
+four is a catalog with zero items.
 
 A leftover `scopes.yml` is refused rather than ignored, naming the rewrite: delete it, and carry each
-scope over as a tag on the items that declared it.
+scope over as a pack requiring the items that declared it.
 
 ## Resolution
 
@@ -428,30 +463,32 @@ scope over as a tag on the items that declared it.
    clone is refetched only when it cannot answer the `ref`, so a moving one keeps meaning what it
    meant — except on a first install, which has no `ambit.lock` and therefore nothing to reproduce.
    See [Staying up to date](#staying-up-to-date).
-3. **Parse each catalog:** every `skills/**/SKILL.md`, every `mcps/*.yml`, every `hooks/**/hook.yml`.
-   A skill or hook whose declared `name` disagrees with its directory path is an error. A leftover
-   `scopes.yml` → exit 2 naming the rewrite.
-4. **Merge catalogs.** Every catalog's copy of every skill, MCP and hook survives, identified by its
-   catalog and its name. `catalogs:` order settles nothing — there is no precedence between them.
+3. **Parse each catalog:** every `packs/**/*.yml`, every `skills/**/SKILL.md`, every `mcps/*.yml`,
+   every `hooks/**/hook.yml`. An item whose declared `name` disagrees with its path is an error. A
+   leftover `scopes.yml` → exit 2 naming the rewrite.
+4. **Merge catalogs.** Every catalog's copy of every pack, skill, MCP and hook survives, identified by
+   its catalog and its name. `catalogs:` order settles nothing — there is no precedence between them.
 5. **Check every `requires` entry.** An entry no item satisfies → exit 3, naming the entry and the
    config line it was written on. A qualifier no `catalogs:` alias answers to is reported as that
    rather than as a pattern problem: the qualifier is an alias, so `*` is matched literally there.
-6. **Select by entry.** Any skill, MCP or hook whose capability the entry names, whose catalog it
-   qualified, and whose `name` or `tag` its pattern matches. An exact name is a pattern with no
-   wildcard, so naming one item and globbing a prefix are one operator.
-7. **Close over `requires`** to a fixpoint. A skill's entry is the same grammar minus the qualifier, so
-   it may glob and may match on `tag`, and it is resolved **within the catalog that ships the skill** —
-   a catalog can only require what it ships. An entry that selects nothing → exit 3, the same finding a
-   project entry earns, naming the entry and the `SKILL.md` it is written in. Servers and hooks are
-   leaves: neither carries `requires`. A cycle → exit 3 printing the full path, plus the entry that
-   closed it and its file.
-8. **Union `expects`** across every selected skill, server and hook, grouped by kind. Nothing is
-   resolved here: an expectation names no catalog item, so the union is the list `doctor` later
-   checks the machine against.
+6. **Select by entry.** Any item in the namespace the entry's key names, whose catalog it qualified,
+   and whose name its pattern matches. An exact name is a pattern with no wildcard, so naming one item
+   and globbing a prefix are one operator.
+7. **Close over `requires`** to a fixpoint. A pack's list and a skill's are the same grammar minus the
+   qualifier, so both may glob, and both resolve **within the catalog that ships the document** — a
+   catalog can only require what it ships. An entry that selects nothing → exit 3, the same finding a
+   project entry earns, naming the entry and the file it is written in. Servers and hooks are leaves:
+   neither carries `requires`. A cycle → exit 3 printing the full path, plus the entry that closed it
+   and its file.
+8. **Union `expects`** across every selected skill, server and hook, grouped by kind. Packs contribute
+   none — a pack reads nothing from the world. Nothing is resolved here: an expectation names no
+   catalog item, so the union is the list `doctor` later checks the machine against.
 9. **Refuse a collision.** Two selected items of one kind sharing a name → exit 3, naming both and
    the catalog each came from. A harness's layout is flat — Claude reads `.claude/skills/<name>` — so
    both copies would be installed at one path, and ambit will not choose one on the project's behalf.
-   Narrow a `requires` pattern, or drop the entry that reaches the other catalog.
+   Packs materialize nowhere and are refused all the same: a pack is addressable, and two called
+   `core` would leave `ambit why pack:core` with two answers. Narrow a `requires` pattern, or drop the
+   entry that reaches the other catalog.
 10. **Emit the bundle**, sorted by name.
 
 ### Glob rules
@@ -460,9 +497,9 @@ scope over as a tag on the items that declared it.
 an exact name.**
 
 ```
-company/core.*   ->  core.a, core.a.b        (NOT core)
-company/core     ->  core
-company/*        ->  the whole catalog
+skill: "company/core.*"   ->  core.a, core.a.b        (NOT core)
+skill: "company/core"     ->  core
+skill: "company/*"        ->  every skill in the catalog
 ```
 
 `core.*` says _`core`, a dot, then anything_, and `core` has no dot — so selecting a prefix **and** the
@@ -483,22 +520,26 @@ leave a bundle quietly missing what the config went out of its way to ask for.
 
 ### Why an item is in the bundle
 
-Every selected item carries one reason: the entry that selected it, or the skill that required it.
-`resolve --explain` prints it in the entry's own words, minus the capability list — the namespace is
-already the section the row is in.
+Every selected item carries one reason: the entry that selected it, or the pack or skill that required
+it. `resolve --explain` prints it in the entry's own words.
 
 ```
 $ ambit resolve --explain
+packs (2)
+  engineering  company  pack:company/engineering
+  core         company  required-by:pack:engineering
+
 skills (3)
-  house-style  company  tag:company/core
-  code-review  company  name:company/function.*
-  storybook    company  required-by:code-review
+  house-style  company  required-by:pack:core
+  code-review  company  required-by:pack:engineering
+  storybook    company  required-by:skill:code-review
 ```
 
-The field is printed as well as the pattern, for the reason the grammar declares it: a reason that
-cannot say whether `company/function.engineering` matched a name or a tag is not an answer. Two entries
-reaching one item tie-break on sorted order. `ambit why <kind>:<name>` walks the `required-by` chain
-back to the entry at the end of it.
+A `required-by` reason names the requirer's **namespace** as well as its name, because both kinds that
+can require anything are addressable and a pack may share a name with a skill: `required-by:pack:core`
+is an answer, `required-by:core` is a second question. Two entries reaching one item tie-break on
+sorted order, and an entry beats a `requires` edge — the entry ends a chain where the edge continues
+one. `ambit why <kind>:<name>` walks the `required-by` chain back to the entry at the end of it.
 
 ## Staying up to date
 
@@ -519,14 +560,17 @@ catalogs (2)
   company   outdated  a1b2c3d → f9e1a04
   personal  current   3f1a99b
 
+packs (1)
+  ~  engineering  requires changed
+
 skills (3)
-  +  code-review  tag:company/function.engineering
-  +  storybook    required-by:code-review
+  +  code-review  required-by:pack:engineering
+  +  storybook    required-by:skill:code-review
   ~  house-style  description changed
 
 mcps (2)
   ~  sentry  transport.http.url changed
-  -  linear  was tag:company/function.engineering
+  -  linear  was required-by:pack:engineering
 
 hooks (1)
   +  guard-secrets  PreToolUse Bash — runs .agents/hooks/guard-secrets/guard.sh
@@ -537,7 +581,8 @@ bundles are compared directly, so a branch that advanced over two hundred commit
 this project selects reports a moved commit and an empty diff — which is the answer you wanted. A
 changed item names the field that moved (`transport.http.url changed`) in preference to the file, and
 falls back to `content changed` only when nothing it declares moved. An arriving hook says what will
-run, because that is the question an update actually raises.
+run, because that is the question an update actually raises. A pack whose membership moved is
+`requires changed`, and it is the cause the rows below it are the effect of.
 
 | Freshness     | Meaning                                                                                                                                                |
 | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -580,24 +625,24 @@ surface is a group. `--offline` is the one flag not every command answers to —
 exist to ask a remote, so they refuse it. Nothing writes into a catalog: a catalog is Markdown and YAML
 in a git repo, maintained the way the rest of the repo is, with an editor and a validate step in CI.
 
-| Command                                                | What it does                                                                                                                                                                                                             |
-| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `ambit init`                                           | Scaffold `ambit.yml`, `skills/`, `mcps/` and `hooks/`, and a live `catalogs:` entry naming the project itself. Refuses a directory that already holds a config, `--dry-run` included, and does not create a missing one. |
-| `ambit dump-catalog`                                   | Dump the merged catalog: every item in every catalog the project lists, the project's own among them, whether anything selects it or not.                                                                                |
-| `ambit resolve [--explain]`                            | Compute the bundle and print it.                                                                                                                                                                                         |
-| `ambit why <kind:name>`                                | Explain why one item is in the bundle, as a chain. The subject declares its namespace, as everything that names an item does.                                                                                            |
-| `ambit install [--frozen] [--adopt] [--copy\|--link]`  | Resolve, write `ambit.lock`, materialize the bundle, prune what left it.                                                                                                                                                 |
-| `ambit outdated`                                       | Ask each catalog's remote where its `ref` points now, and report what moving there would change.                                                                                                                         |
-| `ambit update [<catalog>…] [--adopt] [--copy\|--link]` | Move those pins forward, then install. Every catalog when none is named.                                                                                                                                                 |
-| `ambit status [--check]`                               | Compare what is installed against what resolve produces. `--check` exits 5 on drift.                                                                                                                                     |
-| `ambit prune`                                          | Remove owned artifacts not in the current bundle.                                                                                                                                                                        |
-| `ambit clean`                                          | Remove everything ambit owns.                                                                                                                                                                                            |
-| `ambit validate`                                       | Validate everything this project configures, for CI — every catalog it lists, the project's own items among them. A catalog repo runs this too: it lists itself.                                                         |
-| `ambit doctor`                                         | Check preconditions, the lock, ownership, drift, materialization mode, and harness limits.                                                                                                                               |
+| Command                                                | What it does                                                                                                                                                                                                       |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ambit init`                                           | Scaffold `ambit.yml`, the four item directories, and a live `catalogs:` entry naming the project itself. Refuses a directory that already holds a config, `--dry-run` included, and does not create a missing one. |
+| `ambit dump-catalog`                                   | Dump the merged catalog: every item in every catalog the project lists, the project's own among them, whether anything selects it or not.                                                                          |
+| `ambit resolve [--explain]`                            | Compute the bundle and print it.                                                                                                                                                                                   |
+| `ambit why <kind:name>`                                | Explain why one item is in the bundle, as a chain. The subject declares its namespace, as everything that names an item does.                                                                                      |
+| `ambit install [--frozen] [--adopt] [--copy\|--link]`  | Resolve, write `ambit.lock`, materialize the bundle, prune what left it.                                                                                                                                           |
+| `ambit outdated`                                       | Ask each catalog's remote where its `ref` points now, and report what moving there would change.                                                                                                                   |
+| `ambit update [<catalog>…] [--adopt] [--copy\|--link]` | Move those pins forward, then install. Every catalog when none is named.                                                                                                                                           |
+| `ambit status [--check]`                               | Compare what is installed against what resolve produces. `--check` exits 5 on drift.                                                                                                                               |
+| `ambit prune`                                          | Remove owned artifacts not in the current bundle.                                                                                                                                                                  |
+| `ambit clean`                                          | Remove everything ambit owns.                                                                                                                                                                                      |
+| `ambit validate`                                       | Validate everything this project configures, for CI — every catalog it lists, the project's own items among them. A catalog repo runs this too: it lists itself.                                                   |
+| `ambit doctor`                                         | Check preconditions, the lock, ownership, drift, materialization mode, and harness limits.                                                                                                                         |
 
 There is no `ambit catalog`. A catalog repo is a project that lists itself — three lines of
-`ambit.yml`, which `ambit init` writes — so `ambit validate` reads its `skills/`, `mcps/` and `hooks/`
-as an ordinary catalog and checks every item in it, selected or not. Scaffolding a catalog is
+`ambit.yml`, which `ambit init` writes — so `ambit validate` reads its `packs/`, `skills/`, `mcps/` and
+`hooks/` as an ordinary catalog and checks every item in it, selected or not. Scaffolding a catalog is
 `ambit init` for the same reason: every project is one.
 
 ### Exit codes
@@ -619,13 +664,13 @@ A usage error (an unknown flag, a missing argument) is exit 2 at any depth.
 Every error names the offending file, the offending identifier, and one concrete next step.
 
 ```
-error: `requires` entry "tag:company/function.enginering" matches nothing (ambit.yml line 6)
-       no skill, MCP server or hook in catalog "company" declares a tag matching "function.enginering"
-       correct the pattern, tag an item with it (`ambit.tags`), or remove the entry
+error: `requires` entry "pack:company/function.enginering" matches nothing (ambit.yml line 6)
+       no pack in catalog "company" has a name matching "function.enginering"
+       correct the pattern, add the item to a catalog, or remove the entry
 
 error: requirement cycle
-       alpha → beta → gamma → alpha
-       closed by `name:alpha` in skills/gamma/SKILL.md
+       skill:alpha → skill:beta → skill:gamma → skill:alpha
+       closed by `skill:alpha` in skills/gamma/SKILL.md
        break the cycle by removing one `requires` entry
 
 error: refusing to overwrite unowned path
@@ -635,52 +680,6 @@ error: refusing to overwrite unowned path
 
 `validate`, `status --check` and `doctor` _report_ rather than throw: findings go to stdout, so
 `--json` stays parseable, and the non-zero code travels out beside a full report.
-
-## Migration
-
-Selection used to work through _scopes_: dotted labels declared per item, registered per catalog in a
-`scopes.yml`, and held by a project in a top-level `scopes:` list, where holding one also reached
-everything beneath it. That is gone, along with the registry, the tree, and the second selection route
-that sat beside it — a top-level `skills:` list naming items outright. Patterns over names and tags
-replace all of it, in one grammar.
-
-This is a hard break. The format is at version 1 with no compatibility promise, and nothing reads the
-old spelling — two live grammars would leave every message ambiguous about which one it was answering
-for. So each old spelling is _refused_, and the refusal is the migration path.
-
-| Was                                          | Is now                                                                         | The refusal                                                                                                                                                                                                                   |
-| -------------------------------------------- | ------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `scopes:` in `ambit.yml`                     | one `requires` entry per member: `tag:`, qualified, `capabilities` written out | Exit 2, printing the entry each member becomes, line by line. It also names the **second** entry a faithful rewrite needs — `<catalog>/<tag>.*` — because a held scope reached everything beneath it and a pattern does not.  |
-| `skills:` in `ambit.yml`                     | one `requires` entry per member: `name:`, `capabilities: [skills]`             | Exit 2, the same shape, one entry per line.                                                                                                                                                                                   |
-| `mcps:` or `hooks:` in `ambit.yml`           | `mcps/<name>.yml` and `hooks/<name>/hook.yml` in a catalog                     | Exit 2, naming both halves: the file to move the definition into, and the `catalogs:` entry — `- name: local`, `source: path:.` — that makes it reachable.                                                                    |
-| a `skills:` entry carrying its own `source:` | a skill in a catalog the project lists                                         | Exit 2, but only as _`skills[0]` must be a string, found a mapping_ — the removed-key check reads the list as names and hits the mapping first. The rewrite is the row above's: move the skill into `skills/<name>/SKILL.md`. |
-| `scopes.yml` in a catalog                    | deleted. A catalog is a directory and has no config file of its own            | Exit 2: _scopes are gone; tag items with `ambit.tags` and select them with `tag:`_ — then delete the file, carrying each scope over as a tag on the items that declared it.                                                   |
-| `ambit.scopes:` in `SKILL.md` frontmatter    | `ambit.tags:`                                                                  | Exit 2 as an unknown key, listing `expects`, `requires`, `tags`. It does **not** name the rename: the check is the generic one, and nothing sits behind `scopes` to say more.                                                 |
-| `scopes:` in `mcps/<name>.yml` or `hook.yml` | `tags:`                                                                        | The same unknown-key refusal, listing that file's accepted keys.                                                                                                                                                              |
-| `- skill: company-context` in any `requires` | `- { name: "company-context", capabilities: [skills] }`                        | Exit 2, printing exactly that rewrite for the entry it found.                                                                                                                                                                 |
-
-A catalog repo needs one thing it did not need before: an `ambit.yml`, three lines, listing itself.
-`ambit init` writes it, and `ambit validate` then reads the repo's `skills/`, `mcps/` and `hooks/` as an
-ordinary catalog. That is the price of `validate` not branching on whether a config is present.
-
-Sixteen commands are gone, twenty-six down to ten. Everything that wrote into a catalog —
-`catalog scope add|rm|mv`, `catalog skill new|rm|mv`, `catalog mcp new|rm`, `catalog hook new|rm`,
-`catalog annotate` — is your editor now, and `ambit validate` after the fact is what replaces the
-atomic-write-and-check-the-result guarantee those commands gave. `catalog tree` and `catalog audit` had
-the registry as their only subject. `ambit scopes` was picker data whose payload was a scope's
-description, and a tag has none. `catalog init` is `ambit init`, `catalog validate` is `ambit validate`,
-and there is no `ambit catalog` left to put anything under.
-
-**What you give up, stated plainly.** A misspelled tag is now undetectable. The registry's real job was
-catching one the moment CI ran, because a scope that nothing had registered was an error; a free-form tag
-misspelled in a catalog is silently a new tag, the item reaches nobody, and no surface says a word. The
-consumer side still fails loudly — a project pattern matching nothing is exit 3 — but the authoring side
-is unguarded, and there is nowhere left to put the check.
-
-A catalog's layout also becomes public API. A `name:` pattern is a contract, so moving
-`skills/foo/bar` breaks every project selecting it, where a scope label used to stay put while
-directories moved underneath it. Tag-based selection is insulated from that; name-based selection is not,
-and there is no longer a command that rewrites either.
 
 ## Development
 

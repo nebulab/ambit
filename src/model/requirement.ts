@@ -1,17 +1,13 @@
 /**
- * The three namespaces a bundle item can be in, and how a person names one of them on a command line.
+ * The namespaces a bundle item can be in, and how a person names one of them on a command line.
  *
- * This module used to be the whole of what a `requires` entry was: a namespace and a name, looked up
- * in a map, one item per entry. It is not that any more. A `requires` entry selects **by pattern** —
- * a field to match, a glob to match it with, and the capabilities to match it against — so it answers
- * with a set rather than with a name, and it lives in `pattern.ts` together with the matcher and the
- * addressing rules. Nothing here parses a `requires` list.
- *
- * What survives is the vocabulary, and it survives because a *bundle item* is still one item of one
- * namespace, which is a different thing from the question an entry asks. {@link ITEM_KINDS} is that
- * vocabulary — the order every report lists the three in — and {@link parseItemSubject} is the one
- * surface left that takes an item's identity from a person as a string: `ambit why`'s subject,
- * `ambit why mcp:sentry`.
+ * The vocabulary lives here and the grammar lives in `pattern.ts`, because the two ask different
+ * questions of the same words. A *bundle item* is one item of one namespace. A `requires` entry names
+ * a namespace as its key and a **pattern** as its value, so it answers with a set rather than with a
+ * name — `- skill: core.*` is a question, and the matcher and the addressing rules that answer it are
+ * `pattern.ts`'s. {@link ITEM_KINDS} is the shared vocabulary, in the order every report lists it, and
+ * {@link parseItemSubject} is the one surface that takes an item's identity from a person as a string:
+ * `ambit why`'s subject, `ambit why mcp:sentry`.
  *
  * The reader is here rather than in a shared module because it has one caller and one vocabulary.
  * `reference.ts` used to parameterize it over both this vocabulary and `expects`; the two turned out
@@ -40,9 +36,15 @@ export const KIND_SEPARATOR = ":";
  * The namespaces a bundle item can be in, in the order every report lists them.
  *
  * Exported as a list because several surfaces enumerate it: the refusal for a `why` subject naming no
- * namespace, the one for a subject naming something else, and every report that groups by namespace.
+ * namespace, the one for a subject naming something else, every report that groups by namespace, and
+ * the `requires` grammar — where a kind is the *key* of an entry, so this list is also the set of
+ * keys an entry may be written with.
+ *
+ * `pack` leads because a pack is what a project usually names: it is a capability whose whole job is
+ * to pull in the other three, so a report that leads with the packs and then shows what they expanded
+ * to reads in the order the reader asked for things.
  */
-export const ITEM_KINDS = ["skill", "mcp", "hook"] as const;
+export const ITEM_KINDS = ["pack", "skill", "mcp", "hook"] as const;
 
 /** Which of the bundle's namespaces a name belongs to. */
 export type ItemKind = (typeof ITEM_KINDS)[number];
@@ -53,7 +55,7 @@ export type ItemKind = (typeof ITEM_KINDS)[number];
 // namespace in a sentence carry their own words and deliberately disagree — `resolve.ts` needs the bare
 // noun where a name follows immediately, and `why` says "MCP server" to a person.
 
-/** Whether `value` is one of the three namespaces. */
+/** Whether `value` is one of the namespaces. */
 function isItemKind(value: string): value is ItemKind {
   return (ITEM_KINDS as readonly string[]).includes(value);
 }

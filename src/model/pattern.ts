@@ -1,46 +1,38 @@
 /**
  * How a selection is written down, and what it selects: the `requires` entry and its glob.
  *
- * One addressing scheme, shared by the two places a selection is written. A project's `requires`
- * says which of the catalogs it listed to take items from; a skill's own `requires` says which of
- * its siblings it cannot work without. Both are the same entry, and the only difference is whether
- * the address carries a catalog — see {@link Addressing}.
+ * One addressing scheme, shared by the three places a selection is written. A project's `requires`
+ * says which of the catalogs it listed to take items from; a pack's says what that pack pulls in; a
+ * skill's says which of its siblings it cannot work without. All three are the same entry, and the
+ * only difference is whether the address carries a catalog — see {@link Addressing}.
  *
  * ```yaml
  * requires:
- *   - tag: "company/function.engineering" # everything the author tagged for engineers
- *     capabilities: [skills, mcps, hooks]
- *   - name: "company/core.*" # everything beneath the `core` name prefix
- *     capabilities: [skills]
- *   - name: "company/guards.*"
- *     capabilities: [hooks]
+ *   - pack: "company/engineering" # everything that pack pulls in, transitively
+ *   - skill: "company/core.*" # everything beneath the `core` name prefix
+ *   - hook: "company/guards.*"
  * ```
  *
- * **Both keys are declared, neither is guessed.** This is the rule c9494df established for
- * namespaces — a bare name cannot say which namespace it is in, because a skill at
- * `skills/mcp/sentry/SKILL.md` is legitimately named `mcp.sentry` — applied one level further: a
- * bare *pattern* cannot say which **field** it matches either, since `function.engineering` is a
- * plausible name prefix and a plausible tag. So an entry names the field, and the reason a report
- * gives for an item's presence names it too, because a reason that cannot say which of the two
- * matched is not an answer.
+ * **One key, naming a namespace, carrying a pattern.** An entry is a mapping of exactly one key: the
+ * key is the {@link ItemKind} being selected, and the value is the glob to match names in that
+ * namespace against. There is nothing else to declare, because there is nothing else to match on — a
+ * catalog item has a name and no other selectable field.
  *
- * **`capabilities` is required, not defaulted.** Defaulting it to all three is tempting — it is
- * what the selector this grammar replaces did, and it is what would make a one-line entry possible —
- * and it is refused
- * because **hooks execute**. An entry someone wrote thinking about skills would silently install
- * every hook carrying that tag, which is exactly the class of surprise a hook's opt-in exists to
- * prevent. The cost is real and accepted: the common single-namespace entry is two lines rather
- * than one.
+ * That is the whole of what replaced the two-key entry this grammar had. The old one named a *field*
+ * (`name` or `tag`) and a *capability list*, because an item could also carry free-form tags and one
+ * tag entry was expected to reach a skill, a server and a hook at once. Tags are gone, and
+ * {@link ItemKind}'s `pack` is what took their job: an author who wants one name to reach a skill, a
+ * server and a hook declares a **pack** in the catalog that requires all three, and a consumer writes
+ * `- pack: company/engineering`. The grouping is a document with a name and a description, browsable
+ * with `ambit dump-catalog`, instead of a label that nothing registered and nothing described.
  *
- * **A capability *list*, rather than a `<kind>.<field>` key per entry.** Selection by tag is
- * inherently multi-namespace: an author tags a skill, a server and a hook for the same audience,
- * and one entry has to be able to take all three, or this is a regression against the selector it
- * replaces, which took all three in one stroke — three entries saying what one used to say. The list
- * is also the extension point: a
- * fourth capability is a member of {@link CAPABILITIES}, not a new key prefix on every entry.
+ * The declaration that survives is the namespace, and it survives for the reason it always had: a
+ * catalog's namespaces are flat and independent, so a skill at `skills/mcp/sentry/SKILL.md` is
+ * legitimately named `mcp.sentry` while an MCP entity called `sentry` sits one namespace over. A bare
+ * `- mcp.sentry` cannot say which of the two it means, so the key does.
  *
- * **No bare shorthand.** No spelling omits `capabilities`, and none omits the field. Adding a
- * shorthand later is backward-compatible; removing one is not.
+ * **No bare shorthand.** No spelling omits the key. `- "company/core.*"` is refused rather than
+ * resolved against whichever namespace happens to hold a match today.
  *
  * **No negation.** `!company/core.internal.*` is not part of this grammar, so `!` is an ordinary
  * character: a leading one is matched literally, and the entry names nothing any catalog holds. That
@@ -61,58 +53,13 @@ import { YamlMapping } from "./yaml.js";
 import type { PositionedString } from "./yaml.js";
 
 /**
- * The key a selection list is written under, in a project config and in a skill's `ambit:` block
- * alike.
+ * The key a selection list is written under, in a project config, in a pack, and in a skill's
+ * `ambit:` block alike.
  *
- * One word for both, because it is one operator: everything an entry names joins the bundle. The
- * two differ in what an address may say, not in what the list means.
+ * One word for all three, because it is one operator: everything an entry names joins the bundle. The
+ * documents differ in what an address may say, not in what the list means.
  */
 export const REQUIRES_KEY = "requires";
-
-/** The key inside one entry that says which namespaces the pattern is matched against. */
-export const CAPABILITIES_KEY = "capabilities";
-
-/**
- * The namespaces an entry may select, in the order every report lists them.
- *
- * Plural, unlike `ITEM_KINDS`' singular `skill`/`mcp`/`hook`, because an entry selects a *set* from
- * each namespace it names rather than one member of one — `capabilities: [skills]` reads as the
- * question it is asking. {@link CAPABILITY_OF_KIND} is the bridge between the two vocabularies, so
- * no caller has to invent one.
- *
- * This order is also the canonical one a parsed entry's list is normalized into, which is what makes
- * literal equality between two entries independent of the order an author wrote a set in.
- */
-export const CAPABILITIES = ["skills", "mcps", "hooks"] as const;
-
-/** One namespace an entry may select from. */
-export type Capability = (typeof CAPABILITIES)[number];
-
-/**
- * Which capability a bundle item's kind belongs to.
- *
- * The one place the singular and plural vocabularies are related, so a caller iterating a merged
- * catalog's `skills` can ask whether an entry selects them without hard-coding the pairing a second
- * time.
- */
-export const CAPABILITY_OF_KIND: Readonly<Record<ItemKind, Capability>> = {
-  skill: "skills",
-  mcp: "mcps",
-  hook: "hooks",
-};
-
-/**
- * The fields a pattern may be matched against, in the order every message lists them.
- *
- * Two, and they answer different needs. A **name** gives the consumer a selector that does not
- * depend on the author having labelled anything, at the cost of making a catalog's layout public
- * API. A **tag** gives the author one that does not depend on layout, and is the only one of the two
- * that can express *this skill serves both sales and engineering*. Neither is a registry.
- */
-export const PATTERN_FIELDS = ["name", "tag"] as const;
-
-/** Which field of an item an entry's pattern is matched against. */
-export type PatternField = (typeof PATTERN_FIELDS)[number];
 
 /**
  * Which spelling of an address a `requires` list is written in.
@@ -123,10 +70,11 @@ export type PatternField = (typeof PATTERN_FIELDS)[number];
  *   the config-order dependence this addressing scheme removes.
  * - `"unqualified"` — the bare pattern, **mandatory inside a catalog**. A catalog author cannot
  *   write a qualifier correctly: the alias belongs to the consumer's config, and the same catalog is
- *   `company` in one project and `acme` in the next. So a skill's `requires` names its siblings
- *   unqualified and resolves within its own catalog, which is what makes a catalog self-contained —
- *   it can only require what it ships. That is a deliberate tightening on what a requirement used to
- *   reach; the argument is with the closure that enforces it, in `resolution/resolve.ts`.
+ *   `company` in one project and `acme` in the next. So a pack's or a skill's `requires` names its
+ *   siblings unqualified and resolves within its own catalog, which is what makes a catalog
+ *   self-contained — it can only require what it ships. That is a deliberate tightening on what a
+ *   requirement used to reach; the argument is with the closure that enforces it, in
+ *   `resolution/resolve.ts`.
  *
  * A qualifier where it is refused, and a missing one where it is required, are both exit 2 naming
  * the key and the line, rather than a value quietly resolved against a guess.
@@ -134,21 +82,20 @@ export type PatternField = (typeof PATTERN_FIELDS)[number];
 export type Addressing = "qualified" | "unqualified";
 
 /**
- * One entry of a `requires` list: which field to match, the pattern to match it with, and which
- * namespaces to match it against.
+ * One entry of a `requires` list: which namespace to select from, and the glob to select with.
  *
- * This is the shape the design means by *`Requirement` becomes `{field, pattern, capabilities}`*.
- * It is not a {@link ItemKind}-and-name pair and cannot be one: an entry is a *question* about a
- * catalog, answered by zero or more items, where a bundle item is one item of one kind.
+ * Not an {@link ItemKind}-and-name pair, however much it looks like one: an entry is a *question*
+ * about a catalog, answered by zero or more items, where a bundle item is one item. `- skill: core.*`
+ * names a namespace and a pattern; `skill:core.a` names a thing.
  */
 export interface PatternEntry {
-  /** Which field of an item {@link PatternEntry.pattern} is matched against. */
-  readonly field: PatternField;
+  /** The namespace this entry selects from — the entry's one key. */
+  readonly kind: ItemKind;
   /**
    * The glob, with the qualifier stripped off — see {@link matchesPattern}.
    *
    * Never holds a {@link CATALOG_SEPARATOR}: the address is split at parse time, so everything
-   * downstream matches a pattern against a name or a tag and never has to re-split anything.
+   * downstream matches a pattern against a name and never has to re-split anything.
    */
   readonly pattern: string;
   /**
@@ -161,32 +108,22 @@ export interface PatternEntry {
    * catalog it would be enforced against.
    */
   readonly catalog?: string;
-  /**
-   * Which namespaces to match against: non-empty, deduplicated, and in {@link CAPABILITIES}' order.
-   *
-   * Normalized rather than kept as written because nothing prints it — a selection reason names the
-   * field and the pattern and stops there — and because two entries that name the same set in a
-   * different order are the same entry, which deduplication has to be able to see.
-   */
-  readonly capabilities: readonly Capability[];
 }
 
 /**
  * One item, of one namespace, as a pattern is matched against it.
  *
  * A structural shape rather than a merged-catalog type, so this module needs to know nothing about
- * how an item is loaded: a `MergedSkill`, a `MergedMcp` and a `MergedHook` all satisfy it once the
- * caller says which capability the array it is walking holds.
+ * how an item is loaded: a `MergedPack`, a `MergedSkill`, a `MergedMcp` and a `MergedHook` all
+ * satisfy it once the caller says which namespace the array it is walking holds.
  */
 export interface PatternItem {
-  /** Which namespace this item is in — `CAPABILITY_OF_KIND[kind]` where a kind is what is at hand. */
-  readonly capability: Capability;
+  /** Which namespace this item is in. */
+  readonly kind: ItemKind;
   /** The catalog the item came from, which a qualified entry is matched against. */
   readonly catalog: string;
   /** The item's name inside its namespace, dotted — `core.house-style`. */
   readonly name: string;
-  /** The item's declared tags, free-form and registered nowhere. */
-  readonly tags: readonly string[];
 }
 
 /** The one metacharacter this grammar has. */
@@ -241,8 +178,8 @@ export function matchesPattern(pattern: string, text: string): boolean {
   return new RegExp(source).test(text);
 }
 
-/** What separates a field from the address it applies to, where only a string will do. */
-const FIELD_SEPARATOR = ":";
+/** What separates a kind from the address it applies to, where only a string will do. */
+const KIND_SEPARATOR = ":";
 
 /**
  * The address as it was written: `company/core.*` when qualified, `core.*` when not.
@@ -256,49 +193,37 @@ export function entryAddress(entry: PatternEntry): string {
 }
 
 /**
- * How an entry is written where only a string will do — `tag:company/core`, `name:company/core.*`.
+ * How an entry is written where only a string will do — `pack:company/engineering`,
+ * `skill:company/core.*`.
  *
- * The entry as written, minus the capability list: an item's own namespace is already known from the
- * section of a report it appears in, so repeating it would be noise, while the field cannot be
- * dropped for the reason the grammar declares it at all.
+ * The same `<kind>:<name>` shape `ambit why` takes as its subject, and deliberately so: an entry and
+ * an item are named by the same grammar, one carrying a pattern where the other carries a name.
  */
 export function formatEntry(entry: PatternEntry): string {
-  return `${entry.field}${FIELD_SEPARATOR}${entryAddress(entry)}`;
+  return `${entry.kind}${KIND_SEPARATOR}${entryAddress(entry)}`;
 }
 
 /**
  * How an entry is written in a document, for a message telling someone to write one.
  *
- * A flow mapping, because a two-key entry does not fit block style on one line and advice that
- * spans lines is advice a reader has to reassemble. The pattern is quoted unconditionally: a
- * pattern is exactly the kind of string YAML would otherwise read as something else.
+ * A one-key mapping fits block style on one line, so this is the entry exactly as it belongs in a
+ * `requires` list. The pattern is quoted unconditionally: a pattern is exactly the kind of string
+ * YAML would otherwise read as something else.
  */
 export function entryYaml(entry: PatternEntry): string {
-  const capabilities = entry.capabilities.join(", ");
-  return `- { ${entry.field}: "${entryAddress(entry)}", ${CAPABILITIES_KEY}: [${capabilities}] }`;
+  return `- ${entry.kind}: "${entryAddress(entry)}"`;
 }
 
 /**
- * Whether two entries say literally the same thing: the same field, the same address, and the same
- * set of capabilities.
+ * Whether two entries say literally the same thing: the same namespace and the same address.
  *
- * Exact only. `tag: x` over `[skills, mcps]` does **not** absorb `tag: x` over `[skills]`, even
- * though everything the second selects the first selects too. Subsumption normalizing is a rabbit
- * hole — the honest version has to reason about one pattern's matches being a subset of another's —
- * and nobody has asked for it, so two entries one of which is redundant simply stay two entries.
- *
- * Capabilities are compared as a set rather than positionally, so an entry built in code is judged
- * on what it says and not on the order it happened to say it in. That is still exact equality: what
- * is refused above is comparing sets by *containment*.
+ * Exact only. `skill: core.*` does **not** absorb `skill: core.a`, even though everything the second
+ * selects the first selects too. Subsumption normalizing is a rabbit hole — the honest version has to
+ * reason about one pattern's matches being a subset of another's — and nobody has asked for it, so
+ * two entries one of which is redundant simply stay two entries.
  */
 export function sameEntry(a: PatternEntry, b: PatternEntry): boolean {
-  return (
-    a.field === b.field &&
-    a.pattern === b.pattern &&
-    a.catalog === b.catalog &&
-    a.capabilities.length === b.capabilities.length &&
-    a.capabilities.every((capability) => b.capabilities.includes(capability))
-  );
+  return a.kind === b.kind && a.pattern === b.pattern && a.catalog === b.catalog;
 }
 
 /**
@@ -321,32 +246,18 @@ export function uniqueEntries(entries: readonly PatternEntry[]): readonly Patter
 /**
  * Whether `entry` selects `item`.
  *
- * Three tests, all of which have to hold: the item's namespace is one the entry named, the item's
- * catalog is the one the entry qualified (when it qualified one — see
- * {@link PatternEntry.catalog}), and the pattern matches the field the entry declared.
- *
- * A tag match is *any* tag, because tags are a set an author attaches and an entry asks about one
- * label: a skill tagged for both sales and engineering is selected by either.
+ * Three tests, all of which have to hold: the item's namespace is the one the entry named, the
+ * item's catalog is the one the entry qualified (when it qualified one — see
+ * {@link PatternEntry.catalog}), and the pattern matches the item's name.
  */
 export function matches(entry: PatternEntry, item: PatternItem): boolean {
-  if (!entry.capabilities.includes(item.capability)) return false;
+  if (entry.kind !== item.kind) return false;
   if (entry.catalog !== undefined && entry.catalog !== item.catalog) return false;
-
-  return entry.field === "name"
-    ? matchesPattern(entry.pattern, item.name)
-    : item.tags.some((tag) => matchesPattern(entry.pattern, tag));
+  return matchesPattern(entry.pattern, item.name);
 }
 
-/** The capabilities as a message lists them: `skills, mcps, hooks`. */
-const CAPABILITY_LIST = CAPABILITIES.join(", ");
-
-/** The fields as a message lists them: `` `name`, `tag` ``. */
-const FIELD_LIST = PATTERN_FIELDS.map((field) => `\`${field}\``).join(", ");
-
-/** Whether `value` is one of {@link CAPABILITIES}. */
-function isCapability(value: string): value is Capability {
-  return (CAPABILITIES as readonly string[]).includes(value);
-}
+/** The namespaces as a message lists them: `` `pack`, `skill`, `mcp`, `hook` ``. */
+const KIND_LIST = ITEM_KINDS.map((kind) => `\`${kind}\``).join(", ");
 
 /**
  * Stands in for a catalog alias a refusal has no way to know.
@@ -363,7 +274,7 @@ const ALIAS_PLACEHOLDER = "<catalog>";
  * qualifier they cannot write, and a project is never shown a bare pattern it would refuse in turn.
  * {@link ALIAS_PLACEHOLDER} stands in where the reader has written no alias.
  */
-function example(field: PatternField, address: string, addressing: Addressing): string {
+function example(kind: ItemKind, address: string, addressing: Addressing): string {
   const bare = address.split(CATALOG_SEPARATOR).pop()!;
   const shown =
     addressing === "unqualified"
@@ -371,15 +282,15 @@ function example(field: PatternField, address: string, addressing: Addressing): 
       : address.includes(CATALOG_SEPARATOR)
         ? address
         : `${ALIAS_PLACEHOLDER}${CATALOG_SEPARATOR}${address}`;
-  return `write it as \`${entryYaml({ field, pattern: shown, capabilities: ["skills"] })}\``;
+  return `write it as \`${entryYaml({ kind, pattern: shown })}\``;
 }
 
 /**
  * The error for an entry written as a bare string — the shape a plain list of patterns has.
  *
- * Names both things a bare pattern fails to say rather than guessing either, because the two
- * declarations are the whole of what this grammar adds and a shorthand that filled them in is the
- * spelling it deliberately does not have.
+ * Names what a bare pattern fails to say rather than guessing it, because the namespace is the whole
+ * of what this grammar declares and a shorthand that filled it in is the spelling it deliberately
+ * does not have.
  */
 function bareEntry(
   mapping: YamlMapping,
@@ -390,40 +301,44 @@ function bareEntry(
   return configError(
     `\`${REQUIRES_KEY}\` entry "${item.value}" is not a mapping ${at(mapping.file, line)}`,
     [
-      `a bare pattern says neither which field it matches (${FIELD_LIST}) nor which capabilities it selects`,
-      example("name", item.value, addressing),
+      `a bare pattern does not say which namespace it selects from (${KIND_LIST})`,
+      example("skill", item.value, addressing),
     ],
   );
 }
 
-/** The error for an entry declaring neither field, or both of them. */
-function badField(entry: YamlMapping, declared: readonly PatternField[]): AmbitError {
+/** The error for an entry naming no namespace, or more than one. */
+function badKind(entry: YamlMapping, declared: readonly ItemKind[]): AmbitError {
   const advice = [
-    `an entry declares exactly one field: ${FIELD_LIST} — "function.engineering" is a plausible name prefix and a plausible tag`,
+    `an entry is one key naming a namespace, carrying the pattern to match names in it: ${KIND_LIST}`,
     declared.length === 0
-      ? `add \`name:\` or \`tag:\` with the pattern to match`
-      : `split it into one entry per field`,
+      ? `write it as \`${entryYaml({ kind: "skill", pattern: "<pattern>" })}\``
+      : "split it into one entry per namespace",
   ];
 
   const first = declared[0];
   return first === undefined
     ? configError(
-        `\`${REQUIRES_KEY}\` entry matches on no field ${at(entry.file, entry.line)}`,
+        `\`${REQUIRES_KEY}\` entry selects from no namespace ${at(entry.file, entry.line)}`,
         advice,
       )
-    : entry.keyError(first, `\`${REQUIRES_KEY}\` entry matches on both ${FIELD_LIST}`, advice);
+    : entry.keyError(
+        first,
+        `\`${REQUIRES_KEY}\` entry selects from ${declared.length} namespaces: ${declared.join(", ")}`,
+        advice,
+      );
 }
 
 /** The error for an address the demanded {@link Addressing} refuses. */
 function badAddress(
   entry: YamlMapping,
-  field: PatternField,
+  kind: ItemKind,
   address: string,
   addressing: Addressing,
   problem: string,
   fix: string,
 ): AmbitError {
-  return entry.keyError(field, `\`${REQUIRES_KEY}\` entry "${address}" ${problem}`, [
+  return entry.keyError(kind, `\`${REQUIRES_KEY}\` entry "${address}" ${problem}`, [
     ...(addressing === "qualified"
       ? [
           `a project selects from a catalog it listed in \`catalogs:\`, so an address is \`<catalog>${CATALOG_SEPARATOR}<pattern>\``,
@@ -446,7 +361,7 @@ function badAddress(
  */
 function splitAddress(
   entry: YamlMapping,
-  field: PatternField,
+  kind: ItemKind,
   address: string,
   addressing: Addressing,
 ): { readonly catalog?: string; readonly pattern: string } {
@@ -456,18 +371,18 @@ function splitAddress(
     if (parts.length === 1) return { pattern: address };
     throw badAddress(
       entry,
-      field,
+      kind,
       address,
       addressing,
       "names a catalog, which a catalog's own `requires` may not",
-      example(field, address, addressing),
+      example(kind, address, addressing),
     );
   }
 
   if (parts.length === 1) {
     throw badAddress(
       entry,
-      field,
+      kind,
       address,
       addressing,
       "names no catalog",
@@ -477,7 +392,7 @@ function splitAddress(
   if (parts.length > 2) {
     throw badAddress(
       entry,
-      field,
+      kind,
       address,
       addressing,
       `holds ${parts.length - 1} \`${CATALOG_SEPARATOR}\` separators`,
@@ -490,7 +405,7 @@ function splitAddress(
   if (catalog === "") {
     throw badAddress(
       entry,
-      field,
+      kind,
       address,
       addressing,
       "names an empty catalog",
@@ -500,7 +415,7 @@ function splitAddress(
   if (pattern === "") {
     throw badAddress(
       entry,
-      field,
+      kind,
       address,
       addressing,
       "names an empty pattern",
@@ -512,114 +427,37 @@ function splitAddress(
 }
 
 /**
- * The capabilities an entry names, normalized into {@link CAPABILITIES}' order.
+ * Parses one `requires` entry: a one-key mapping naming a namespace and carrying a pattern.
  *
- * Absent and empty are separate refusals with separate messages, because they are separate
- * mistakes: one is an entry written in a grammar that has a default, and this one does not; the
- * other is an entry that says outright it selects nothing.
- */
-function parseCapabilities(
-  entry: YamlMapping,
-  field: PatternField,
-  address: string,
-): readonly Capability[] {
-  const written = entry.optionalStringList(CAPABILITIES_KEY);
-
-  if (written === undefined) {
-    throw entry.keyError(field, `\`${REQUIRES_KEY}\` entry "${address}" declares no capabilities`, [
-      "`capabilities` is not defaulted, because hooks execute: an entry written thinking about skills must not silently install every hook the pattern matches",
-      `add \`${CAPABILITIES_KEY}:\` with one or more of: ${CAPABILITY_LIST}`,
-    ]);
-  }
-  if (written.length === 0) {
-    throw entry.keyError(
-      CAPABILITIES_KEY,
-      `\`${REQUIRES_KEY}\` entry "${address}" selects no capabilities`,
-      [
-        "an empty list matches nothing, so the entry does nothing",
-        `give it one or more of: ${CAPABILITY_LIST}, or remove the entry`,
-      ],
-    );
-  }
-
-  for (const value of written) {
-    if (isCapability(value)) continue;
-    throw entry.keyError(
-      CAPABILITIES_KEY,
-      `unknown capability "${value}" in \`${REQUIRES_KEY}\` entry "${address}"`,
-      [`capabilities are: ${CAPABILITY_LIST}`, `replace \`${value}\` with one of them`],
-    );
-  }
-
-  // Filtered out of the canonical order rather than sorted, so the result is deduplicated and
-  // ordered in one step and does not depend on how an author spelled the set.
-  return CAPABILITIES.filter((capability) => written.includes(capability));
-}
-
-/**
- * The `<kind>: <name>` spelling a `requires` list had before it selected by pattern, refused with the
- * entry each of its members becomes.
- *
- * `- skill: company-context` is a one-key mapping this grammar would otherwise reject as holding an
- * unknown key, which reads as a typo and leaves the reader holding a list that used to work. So it
- * gets a refusal of its own, and the refusal carries the rewrite, because the rewrite is mechanical:
- * the namespace becomes the entry's single capability, and the name becomes the pattern, an exact
- * name being a pattern with no wildcard.
- *
- * Checked before {@link YamlMapping.rejectUnknownKeys}, and before the field count, for the same
- * reason: both of those messages describe the grammar to somebody who is not writing in it yet.
- */
-function assertNotNamespaceEntry(entry: YamlMapping, addressing: Addressing): void {
-  const kind = ITEM_KINDS.find((candidate) => entry.has(candidate));
-  if (kind === undefined) return;
-
-  const name = entry.requireString(kind);
-  const pattern =
-    addressing === "qualified" ? `${ALIAS_PLACEHOLDER}${CATALOG_SEPARATOR}${name}` : name;
-
-  throw entry.keyError(
-    kind,
-    `\`${REQUIRES_KEY}\` entry names the namespace \`${kind}\`, which an entry no longer does`,
-    [
-      `an entry declares a field to match (${FIELD_LIST}) and the capabilities to match it against (${CAPABILITY_LIST})`,
-      `write it as \`${entryYaml({ field: "name", pattern, capabilities: [CAPABILITY_OF_KIND[kind]] })}\``,
-    ],
-  );
-}
-
-/**
- * Parses one `requires` entry: a two-key mapping naming a field and its capabilities.
- *
- * The pre-pattern spelling is refused first, then unknown keys, so a typo'd `tags:` reads as the typo
- * it is rather than as an entry that declares no field.
+ * Unknown keys are refused first, so a leftover `tag:` or `capabilities:` reads as the key it is —
+ * one this grammar does not have — rather than as an entry that names no namespace.
  */
 function parseEntry(entry: YamlMapping, addressing: Addressing): PatternEntry {
-  assertNotNamespaceEntry(entry, addressing);
-  entry.rejectUnknownKeys([...PATTERN_FIELDS, CAPABILITIES_KEY]);
+  entry.rejectUnknownKeys(ITEM_KINDS);
 
-  const declared = PATTERN_FIELDS.filter((candidate) => entry.has(candidate));
-  const field = declared.length === 1 ? declared[0]! : undefined;
-  if (field === undefined) throw badField(entry, declared);
+  const declared = ITEM_KINDS.filter((candidate) => entry.has(candidate));
+  const kind = declared.length === 1 ? declared[0]! : undefined;
+  if (kind === undefined) throw badKind(entry, declared);
 
-  const address = entry.requireString(field);
-  const { catalog, pattern } = splitAddress(entry, field, address, addressing);
-  const capabilities = parseCapabilities(entry, field, address);
+  const address = entry.requireString(kind);
+  const { catalog, pattern } = splitAddress(entry, kind, address, addressing);
 
-  return { field, pattern, ...(catalog !== undefined && { catalog }), capabilities };
+  return { kind, pattern, ...(catalog !== undefined && { catalog }) };
 }
 
 /**
- * Parses a `requires` list: a sequence of two-key mappings, each a field-and-pattern and the
- * capabilities to match it against.
+ * Parses a `requires` list: a sequence of one-key mappings, each naming a namespace and the pattern
+ * to match names in it.
  *
  * The list is returned in the order it was written, duplicates included — deduplication is
  * {@link uniqueEntries}, and it is a separate step because a caller merging several lists wants to
  * dedupe the union rather than each part.
  *
- * @param mapping the block the key sits in — a project's config root, a skill's `ambit:`.
+ * @param mapping the block the key sits in — a project's config root, a pack's document, a skill's
+ *   `ambit:`.
  * @param addressing which spelling this document demands; see {@link Addressing}.
- * @throws {AmbitError} exit 2 for an entry that is not a mapping, one declaring no field or both,
- *   one whose capabilities are missing, empty or unknown, or an address the spelling refuses.
+ * @throws {AmbitError} exit 2 for an entry that is not a mapping, one naming no namespace or more
+ *   than one, one carrying a key this grammar does not have, or an address the spelling refuses.
  */
 export function parseEntries(
   mapping: YamlMapping,

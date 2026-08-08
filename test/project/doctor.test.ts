@@ -9,7 +9,7 @@
  *
  * Environment variables are stubbed per test rather than in `beforeEach`, since which of them are set
  * is the subject of the first check. The fixture's `function.engineering.frontend` skill declares
- * `ACME_FIGMA_TOKEN` and its `tagged` server declares `TAGGED_API_KEY`, which it also interpolates
+ * `ACME_FIGMA_TOKEN` and its `tagged` server declares `LINTER_API_KEY`, which it also interpolates
  * into a header — so the default profile needs exactly those two.
  */
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
@@ -50,14 +50,14 @@ const CLAUDE_SETTINGS = ".claude/settings.json";
 
 /** The two variables the default profile's bundle declares. */
 const FIGMA_VAR = "ACME_FIGMA_TOKEN";
-const TAGGED_VAR = "TAGGED_API_KEY";
+const TAGGED_VAR = "LINTER_API_KEY";
 
 /** The hook the harness cases put in the catalog, and the variable one of them has it want. */
 const HOOK = "notify";
 const HOOK_VAR = "NOTIFY_WEBHOOK";
 
 /** A tag nothing in the fixture carries, so holding it selects that hook and nothing else. */
-const HOOK_TAG = "harness.cases";
+const HOOK_PACK = "harness.cases";
 
 const HOOK_LINES: readonly string[] = ["event: Stop", "type: command", "command: ./bin/notify"];
 
@@ -82,14 +82,15 @@ let root: string;
 let catalogDir: string;
 let projectDir: string;
 
-/** One `requires` entry, selecting everything in `catalog` that carries `tag`. */
-function requiresEntry(tag: string, catalog = CATALOG_NAME): string {
-  return `  - { tag: "${catalog}/${tag}", capabilities: [skills, mcps, hooks] }`;
+/** One `requires` entry, taking a whole pack from `catalog`. */
+function requiresEntry(pack: string, catalog = CATALOG_NAME): string {
+  return `  - { pack: "${catalog}/${pack}" }`;
 }
 
 /** Points the project at the fixture catalog and gives it a `requires` list. */
-async function writeProfile(tags: readonly string[]): Promise<void> {
-  const list = tags.length === 0 ? "[]" : `\n${tags.map((tag) => requiresEntry(tag)).join("\n")}`;
+async function writeProfile(packs: readonly string[]): Promise<void> {
+  const list =
+    packs.length === 0 ? "[]" : `\n${packs.map((pack) => requiresEntry(pack)).join("\n")}`;
   await writeFile(
     path.join(projectDir, "ambit.yml"),
     `version: 1
@@ -119,9 +120,18 @@ async function writeHookProfile(
   if (hooks.length > 0) {
     const dir = path.join(catalogDir, "hooks", HOOK);
     await mkdir(dir, { recursive: true });
+    await writeFile(path.join(dir, "hook.yml"), [`name: ${HOOK}`, ...hooks, ""].join("\n"), "utf8");
+    // The pack the profile below takes: nothing labels itself, so the grouping is a document.
+    await mkdir(path.join(catalogDir, "packs"), { recursive: true });
     await writeFile(
-      path.join(dir, "hook.yml"),
-      [`name: ${HOOK}`, `tags: [${HOOK_TAG}]`, ...hooks, ""].join("\n"),
+      path.join(catalogDir, "packs", `${HOOK_PACK}.yml`),
+      [
+        `name: ${HOOK_PACK}`,
+        "description: The hook these cases install.",
+        "requires:",
+        `  - hook: ${HOOK}`,
+        "",
+      ].join("\n"),
       "utf8",
     );
   }
@@ -132,7 +142,7 @@ catalogs:
   - name: ${CATALOG_NAME}
     source: path:../catalog
 harnesses: [${harnesses.join(", ")}]
-requires: ${hooks.length === 0 ? "[]" : `\n${requiresEntry(HOOK_TAG)}`}
+requires: ${hooks.length === 0 ? "[]" : `\n${requiresEntry(HOOK_PACK)}`}
 `,
     "utf8",
   );
@@ -299,8 +309,8 @@ describe("ambit doctor on an incomplete environment", () => {
 
   it("names the server, and the reference install left in `.mcp.json` for the harness", async () => {
     expect(await detailOf(TAGGED_VAR)).toEqual([
-      'MCP server "tagged" expects it',
-      `"mcpServers.tagged" in ${MCP_FILE} references it, for the harness to expand at spawn`,
+      'MCP server "linter" expects it',
+      `"mcpServers.linter" in ${MCP_FILE} references it, for the harness to expand at spawn`,
       // No reinstall in the fix: ambit wrote a reference, so setting the variable is the whole of it.
       `set ${TAGGED_VAR} in the environment the agent runs in`,
     ]);
@@ -404,7 +414,7 @@ describe("ambit doctor on an ownership anomaly", () => {
     await rm(path.join(projectDir, STATE_FILE));
 
     expect(await detailOf(MCP_FILE)).toContain(
-      '"mcpServers.tagged" exists but ambit did not create it',
+      '"mcpServers.linter" exists but ambit did not create it',
     );
   });
 });
@@ -614,7 +624,7 @@ describe("ambit doctor before an install", () => {
 
     expect(result.code).toBe(ExitCode.Resolution);
     expect(result.stderr).toContain(
-      `\`requires\` entry "tag:${CATALOG_NAME}/function.enginering" matches nothing`,
+      `\`requires\` entry "pack:${CATALOG_NAME}/function.enginering" matches nothing`,
     );
     expect(result.stdout).toBe("");
   });

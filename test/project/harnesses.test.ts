@@ -42,8 +42,8 @@ const FRONTEND_SKILL = "design-tokens";
 const ALL_SKILLS = [ENGINEERING_SKILL, CORE_SKILL, FRONTEND_SKILL];
 
 /** The fixture's tag-matched http server, and the variable its `Authorization` header names. */
-const TAGGED_MCP = "tagged";
-const TAGGED_KEY_VAR = "TAGGED_API_KEY";
+const PACKED_MCP = "linter";
+const PACKED_KEY_VAR = "LINTER_API_KEY";
 
 /**
  * The fixture's two tag-matched hooks: one inline command on `core`, one shipping a script on
@@ -77,9 +77,9 @@ let root: string;
 let catalogDir: string;
 let projectDir: string;
 
-/** One `requires` entry, selecting everything in `catalog` that carries `tag`. */
-function requiresEntry(tag: string, catalog = "company"): string {
-  return `  - { tag: "${catalog}/${tag}", capabilities: [skills, mcps, hooks] }`;
+/** One `requires` entry, taking a whole pack from `catalog`. */
+function requiresEntry(pack: string, catalog = "company"): string {
+  return `  - { pack: "${catalog}/${pack}" }`;
 }
 
 async function writeProfile(harnesses: readonly string[]): Promise<void> {
@@ -177,10 +177,10 @@ describe("two harnesses of the same family", () => {
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     expect(Object.keys(JSON.parse(await read(".mcp.json")).mcpServers as object)).toEqual([
-      TAGGED_MCP,
+      PACKED_MCP,
     ]);
     expect(Object.keys(JSON.parse(await read(".cursor/mcp.json")).mcpServers as object)).toEqual([
-      TAGGED_MCP,
+      PACKED_MCP,
     ]);
     expect((await readdir(path.join(projectDir, SKILLS_DIR))).sort()).toEqual(
       [...ALL_SKILLS].sort(),
@@ -238,18 +238,18 @@ describe("two harnesses from different families", () => {
 
     expect(JSON.parse(await read(".mcp.json"))).toEqual({
       mcpServers: {
-        [TAGGED_MCP]: {
+        [PACKED_MCP]: {
           type: "http",
           url: "https://mcp.invalid/fixture",
-          headers: { Authorization: `Bearer \${${TAGGED_KEY_VAR}}` },
+          headers: { Authorization: `Bearer \${${PACKED_KEY_VAR}}` },
         },
       },
     });
-    expect(await read(".codex/config.toml")).toBe(`[mcp_servers.tagged]
+    expect(await read(".codex/config.toml")).toBe(`[mcp_servers.linter]
 url = "https://mcp.invalid/fixture"
 
-[mcp_servers.tagged.http_headers]
-Authorization = "Bearer \${${TAGGED_KEY_VAR}}"
+[mcp_servers.linter.http_headers]
+Authorization = "Bearer \${${PACKED_KEY_VAR}}"
 `);
   });
 
@@ -283,7 +283,7 @@ Authorization = "Bearer \${${TAGGED_KEY_VAR}}"
           path: ".codex/config.toml",
           kind: "harness-config",
           format: "toml",
-          managedKeys: [`mcp_servers.${TAGGED_MCP}`],
+          managedKeys: [`mcp_servers.${PACKED_MCP}`],
         },
         {
           path: ".codex/hooks.json",
@@ -298,7 +298,7 @@ Authorization = "Bearer \${${TAGGED_KEY_VAR}}"
           path: ".mcp.json",
           kind: "harness-config",
           format: "json",
-          managedKeys: [`mcpServers.${TAGGED_MCP}`],
+          managedKeys: [`mcpServers.${PACKED_MCP}`],
         },
       ],
     );
@@ -386,14 +386,14 @@ describe("all five harnesses at once", () => {
     await cli("install");
     // Every variable the bundle references, whichever entity declared it: `doctor` reads the
     // environment rather than the files, so a reference in five formats is still one question.
-    process.env[TAGGED_KEY_VAR] = "s3cret";
+    process.env[PACKED_KEY_VAR] = "s3cret";
     process.env.ACME_FIGMA_TOKEN = "figma-token";
 
     try {
       const result = await cli("doctor");
       expect(result.code, result.stderr).toBe(ExitCode.Success);
     } finally {
-      delete process.env[TAGGED_KEY_VAR];
+      delete process.env[PACKED_KEY_VAR];
       delete process.env.ACME_FIGMA_TOKEN;
     }
   });
@@ -412,7 +412,6 @@ describe("a variable referenced by a header and not declared in `env`", () => {
     await writeFile(
       path.join(catalogDir, "mcps/undeclared.yml"),
       `name: undeclared
-tags: [core]
 
 transport:
   http:
@@ -420,6 +419,20 @@ transport:
     headers:
       Authorization: "Bearer \${UNDECLARED_TOKEN}"
 `,
+      "utf8",
+    );
+    // Beside the fixture's own `core` pack, rewritten so the profile's entry reaches this server too.
+    await writeFile(
+      path.join(catalogDir, "packs/core.yml"),
+      [
+        "name: core",
+        "description: What every Acme session needs, whoever is in it.",
+        "requires:",
+        "  - skill: company-context",
+        "  - hook: session-notes",
+        "  - mcp: undeclared",
+        "",
+      ].join("\n"),
       "utf8",
     );
   });

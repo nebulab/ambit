@@ -44,10 +44,10 @@ let projectDir: string;
  * @param entries further `requires` entry lines, for the shapes {@link requiresEntry} does not build.
  */
 async function writeProfile(
-  tags: readonly string[],
+  packs: readonly string[],
   entries: readonly string[] = [],
 ): Promise<void> {
-  const written = [...tags.map((tag) => requiresEntry(tag)), ...entries];
+  const written = [...packs.map((pack) => requiresEntry(pack)), ...entries];
   const list = written.length === 0 ? "[]" : `\n${written.join("\n")}`;
   await writeFile(
     path.join(projectDir, "ambit.yml"),
@@ -61,9 +61,9 @@ requires: ${list}
   );
 }
 
-/** One `requires` entry, selecting everything in `catalog` that carries `tag`. */
-function requiresEntry(tag: string, catalog = CATALOG_NAME): string {
-  return `  - { tag: "${catalog}/${tag}", capabilities: [skills, mcps, hooks] }`;
+/** One `requires` entry, taking a whole pack from `catalog`. */
+function requiresEntry(pack: string, catalog = CATALOG_NAME): string {
+  return `  - { pack: "${catalog}/${pack}" }`;
 }
 
 /** Runs the CLI against the project, collecting stdout and stderr. */
@@ -112,11 +112,7 @@ async function writeCatalogHook(
 ): Promise<void> {
   const dir = path.join(catalogDir, "hooks", name);
   await mkdir(dir, { recursive: true });
-  await writeFile(
-    path.join(dir, "hook.yml"),
-    [`name: ${name}`, "tags: [core]", ...body, ""].join("\n"),
-    "utf8",
-  );
+  await writeFile(path.join(dir, "hook.yml"), [`name: ${name}`, ...body, ""].join("\n"), "utf8");
   if (script !== undefined) await writeFile(path.join(dir, script.file), script.body, "utf8");
 }
 
@@ -155,27 +151,38 @@ describe("ambit.lock", () => {
         "  guard-secrets:",
         `    catalog: ${CATALOG_NAME}`,
         "    path: hooks/guard-secrets",
-        `    reason: tag:${CATALOG_NAME}/function.engineering`,
+        "    reason: required-by:pack:function.engineering",
         "  session-notes:",
         `    catalog: ${CATALOG_NAME}`,
-        `    reason: tag:${CATALOG_NAME}/core`,
+        "    reason: required-by:pack:core",
         "mcps:",
-        "  tagged:",
+        "  linter:",
         `    catalog: ${CATALOG_NAME}`,
-        `    reason: tag:${CATALOG_NAME}/function.engineering`,
+        "    reason: required-by:pack:function.engineering",
+        // The packs the project named, which nothing materializes and every reason above points at.
+        "packs:",
+        "  core:",
+        `    catalog: ${CATALOG_NAME}`,
+        `    reason: pack:${CATALOG_NAME}/core`,
+        "  function.engineering:",
+        `    catalog: ${CATALOG_NAME}`,
+        `    reason: pack:${CATALOG_NAME}/function.engineering`,
+        "  function.engineering.frontend:",
+        `    catalog: ${CATALOG_NAME}`,
+        `    reason: pack:${CATALOG_NAME}/function.engineering.*`,
         "skills:",
         `  ${ENGINEERING_SKILL}:`,
         `    catalog: ${CATALOG_NAME}`,
         "    path: skills/code-review",
-        `    reason: tag:${CATALOG_NAME}/function.engineering`,
+        "    reason: required-by:pack:function.engineering",
         `  ${CORE_SKILL}:`,
         `    catalog: ${CATALOG_NAME}`,
         "    path: skills/company-context",
-        `    reason: tag:${CATALOG_NAME}/core`,
+        "    reason: required-by:pack:core",
         `  ${FRONTEND_SKILL}:`,
         `    catalog: ${CATALOG_NAME}`,
         "    path: skills/design-tokens",
-        `    reason: tag:${CATALOG_NAME}/function.engineering.*`,
+        "    reason: required-by:pack:function.engineering.frontend",
         "version: 1",
         "",
       ].join("\n"),
@@ -211,6 +218,7 @@ describe("ambit.lock", () => {
         `    source: ${CATALOG_SOURCE}`,
         "hooks: {}",
         "mcps: {}",
+        "packs: {}",
         "skills: {}",
         "version: 1",
         "",
@@ -219,33 +227,33 @@ describe("ambit.lock", () => {
   });
 
   it("records the reason each item was selected, in `--explain`'s form", async () => {
-    await writeProfile(
-      ["project.acme"],
-      [`  - { name: "${CATALOG_NAME}/${ENGINEERING_SKILL}", capabilities: [skills] }`],
-    );
+    await writeProfile(["project.acme"], [`  - { skill: "${CATALOG_NAME}/${ENGINEERING_SKILL}" }`]);
 
     await cli("install");
     const lock = parseYamlMapping(await readLock(), LOCK_FILENAME);
 
     const skills = lock.requireMapping("skills");
     expect(skills.requireMapping(ENGINEERING_SKILL).requireString("reason")).toBe(
-      `name:${CATALOG_NAME}/${ENGINEERING_SKILL}`,
+      `skill:${CATALOG_NAME}/${ENGINEERING_SKILL}`,
     );
     expect(skills.requireMapping(PROJECT_SKILL).requireString("reason")).toBe(
-      `tag:${CATALOG_NAME}/project.acme`,
+      "required-by:pack:project.acme",
     );
+    expect(
+      lock.requireMapping("packs").requireMapping("project.acme").requireString("reason"),
+    ).toBe(`pack:${CATALOG_NAME}/project.acme`);
     expect(skills.requireMapping(CORE_SKILL).requireString("reason")).toBe(
-      `required-by:${PROJECT_SKILL}`,
+      `required-by:skill:${PROJECT_SKILL}`,
     );
     expect(lock.requireMapping("mcps").requireMapping("fixture").requireString("reason")).toBe(
-      `required-by:${PROJECT_SKILL}`,
+      `required-by:skill:${PROJECT_SKILL}`,
     );
   });
 
   it("records a command-line hook as config values, with no bytes to pin", async () => {
     await writeCatalogHook("notify", ["event: Stop", "type: command", "command: ./notify"]);
 
-    await writeProfile(["core"]);
+    await writeProfile([], [`  - { hook: "${CATALOG_NAME}/notify" }`]);
     await cli("install");
     const entry = parseYamlMapping(await readLock(), LOCK_FILENAME)
       .requireMapping("hooks")
@@ -255,7 +263,7 @@ describe("ambit.lock", () => {
     // `LockMcp`'s shape, and `catalog` is all a reader needs to find the document.
     expect(entry.keys()).toEqual(["catalog", "reason"]);
     expect(entry.requireString("catalog")).toBe(CATALOG_NAME);
-    expect(entry.requireString("reason")).toBe(`tag:${CATALOG_NAME}/core`);
+    expect(entry.requireString("reason")).toBe(`hook:${CATALOG_NAME}/notify`);
   });
 
   it("pins where a hook's bytes came from only when it ships a script", async () => {
@@ -268,7 +276,10 @@ describe("ambit.lock", () => {
       "type: command",
       "command: npx --yes say done",
     ]);
-    await writeProfile(["core"]);
+    await writeProfile(
+      [],
+      [`  - { hook: "${CATALOG_NAME}/block-rm" }`, `  - { hook: "${CATALOG_NAME}/announce" }`],
+    );
 
     // Through `buildLock` rather than the CLI, so the commit is a value rather than something a git
     // source has to supply — the same trick the numeric-SHA case below uses.
@@ -292,7 +303,7 @@ describe("ambit.lock", () => {
     expect(shipping.requireString("catalog")).toBe(CATALOG_NAME);
     expect(shipping.requireString("path")).toBe("hooks/block-rm");
     expect(shipping.requireString("commit")).toBe("abc1234");
-    expect(shipping.requireString("reason")).toBe(`tag:${CATALOG_NAME}/core`);
+    expect(shipping.requireString("reason")).toBe(`hook:${CATALOG_NAME}/block-rm`);
 
     // `npx --yes say done` is a command line, so the same catalog entry ships nothing and pins
     // nothing: a directory holding only the declaration that was already read has no bytes to record.

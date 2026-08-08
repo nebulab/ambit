@@ -20,13 +20,12 @@ import { AmbitError, ExitCode } from "../../src/errors.js";
 const FILE = "ambit.yml";
 
 /** One `requires` entry, for the cases about which file was read rather than about what it said. */
-const ONE_ENTRY = 'requires: [{ name: "c/core", capabilities: [skills] }]\n';
+const ONE_ENTRY = 'requires: [{ skill: "c/core" }]\n';
 
 const ONE_ENTRY_PARSED = {
-  field: "name",
+  kind: "skill",
   pattern: "core",
   catalog: "c",
-  capabilities: ["skills"],
 };
 
 /** Parses `text`, asserting it was rejected as a config error (exit 2). */
@@ -45,12 +44,9 @@ const FULL_CONFIG = `version: 1
 harnesses: [claude]
 
 requires:
-  - tag: "company/function.engineering"
-    capabilities: [skills, mcps, hooks]
-  - name: "company/core.*"
-    capabilities: [skills]
-  - name: "personal/luma"
-    capabilities: [skills]
+  - pack: "company/function.engineering"
+  - skill: "company/core.*"
+  - skill: "personal/luma"
 
 catalogs:
   - name: company
@@ -68,9 +64,9 @@ describe("project config", () => {
       origin: {
         file: FILE,
         entryLines: new Map([
-          ['- { tag: "company/function.engineering", capabilities: [skills, mcps, hooks] }', 5],
-          ['- { name: "company/core.*", capabilities: [skills] }', 7],
-          ['- { name: "personal/luma", capabilities: [skills] }', 9],
+          ['- pack: "company/function.engineering"', 5],
+          ['- skill: "company/core.*"', 6],
+          ['- skill: "personal/luma"', 7],
         ]),
       },
       harnesses: ["claude"],
@@ -79,14 +75,9 @@ describe("project config", () => {
         { name: "personal", source: "git@github.com:jane/skills-private.git", ref: "main" },
       ],
       requires: [
-        {
-          field: "tag",
-          pattern: "function.engineering",
-          catalog: "company",
-          capabilities: ["skills", "mcps", "hooks"],
-        },
-        { field: "name", pattern: "core.*", catalog: "company", capabilities: ["skills"] },
-        { field: "name", pattern: "luma", catalog: "personal", capabilities: ["skills"] },
+        { kind: "pack", pattern: "function.engineering", catalog: "company" },
+        { kind: "skill", pattern: "core.*", catalog: "company" },
+        { kind: "skill", pattern: "luma", catalog: "personal" },
       ],
     });
   });
@@ -105,13 +96,13 @@ describe("project config", () => {
     // Resolution rejects an entry that matches nothing long after this parse, and the error is still
     // expected to name the line, so the positions have to survive parsing.
     const config = parseProjectConfig(
-      ["version: 1", "requires:", "  - { tag: c/core, capabilities: [skills] }", ""].join("\n"),
+      ["version: 1", "requires:", "  - { skill: c/core }", ""].join("\n"),
       FILE,
     );
 
     expect(config.origin).toEqual({
       file: FILE,
-      entryLines: new Map([['- { tag: "c/core", capabilities: [skills] }', 3]]),
+      entryLines: new Map([['- skill: "c/core"', 3]]),
     });
   });
 
@@ -119,50 +110,36 @@ describe("project config", () => {
     // `formatEntry` drops the capability list, and these two entries agree on everything it keeps —
     // yet they sit on separate lines, and a refusal about either has to name its own.
     const config = parseProjectConfig(
-      [
-        "version: 1",
-        "requires:",
-        "  - { tag: c/core, capabilities: [skills] }",
-        "  - { tag: c/core, capabilities: [hooks] }",
-        "",
-      ].join("\n"),
+      ["version: 1", "requires:", "  - { skill: c/core }", "  - { hook: c/core }", ""].join("\n"),
       FILE,
     );
 
     expect(config.origin.entryLines).toEqual(
       new Map([
-        ['- { tag: "c/core", capabilities: [skills] }', 3],
-        ['- { tag: "c/core", capabilities: [hooks] }', 4],
+        ['- skill: "c/core"', 3],
+        ['- hook: "c/core"', 4],
       ]),
     );
   });
 
   it("keeps the first line of an entry written twice, and the entry once", () => {
     const config = parseProjectConfig(
-      [
-        "version: 1",
-        "requires:",
-        "  - { tag: c/core, capabilities: [skills] }",
-        "  - { tag: c/core, capabilities: [skills] }",
-        "",
-      ].join("\n"),
+      ["version: 1", "requires:", "  - { skill: c/core }", "  - { skill: c/core }", ""].join("\n"),
       FILE,
     );
 
     expect(config.requires).toHaveLength(1);
-    expect(config.origin.entryLines.get('- { tag: "c/core", capabilities: [skills] }')).toBe(3);
+    expect(config.origin.entryLines.get('- skill: "c/core"')).toBe(3);
   });
 
   it("keeps the entries exactly as listed, adding nothing", () => {
     // Spec §2: nothing is implicit. A config that selects one thing selects one thing.
     const config = parseProjectConfig(
-      'version: 1\nrequires: [{ tag: "c/function.sales", capabilities: [skills] }]\n',
+      'version: 1\nrequires: [{ pack: "c/function.sales" }]\n',
       FILE,
     );
 
-    expect(config.requires).toEqual([
-      { field: "tag", pattern: "function.sales", catalog: "c", capabilities: ["skills"] },
-    ]);
+    expect(config.requires).toEqual([{ kind: "pack", pattern: "function.sales", catalog: "c" }]);
   });
 
   it("reads an empty requires list as selecting nothing", () => {
@@ -258,12 +235,12 @@ describe("project config", () => {
       // The grammar's own refusals are `pattern.test.ts`'s; this is the claim that a project config
       // reads its `requires` through them rather than through a second, looser parser.
       expect(rejection('version: 1\nrequires: [{ tag: "c/core" }]\n').format()).toContain(
-        '`requires` entry "c/core" declares no capabilities',
+        "accepted keys: hook, mcp, pack, skill",
       );
     });
 
     it("rejects a `requires` address that names no catalog", () => {
-      const error = rejection('version: 1\nrequires: [{ tag: "core", capabilities: [skills] }]\n');
+      const error = rejection('version: 1\nrequires: [{ skill: "core" }]\n');
 
       expect(error.format()).toContain('`requires` entry "core" names no catalog');
       expect(error.format()).toContain("qualify it: `<catalog>/core`");
@@ -329,15 +306,11 @@ describe("project config", () => {
       );
 
       expect(error.format()).toContain(`top-level \`scopes\` is gone (${FILE} line 5)`);
+      // A scope reached across every namespace at once, which one entry does not — so the refusal
+      // names the thing that does the job now rather than printing a rewrite that would be half true.
       expect(error.format()).toContain(
-        'line 6: `core` becomes `- { tag: "company/core", capabilities: [skills, mcps, hooks] }`',
+        "declare a pack in the catalog that requires them, and select it with `pack:`",
       );
-      expect(error.format()).toContain(
-        'line 7: `function.engineering` becomes `- { tag: "company/function.engineering", capabilities: [skills, mcps, hooks] }`',
-      );
-      // The subtree rule went with the key, and a pattern says so explicitly, so a faithful rewrite
-      // of one held scope is two entries.
-      expect(error.format()).toContain("also reached every tag beneath it");
       expect(error.format()).toContain("rename the key to `requires`");
     });
 
@@ -346,13 +319,13 @@ describe("project config", () => {
 
       expect(error.format()).toContain(`top-level \`skills\` is gone (${FILE} line 5)`);
       expect(error.format()).toContain(
-        'line 6: `house-style` becomes `- { name: "company/house-style", capabilities: [skills] }`',
+        'line 6: `house-style` becomes `- skill: "company/house-style"`',
       );
-      // A name entry says nothing about a subtree, so nothing about one is suggested.
-      expect(error.format()).not.toContain("beneath it");
+      // A `skill:` entry names one namespace outright, so nothing about a pack is suggested.
+      expect(error.format()).not.toContain("declare a pack");
     });
 
-    it("stands in for the alias when the config declares more than one catalog", () => {
+    it("declines to pick an alias when the config declares more than one catalog", () => {
       // A held scope reached every catalog at once; which of several an entry should now name is the
       // reader's call, and proposing one would be a guess.
       const error = rejection(
@@ -368,9 +341,6 @@ describe("project config", () => {
         ].join("\n"),
       );
 
-      expect(error.format()).toContain(
-        '`core` becomes `- { tag: "<catalog>/core", capabilities: [skills, mcps, hooks] }`',
-      );
       expect(error.format()).toContain(
         "qualifying each entry with the alias it should select from",
       );

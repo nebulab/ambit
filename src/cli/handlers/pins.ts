@@ -90,20 +90,28 @@ function changeJson(changes: readonly BundleChange[]): Readonly<Record<string, u
   };
 }
 
-/** The whole bundle diff as three sections, in the order every other report lists the namespaces. */
+/**
+ * The whole bundle diff as one section per namespace, in the order every other report lists them.
+ *
+ * The packs lead, and they are worth a section of their own even though a pack materializes nothing:
+ * a pack whose membership moved is the *cause* of most of the rows below it, and a report that showed
+ * only the effects would send a reader looking for a change that is not in any of them.
+ */
 export function diffSections(diff: BundleDiff): readonly string[] {
   return [
+    ...section("packs", changeRows(diff.packs)),
     ...section("skills", changeRows(diff.skills)),
     ...section("mcps", changeRows(diff.mcps)),
     ...section("hooks", changeRows(diff.hooks)),
   ];
 }
 
-/** The whole bundle diff as three keyed records, each carrying its own `+`/`~`/`-` counts. */
+/** The whole bundle diff as one keyed record per namespace, each carrying its `+`/`~`/`-` counts. */
 export function diffJson(diff: BundleDiff): Readonly<Record<string, unknown>> {
   return {
     hooks: changeJson(diff.hooks),
     mcps: changeJson(diff.mcps),
+    packs: changeJson(diff.packs),
     skills: changeJson(diff.skills),
   };
 }

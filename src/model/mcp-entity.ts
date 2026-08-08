@@ -31,11 +31,6 @@ export type McpTransport = StdioTransport | HttpTransport;
 
 export interface McpEntity {
   readonly name: string;
-  /**
-   * Declared tags: free-form labels, registered nowhere, that a consumer can select on. Empty means
-   * reachable by a `name:` entry or a `requires` edge, and by nothing else.
-   */
-  readonly tags: readonly string[];
   readonly transport: McpTransport;
   /** What must be true of the world for this server to work — its credentials, today. */
   readonly expects: readonly Expectation[];
@@ -47,7 +42,7 @@ export interface McpEntity {
  */
 export const MCP_TRANSPORT_KINDS = ["http", "stdio"] as const;
 
-const ENTITY_KEYS = ["expects", "name", "tags", "transport"] as const;
+const ENTITY_KEYS = ["expects", "name", "transport"] as const;
 
 function parseTransport(mapping: YamlMapping): McpTransport {
   const transport = mapping.requireMapping("transport");
@@ -107,7 +102,6 @@ export function parseMcpEntity(mapping: YamlMapping): McpEntity {
 
   return {
     name: mapping.requireString("name"),
-    tags: mapping.optionalStringList("tags") ?? [],
     transport: parseTransport(mapping),
     expects: parseExpectations(mapping),
   };

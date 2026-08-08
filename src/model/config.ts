@@ -10,8 +10,9 @@ import path from "node:path";
 
 import { at, configError } from "../errors.js";
 import { CATALOG_SEPARATOR } from "./catalog.js";
-import type { Capability, PatternEntry, PatternField } from "./pattern.js";
+import type { PatternEntry } from "./pattern.js";
 import { REQUIRES_KEY, entryYaml, parseEntries, uniqueEntries } from "./pattern.js";
+import type { ItemKind } from "./requirement.js";
 import { YamlMapping, parseYamlMapping, readYamlMapping } from "./yaml.js";
 
 /** The only config version this build understands. */
@@ -87,41 +88,21 @@ function assertNoInlineDefinitions(root: YamlMapping): void {
 /**
  * The two keys a project used to select with, and the entry each of their members becomes.
  *
- * Both are gone in favour of one `requires:` list of patterns, and the rewrite is mechanical enough
- * to print: a held scope selected all three namespaces by tag, and a `skills` entry selected one
- * skill by name. So a refusal names the entry per line rather than describing the new grammar and
- * leaving the reader to translate — which is the whole of the migration path, there being no
- * compatibility reader.
- *
- * `subtree` marks the key whose members also reached everything *beneath* them. That rule is gone
- * with the key, and a pattern says so explicitly, so the refusal has to mention the second entry a
- * faithful rewrite needs.
+ * Both are gone in favour of one `requires:` list of one-key entries, and the rewrite is mechanical
+ * enough to print: a `skills` entry selected one skill by name, so it becomes `- skill:` qualified
+ * with an alias. A held scope selected across every namespace at once by label, which no single entry
+ * does any more — that job belongs to a **pack**, declared in the catalog — so its refusal says so
+ * rather than printing a rewrite that would only be half true.
  */
 const REMOVED_SELECTION_KEYS: readonly {
   readonly key: string;
   /** How the message names one of the entries. */
   readonly subject: string;
-  /** Which field of an item each member matched. */
-  readonly field: PatternField;
-  /** Which namespaces each member reached. */
-  readonly capabilities: readonly Capability[];
-  /** Whether a member also selected everything beneath it. */
-  readonly subtree: boolean;
+  /** Which namespace each member selected from, where one entry can still say it. */
+  readonly kind?: ItemKind;
 }[] = [
-  {
-    key: "scopes",
-    subject: "a held scope",
-    field: "tag",
-    capabilities: ["skills", "mcps", "hooks"],
-    subtree: true,
-  },
-  {
-    key: "skills",
-    subject: "a skill name",
-    field: "name",
-    capabilities: ["skills"],
-    subtree: false,
-  },
+  { key: "scopes", subject: "a held scope" },
+  { key: "skills", subject: "a skill name", kind: "skill" },
 ];
 
 /** Stands in for a catalog alias the config does not name unambiguously. */
@@ -170,23 +151,22 @@ function assertNoRemovedSelection(root: YamlMapping): void {
     if (!root.has(removed.key)) continue;
 
     const catalog = rewriteAlias(root);
-    const rewrites = (root.optionalPositionedStringList(removed.key) ?? []).map((entry) => {
-      const yaml = entryYaml({
-        field: removed.field,
-        pattern: entry.value,
-        catalog,
-        capabilities: removed.capabilities,
-      });
-      const where = entry.line === undefined ? "" : `line ${entry.line}: `;
-      return `${where}\`${entry.value}\` becomes \`${yaml}\``;
-    });
+    const kind = removed.kind;
+    const rewrites =
+      kind === undefined
+        ? []
+        : (root.optionalPositionedStringList(removed.key) ?? []).map((entry) => {
+            const yaml = entryYaml({ kind, pattern: entry.value, catalog });
+            const where = entry.line === undefined ? "" : `line ${entry.line}: `;
+            return `${where}\`${entry.value}\` becomes \`${yaml}\``;
+          });
 
     throw root.keyError(removed.key, `top-level \`${removed.key}\` is gone`, [
-      `a project selects by pattern now: one \`${REQUIRES_KEY}:\` list, each entry qualified with a \`catalogs:\` alias`,
+      `a project selects by pattern now: one \`${REQUIRES_KEY}:\` list, each entry one key naming a namespace and qualified with a \`catalogs:\` alias`,
       ...rewrites,
-      ...(removed.subtree
+      ...(kind === undefined
         ? [
-            `${removed.subject} also reached every tag beneath it; that is a second entry now, on \`${catalog}/<tag>.*\``,
+            "a scope reached items across every namespace at once, which one entry does not: declare a pack in the catalog that requires them, and select it with `pack:`",
           ]
         : []),
       catalog === ALIAS_PLACEHOLDER
@@ -210,9 +190,9 @@ export interface ConfigOrigin {
   /**
    * 1-based line each `requires` entry was written on, keyed by {@link entryYaml}.
    *
-   * Keyed by the entry rendered whole rather than by {@link formatEntry}, which drops the capability
-   * list: two entries on two lines may share a field and an address and differ only in what they
-   * select, and a refusal about one of them must name its own line.
+   * An entry renders to exactly one line, so the rendering is the key: two entries that render alike
+   * are the same selection, and the first line either was written on is the one a reader scanning
+   * downward finds.
    */
   readonly entryLines: ReadonlyMap<string, number>;
 }

@@ -2,17 +2,32 @@
   "expects": {
     "env": [
       "ACME_FIGMA_TOKEN",
-      "TAGGED_API_KEY"
+      "LINTER_API_KEY"
     ]
   },
   "hooks": {
     "guard-secrets": {
       "catalog": "company",
       "event": "PreToolUse"
+    },
+    "session-notes": {
+      "catalog": "company",
+      "event": "SessionStart"
     }
   },
   "mcps": {
-    "tagged": {
+    "linter": {
+      "catalog": "company"
+    }
+  },
+  "packs": {
+    "core": {
+      "catalog": "company"
+    },
+    "function.engineering": {
+      "catalog": "company"
+    },
+    "function.engineering.frontend": {
       "catalog": "company"
     }
   },
@@ -20,6 +35,10 @@
     "code-review": {
       "catalog": "company",
       "path": "skills/code-review"
+    },
+    "company-context": {
+      "catalog": "company",
+      "path": "skills/company-context"
     },
     "design-tokens": {
       "catalog": "company",

@@ -22,6 +22,8 @@ export {
   HOOK_FILENAME,
   MCPS_DIRNAME,
   MCP_EXTENSIONS,
+  PACKS_DIRNAME,
+  PACK_EXTENSIONS,
   SKILLS_DIRNAME,
   SKILL_FILENAME,
   hookCommand,
@@ -38,11 +40,13 @@ export type {
   CatalogHook,
   CatalogLoadOptions,
   CatalogMcp,
+  CatalogPack,
   CatalogParseOptions,
   CatalogSkill,
   MergedCatalog,
   MergedHook,
   MergedMcp,
+  MergedPack,
   MergedSkill,
 } from "./model/catalog.js";
 export {
@@ -91,6 +95,8 @@ export { HOOK_EVENTS, HOOK_TYPES, MATCHABLE_EVENTS, parseHookEntity } from "./mo
 export type { HookEntity, HookEvent, HookType } from "./model/hook-entity.js";
 export { MCP_TRANSPORT_KINDS, parseMcpEntity } from "./model/mcp-entity.js";
 export type { HttpTransport, McpEntity, McpTransport, StdioTransport } from "./model/mcp-entity.js";
+export { parsePackEntity } from "./model/pack-entity.js";
+export type { PackEntity } from "./model/pack-entity.js";
 export { renderScaffold } from "./model/scaffold.js";
 export type { ScaffoldBlock } from "./model/scaffold.js";
 export { parseSource, resolveSource } from "./model/sources.js";
@@ -131,10 +137,6 @@ export type { Reference } from "./model/reference.js";
 export { ITEM_KINDS, KIND_SEPARATOR, parseItemSubject } from "./model/requirement.js";
 export type { ItemKind } from "./model/requirement.js";
 export {
-  CAPABILITIES,
-  CAPABILITIES_KEY,
-  CAPABILITY_OF_KIND,
-  PATTERN_FIELDS,
   REQUIRES_KEY,
   entryAddress,
   entryYaml,
@@ -145,13 +147,7 @@ export {
   sameEntry,
   uniqueEntries,
 } from "./model/pattern.js";
-export type {
-  Addressing,
-  Capability,
-  PatternEntry,
-  PatternField,
-  PatternItem,
-} from "./model/pattern.js";
+export type { Addressing, PatternEntry, PatternItem } from "./model/pattern.js";
 export {
   EXPECTATION_KINDS,
   EXPECTATION_NOUNS,
@@ -170,6 +166,7 @@ export {
   entryCatalog,
   entryPosition,
   explainSelection,
+  formatItem,
   formatReason,
   isSelected,
   matchesAnything,
@@ -178,15 +175,16 @@ export {
   requiredEntries,
   requiredItems,
   requirerPosition,
+  requirersOf,
   resolveBundle,
   selectingEntry,
-  skillFile,
   unmatchedEntryError,
 } from "./resolution/resolve.js";
 export type {
   Bundle,
   BundleItem,
   ReasonedItem,
+  Requirer,
   Selection,
   SelectionReason,
   SelectionReasons,
@@ -320,7 +318,7 @@ export {
   serializeLock,
   writeLockText,
 } from "./project/lock.js";
-export type { Lock, LockCatalog, LockHook, LockMcp, LockSkill } from "./project/lock.js";
+export type { Lock, LockCatalog, LockHook, LockMcp, LockPack, LockSkill } from "./project/lock.js";
 export { authorizePlan, ownedKeys } from "./project/ownership.js";
 export type { OwnershipOptions } from "./project/ownership.js";
 export { planPrune, pruneArtifacts, remainingArtifacts } from "./project/prune.js";

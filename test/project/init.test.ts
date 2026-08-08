@@ -36,13 +36,19 @@ import { run } from "../../src/cli/program.js";
 import { emitYaml } from "../../src/model/yaml.js";
 
 /** Every file the scaffold writes, in the order the command reports them. */
-const SCAFFOLD_FILES = [INIT_FILENAME, "hooks/.gitkeep", "mcps/.gitkeep", "skills/.gitkeep"];
+const SCAFFOLD_FILES = [
+  INIT_FILENAME,
+  "hooks/.gitkeep",
+  "mcps/.gitkeep",
+  "packs/.gitkeep",
+  "skills/.gitkeep",
+];
 
 /**
  * What the scaffold sets, stated here rather than imported so the test is an independent claim.
  *
- * `catalogs` is live: every project is a catalog, and the entry is what makes its own `skills/`,
- * `mcps/` and `hooks/` reachable.
+ * `catalogs` is live: every project is a catalog, and the entry is what makes its own `packs/`,
+ * `skills/`, `mcps/` and `hooks/` reachable.
  */
 const SCAFFOLD_VALUES = {
   catalogs: [{ name: "local", source: "path:." }],
@@ -51,7 +57,7 @@ const SCAFFOLD_VALUES = {
 };
 
 /** The commented-out `requires` example, which selects nothing until a reader uncomments it. */
-const EXAMPLE_REQUIRES = [{ capabilities: ["skills", "mcps", "hooks"], name: "local/*" }];
+const EXAMPLE_REQUIRES = [{ pack: "local/*" }, { skill: "local/*" }];
 
 /** The scaffold with its commented-out example uncommented, which is what a reader does. */
 const WITH_EXAMPLE = { ...SCAFFOLD_VALUES, requires: EXAMPLE_REQUIRES };
@@ -159,7 +165,7 @@ describe("ambit init", () => {
     expect(config.requires).toEqual([]);
   });
 
-  it("writes the config and all three item directories, and nothing else", async () => {
+  it("writes the config and every item directory, and nothing else", async () => {
     await cli("init");
 
     expect(Object.keys(await snapshot(projectDir)).sort()).toEqual([...SCAFFOLD_FILES].sort());
@@ -213,12 +219,8 @@ describe("ambit init", () => {
     // The `requires` example quotes the alias the live `catalogs` block declares, so uncommenting it
     // leaves a config that agrees with itself.
     expect(config.requires).toEqual([
-      {
-        field: "name",
-        pattern: "*",
-        catalog: "local",
-        capabilities: ["skills", "mcps", "hooks"],
-      },
+      { kind: "pack", pattern: "*", catalog: "local" },
+      { kind: "skill", pattern: "*", catalog: "local" },
     ]);
   });
 
@@ -248,7 +250,7 @@ describe("ambit init", () => {
     expect(text).toContain("# requires:");
     expect(text).not.toMatch(/^requires:/m);
     expect(comment).toMatch(/nothing is implicit/i);
-    expect(comment).toMatch(/capabilities/);
+    expect(comment).toMatch(/pack/);
     expect(comment).toMatch(/not `core` itself/);
   });
 
@@ -341,7 +343,7 @@ describe("ambit init on a directory that already holds a .gitkeep", () => {
     const result = await cli("init");
 
     expect(result.code, result.stderr).toBe(ExitCode.Success);
-    expect(result.stdout).toContain("created (3)");
+    expect(result.stdout).toContain("created (4)");
     expect(result.stdout).toContain("kept (1)");
     expect(result.stdout).toContain("  skills/.gitkeep");
     expect(await readFile(path.join(projectDir, "skills/.gitkeep"), "utf8")).toBe("# mine\n");

@@ -57,6 +57,19 @@ function toJson(bundle: Bundle, explain: boolean): Readonly<Record<string, unkno
         };
       },
     ),
+    // A pack materializes nothing, so this record carries no path and no bytes — what it says is that
+    // the project asked for it, which is what every `required-by:pack:…` reason below points back to.
+    packs: keyed(
+      bundle.packs,
+      (pack) => pack.name,
+      (pack) => {
+        const why = reason(bundle, { kind: "pack", name: pack.name }, explain);
+        return {
+          catalog: pack.catalog,
+          ...(why !== undefined && { reason: why }),
+        };
+      },
+    ),
     skills: keyed(
       bundle.skills,
       (skill) => skill.name,
@@ -79,6 +92,14 @@ function row(cells: readonly string[], why: string | undefined): readonly string
 
 function toText(bundle: Bundle, explain: boolean): readonly string[] {
   return [
+    // Packs first: they are what a project usually wrote down, and the three sections below are what
+    // they expanded to.
+    ...section(
+      "packs",
+      bundle.packs.map((pack) =>
+        row([pack.name, pack.catalog], reason(bundle, { kind: "pack", name: pack.name }, explain)),
+      ),
+    ),
     ...section(
       "skills",
       bundle.skills.map((skill) =>

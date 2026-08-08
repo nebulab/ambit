@@ -9,6 +9,11 @@
     }
   },
   "mcps": {},
+  "packs": {
+    "core": {
+      "catalog": "company"
+    }
+  },
   "skills": {
     "company-context": {
       "catalog": "company",

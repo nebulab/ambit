@@ -39,39 +39,65 @@ const SKILLS_DIR = ".agents/skills";
  * The tags the project selects on: two skills, the `tagged` server and both tagged hooks, so every
  * namespace has something in it that a second revision can move.
  */
-const TAGS: readonly string[] = ["core", "function.engineering"];
+const PACKS: readonly string[] = ["core", "function.engineering"];
 
 /** The fixture's two credentials, stubbed so no run depends on the developer's environment. */
 const ENV_STUBS: Readonly<Record<string, string>> = {
-  TAGGED_API_KEY: "update-tagged-key",
+  LINTER_API_KEY: "update-tagged-key",
   FIXTURE_API_KEY: "update-fixture-key",
 };
 
-/** One `requires` entry, selecting everything in the catalog that carries `tag`. */
-function requiresEntry(tag: string, catalog = CATALOG_NAME): string {
-  return `  - { tag: "${catalog}/${tag}", capabilities: [skills, mcps, hooks] }`;
+/** One `requires` entry, taking a whole pack from the catalog. */
+function requiresEntry(pack: string, catalog = CATALOG_NAME): string {
+  return `  - { pack: "${catalog}/${pack}" }`;
 }
 
 /** The `requires:` list every project here writes. */
-const REQUIRES = TAGS.map((tag) => requiresEntry(tag)).join("\n");
+const REQUIRES = PACKS.map((pack) => requiresEntry(pack)).join("\n");
 
-/** A skill the first revision does not have, on a tag the project selects. */
+/**
+ * The engineering pack, rewritten to gather `extra` on top of its own members.
+ *
+ * A second revision that adds an item the project should see has to add it to a pack as well as to
+ * the catalog: nothing labels itself any more, so arriving in `skills/` reaches nobody on its own.
+ * That is the mechanism these cases are exercising as much as the diff is.
+ *
+ * @param extra further `requires` entry lines, without their leading `- `.
+ * @param members the pack's own members, so a case about a *departing* item can drop one.
+ */
+function engineeringPack(
+  extra: readonly string[] = [],
+  members: readonly string[] = [
+    "pack: core",
+    "skill: code-review",
+    "mcp: linter",
+    "hook: guard-secrets",
+  ],
+): Readonly<Record<string, string>> {
+  return {
+    "packs/function/engineering.yml": [
+      "name: function.engineering",
+      "description: Everything an Acme engineer needs — reviews, tooling, and the guards around them.",
+      "requires:",
+      ...[...members, ...extra].map((line) => `  - ${line}`),
+      "",
+    ].join("\n"),
+  };
+}
+
+/** A skill the first revision does not have, which the engineering pack then names. */
 const NEW_SKILL = `---
 name: deploy-runbook
 description: How Acme deploys.
-ambit:
-  tags: [function.engineering]
 ---
 
 # Deploy runbook
 `;
 
-/** A skill on a tag the project does *not* select, so committing it moves a commit and no capability. */
+/** A skill no pack the project takes names, so committing it moves a commit and no capability. */
 const UNSELECTED_SKILL = `---
 name: brand-voice
 description: How Acme writes.
-ambit:
-  tags: [project.acme]
 ---
 
 # Brand voice
@@ -181,6 +207,7 @@ describe("ambit outdated leaves the cache exactly where it found it", () => {
 
     const moved = await commitFixtureGitRevision(fixture, {
       "skills/deploy-runbook/SKILL.md": NEW_SKILL,
+      ...engineeringPack(["skill: deploy-runbook"]),
     });
     expect(moved).not.toBe(fixture.commit);
 
@@ -203,7 +230,10 @@ describe("ambit outdated leaves the cache exactly where it found it", () => {
   it("writes nothing into the project", async () => {
     const install = await cli(project, "install");
     expect(install.code, install.stderr).toBe(ExitCode.Success);
-    await commitFixtureGitRevision(fixture, { "skills/deploy-runbook/SKILL.md": NEW_SKILL });
+    await commitFixtureGitRevision(fixture, {
+      "skills/deploy-runbook/SKILL.md": NEW_SKILL,
+      ...engineeringPack(["skill: deploy-runbook"]),
+    });
     const before = await readFile(path.join(project, LOCK_FILENAME), "utf8");
 
     await cli(project, "outdated");
@@ -218,6 +248,7 @@ describe("what ambit outdated reports about a pin", () => {
     await cli(project, "install");
     const moved = await commitFixtureGitRevision(fixture, {
       "skills/deploy-runbook/SKILL.md": NEW_SKILL,
+      ...engineeringPack(["skill: deploy-runbook"]),
     });
 
     const report = await json(project, "outdated");
@@ -248,7 +279,10 @@ describe("what ambit outdated reports about a pin", () => {
   it("reports a commit-pinned catalog as pinned, since there is nothing for it to be behind", async () => {
     await writeProject(project, fixture.url, fixture.commit);
     await cli(project, "install");
-    await commitFixtureGitRevision(fixture, { "skills/deploy-runbook/SKILL.md": NEW_SKILL });
+    await commitFixtureGitRevision(fixture, {
+      "skills/deploy-runbook/SKILL.md": NEW_SKILL,
+      ...engineeringPack(["skill: deploy-runbook"]),
+    });
 
     const report = await json(project, "outdated");
     const catalogs = report.catalogs as Record<string, Record<string, unknown>>;
@@ -312,18 +346,32 @@ describe("the bundle diff, which is what makes the report about capabilities", (
   });
 
   it("names an arriving skill and why it would be selected", async () => {
-    const report = await changesAfter({ "skills/deploy-runbook/SKILL.md": NEW_SKILL });
+    const report = await changesAfter({
+      "skills/deploy-runbook/SKILL.md": NEW_SKILL,
+      ...engineeringPack(["skill: deploy-runbook"]),
+    });
 
     expect(report.skills?.changes).toEqual([
-      { change: "added", detail: "tag:company/function.engineering", name: "deploy-runbook" },
+      { change: "added", detail: "required-by:pack:function.engineering", name: "deploy-runbook" },
+    ]);
+    // The pack's own row says what moved about it, which is the cause the row above is the effect of.
+    expect(report.packs?.changes).toEqual([
+      { change: "changed", detail: "requires changed", name: "function.engineering" },
     ]);
   });
 
   it("names a departing skill and why it used to be selected", async () => {
-    const report = await changesAfter({ "skills/code-review/SKILL.md": null });
+    const report = await changesAfter({
+      "skills/code-review/SKILL.md": null,
+      ...engineeringPack([], ["pack: core", "mcp: linter", "hook: guard-secrets"]),
+    });
 
     expect(report.skills?.changes).toEqual([
-      { change: "removed", detail: "was tag:company/function.engineering", name: "code-review" },
+      {
+        change: "removed",
+        detail: "was required-by:pack:function.engineering",
+        name: "code-review",
+      },
     ]);
   });
 
@@ -331,8 +379,6 @@ describe("the bundle diff, which is what makes the report about capabilities", (
     const changed = `---
 name: code-review
 description: A different description entirely.
-ambit:
-  tags: [function.engineering]
 ---
 
 # Code review at Acme
@@ -348,8 +394,6 @@ ambit:
     const edited = `---
 name: code-review
 description: How Acme reviews code — what reviewers look for, and in what order.
-ambit:
-  tags: [function.engineering]
 ---
 
 # Code review at Acme
@@ -364,35 +408,36 @@ An entirely rewritten body, with no frontmatter moved.
   });
 
   it("names a server's changed field by the path its own document has", async () => {
-    const moved = `name: tagged
-tags: [function.engineering]
+    const moved = `name: linter
 
 transport:
   http:
     url: https://mcp.invalid/moved
     headers:
-      Authorization: "Bearer \${TAGGED_API_KEY}"
+      Authorization: "Bearer \${LINTER_API_KEY}"
 
 expects:
-  - env: TAGGED_API_KEY
+  - env: LINTER_API_KEY
 `;
-    const report = await changesAfter({ "mcps/tagged.yml": moved });
+    const report = await changesAfter({ "mcps/linter.yml": moved });
 
     expect(report.mcps?.changes).toEqual([
-      { change: "changed", detail: "transport.http.url changed", name: "tagged" },
+      { change: "changed", detail: "transport.http.url changed", name: "linter" },
     ]);
   });
 
   it("says what an arriving hook will actually run, not why it was selected", async () => {
     const hook = `name: block-force-push
-tags: [function.engineering]
 
 event: PreToolUse
 matcher: Bash
 type: command
 command: ./bin/block-force-push
 `;
-    const report = await changesAfter({ "hooks/block-force-push/hook.yml": hook });
+    const report = await changesAfter({
+      "hooks/block-force-push/hook.yml": hook,
+      ...engineeringPack(["hook: block-force-push"]),
+    });
 
     expect(report.hooks?.changes).toEqual([
       {
@@ -405,7 +450,6 @@ command: ./bin/block-force-push
 
   it("names the installed path a shipped script will run from", async () => {
     const hook = `name: audit-trail
-tags: [function.engineering]
 
 event: SessionEnd
 type: script
@@ -414,6 +458,7 @@ command: audit.sh --strict
     const report = await changesAfter({
       "hooks/audit-trail/hook.yml": hook,
       "hooks/audit-trail/audit.sh": "#!/bin/sh\nexit 0\n",
+      ...engineeringPack(["hook: audit-trail"]),
     });
 
     expect(report.hooks?.changes).toEqual([
@@ -441,6 +486,7 @@ describe("ambit update", () => {
     await cli(project, "install");
     const moved = await commitFixtureGitRevision(fixture, {
       "skills/deploy-runbook/SKILL.md": NEW_SKILL,
+      ...engineeringPack(["skill: deploy-runbook"]),
     });
 
     const result = await cli(project, "update");
@@ -455,7 +501,10 @@ describe("ambit update", () => {
 
   it("leaves nothing outdated behind it", async () => {
     await cli(project, "install");
-    await commitFixtureGitRevision(fixture, { "skills/deploy-runbook/SKILL.md": NEW_SKILL });
+    await commitFixtureGitRevision(fixture, {
+      "skills/deploy-runbook/SKILL.md": NEW_SKILL,
+      ...engineeringPack(["skill: deploy-runbook"]),
+    });
     await cli(project, "update");
 
     const report = await json(project, "outdated");
@@ -474,7 +523,10 @@ describe("ambit update", () => {
 
   it("--dry-run reports the same plan and touches neither the project nor the pin", async () => {
     await cli(project, "install");
-    await commitFixtureGitRevision(fixture, { "skills/deploy-runbook/SKILL.md": NEW_SKILL });
+    await commitFixtureGitRevision(fixture, {
+      "skills/deploy-runbook/SKILL.md": NEW_SKILL,
+      ...engineeringPack(["skill: deploy-runbook"]),
+    });
 
     const preview = await cli(project, "update", "--dry-run");
     const report = await cli(project, "outdated");
@@ -512,7 +564,10 @@ ${REQUIRES}
       "utf8",
     );
     await cli(project, "install");
-    await commitFixtureGitRevision(fixture, { "skills/deploy-runbook/SKILL.md": NEW_SKILL });
+    await commitFixtureGitRevision(fixture, {
+      "skills/deploy-runbook/SKILL.md": NEW_SKILL,
+      ...engineeringPack(["skill: deploy-runbook"]),
+    });
 
     const named = await cli(project, "update", "personal");
     expect(named.code, named.stderr).toBe(ExitCode.Success);
@@ -530,7 +585,10 @@ describe("--offline", () => {
     it(`refuses \`ambit ${command.join(" ")}\` rather than answering from the cache`, async () => {
       const install = await cli(project, "install");
       expect(install.code, install.stderr).toBe(ExitCode.Success);
-      await commitFixtureGitRevision(fixture, { "skills/deploy-runbook/SKILL.md": NEW_SKILL });
+      await commitFixtureGitRevision(fixture, {
+        "skills/deploy-runbook/SKILL.md": NEW_SKILL,
+        ...engineeringPack(["skill: deploy-runbook"]),
+      });
 
       const result = await cli(project, ...command, "--offline");
 
@@ -552,10 +610,8 @@ const UNRESOLVABLE_SKILL = `---
 name: deploy-runbook
 description: How Acme deploys.
 ambit:
-  tags: [function.engineering]
   requires:
-    - name: no-such-hook
-      capabilities: [hooks]
+    - hook: no-such-hook
 ---
 
 # Deploy runbook
@@ -569,6 +625,7 @@ describe("a first install, which has no earlier resolution to reproduce", () => 
     expect((await cli(warmed, "install")).code).toBe(ExitCode.Success);
     const moved = await commitFixtureGitRevision(fixture, {
       "skills/deploy-runbook/SKILL.md": NEW_SKILL,
+      ...engineeringPack(["skill: deploy-runbook"]),
     });
 
     const fresh = path.join(root, "fresh");
@@ -582,7 +639,10 @@ describe("a first install, which has no earlier resolution to reproduce", () => 
 
   it("leaves the cache alone once a lock exists, which is what makes a reinstall reproducible", async () => {
     expect((await cli(project, "install")).code).toBe(ExitCode.Success);
-    await commitFixtureGitRevision(fixture, { "skills/deploy-runbook/SKILL.md": NEW_SKILL });
+    await commitFixtureGitRevision(fixture, {
+      "skills/deploy-runbook/SKILL.md": NEW_SKILL,
+      ...engineeringPack(["skill: deploy-runbook"]),
+    });
 
     const second = await cli(project, "install");
 
@@ -606,11 +666,15 @@ describe("ambit update, when the cached commit is one the project cannot resolve
   async function breakTheCache(): Promise<string> {
     await commitFixtureGitRevision(fixture, {
       "skills/deploy-runbook/SKILL.md": UNRESOLVABLE_SKILL,
+      ...engineeringPack(["skill: deploy-runbook"]),
     });
     const broken = await cli(project, "install");
     expect(broken.code).toBe(ExitCode.Resolution);
 
-    return commitFixtureGitRevision(fixture, { "skills/deploy-runbook/SKILL.md": NEW_SKILL });
+    return commitFixtureGitRevision(fixture, {
+      "skills/deploy-runbook/SKILL.md": NEW_SKILL,
+      ...engineeringPack(["skill: deploy-runbook"]),
+    });
   }
 
   it("replaces it instead of dying on it, which is the whole reason to run update", async () => {

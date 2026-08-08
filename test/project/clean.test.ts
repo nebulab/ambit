@@ -41,7 +41,7 @@ const ENGINEERING_SKILL = "code-review";
 const FRONTEND_SKILL = "design-tokens";
 
 /** The fixture's tag-matched http server. */
-const TAGGED_MCP = "tagged";
+const PACKED_MCP = "linter";
 
 /**
  * The fixture's two tag-matched hooks, and the file they share.
@@ -77,7 +77,7 @@ const ENGINEERING_HOOK_KEY = managedKey(
 );
 
 /** The variable the tagged server interpolates into its `Authorization` header. */
-const TAGGED_KEY_VAR = "TAGGED_API_KEY";
+const PACKED_KEY_VAR = "LINTER_API_KEY";
 
 const STATE_FILE = `${STATE_DIRNAME}/${STATE_FILENAME}`;
 const HANDMADE_SKILL = "hand-written";
@@ -86,14 +86,15 @@ let root: string;
 let catalogDir: string;
 let projectDir: string;
 
-/** One `requires` entry, selecting everything in `catalog` that carries `tag`. */
-function requiresEntry(tag: string, catalog = CATALOG_NAME): string {
-  return `  - { tag: "${catalog}/${tag}", capabilities: [skills, mcps, hooks] }`;
+/** One `requires` entry, taking a whole pack from `catalog`. */
+function requiresEntry(pack: string, catalog = CATALOG_NAME): string {
+  return `  - { pack: "${catalog}/${pack}" }`;
 }
 
 /** Points the project at the fixture catalog and gives it a `requires` list. */
-async function writeProfile(tags: readonly string[]): Promise<void> {
-  const list = tags.length === 0 ? "[]" : `\n${tags.map((tag) => requiresEntry(tag)).join("\n")}`;
+async function writeProfile(packs: readonly string[]): Promise<void> {
+  const list =
+    packs.length === 0 ? "[]" : `\n${packs.map((pack) => requiresEntry(pack)).join("\n")}`;
   await writeFile(
     path.join(projectDir, "ambit.yml"),
     `version: 1
@@ -197,9 +198,10 @@ async function managedBlock(
  * surviving set, not a document prune assembled by subtracting from the old one. The sibling sits
  * beside the project so its `path:../catalog` names the same fixture.
  */
-async function lockOfFreshInstall(tags: readonly string[]): Promise<string> {
+async function lockOfFreshInstall(packs: readonly string[]): Promise<string> {
   const reference = await mkdtemp(path.join(root, "reference-"));
-  const list = tags.length === 0 ? "[]" : `\n${tags.map((tag) => requiresEntry(tag)).join("\n")}`;
+  const list =
+    packs.length === 0 ? "[]" : `\n${packs.map((pack) => requiresEntry(pack)).join("\n")}`;
   await writeFile(
     path.join(reference, "ambit.yml"),
     `version: 1
@@ -237,7 +239,7 @@ beforeEach(async () => {
   // `tagged` http server, which declares that same tag.
   await writeProfile(["core", "function.engineering", "function.engineering.*"]);
   // The tagged server interpolates this into a header, so what is on disk depends on it.
-  vi.stubEnv(TAGGED_KEY_VAR, undefined);
+  vi.stubEnv(PACKED_KEY_VAR, undefined);
 });
 
 afterEach(async () => {
@@ -323,7 +325,7 @@ describe("ambit prune", () => {
       await lockOfFreshInstall(["core", "function.engineering", "function.engineering.*"]),
     );
     expect(pruned).not.toContain(FRONTEND_SKILL);
-    expect(pruned).not.toContain(TAGGED_MCP);
+    expect(pruned).not.toContain(PACKED_MCP);
   });
 
   it("leaves the lock byte-identical when it prunes nothing, rather than rewriting it in place", async () => {
@@ -406,7 +408,7 @@ describe("ambit prune", () => {
         `  ${`${SKILLS_DIR}/${ENGINEERING_SKILL}`.padEnd(width)}  skill-dir       -`,
         `  ${`${SKILLS_DIR}/${FRONTEND_SKILL}`.padEnd(width)}  skill-dir       -`,
         `  ${CLAUDE_SETTINGS.padEnd(width)}  harness-config  ${ENGINEERING_HOOK_KEY}`,
-        `  ${MCP_FILE.padEnd(width)}  harness-config  mcpServers.${TAGGED_MCP}`,
+        `  ${MCP_FILE.padEnd(width)}  harness-config  mcpServers.${PACKED_MCP}`,
       ].join("\n"),
     );
   });
@@ -423,7 +425,7 @@ describe("ambit prune", () => {
         { kind: "skill-dir", path: `${SKILLS_DIR}/${ENGINEERING_SKILL}` },
         { kind: "skill-dir", path: `${SKILLS_DIR}/${FRONTEND_SKILL}` },
         { kind: "harness-config", managedKeys: [ENGINEERING_HOOK_KEY], path: CLAUDE_SETTINGS },
-        { kind: "harness-config", managedKeys: [`mcpServers.${TAGGED_MCP}`], path: MCP_FILE },
+        { kind: "harness-config", managedKeys: [`mcpServers.${PACKED_MCP}`], path: MCP_FILE },
       ],
       // Neither the link nor the settings file is pruned: a narrowed profile still holds skills, so
       // it still points at them, and still holds the hook the file's remaining entry is.
@@ -449,7 +451,7 @@ describe("ambit prune", () => {
       { kind: "skill-dir", path: `${SKILLS_DIR}/${ENGINEERING_SKILL}` },
       { kind: "skill-dir", path: `${SKILLS_DIR}/${FRONTEND_SKILL}` },
       { kind: "harness-config", managedKeys: [ENGINEERING_HOOK_KEY], path: CLAUDE_SETTINGS },
-      { kind: "harness-config", managedKeys: [`mcpServers.${TAGGED_MCP}`], path: MCP_FILE },
+      { kind: "harness-config", managedKeys: [`mcpServers.${PACKED_MCP}`], path: MCP_FILE },
     ]);
     expect(await snapshot()).toEqual(before);
   });
@@ -511,7 +513,7 @@ describe("ambit clean", () => {
     const handmade = { command: "node", args: ["./scripts/local-mcp.js"] };
     await writeFile(
       path.join(projectDir, MCP_FILE),
-      `${JSON.stringify({ mcpServers: { handmade, [TAGGED_MCP]: { type: "http", url: "x" } }, extra: 1 }, null, 2)}\n`,
+      `${JSON.stringify({ mcpServers: { handmade, [PACKED_MCP]: { type: "http", url: "x" } }, extra: 1 }, null, 2)}\n`,
       "utf8",
     );
     // The tagged key is ambit's, so re-installing over the hand-edited file keeps ownership of it.
@@ -562,7 +564,7 @@ describe("ambit clean", () => {
         `  ${`${SKILLS_DIR}/${FRONTEND_SKILL}`.padEnd(width)}  skill-dir       -`,
         `  ${CLAUDE_SETTINGS.padEnd(width)}  harness-config  ${ENGINEERING_HOOK_KEY}, ${CORE_HOOK_KEY}`,
         `  ${CLAUDE_LINK.padEnd(width)}  skills-link     -`,
-        `  ${MCP_FILE.padEnd(width)}  harness-config  mcpServers.${TAGGED_MCP}`,
+        `  ${MCP_FILE.padEnd(width)}  harness-config  mcpServers.${PACKED_MCP}`,
         "",
         "records (3)",
         `  ${STATE_FILE}`,
@@ -588,7 +590,7 @@ describe("ambit clean", () => {
           path: CLAUDE_SETTINGS,
         },
         { kind: "skills-link", path: CLAUDE_LINK },
-        { kind: "harness-config", managedKeys: [`mcpServers.${TAGGED_MCP}`], path: MCP_FILE },
+        { kind: "harness-config", managedKeys: [`mcpServers.${PACKED_MCP}`], path: MCP_FILE },
       ],
       stateRemoved: true,
     });
@@ -614,7 +616,7 @@ describe("ambit clean", () => {
           path: CLAUDE_SETTINGS,
         },
         { kind: "skills-link", path: CLAUDE_LINK },
-        { kind: "harness-config", managedKeys: [`mcpServers.${TAGGED_MCP}`], path: MCP_FILE },
+        { kind: "harness-config", managedKeys: [`mcpServers.${PACKED_MCP}`], path: MCP_FILE },
       ],
       stateRemoved: true,
     });

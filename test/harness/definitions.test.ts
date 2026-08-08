@@ -36,7 +36,6 @@ const URL = "https://mcp.invalid/fixture";
 function http(headers: Readonly<Record<string, string>> = {}): MergedMcp {
   return {
     name: "fixture",
-    tags: [],
     expects: [],
     catalog: "company",
     file: "mcps/fixture.yml",
@@ -55,7 +54,6 @@ function httpAt(at: string): MergedMcp {
 function stdio(args: readonly string[] = [], env: readonly string[] = []): MergedMcp {
   return {
     name: "fixture",
-    tags: [],
     expects: env.map((name) => ({ kind: "env", name }) as const),
     catalog: "company",
     file: "mcps/fixture.yml",
@@ -327,7 +325,6 @@ describe("the hook each profile emits", () => {
     catalog: "company",
     path: "hooks/block-rm",
     catalogRoot: "/tmp/ambit-catalog",
-    tags: [],
     expects: [],
     event: "PreToolUse",
     matcher: "Bash",
@@ -342,7 +339,6 @@ describe("the hook each profile emits", () => {
     catalog: "company",
     path: "hooks/greet",
     catalogRoot: "/tmp/ambit-catalog",
-    tags: [],
     expects: [],
     event: "SessionStart",
     type: "command",
