@@ -19,14 +19,14 @@
  * `resolve` and `install` hard-validate the selected closure only, so one broken skill nobody selects
  * cannot block everyone. That leaves a gap this closes: a dangling `requires` or a cycle can sit in a
  * catalog for weeks until the first profile that reaches it fails, and the person it fails for is
- * never the person who wrote it. So every skill, every server and every hook is checked here,
- * selected or not — every catalog's copy of a name included, since two copies of one name are two
+ * never the person who wrote it. So every pack, every skill, every server and every hook is checked
+ * here, selected or not — every catalog's copy of a name included, since two copies of one name are two
  * documents, each of which can be broken on its own.
  *
- * What is *not* checked is a tag an item **declares**: nothing registers one, so a misspelled
- * `ambit.tags` label is indistinguishable from a new tag and there is nowhere to put the check. Every
- * direction that *selects* by one does fail, at both altitudes — a project's `requires` entry that
- * matches nothing, and a skill's own, both below.
+ * Everything is checked by name, and every name is something a document declares — so unlike the
+ * free-form tags this replaced, a misspelled grouping is not silently a new grouping. A `requires`
+ * entry naming a pack that does not exist is a finding, at both altitudes: a project's entry that
+ * matches nothing, and a catalog's own, both below.
  *
  * Problems are **collected, not thrown**. A CI run that reports the first of six costs six runs to
  * clear, which is what makes a validator people stop trusting. The command prints the list and
@@ -43,7 +43,7 @@
  * a skill whose `name` disagrees with its path — which is collected instead,
  * because the path already answers what the skill is called (see {@link CatalogParseOptions}).
  */
-import type { CatalogParseOptions, MergedCatalog, MergedSkill } from "../model/catalog.js";
+import type { CatalogParseOptions, MergedCatalog } from "../model/catalog.js";
 import { CATALOG_SEPARATOR, loadCatalogs, mergeCatalogs, qualifiedName } from "../model/catalog.js";
 import type { ProjectConfig } from "../model/config.js";
 import { loadProjectConfig } from "../model/config.js";
@@ -51,6 +51,7 @@ import type { AmbitError } from "../errors.js";
 import { at, resolutionError } from "../errors.js";
 import type { PatternEntry } from "../model/pattern.js";
 import { REQUIRES_KEY } from "../model/pattern.js";
+import type { Requirer } from "./resolve.js";
 import {
   cycleError,
   entryCatalog,
@@ -60,6 +61,7 @@ import {
   requiredEntries,
   requiredItems,
   requirerPosition,
+  requirersOf,
   unmatchedEntryError,
 } from "./resolve.js";
 import type { SourceContext } from "../model/sources.js";
@@ -111,6 +113,7 @@ export interface ValidationProblem {
 export interface ValidationCounts {
   readonly hooks: number;
   readonly mcps: number;
+  readonly packs: number;
   readonly skills: number;
 }
 
@@ -141,21 +144,21 @@ function problem(kind: ValidationProblemKind, error: AmbitError): ValidationProb
 }
 
 /**
- * The refusal a skill's `requires` entry earns when it selects nothing, built exactly as resolution
+ * The refusal a catalog's `requires` entry earns when it selects nothing, built exactly as resolution
  * builds it.
  *
- * The catalog the entry resolves in is the skill's own, always: a catalog author cannot write a
+ * The catalog the entry resolves in is the requirer's own, always: a catalog author cannot write a
  * consumer's alias, so a bare pattern inside a catalog means *this catalog* and a message that named
  * any other would be describing a lookup ambit does not perform.
  */
 function unmatchedRequirement(
-  skill: MergedSkill,
+  requirer: Requirer,
   entry: PatternEntry,
   catalogs: readonly string[],
 ): ValidationProblem {
   return problem(
     "unmatched-pattern",
-    unmatchedEntryError(entry, skill.catalog, requirerPosition(skill), catalogs),
+    unmatchedEntryError(entry, requirer.catalog, requirerPosition(requirer), catalogs),
   );
 }
 
@@ -172,10 +175,10 @@ function unmatchedRequirement(
 function requirementProblems(merged: MergedCatalog): readonly ValidationProblem[] {
   const problems: ValidationProblem[] = [];
 
-  for (const skill of merged.skills) {
-    for (const entry of requiredEntries(skill)) {
-      if (matchesOwnCatalog(entry, skill, merged)) continue;
-      problems.push(unmatchedRequirement(skill, entry, merged.catalogs));
+  for (const requirer of requirersOf(merged)) {
+    for (const entry of requiredEntries(requirer)) {
+      if (matchesOwnCatalog(entry, requirer, merged)) continue;
+      problems.push(unmatchedRequirement(requirer, entry, merged.catalogs));
     }
   }
 
@@ -183,19 +186,21 @@ function requirementProblems(merged: MergedCatalog): readonly ValidationProblem[
 }
 
 /**
- * Every `requires` cycle, walked from every skill rather than from the ones a project selects.
+ * Every `requires` cycle, walked from every pack and every skill rather than from the ones a project
+ * selects.
  *
  * One cycle is reported per back edge the walk meets. Two independent cycles are therefore both
  * reported, which is what "all problems" has to mean here; two cycles sharing a back edge collapse
  * into the one the walk closed first, which is still enough to act on — the edge to remove is in
  * both.
  *
- * The walk visits skills in name order and never re-follows a skill it closed, so which member a
- * reported path opens on is a function of the names alone. The canonical-rotation guard makes
+ * The walk visits requirers in a fixed order — packs first, then skills, each by name — and never
+ * re-follows one it closed, so which member a reported path opens on is a function of the names
+ * alone. The canonical-rotation guard makes
  * reporting one loop once a property of the report rather than of the traversal, so a later change
  * to how the graph is walked cannot turn into a duplicated problem.
  *
- * An edge goes wherever the entry that wrote it selects, which is within the requiring skill's own
+ * An edge goes wherever the entry that wrote it selects, which is within the requirer's own
  * catalog and nowhere else — through {@link requiredItems}, the same function the closure walks with,
  * so the two cannot disagree about where an edge goes. The bookkeeping is addresses for the same
  * reason: two catalogs' copies of one name are two nodes, and one loop in each of two catalogs is two
@@ -205,31 +210,32 @@ function cycleProblems(merged: MergedCatalog): readonly ValidationProblem[] {
   const problems: ValidationProblem[] = [];
   const reported = new Set<string>();
 
-  const walked: MergedSkill[] = [];
+  const walked: Requirer[] = [];
   const closed = new Set<string>();
 
-  const record = (
-    cycle: readonly MergedSkill[],
-    requirer: MergedSkill,
-    entry: PatternEntry,
-  ): void => {
-    // The path closes on the skill it opened with, so the loop's members are all but the last.
-    const members = cycle.slice(0, -1).map(qualifiedName);
+  // The identity of a node: its namespace, its catalog and its name. A pack and a skill may share a
+  // name, so the namespace is part of it — a loop through one is not a loop through the other.
+  const key = (requirer: Requirer): string => `${requirer.kind}:${qualifiedName(requirer)}`;
+  const byKey = new Map(requirersOf(merged).map((requirer) => [key(requirer), requirer]));
+
+  const record = (cycle: readonly Requirer[], requirer: Requirer, entry: PatternEntry): void => {
+    // The path closes on the node it opened with, so the loop's members are all but the last.
+    const members = cycle.slice(0, -1).map(key);
     const first = [...members].sort(compare)[0];
     const start = first === undefined ? 0 : members.indexOf(first);
     // U+0000 as the separator, written as an escape rather than as the byte itself: a literal
     // NUL makes grep and every other tool that sniffs for one treat this file as binary.
-    const key = [...members.slice(start), ...members.slice(0, start)].join("\u0000");
+    const rotated = [...members.slice(start), ...members.slice(0, start)].join("\u0000");
 
-    if (reported.has(key)) return;
-    reported.add(key);
-    // Names in the printed path, addresses in the key: a path is read against the `requires` lists an
-    // author wrote, which name siblings and never qualify them.
+    if (reported.has(rotated)) return;
+    reported.add(rotated);
+    // `<kind>:<name>` in the printed path, addresses in the key: a path is read against the
+    // `requires` lists an author wrote, which name siblings and never qualify them.
     problems.push(
       problem(
         "cycle",
         cycleError(
-          cycle.map((skill) => skill.name),
+          cycle.map((seen) => ({ kind: seen.kind, name: seen.name })),
           requirer,
           entry,
         ),
@@ -237,31 +243,37 @@ function cycleProblems(merged: MergedCatalog): readonly ValidationProblem[] {
     );
   };
 
-  const follow = (skill: MergedSkill): void => {
-    const address = qualifiedName(skill);
-    if (closed.has(address)) return;
+  const follow = (requirer: Requirer): void => {
+    if (closed.has(key(requirer))) return;
 
-    walked.push(skill);
-    for (const entry of requiredEntries(skill)) {
-      // Skills only, because only a skill can require anything and so only a skill edge can close a
-      // loop. An entry that selects nothing at all is `requirementProblems`' finding; here it is
-      // simply an edge that goes nowhere, and following it would report the same thing twice.
-      for (const required of requiredItems(entry, skill, merged).skills) {
+    walked.push(requirer);
+    for (const entry of requiredEntries(requirer)) {
+      // Packs and skills only, because only those two can require anything and so only their edges
+      // can close a loop. An entry that selects nothing at all is `requirementProblems`' finding;
+      // here it is simply an edge that goes nowhere, and following it would report the same thing
+      // twice.
+      const selected = requiredItems(entry, requirer, merged);
+      const next = [
+        ...selected.packs.map((pack) => byKey.get(`pack:${qualifiedName(pack)}`)),
+        ...selected.skills.map((skill) => byKey.get(`skill:${qualifiedName(skill)}`)),
+      ].filter((candidate): candidate is Requirer => candidate !== undefined);
+
+      for (const child of next) {
         // Checked here rather than on entry to `follow`, because the cycle error names the entry that
         // closed the loop and this is the only place that knows which one that is.
-        const opened = walked.findIndex((seen) => qualifiedName(seen) === qualifiedName(required));
+        const opened = walked.findIndex((seen) => key(seen) === key(child));
         if (opened !== -1) {
-          record([...walked.slice(opened), required], skill, entry);
+          record([...walked.slice(opened), child], requirer, entry);
           continue;
         }
-        follow(required);
+        follow(child);
       }
     }
     walked.pop();
-    closed.add(address);
+    closed.add(key(requirer));
   };
 
-  for (const skill of merged.skills) follow(skill);
+  for (const requirer of byKey.values()) follow(requirer);
   return problems;
 }
 
@@ -300,7 +312,7 @@ function itemCount(merged: MergedCatalog, catalog: string): number {
   const mine = (items: readonly { readonly catalog: string }[]): number =>
     items.filter((item) => item.catalog === catalog).length;
 
-  return mine(merged.skills) + mine(merged.mcps) + mine(merged.hooks);
+  return mine(merged.packs) + mine(merged.skills) + mine(merged.mcps) + mine(merged.hooks);
 }
 
 /**
@@ -398,6 +410,7 @@ export function validateCatalog(merged: MergedCatalog, options: ValidateOptions)
     checked: {
       hooks: merged.hooks.length,
       mcps: merged.mcps.length,
+      packs: merged.packs.length,
       skills: merged.skills.length,
     },
     problems: [

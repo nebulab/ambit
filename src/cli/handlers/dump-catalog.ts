@@ -23,6 +23,7 @@ import type {
   MergedCatalog,
   MergedHook,
   MergedMcp,
+  MergedPack,
   MergedSkill,
 } from "../../model/catalog.js";
 import { loadCatalogs, mergeCatalogs, qualifiedName } from "../../model/catalog.js";
@@ -31,10 +32,39 @@ import { jsonRequested, sourceContextOf } from "../commands.js";
 import { loadProjectConfig } from "../../model/config.js";
 import { ExitCode } from "../../errors.js";
 import type { McpTransport } from "../../model/mcp-entity.js";
+import type { PatternEntry } from "../../model/pattern.js";
 import { keyed, printSections, section } from "../output.js";
 
-/** Stands in for an empty tag list, which means no `tag:` entry can reach the item. */
-const UNTAGGED = "-";
+/** Stands in for a description an item does not declare. */
+const UNDESCRIBED = "-";
+
+/**
+ * A `requires` list as a record carries it: the namespace and the pattern kept apart, as the document
+ * writes them.
+ *
+ * No `catalog` key, because a catalog's own entry carries no qualifier — it resolves within the
+ * catalog the record is already keyed by.
+ */
+function requiresJson(
+  requires: readonly PatternEntry[],
+): readonly Readonly<Record<string, unknown>>[] {
+  return requires.map((entry) => ({ kind: entry.kind, pattern: entry.pattern }));
+}
+
+/**
+ * One pack: what it is for, and what asking for it gets you.
+ *
+ * This is the record that makes a pack worth being a document. The grouping it replaced was a
+ * free-form label, so this view could only ever have listed which strings an item happened to carry;
+ * a pack has a description and an enumerable membership, and both are here.
+ */
+function packJson(pack: MergedPack): Readonly<Record<string, unknown>> {
+  return {
+    catalog: pack.catalog,
+    ...(pack.description !== undefined && { description: pack.description }),
+    requires: requiresJson(pack.requires),
+  };
+}
 
 function transportJson(transport: McpTransport): Readonly<Record<string, unknown>> {
   switch (transport.kind) {
@@ -51,16 +81,7 @@ function skillJson(skill: MergedSkill): Readonly<Record<string, unknown>> {
     ...(skill.description !== undefined && { description: skill.description }),
     expects: skill.expects.map((item) => ({ kind: item.kind, name: item.name })),
     path: skill.path,
-    // Each entry keeps its parts apart, as the document writes them: a consumer filtering for what a
-    // skill pulls in should not have to re-parse a pattern or re-derive which field it matches. No
-    // `catalog` key, because a catalog's own entry carries no qualifier — it resolves within the
-    // catalog this record is already keyed by.
-    requires: skill.requires.map((entry) => ({
-      capabilities: entry.capabilities,
-      field: entry.field,
-      pattern: entry.pattern,
-    })),
-    tags: skill.tags,
+    requires: requiresJson(skill.requires),
   };
 }
 
@@ -68,7 +89,6 @@ function mcpJson(mcp: MergedMcp): Readonly<Record<string, unknown>> {
   return {
     catalog: mcp.catalog,
     expects: mcp.expects.map((item) => ({ kind: item.kind, name: item.name })),
-    tags: mcp.tags,
     transport: transportJson(mcp.transport),
   };
 }
@@ -85,7 +105,6 @@ function hookJson(hook: MergedHook): Readonly<Record<string, unknown>> {
     expects: hook.expects.map((item) => ({ kind: item.kind, name: item.name })),
     ...(hook.matcher !== undefined && { matcher: hook.matcher }),
     path: hook.path,
-    tags: hook.tags,
     ...(hook.timeout !== undefined && { timeout: hook.timeout }),
     type: hook.type,
   };
@@ -96,12 +115,9 @@ function toJson(merged: MergedCatalog): Readonly<Record<string, unknown>> {
     catalogs: merged.catalogs,
     hooks: keyed(merged.hooks, qualifiedName, hookJson),
     mcps: keyed(merged.mcps, qualifiedName, mcpJson),
+    packs: keyed(merged.packs, qualifiedName, packJson),
     skills: keyed(merged.skills, qualifiedName, skillJson),
   };
-}
-
-function tagList(tags: readonly string[]): string {
-  return tags.length === 0 ? UNTAGGED : [...tags].join(", ");
 }
 
 function transportSummary(transport: McpTransport): string {
@@ -126,28 +142,23 @@ function toText(catalogs: readonly Catalog[], merged: MergedCatalog): readonly s
 
   return [
     ...heading,
+    // Packs first, and carrying their descriptions, because this is the section a person browsing a
+    // catalog is actually reading: it is the list of things there are names for.
+    ...section(
+      "packs",
+      merged.packs.map((pack) => [pack.name, pack.catalog, pack.description ?? UNDESCRIBED]),
+    ),
     ...section(
       "skills",
-      merged.skills.map((skill) => [skill.name, skill.catalog, tagList(skill.tags)]),
+      merged.skills.map((skill) => [skill.name, skill.catalog]),
     ),
     ...section(
       "mcps",
-      merged.mcps.map((mcp) => [
-        mcp.name,
-        mcp.catalog,
-        tagList(mcp.tags),
-        transportSummary(mcp.transport),
-      ]),
+      merged.mcps.map((mcp) => [mcp.name, mcp.catalog, transportSummary(mcp.transport)]),
     ),
     ...section(
       "hooks",
-      merged.hooks.map((hook) => [
-        hook.name,
-        hook.catalog,
-        tagList(hook.tags),
-        hook.event,
-        commandSummary(hook),
-      ]),
+      merged.hooks.map((hook) => [hook.name, hook.catalog, hook.event, commandSummary(hook)]),
     ),
   ];
 }

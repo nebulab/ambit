@@ -40,6 +40,21 @@ export interface LockCatalog {
   readonly commit?: string;
 }
 
+/**
+ * One selected pack, explained.
+ *
+ * No `path` and no `commit`: a pack materializes nothing and ships no bytes, so there is nothing to
+ * pin. It is recorded because it is what the project *asked for* — the reason line on every skill,
+ * server and hook it pulled in names it, and a lock that showed the effects without the cause would
+ * make every one of those reasons unresolvable against the file.
+ */
+export interface LockPack {
+  /** The catalog it came from. */
+  readonly catalog: string;
+  /** Why it is in the bundle, in `--explain`'s short form. */
+  readonly reason: string;
+}
+
 /** One selected skill, pinned and explained. */
 export interface LockSkill {
   /** The catalog it came from. */
@@ -92,7 +107,7 @@ export interface LockHook {
 /**
  * A lock document.
  *
- * The four sections are keyed maps rather than lists because a name is the
+ * The five sections are keyed maps rather than lists because a name is the
  * identity of everything in them — and because a map is what makes a diff show one changed entry
  * instead of a reordered list.
  */
@@ -100,6 +115,7 @@ export interface Lock {
   readonly version: number;
   /** Every configured catalog, not only those that contributed to the bundle. */
   readonly catalogs: Readonly<Record<string, LockCatalog>>;
+  readonly packs: Readonly<Record<string, LockPack>>;
   readonly skills: Readonly<Record<string, LockSkill>>;
   readonly mcps: Readonly<Record<string, LockMcp>>;
   readonly hooks: Readonly<Record<string, LockHook>>;
@@ -144,6 +160,14 @@ export function buildLock(catalogs: readonly Catalog[], bundle: Bundle): Lock {
         source: catalog.source,
         ...(catalog.ref !== undefined && { ref: catalog.ref }),
         ...(catalog.commit !== undefined && { commit: catalog.commit }),
+      }),
+    ),
+    packs: byName(
+      bundle.packs,
+      (pack) => pack.name,
+      (pack) => ({
+        catalog: pack.catalog,
+        reason: formatReason(reasonOf(bundle, { kind: "pack", name: pack.name })),
       }),
     ),
     skills: byName(

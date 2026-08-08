@@ -94,12 +94,29 @@ async function writeProfile(
   harnesses: readonly string[] = ["claude"],
 ): Promise<void> {
   await rm(path.join(projectDir, "hooks"), { recursive: true, force: true });
+  await rm(path.join(projectDir, "packs"), { recursive: true, force: true });
   for (const hook of hooks) {
     const dir = path.join(projectDir, "hooks", hook.name);
     await mkdir(dir, { recursive: true });
     await writeFile(
       path.join(dir, "hook.yml"),
-      [`name: ${hook.name}`, "tags: [core]", ...hook.lines, ""].join("\n"),
+      [`name: ${hook.name}`, ...hook.lines, ""].join("\n"),
+      "utf8",
+    );
+  }
+  // The pack these cases select, gathering whichever hooks they wrote — nothing labels itself, so a
+  // grouping is a document, and this is that document.
+  if (hooks.length > 0) {
+    await mkdir(path.join(projectDir, "packs"), { recursive: true });
+    await writeFile(
+      path.join(projectDir, "packs", "core.yml"),
+      [
+        "name: core",
+        "description: The hooks this project ships.",
+        "requires:",
+        ...hooks.map((hook) => `  - hook: ${hook.name}`),
+        "",
+      ].join("\n"),
       "utf8",
     );
   }
@@ -116,9 +133,9 @@ requires: ${hooks.length === 0 ? "[]" : `\n${requiresEntry("core", "local")}`}
   );
 }
 
-/** One `requires` entry, selecting everything in `catalog` that carries `tag`. */
-function requiresEntry(tag: string, catalog = "local"): string {
-  return `  - { tag: "${catalog}/${tag}", capabilities: [skills, mcps, hooks] }`;
+/** One `requires` entry, taking a whole pack from `catalog`. */
+function requiresEntry(pack: string, catalog = "local"): string {
+  return `  - { pack: "${catalog}/${pack}" }`;
 }
 
 async function cli(
@@ -937,9 +954,16 @@ describe("a hook that ships its own script", () => {
   async function writeCatalog(harnesses: readonly string[] = ["claude"]): Promise<void> {
     const catalogDir = path.join(root, "catalog");
     const files: Readonly<Record<string, string>> = {
+      "packs/core.yml": [
+        "name: core",
+        "description: The hooks this catalog ships.",
+        "requires:",
+        `  - hook: ${SCRIPT_HOOK}`,
+        "  - hook: announce",
+        "",
+      ].join("\n"),
       [`hooks/${SCRIPT_HOOK}/hook.yml`]: [
         `name: ${SCRIPT_HOOK}`,
-        "tags: [core]",
         "event: PreToolUse",
         "matcher: Bash",
         "type: script",
@@ -949,7 +973,6 @@ describe("a hook that ships its own script", () => {
       [`hooks/${SCRIPT_HOOK}/${SCRIPT}`]: SCRIPT_BODY,
       "hooks/announce/hook.yml": [
         "name: announce",
-        "tags: [core]",
         "event: Stop",
         "type: command",
         "command: npx --yes say done",

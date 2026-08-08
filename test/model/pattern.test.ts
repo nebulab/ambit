@@ -9,11 +9,8 @@
 import { describe, expect, it } from "vitest";
 
 import { AmbitError, ExitCode } from "../../src/errors.js";
-import type { Addressing, Capability, PatternEntry, PatternItem } from "../../src/model/pattern.js";
+import type { Addressing, PatternEntry, PatternItem } from "../../src/model/pattern.js";
 import {
-  CAPABILITIES,
-  CAPABILITY_OF_KIND,
-  PATTERN_FIELDS,
   entryAddress,
   entryYaml,
   formatEntry,
@@ -23,6 +20,7 @@ import {
   sameEntry,
   uniqueEntries,
 } from "../../src/model/pattern.js";
+import { ITEM_KINDS } from "../../src/model/requirement.js";
 import { parseYamlMapping } from "../../src/model/yaml.js";
 
 const FILE = "ambit.yml";
@@ -46,12 +44,12 @@ function rejection(text: string, addressing: Addressing): AmbitError {
 
 /** An item as a pattern sees one, with the tedious half defaulted. */
 function item(overrides: Partial<PatternItem> = {}): PatternItem {
-  return { capability: "skills", catalog: "company", name: "core.a", tags: [], ...overrides };
+  return { kind: "skill", catalog: "company", name: "core.a", ...overrides };
 }
 
 /** An entry, with the tedious half defaulted. */
 function entry(overrides: Partial<PatternEntry> = {}): PatternEntry {
-  return { field: "name", pattern: "core.a", capabilities: ["skills"], ...overrides };
+  return { kind: "skill", pattern: "core.a", ...overrides };
 }
 
 describe("the glob matcher", () => {
@@ -129,31 +127,23 @@ describe("the glob matcher", () => {
 });
 
 describe("matching one item", () => {
-  it("matches on the field the entry declared, and never on the other", () => {
-    const tagged = item({ name: "house-style", tags: ["core", "function.engineering"] });
+  it("matches on the namespace the entry's key named, and never on another", () => {
+    const skill = item({ kind: "skill", name: "house-style" });
 
-    expect(matches(entry({ field: "name", pattern: "house-style" }), tagged)).toBe(true);
-    expect(matches(entry({ field: "tag", pattern: "house-style" }), tagged)).toBe(false);
-    expect(matches(entry({ field: "tag", pattern: "core" }), tagged)).toBe(true);
-    expect(matches(entry({ field: "name", pattern: "core" }), tagged)).toBe(false);
+    expect(matches(entry({ kind: "skill", pattern: "house-style" }), skill)).toBe(true);
+    expect(matches(entry({ kind: "pack", pattern: "house-style" }), skill)).toBe(false);
+    expect(matches(entry({ kind: "mcp", pattern: "house-style" }), skill)).toBe(false);
+    expect(matches(entry({ kind: "hook", pattern: "house-style" }), skill)).toBe(false);
   });
 
-  it("matches any one of an item's tags, since an author may label it for several audiences", () => {
-    const both = item({ tags: ["function.sales", "function.engineering"] });
-    expect(matches(entry({ field: "tag", pattern: "function.sales" }), both)).toBe(true);
-    expect(matches(entry({ field: "tag", pattern: "function.engineering" }), both)).toBe(true);
-    expect(matches(entry({ field: "tag", pattern: "function.*" }), both)).toBe(true);
-    expect(matches(entry({ field: "tag", pattern: "guards" }), both)).toBe(false);
-    expect(matches(entry({ field: "tag", pattern: "*" }), item({ tags: [] }))).toBe(false);
-  });
+  it("keeps a pack and a skill of one name apart, which is why the key is written out", () => {
+    const pack = item({ kind: "pack", name: "core" });
+    const skill = item({ kind: "skill", name: "core" });
 
-  it("selects only the namespaces the entry named", () => {
-    const selects: readonly Capability[] = ["skills", "hooks"];
-    const wide = entry({ pattern: "*", capabilities: selects });
-
-    expect(matches(wide, item({ capability: "skills" }))).toBe(true);
-    expect(matches(wide, item({ capability: "hooks" }))).toBe(true);
-    expect(matches(wide, item({ capability: "mcps" }))).toBe(false);
+    expect(matches(entry({ kind: "pack", pattern: "core" }), pack)).toBe(true);
+    expect(matches(entry({ kind: "pack", pattern: "core" }), skill)).toBe(false);
+    expect(matches(entry({ kind: "skill", pattern: "core" }), skill)).toBe(true);
+    expect(matches(entry({ kind: "skill", pattern: "core" }), pack)).toBe(false);
   });
 
   it("restricts a qualified entry to its own catalog, and leaves an unqualified one blind", () => {
@@ -168,22 +158,12 @@ describe("matching one item", () => {
     expect(matches(unqualified, item({ catalog: "personal" }))).toBe(true);
   });
 
-  it("does not depend on the order the item's tags or the entry's capabilities were written in", () => {
-    const forwards = entry({ field: "tag", pattern: "b", capabilities: ["skills", "hooks"] });
-    const backwards = entry({ field: "tag", pattern: "b", capabilities: ["hooks", "skills"] });
-
-    for (const tags of [
-      ["a", "b"],
-      ["b", "a"],
-    ]) {
-      expect(matches(forwards, item({ tags, capability: "hooks" }))).toBe(true);
-      expect(matches(backwards, item({ tags, capability: "hooks" }))).toBe(true);
+  it("matches every namespace with the same glob rules, packs included", () => {
+    for (const kind of ITEM_KINDS) {
+      const wide = entry({ kind, pattern: "core.*" });
+      expect(matches(wide, item({ kind, name: "core.a.b" }))).toBe(true);
+      expect(matches(wide, item({ kind, name: "core" }))).toBe(false);
     }
-  });
-
-  it("bridges the singular kind vocabulary onto the plural capability one", () => {
-    expect(CAPABILITY_OF_KIND).toEqual({ skill: "skills", mcp: "mcps", hook: "hooks" });
-    expect(Object.values(CAPABILITY_OF_KIND).sort()).toEqual([...CAPABILITIES].sort());
   });
 });
 
@@ -193,36 +173,25 @@ describe("writing an entry back out", () => {
     expect(entryAddress(entry({ pattern: "core.*" }))).toBe("core.*");
   });
 
-  it("prints the field and the address, and never the capability list", () => {
-    const printed = formatEntry(
-      entry({ field: "tag", pattern: "core", catalog: "company", capabilities: CAPABILITIES }),
+  it("prints the namespace and the address, in `ambit why`'s own shape", () => {
+    expect(formatEntry(entry({ kind: "pack", pattern: "core", catalog: "company" }))).toBe(
+      "pack:company/core",
     );
-    expect(printed).toBe("tag:company/core");
-    for (const capability of CAPABILITIES) expect(printed).not.toContain(capability);
+    expect(formatEntry(entry({ kind: "skill", pattern: "core.*" }))).toBe("skill:core.*");
   });
 
-  it("renders advice as a one-line flow mapping, which block style could not do", () => {
-    const yaml = entryYaml(
-      entry({ field: "name", pattern: "core.*", catalog: "company", capabilities: CAPABILITIES }),
-    );
-    expect(yaml).toBe(`- { name: "company/core.*", capabilities: [skills, mcps, hooks] }`);
+  it("renders advice as one block-style line, which one key fits on", () => {
+    const yaml = entryYaml(entry({ kind: "skill", pattern: "core.*", catalog: "company" }));
+    expect(yaml).toBe(`- skill: "company/core.*"`);
     expect(yaml).not.toContain("\n");
     // The advice has to round-trip: what a refusal tells a reader to write must parse.
     expect(parse(`requires:\n  ${yaml}\n`, "qualified")).toEqual([
-      { field: "name", pattern: "core.*", catalog: "company", capabilities: [...CAPABILITIES] },
+      { kind: "skill", pattern: "core.*", catalog: "company" },
     ]);
   });
 });
 
 describe("literal equality and deduplication", () => {
-  it("is exact, and does not let a wider entry absorb a narrower one", () => {
-    const wide = entry({ field: "tag", pattern: "x", capabilities: ["skills", "mcps"] });
-    const narrow = entry({ field: "tag", pattern: "x", capabilities: ["skills"] });
-
-    expect(sameEntry(wide, narrow)).toBe(false);
-    expect(uniqueEntries([wide, narrow])).toEqual([wide, narrow]);
-  });
-
   it("does not let a wildcard absorb a name it matches", () => {
     const star = entry({ pattern: "core.*" });
     const exact = entry({ pattern: "core.a" });
@@ -231,21 +200,14 @@ describe("literal equality and deduplication", () => {
     expect(uniqueEntries([star, exact])).toHaveLength(2);
   });
 
-  it("separates the two fields, the two catalogs, and the two patterns", () => {
-    const base = entry({ field: "name", pattern: "x", catalog: "company" });
-    expect(sameEntry(base, { ...base, field: "tag" })).toBe(false);
+  it("separates the namespaces, the catalogs, and the patterns", () => {
+    const base = entry({ kind: "skill", pattern: "x", catalog: "company" });
+    expect(sameEntry(base, { ...base, kind: "pack" })).toBe(false);
     expect(sameEntry(base, { ...base, pattern: "y" })).toBe(false);
     expect(sameEntry(base, { ...base, catalog: "personal" })).toBe(false);
     expect(sameEntry(base, { ...base })).toBe(true);
     // An unqualified entry is not the qualified one with the alias dropped: it says less.
-    expect(sameEntry(base, entry({ field: "name", pattern: "x" }))).toBe(false);
-  });
-
-  it("compares capabilities as a set, so an entry is judged on what it says", () => {
-    const forwards = entry({ capabilities: ["skills", "hooks"] });
-    const backwards = entry({ capabilities: ["hooks", "skills"] });
-    expect(sameEntry(forwards, backwards)).toBe(true);
-    expect(uniqueEntries([forwards, backwards])).toEqual([forwards]);
+    expect(sameEntry(base, entry({ kind: "skill", pattern: "x" }))).toBe(false);
   });
 
   it("keeps the first of each duplicate and the order the list was written in", () => {
@@ -260,35 +222,33 @@ describe("parsing a `requires` list", () => {
   it("reads the design's own example, qualified", () => {
     const entries = parse(
       `requires:
-  - tag: "company/function.engineering"
-    capabilities: [skills, mcps, hooks]
-  - name: "company/core.*"
-    capabilities: [skills]
-  - name: "local/*"
-    capabilities: [skills, mcps, hooks]
-  - name: "company/guards.*"
-    capabilities: [hooks]
+  - pack: "company/function.engineering"
+  - skill: "company/core.*"
+  - mcp: "local/*"
+  - hook: "company/guards.*"
 `,
       "qualified",
     );
 
     expect(entries).toEqual([
-      {
-        field: "tag",
-        catalog: "company",
-        pattern: "function.engineering",
-        capabilities: ["skills", "mcps", "hooks"],
-      },
-      { field: "name", catalog: "company", pattern: "core.*", capabilities: ["skills"] },
-      { field: "name", catalog: "local", pattern: "*", capabilities: ["skills", "mcps", "hooks"] },
-      { field: "name", catalog: "company", pattern: "guards.*", capabilities: ["hooks"] },
+      { kind: "pack", catalog: "company", pattern: "function.engineering" },
+      { kind: "skill", catalog: "company", pattern: "core.*" },
+      { kind: "mcp", catalog: "local", pattern: "*" },
+      { kind: "hook", catalog: "company", pattern: "guards.*" },
     ]);
   });
 
   it("reads a catalog's own list, unqualified", () => {
-    expect(parse(`requires:\n  - tag: guards\n    capabilities: [hooks]\n`, "unqualified")).toEqual(
-      [{ field: "tag", pattern: "guards", capabilities: ["hooks"] }],
-    );
+    expect(parse(`requires:\n  - hook: guards\n`, "unqualified")).toEqual([
+      { kind: "hook", pattern: "guards" },
+    ]);
+  });
+
+  it("reads a pack requiring another pack, which is what makes them composable", () => {
+    expect(parse(`requires:\n  - pack: core\n  - skill: code-review\n`, "unqualified")).toEqual([
+      { kind: "pack", pattern: "core" },
+      { kind: "skill", pattern: "code-review" },
+    ]);
   });
 
   it("treats an absent key as no entries, and an empty list as exactly that", () => {
@@ -299,166 +259,82 @@ describe("parsing a `requires` list", () => {
   it("keeps the order the list was written in, duplicates included", () => {
     const entries = parse(
       `requires:
-  - name: "b/*"
-    capabilities: [skills]
-  - name: "a/*"
-    capabilities: [skills]
-  - name: "b/*"
-    capabilities: [skills]
+  - skill: "b/*"
+  - skill: "a/*"
+  - skill: "b/*"
 `,
       "qualified",
     );
     expect(entries.map(entryAddress)).toEqual(["b/*", "a/*", "b/*"]);
     expect(uniqueEntries(entries).map(entryAddress)).toEqual(["b/*", "a/*"]);
   });
-
-  it("normalizes capabilities into one canonical order however they were written", () => {
-    const one = parse(
-      `requires:\n  - name: "c/*"\n    capabilities: [hooks, skills, mcps]\n`,
-      "qualified",
-    );
-    const two = parse(
-      `requires:\n  - name: "c/*"\n    capabilities: [mcps, hooks, skills]\n`,
-      "qualified",
-    );
-
-    expect(one[0]!.capabilities).toEqual([...CAPABILITIES]);
-    expect(one).toEqual(two);
-  });
-
-  it("deduplicates a repeated capability rather than counting it twice", () => {
-    const [only] = parse(
-      `requires:\n  - name: "c/*"\n    capabilities: [skills, skills]\n`,
-      "qualified",
-    );
-    expect(only!.capabilities).toEqual(["skills"]);
-  });
 });
 
 describe("refusing a malformed entry", () => {
-  it("refuses a bare pattern, naming both things it fails to say", () => {
+  it("refuses a bare pattern, naming what it fails to say", () => {
     const error = rejection(`requires:\n  - "company/core.*"\n`, "qualified");
     expect(error.message).toContain(`"company/core.*"`);
     expect(error.message).toContain("line 2");
-    expect(error.format()).toContain("neither which field it matches");
-    expect(error.format()).toContain("capabilities");
-    expect(error.format()).toContain(`- { name: "company/core.*", capabilities: [skills] }`);
+    expect(error.format()).toContain("does not say which namespace it selects from");
+    expect(error.format()).toContain("`pack`, `skill`, `mcp`, `hook`");
+    expect(error.format()).toContain(`- skill: "company/core.*"`);
   });
 
   it("proposes a placeholder alias rather than guessing one, for a bare unqualified pattern", () => {
     const error = rejection(`requires:\n  - "core.*"\n`, "qualified");
-    expect(error.format()).toContain(`- { name: "<catalog>/core.*", capabilities: [skills] }`);
+    expect(error.format()).toContain(`- skill: "<catalog>/core.*"`);
   });
 
-  it("refuses an entry that declares no field", () => {
-    const error = rejection(`requires:\n  - capabilities: [skills]\n`, "qualified");
-    expect(error.message).toContain("matches on no field");
+  it("refuses a key this grammar does not have, listing the four that it does", () => {
+    const error = rejection(`requires:\n  - description: hello\n`, "qualified");
+    expect(error.message).toContain(`unknown key "requires[0].description"`);
     expect(error.message).toContain("line 2");
-    expect(error.format()).toContain("`name`, `tag`");
-    expect(error.format()).toContain("a plausible name prefix and a plausible tag");
+    expect(error.format()).toContain("accepted keys: hook, mcp, pack, skill");
   });
 
-  it("refuses an entry that declares both fields, rather than picking one", () => {
-    const error = rejection(
-      `requires:\n  - name: "c/a"\n    tag: "c/b"\n    capabilities: [skills]\n`,
+  it("refuses an empty entry, which names no namespace at all", () => {
+    const error = rejection(`requires:\n  - {}\n`, "qualified");
+    expect(error.message).toContain("selects from no namespace");
+    expect(error.format()).toContain("`pack`, `skill`, `mcp`, `hook`");
+  });
+
+  it("refuses an entry naming two namespaces, rather than picking one", () => {
+    const error = rejection(`requires:\n  - pack: "c/a"\n    skill: "c/b"\n`, "qualified");
+    expect(error.message).toContain("selects from 2 namespaces: pack, skill");
+    expect(error.message).toContain("line 2");
+    expect(error.format()).toContain("one entry per namespace");
+  });
+
+  it("refuses the two-key spelling this grammar replaced, as the unknown keys they are", () => {
+    // `tag:` and `capabilities:` are gone with the labels they selected on: a grouping is a pack
+    // now, and the generic refusal names the four keys an entry may have.
+    const tagged = rejection(
+      `requires:\n  - tag: "c/core"\n    capabilities: [skills]\n`,
       "qualified",
     );
-    expect(error.message).toContain("matches on both `name`, `tag`");
-    expect(error.message).toContain("line 2");
-    expect(error.format()).toContain("one entry per field");
-  });
+    expect(tagged.message).toContain(`unknown key "requires[0].tag"`);
+    expect(tagged.format()).toContain("accepted keys: hook, mcp, pack, skill");
 
-  it("refuses the `<namespace>: <name>` spelling, naming the entry it becomes", () => {
-    // The pre-pattern shape, and the whole of the migration path: no compatibility reader, one
-    // refusal carrying the rewrite. The namespace becomes the single capability, and the name becomes
-    // an exact pattern.
-    const error = rejection(`requires:\n  - skill: company-context\n`, "unqualified");
-    expect(error.message).toContain("names the namespace `skill`, which an entry no longer does");
-    expect(error.message).toContain("line 2");
-    expect(error.format()).toContain("`name`, `tag`");
-    expect(error.format()).toContain("skills, mcps, hooks");
-    expect(error.format()).toContain(`- { name: "company-context", capabilities: [skills] }`);
-  });
-
-  it("maps each namespace onto its own capability, and qualifies the rewrite in a project", () => {
-    expect(rejection(`requires:\n  - mcp: sentry\n`, "unqualified").format()).toContain(
-      `- { name: "sentry", capabilities: [mcps] }`,
-    );
-    expect(rejection(`requires:\n  - hook: block-rm\n`, "unqualified").format()).toContain(
-      `- { name: "block-rm", capabilities: [hooks] }`,
-    );
-    // A project's rewrite has to carry a qualifier, and the alias is the reader's to pick.
-    expect(rejection(`requires:\n  - skill: house-style\n`, "qualified").format()).toContain(
-      `- { name: "<catalog>/house-style", capabilities: [skills] }`,
-    );
-  });
-
-  it("refuses the old spelling ahead of the unknown-key message, which reads as a typo", () => {
-    // `- skill: x` is an unknown key to this grammar, and *unknown key* is exactly the wrong thing to
-    // tell somebody holding a list that used to work.
-    const error = rejection(`requires:\n  - skill: x\n    capabilities: [skills]\n`, "unqualified");
-    expect(error.message).toContain("names the namespace `skill`");
-  });
-
-  it("refuses an unknown key before complaining about anything else", () => {
-    const error = rejection(
-      `requires:\n  - tags: "c/a"\n    capabilities: [skills]\n`,
+    const capped = rejection(
+      `requires:\n  - skill: "c/core"\n    capabilities: [skills]\n`,
       "qualified",
     );
-    expect(error.message).toContain(`unknown key "requires[0].tags"`);
-    expect(error.message).toContain("line 2");
-    expect(error.format()).toContain("accepted keys: capabilities, name, tag");
-  });
-
-  it("refuses a missing `capabilities`, because hooks execute", () => {
-    const error = rejection(`requires:\n  - name: "c/core.*"\n`, "qualified");
-    expect(error.message).toContain("declares no capabilities");
-    expect(error.message).toContain("line 2");
-    expect(error.format()).toContain("not defaulted");
-    expect(error.format()).toContain("hooks execute");
-    expect(error.format()).toContain("skills, mcps, hooks");
-  });
-
-  it("refuses an empty `capabilities`, which would select nothing", () => {
-    const error = rejection(`requires:\n  - name: "c/core.*"\n    capabilities: []\n`, "qualified");
-    expect(error.message).toContain("selects no capabilities");
-    expect(error.message).toContain("line 3");
-  });
-
-  it("refuses a capability outside the three, including the singular spelling", () => {
-    const error = rejection(
-      `requires:\n  - name: "c/core.*"\n    capabilities: [skill]\n`,
-      "qualified",
-    );
-    expect(error.message).toContain(`unknown capability "skill"`);
-    expect(error.message).toContain("line 3");
-    expect(error.format()).toContain("capabilities are: skills, mcps, hooks");
-  });
-
-  it("refuses a `capabilities` that is not a list at all", () => {
-    const error = rejection(
-      `requires:\n  - name: "c/core.*"\n    capabilities: skills\n`,
-      "qualified",
-    );
-    expect(error.message).toContain("must be a sequence of strings");
+    expect(capped.message).toContain(`unknown key "requires[0].capabilities"`);
   });
 
   it("refuses a pattern that is not a string, and an empty one", () => {
-    expect(
-      rejection(`requires:\n  - name: 1\n    capabilities: [skills]\n`, "qualified").message,
-    ).toContain("must be a string");
-    expect(
-      rejection(`requires:\n  - name: ""\n    capabilities: [skills]\n`, "qualified").message,
-    ).toContain("must not be empty");
+    expect(rejection(`requires:\n  - skill: 1\n`, "qualified").message).toContain(
+      "must be a string",
+    );
+    expect(rejection(`requires:\n  - skill: ""\n`, "qualified").message).toContain(
+      "must not be empty",
+    );
   });
 });
 
 describe("the two spellings of an address", () => {
   it("requires a qualifier in a project, naming the key and the line", () => {
-    const error = rejection(
-      `requires:\n  - name: "core.*"\n    capabilities: [skills]\n`,
-      "qualified",
-    );
+    const error = rejection(`requires:\n  - skill: "core.*"\n`, "qualified");
     expect(error.message).toContain(`"core.*" names no catalog`);
     expect(error.message).toContain("line 2");
     expect(error.format()).toContain("`<catalog>/core.*`");
@@ -466,74 +342,48 @@ describe("the two spellings of an address", () => {
   });
 
   it("refuses a qualifier in a catalog, saying why an author cannot write one", () => {
-    const error = rejection(
-      `requires:\n  - tag: "company/guards"\n    capabilities: [hooks]\n`,
-      "unqualified",
-    );
+    const error = rejection(`requires:\n  - hook: "company/guards"\n`, "unqualified");
     expect(error.message).toContain(`"company/guards" names a catalog`);
     expect(error.message).toContain("line 2");
     expect(error.format()).toContain("belongs to the consumer's config");
-    expect(error.format()).toContain(`- { tag: "guards", capabilities: [skills] }`);
+    expect(error.format()).toContain(`- hook: "guards"`);
   });
 
   it("refuses a second separator in either spelling, since a name holds none", () => {
     for (const addressing of ["qualified", "unqualified"] as const) {
-      const error = rejection(
-        `requires:\n  - name: "c/core/a"\n    capabilities: [skills]\n`,
-        addressing,
-      );
+      const error = rejection(`requires:\n  - skill: "c/core/a"\n`, addressing);
       expect(error.message).toContain("line 2");
       expect(error.code).toBe(ExitCode.Config);
     }
-    expect(
-      rejection(`requires:\n  - name: "c/core/a"\n    capabilities: [skills]\n`, "qualified")
-        .message,
-    ).toContain("2 `/` separators");
+    expect(rejection(`requires:\n  - skill: "c/core/a"\n`, "qualified").message).toContain(
+      "2 `/` separators",
+    );
   });
 
   it("refuses an empty half of a qualified address", () => {
-    expect(
-      rejection(`requires:\n  - name: "/core.*"\n    capabilities: [skills]\n`, "qualified")
-        .message,
-    ).toContain("names an empty catalog");
-    expect(
-      rejection(`requires:\n  - name: "company/"\n    capabilities: [skills]\n`, "qualified")
-        .message,
-    ).toContain("names an empty pattern");
+    expect(rejection(`requires:\n  - skill: "/core.*"\n`, "qualified").message).toContain(
+      "names an empty catalog",
+    );
+    expect(rejection(`requires:\n  - skill: "company/"\n`, "qualified").message).toContain(
+      "names an empty pattern",
+    );
   });
 
   it("takes `<catalog>/*` as the catalog-wide selector, with no root to synthesize", () => {
-    const [only] = parse(
-      `requires:\n  - name: "company/*"\n    capabilities: [skills]\n`,
-      "qualified",
-    );
-    expect(only).toEqual({
-      field: "name",
-      catalog: "company",
-      pattern: "*",
-      capabilities: ["skills"],
-    });
+    const [only] = parse(`requires:\n  - skill: "company/*"\n`, "qualified");
+    expect(only).toEqual({ kind: "skill", catalog: "company", pattern: "*" });
     expect(matches(only!, item({ catalog: "company", name: "anything.at.all" }))).toBe(true);
     expect(matches(only!, item({ catalog: "personal" }))).toBe(false);
   });
 
   it("keeps a catalog alias holding a dot addressable, which is why the separator is `/`", () => {
-    const [only] = parse(
-      `requires:\n  - name: "my.catalog/core.*"\n    capabilities: [skills]\n`,
-      "qualified",
-    );
-    expect(only).toEqual({
-      field: "name",
-      catalog: "my.catalog",
-      pattern: "core.*",
-      capabilities: ["skills"],
-    });
+    const [only] = parse(`requires:\n  - skill: "my.catalog/core.*"\n`, "qualified");
+    expect(only).toEqual({ kind: "skill", catalog: "my.catalog", pattern: "core.*" });
   });
 });
 
-describe("the vocabularies themselves", () => {
-  it("lists the three capabilities and the two fields, in report order", () => {
-    expect(CAPABILITIES).toEqual(["skills", "mcps", "hooks"]);
-    expect(PATTERN_FIELDS).toEqual(["name", "tag"]);
+describe("the vocabulary itself", () => {
+  it("lists the namespaces in report order, with packs first", () => {
+    expect(ITEM_KINDS).toEqual(["pack", "skill", "mcp", "hook"]);
   });
 });

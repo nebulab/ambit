@@ -75,8 +75,6 @@ async function writeCollidingCatalog(name: string): Promise<void> {
       "---",
       `name: ${CORE_SKILL}`,
       `description: ${name}'s copy of the core skill.`,
-      "ambit:",
-      `  tags: [${CORE_TAG}]`,
       "---",
       "",
       `# ${name}'s copy`,
@@ -86,19 +84,33 @@ async function writeCollidingCatalog(name: string): Promise<void> {
       "---",
       `name: ${OWN_SKILL}`,
       "description: Jane's notes, which no other catalog provides.",
-      "ambit:",
-      `  tags: [${CORE_TAG}, person.jane]`,
       "---",
       "",
       "# notes",
       "",
     ].join("\n"),
-    "mcps/tagged.yml": [
-      "name: tagged",
-      "tags: [function.engineering]",
+    "mcps/linter.yml": [
+      "name: linter",
       "transport:",
       "  stdio:",
       `    command: ${name}-mcp`,
+      "",
+    ].join("\n"),
+    // Every catalog offers the same two groupings by name, which is what makes a project selecting
+    // from both a collision rather than two different asks.
+    [`packs/${CORE_TAG}.yml`]: [
+      `name: ${CORE_TAG}`,
+      `description: ${name}'s core pack.`,
+      "requires:",
+      `  - skill: ${CORE_SKILL}`,
+      `  - skill: ${OWN_SKILL}`,
+      "",
+    ].join("\n"),
+    "packs/person.jane.yml": [
+      "name: person.jane",
+      `description: ${name}'s pack for Jane.`,
+      "requires:",
+      `  - skill: ${OWN_SKILL}`,
       "",
     ].join("\n"),
   };
@@ -137,9 +149,9 @@ async function writeCatalogOrder(
   );
 }
 
-/** One `requires` entry, selecting everything in `catalog` that carries `tag`. */
-function requiresEntry(tag: string, catalog = CATALOG_NAME): string {
-  return `  - { tag: "${catalog}/${tag}", capabilities: [skills, mcps, hooks] }`;
+/** One `requires` entry, taking a whole pack from `catalog`. */
+function requiresEntry(pack: string, catalog = CATALOG_NAME): string {
+  return `  - { pack: "${catalog}/${pack}" }`;
 }
 
 /** The merged view of whatever the project's config currently lists. */
@@ -215,7 +227,7 @@ describe("catalog parsing", () => {
       "company-context",
       "design-tokens",
     ]);
-    expect(catalog.mcps.map((mcp) => mcp.name)).toEqual(["fixture", "tagged"]);
+    expect(catalog.mcps.map((mcp) => mcp.name)).toEqual(["fixture", "linter"]);
   });
 
   it("derives each skill's name and path from its directory", async () => {
@@ -224,7 +236,6 @@ describe("catalog parsing", () => {
 
     expect(frontend).toMatchObject({
       path: "skills/design-tokens",
-      tags: ["function.engineering.frontend"],
       requires: [],
       expects: [{ kind: "env", name: "ACME_FIGMA_TOKEN" }],
     });
@@ -251,9 +262,9 @@ describe("catalog parsing", () => {
     // `catalog` on any entry — a catalog author cannot write a consumer's alias, and the entry
     // resolves within this catalog.
     expect(catalog.skills.find((skill) => skill.name === "acme-brief")?.requires).toEqual([
-      { field: "name", pattern: "company-context", capabilities: ["skills"] },
-      { field: "name", pattern: "fixture", capabilities: ["mcps"] },
-      { field: "name", pattern: "acme-standup", capabilities: ["hooks"] },
+      { kind: "skill", pattern: "company-context" },
+      { kind: "mcp", pattern: "fixture" },
+      { kind: "hook", pattern: "acme-standup" },
     ]);
   });
 
@@ -265,10 +276,10 @@ describe("catalog parsing", () => {
       command: "npx",
       args: ["-y", "@acme/fixture-mcp"],
     });
-    expect(catalog.mcps.find((mcp) => mcp.name === "tagged")?.transport).toEqual({
+    expect(catalog.mcps.find((mcp) => mcp.name === "linter")?.transport).toEqual({
       kind: "http",
       url: "https://mcp.invalid/fixture",
-      headers: { Authorization: "Bearer ${TAGGED_API_KEY}" },
+      headers: { Authorization: "Bearer ${LINTER_API_KEY}" },
     });
   });
 
@@ -281,7 +292,7 @@ name: code-review
 description: x
 allowed-tools: [Read, Grep]
 ambit:
-  tags: [function.engineering]
+  requires: [{ skill: company-context }]
 ---
 `,
     );
@@ -335,7 +346,7 @@ ambit:
 
     const error = await rejection();
     expect(error.message).toBe(`unknown key "ambit.tag" (${CODE_REVIEW} line 5)`);
-    expect(error.detail).toContain("accepted keys: expects, requires, tags");
+    expect(error.detail).toContain("accepted keys: expects, requires");
   });
 
   it("rejects an `ambit:` that is not a mapping", async () => {
@@ -454,9 +465,8 @@ transport:
 
     const error = await rejection();
     expect(error.message).toBe("the scope registry is gone (scopes.yml)");
-    expect(error.detail).toContain(
-      "scopes are gone; tag items with `ambit.tags` and select them with `tag:`",
-    );
+    expect(error.detail.join("\n")).toContain("a group of items is a pack now");
+    expect(error.detail.join("\n")).toContain("selected with `pack:`");
   });
 
   it("ignores an `ambit.yml` at the catalog root, since a project may publish itself", async () => {
@@ -517,7 +527,7 @@ describe("ambit dump-catalog", () => {
     expect(result.code).toBe(ExitCode.Success);
     expect(JSON.parse(result.stdout)).toEqual({
       catalogs: [CATALOG_NAME],
-      // The fixture's three: one a `tag: core` entry reaches, one shipping a script, and one tagged nothing.
+      // The fixture's three: one the `core` pack names, one shipping a script, and one in no pack.
       hooks: {
         [`${CATALOG_NAME}/acme-standup`]: {
           catalog: CATALOG_NAME,
@@ -527,7 +537,6 @@ describe("ambit dump-catalog", () => {
           expects: [],
           event: "SessionEnd",
           path: "hooks/acme-standup",
-          tags: [],
         },
         [`${CATALOG_NAME}/guard-secrets`]: {
           catalog: CATALOG_NAME,
@@ -538,7 +547,6 @@ describe("ambit dump-catalog", () => {
           event: "PreToolUse",
           matcher: "Bash",
           path: "hooks/guard-secrets",
-          tags: ["function.engineering"],
           timeout: 10,
         },
         [`${CATALOG_NAME}/session-notes`]: {
@@ -549,7 +557,6 @@ describe("ambit dump-catalog", () => {
           expects: [],
           event: "SessionStart",
           path: "hooks/session-notes",
-          tags: ["core"],
         },
       },
       skills: {
@@ -559,7 +566,6 @@ describe("ambit dump-catalog", () => {
           expects: [],
           path: "skills/company-context",
           requires: [],
-          tags: ["core"],
         },
         [`${CATALOG_NAME}/design-tokens`]: {
           catalog: CATALOG_NAME,
@@ -567,7 +573,6 @@ describe("ambit dump-catalog", () => {
           expects: [{ kind: "env", name: "ACME_FIGMA_TOKEN" }],
           path: "skills/design-tokens",
           requires: [],
-          tags: ["function.engineering.frontend"],
         },
         [`${CATALOG_NAME}/code-review`]: {
           catalog: CATALOG_NAME,
@@ -575,7 +580,6 @@ describe("ambit dump-catalog", () => {
           expects: [],
           path: "skills/code-review",
           requires: [],
-          tags: ["function.engineering"],
         },
         [`${CATALOG_NAME}/acme-brief`]: {
           catalog: CATALOG_NAME,
@@ -583,28 +587,61 @@ describe("ambit dump-catalog", () => {
           expects: [],
           path: "skills/acme-brief",
           requires: [
-            { capabilities: ["skills"], field: "name", pattern: "company-context" },
-            { capabilities: ["mcps"], field: "name", pattern: "fixture" },
-            { capabilities: ["hooks"], field: "name", pattern: "acme-standup" },
+            { kind: "skill", pattern: "company-context" },
+            { kind: "mcp", pattern: "fixture" },
+            { kind: "hook", pattern: "acme-standup" },
           ],
-          tags: ["project.acme"],
+        },
+      },
+      // What a pack is for, and what it gathers — the half the labels it replaced never had.
+      packs: {
+        [`${CATALOG_NAME}/core`]: {
+          catalog: CATALOG_NAME,
+          description: "What every Acme session needs, whoever is in it.",
+          requires: [
+            { kind: "skill", pattern: "company-context" },
+            { kind: "hook", pattern: "session-notes" },
+          ],
+        },
+        [`${CATALOG_NAME}/function.engineering`]: {
+          catalog: CATALOG_NAME,
+          description:
+            "Everything an Acme engineer needs — reviews, tooling, and the guards around them.",
+          requires: [
+            { kind: "pack", pattern: "core" },
+            { kind: "skill", pattern: "code-review" },
+            { kind: "mcp", pattern: "linter" },
+            { kind: "hook", pattern: "guard-secrets" },
+          ],
+        },
+        [`${CATALOG_NAME}/function.engineering.frontend`]: {
+          catalog: CATALOG_NAME,
+          description:
+            "What an Acme engineer working on interfaces needs on top of the engineering pack.",
+          requires: [
+            { kind: "pack", pattern: "function.engineering" },
+            { kind: "skill", pattern: "design-tokens" },
+          ],
+        },
+        [`${CATALOG_NAME}/project.acme`]: {
+          catalog: CATALOG_NAME,
+          description: "The Acme engagement — its brief, and whatever the brief drags in.",
+          requires: [{ kind: "skill", pattern: "acme-brief" }],
         },
       },
       mcps: {
         [`${CATALOG_NAME}/fixture`]: {
           catalog: CATALOG_NAME,
           expects: [{ kind: "env", name: "FIXTURE_API_KEY" }],
-          tags: [],
           transport: { kind: "stdio", command: "npx", args: ["-y", "@acme/fixture-mcp"] },
         },
-        [`${CATALOG_NAME}/tagged`]: {
+        [`${CATALOG_NAME}/linter`]: {
           catalog: CATALOG_NAME,
-          expects: [{ kind: "env", name: "TAGGED_API_KEY" }],
-          tags: ["function.engineering"],
+          expects: [{ kind: "env", name: "LINTER_API_KEY" }],
           transport: {
             kind: "http",
             url: "https://mcp.invalid/fixture",
-            headers: { Authorization: "Bearer ${TAGGED_API_KEY}" },
+            headers: { Authorization: "Bearer ${LINTER_API_KEY}" },
           },
         },
       },
@@ -626,14 +663,17 @@ describe("ambit dump-catalog", () => {
     expect(result.stdout).not.toContain(root);
   });
 
-  it("lists skills with their tags, and MCPs, as text", async () => {
+  it("lists packs with their descriptions, and skills and MCPs, as text", async () => {
     const result = await cli("dump-catalog");
 
     expect(result.code).toBe(ExitCode.Success);
     expect(result.stdout).toContain(`${CATALOG_NAME}  path:../catalog`);
-    // No registry section to print: the labels an item carries are shown on the item's own row.
-    expect(result.stdout).not.toContain("tags (");
-    expect(result.stdout).toContain(`company-context  ${CATALOG_NAME}  core`);
+    // The packs lead, and each carries what it is for — which is the section a person browsing a
+    // catalog is actually reading.
+    expect(result.stdout).toContain(
+      `core                           ${CATALOG_NAME}  What every Acme session needs`,
+    );
+    expect(result.stdout).toContain(`company-context  ${CATALOG_NAME}`);
     expect(result.stdout).toContain("acme-brief");
     expect(result.stdout).toContain("stdio: npx -y @acme/fixture-mcp");
     expect(result.stdout).toContain("http: https://mcp.invalid/fixture");
@@ -717,7 +757,6 @@ describe("catalog hooks", () => {
       HOOK_FILE,
       document(HOOK_NAME, [
         "description: Refuses a destructive rm before it runs",
-        "tags: [function.engineering]",
         "event: PreToolUse",
         "matcher: Bash",
         "type: command",
@@ -733,7 +772,6 @@ describe("catalog hooks", () => {
         name: HOOK_NAME,
         path: HOOK_DIR,
         description: "Refuses a destructive rm before it runs",
-        tags: ["function.engineering"],
         event: "PreToolUse",
         matcher: "Bash",
         type: "command",
@@ -853,7 +891,6 @@ describe("catalog hooks", () => {
     await writeCatalogFile(
       HOOK_FILE,
       document(HOOK_NAME, [
-        "tags: [function.engineering]",
         "event: PreToolUse",
         "matcher: Bash",
         "type: script",
@@ -873,7 +910,6 @@ describe("catalog hooks", () => {
       expects: [],
       matcher: "Bash",
       path: HOOK_DIR,
-      tags: ["function.engineering"],
     });
     // The fixture's own three come along, which the whole-catalog case above pins. Each record is
     // keyed by its address, since a name is not unique across catalogs.
@@ -886,7 +922,7 @@ describe("catalog hooks", () => {
       .split("\n")
       .find((line) => line.trimStart().startsWith(`${HOOK_NAME} `));
     expect(row?.replace(/\s+/g, " ").trim()).toBe(
-      `${HOOK_NAME} ${CATALOG_NAME} function.engineering PreToolUse hook.sh (shipped)`,
+      `${HOOK_NAME} ${CATALOG_NAME} PreToolUse hook.sh (shipped)`,
     );
   });
 
@@ -1277,7 +1313,7 @@ describe("multi-catalog merge", () => {
     expect(
       view.skills.filter((skill) => skill.name === CORE_SKILL).map((skill) => skill.catalog),
     ).toEqual([CATALOG_NAME, SECOND]);
-    expect(view.mcps.filter((mcp) => mcp.name === "tagged").map((mcp) => mcp.catalog)).toEqual([
+    expect(view.mcps.filter((mcp) => mcp.name === "linter").map((mcp) => mcp.catalog)).toEqual([
       CATALOG_NAME,
       SECOND,
     ]);
@@ -1304,11 +1340,11 @@ describe("multi-catalog merge", () => {
       mcps: Record<string, { catalog: string; transport: Record<string, unknown> }>;
     };
 
-    expect(dumped.mcps[`${CATALOG_NAME}/tagged`]).toMatchObject({
+    expect(dumped.mcps[`${CATALOG_NAME}/linter`]).toMatchObject({
       catalog: CATALOG_NAME,
       transport: { kind: "http" },
     });
-    expect(dumped.mcps[`${SECOND}/tagged`]).toMatchObject({
+    expect(dumped.mcps[`${SECOND}/linter`]).toMatchObject({
       catalog: SECOND,
       transport: { kind: "stdio", command: `${SECOND}-mcp` },
     });
@@ -1332,7 +1368,13 @@ describe("multi-catalog merge", () => {
     // Two entries, one per catalog: reaching both copies is something a qualified address makes a
     // project ask for deliberately, which is exactly why refusing it is not second-guessing anyone.
     await writeCollidingCatalog(SECOND);
-    await writeCatalogOrder([SECOND], [requiresEntry(CORE_TAG), requiresEntry(CORE_TAG, SECOND)]);
+    await writeCatalogOrder(
+      [SECOND],
+      [
+        `  - { skill: "${CATALOG_NAME}/${CORE_SKILL}" }`,
+        `  - { skill: "${SECOND}/${CORE_SKILL}" }`,
+      ],
+    );
 
     const result = await cli("resolve");
 
@@ -1348,33 +1390,36 @@ describe("multi-catalog merge", () => {
   });
 
   it("refuses a selected MCP server two catalogs provide, as it does a skill", async () => {
-    // `function.engineering` reaches the `tagged` server in both catalogs, and no skill twice — so
-    // this is the namespace the refusal is reported for.
+    // Both catalogs ship a `linter`, and no skill is named twice — so this is the namespace the
+    // refusal is reported for.
     await writeCollidingCatalog(SECOND);
     await writeCatalogOrder(
       [SECOND],
-      [requiresEntry("function.engineering"), requiresEntry("function.engineering", SECOND)],
+      [`  - { mcp: "${CATALOG_NAME}/linter" }`, `  - { mcp: "${SECOND}/linter" }`],
     );
 
     const result = await cli("resolve");
 
     expect(result.code).toBe(ExitCode.Resolution);
-    expect(result.stderr).toContain('MCP server "tagged" is selected from more than one catalog');
+    expect(result.stderr).toContain('MCP server "linter" is selected from more than one catalog');
   });
 
   it("resolves normally, with no whose-copy column, when one copy is selected", async () => {
-    // A tag only the second catalog's own skill carries, so two catalogs are configured and nothing
+    // A pack only the second catalog holds a member for, so two catalogs are configured and nothing
     // collides. `--explain` ends at the reason: there is nothing left to say about which copy this is.
     await writeCollidingCatalog(SECOND);
-    await writeCatalogOrder([SECOND], [requiresEntry("person.jane", SECOND)]);
+    await writeCatalogOrder([SECOND], [`  - { skill: "${SECOND}/${OWN_SKILL}" }`]);
 
     const result = await cli("resolve", "--explain");
 
     expect(result.code, result.stderr).toBe(ExitCode.Success);
     expect(result.stdout).toBe(
       [
+        "packs (0)",
+        "  (none)",
+        "",
         "skills (1)",
-        `  ${OWN_SKILL}  ${SECOND}  tag:${SECOND}/person.jane`,
+        `  ${OWN_SKILL}  ${SECOND}  skill:${SECOND}/${OWN_SKILL}`,
         "",
         "mcps (0)",
         "  (none)",
@@ -1402,7 +1447,7 @@ describe("multi-catalog merge", () => {
     expect(explained.skills[OWN_SKILL]).toEqual({
       catalog: SECOND,
       path: `skills/${OWN_SKILL}`,
-      reason: `tag:${SECOND}/person.jane`,
+      reason: "required-by:pack:person.jane",
     });
   });
 });

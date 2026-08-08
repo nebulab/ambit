@@ -43,7 +43,7 @@ const SKILLS_DIR = ".agents/skills";
 const TAGS: readonly string[] = ["core", "function.engineering", "function.engineering.*"];
 
 /** The variable the tagged server interpolates into a header; pinned so the file is predictable. */
-const TAGGED_KEY_VAR = "TAGGED_API_KEY";
+const PACKED_KEY_VAR = "LINTER_API_KEY";
 
 let root: string;
 let cacheDir: string;
@@ -78,9 +78,9 @@ ${extra.map((line) => `${line}\n`).join("")}`,
   );
 }
 
-/** One `requires` entry, selecting everything in `catalog` that carries `tag`. */
-function requiresEntry(tag: string, catalog = CATALOG_NAME): string {
-  return `  - { tag: "${catalog}/${tag}", capabilities: [skills, mcps, hooks] }`;
+/** One `requires` entry, taking a whole pack from `catalog`. */
+function requiresEntry(pack: string, catalog = CATALOG_NAME): string {
+  return `  - { pack: "${catalog}/${pack}" }`;
 }
 
 /** Runs the CLI against one project, collecting stdout and stderr. */
@@ -163,7 +163,7 @@ beforeEach(async () => {
   // The cache is machine-wide, so every test points it somewhere disposable rather than
   // writing into the developer's real one.
   vi.stubEnv("XDG_CACHE_HOME", cacheDir);
-  vi.stubEnv(TAGGED_KEY_VAR, undefined);
+  vi.stubEnv(PACKED_KEY_VAR, undefined);
 
   catalogDir = path.join(root, "catalog");
   await buildFixtureCatalog(catalogDir);

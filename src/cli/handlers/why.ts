@@ -20,7 +20,13 @@
  * bundle" is a resolution answer a script has to be able to detect, and the two ways of getting
  * there — no catalog provides it, or nothing selects it — call for different fixes.
  */
-import type { MergedCatalog, MergedHook, MergedMcp, MergedSkill } from "../../model/catalog.js";
+import type {
+  MergedCatalog,
+  MergedHook,
+  MergedMcp,
+  MergedPack,
+  MergedSkill,
+} from "../../model/catalog.js";
 import { loadCatalogs, mergeCatalogs } from "../../model/catalog.js";
 import type { CommandHandler } from "../commands.js";
 import { jsonRequested, sourceContextOf } from "../commands.js";
@@ -42,18 +48,20 @@ import {
   reasonOf,
   resolveBundle,
 } from "../../resolution/resolve.js";
-import { CAPABILITY_OF_KIND, REQUIRES_KEY, entryYaml } from "../../model/pattern.js";
+import { REQUIRES_KEY, entryYaml } from "../../model/pattern.js";
 import { parseItemSubject } from "../../model/requirement.js";
 
-/** How an item is named in messages, one entry per namespace so a fourth is a type error. */
+/** How an item is named in messages, one entry per namespace so a fifth is a type error. */
 const SUBJECTS: Readonly<Record<ItemKind, string>> = {
+  pack: "pack",
   skill: "skill",
   mcp: "MCP server",
   hook: "hook",
 };
 
-/** The same three with an article, for a sentence that needs one. */
+/** The same four with an article, for a sentence that needs one. */
 const NOUNS: Readonly<Record<ItemKind, string>> = {
+  pack: "a pack",
   skill: "a skill",
   mcp: "an MCP server",
   hook: "a hook",
@@ -75,8 +83,10 @@ function subject(item: BundleItem): string {
 function providers(
   merged: MergedCatalog,
   item: BundleItem,
-): readonly (MergedSkill | MergedMcp | MergedHook)[] {
+): readonly (MergedPack | MergedSkill | MergedMcp | MergedHook)[] {
   switch (item.kind) {
+    case "pack":
+      return merged.packs.filter((pack) => pack.name === item.name);
     case "skill":
       return merged.skills.filter((skill) => skill.name === item.name);
     case "mcp":
@@ -90,49 +100,40 @@ function providers(
  * The `requires` entry that would select an item, written out for the reader to paste.
  *
  * By exact name and qualified with the catalog that provides it, because that is the one entry
- * guaranteed to select this copy and nothing else: a tag entry would reach every other item carrying
- * the label, and an unqualified address is not a spelling a project config has.
- *
- * One entry for one namespace, since `capabilities` is not defaulted — the item's own kind is the
- * only member that could belong there.
+ * guaranteed to select this copy and nothing else: a wildcard would reach whatever else sits under
+ * the prefix, and an unqualified address is not a spelling a project config has.
  */
 function selectionEntry(item: BundleItem, catalog: string): string {
-  return entryYaml({
-    field: "name",
-    pattern: item.name,
-    catalog,
-    capabilities: [CAPABILITY_OF_KIND[item.kind]],
-  });
+  return entryYaml({ kind: item.kind, pattern: item.name, catalog });
 }
 
 /**
  * The error for an item one or more catalogs provide but nothing selects.
  *
  * Names every catalog it could have come from, so a reader knows the config is otherwise fine, and
- * says which tags would reach it rather than leaving them to be looked up.
+ * ends on an entry they can paste.
  *
  * The advice is one entry, on the first providing catalog in merged order. There is only one route
- * into a bundle now, so there is no second suggestion to make: a hook and a server are addressable
- * exactly as a skill is, which is what folding the explicit list into `requires` bought.
+ * into a bundle, so there is no second suggestion to make: a pack, a hook and a server are
+ * addressable exactly as a skill is.
  *
- * The tags are the union across the copies, since an entry on any one of them selects at least one
- * copy — and if it selects two, the collision refusal at resolve is the better message for that.
+ * The entry it prints names the item directly, which is always *an* answer and is not always the one
+ * the catalog intends — an item a pack already covers is more naturally taken by asking for the pack.
+ * Naming that pack instead would mean searching every pack's `requires` for one that reaches this
+ * item, then choosing between the several that might, so the direct entry is what is offered and
+ * `ambit dump-catalog` is where the packs are.
  */
 function notSelected(
   item: BundleItem,
-  entries: readonly (MergedSkill | MergedMcp | MergedHook)[],
+  entries: readonly (MergedPack | MergedSkill | MergedMcp | MergedHook)[],
   config: ProjectConfig,
 ): AmbitError {
   const names = entries.map((entry) => `"${entry.catalog}"`).join(", ");
   const provided =
     entries.length === 1 ? `catalog ${names} provides it` : `catalogs ${names} provide it`;
-  const tags = [...new Set(entries.flatMap((entry) => entry.tags))].sort((a, b) =>
-    a < b ? -1 : a > b ? 1 : 0,
-  );
 
   return resolutionError(`${subject(item)} is not in the bundle`, [
     `${provided}, but no \`${REQUIRES_KEY}\` entry in ${config.origin.file} selects it`,
-    ...(tags.length === 0 ? [] : [`it declares tags: ${tags.join(", ")}`]),
     `select it with \`${selectionEntry(item, entries[0]!.catalog)}\``,
   ]);
 }
@@ -140,8 +141,9 @@ function notSelected(
 /**
  * The error for a reference nothing provides at all.
  *
- * The namespace is named rather than hedged over all three — this message used to open "unknown skill,
- * MCP server or hook" precisely because it did not know which the reader meant, and now it does.
+ * The namespace is named rather than hedged over all of them — this message used to open "unknown
+ * skill, MCP server or hook" precisely because it did not know which the reader meant, and now it
+ * does.
  */
 function unknownName(item: BundleItem, config: ProjectConfig): AmbitError {
   return resolutionError(`unknown ${subject(item)}`, [
@@ -208,7 +210,7 @@ export const whyHandler: CommandHandler = async (ctx) => {
   if (name === undefined) {
     // Commander enforces the argument, so this is unreachable rather than a user-facing path.
     throw new AmbitError(ExitCode.Internal, "`ambit why` was given no name", [
-      "the command takes the name of a skill, an MCP server, or a hook",
+      "the command takes the name of a pack, a skill, an MCP server, or a hook",
       "run `ambit why <kind>:<name>`",
     ]);
   }

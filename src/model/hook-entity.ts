@@ -49,11 +49,6 @@ export interface HookEntity {
   readonly name: string;
   /** Carried into reports. */
   readonly description?: string;
-  /**
-   * Declared tags: free-form labels, registered nowhere, that a consumer can select on. Empty means
-   * reachable by a `name:` entry or a `requires` edge, and by nothing else.
-   */
-  readonly tags: readonly string[];
   readonly event: HookEvent;
   /** Tool-name filter. Only ever set on one of {@link MATCHABLE_EVENTS}. */
   readonly matcher?: string;
@@ -83,7 +78,6 @@ const ENTITY_KEYS = [
   "expects",
   "matcher",
   "name",
-  "tags",
   "timeout",
   "type",
 ] as const;
@@ -209,7 +203,6 @@ export function parseHookEntity(mapping: YamlMapping): HookEntity {
   return {
     name,
     ...(description !== undefined && { description }),
-    tags: mapping.optionalStringList("tags") ?? [],
     event,
     ...(matcher !== undefined && { matcher }),
     type,

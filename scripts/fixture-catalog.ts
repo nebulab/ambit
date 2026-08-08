@@ -3,9 +3,14 @@
  * testable offline).
  *
  * The catalog is a plain skills repo — skills at `skills/<name>/SKILL.md`, MCP
- * entities at `mcps/<name>.yml`, hooks at `hooks/<name>/hook.yml`, and no config of its own — so it
- * doubles as the subject of the dotagents compatibility test (A26): everything but `skills/` is
- * additive, and a tool that reads only skills must be unbothered by it.
+ * entities at `mcps/<name>.yml`, hooks at `hooks/<name>/hook.yml`, packs at `packs/<name>.yml`, and
+ * no config of its own — so it doubles as the subject of the dotagents compatibility test (A26):
+ * everything but `skills/` is additive, and a tool that reads only skills must be unbothered by it.
+ *
+ * The packs are what selection runs through. Nothing in a catalog labels itself any more, so a
+ * consumer's entry names either an item outright or a **pack** — a document that names the items —
+ * and the fixture ships four, one of them nested two directories deep so the `packs/**` walk and the
+ * name it derives are both exercised.
  *
  * It also builds that same catalog as a **local bare git repository**, which is how the git-source
  * tests stay offline: a `file://` URL is a git URL like any other, so nothing in ambit needs a test
@@ -23,76 +28,69 @@ import { promisify } from "node:util";
 
 /**
  * Written at the catalog root so a rebuild knows the directory is ours to delete. Dotfiles
- * are invisible to catalog parsing, which reads only `skills/**`, `mcps/*`, and `hooks/**`.
+ * are invisible to catalog parsing, which reads only `skills/**`, `mcps/*`, `hooks/**` and
+ * `packs/**`.
  */
 export const FIXTURE_MARKER = ".ambit-fixture";
 
 const CORE_SKILL = `---
 name: company-context
 description: Canonical context about Acme — what it sells, to whom, and how it works.
-ambit:
-  tags: [core]
 ---
 
 # Acme company context
 
-Reached by a \`tag: core\` entry, and pulled in by \`requires\` from the project skill even when no
-entry selects \`core\` at all.
+Reached through the \`core\` pack, and pulled in by \`requires\` from the project skill even when
+nothing selects that pack at all.
 `;
 
 const ENGINEERING_SKILL = `---
 name: code-review
 description: How Acme reviews code — what reviewers look for, and in what order.
-ambit:
-  tags: [function.engineering]
 ---
 
 # Code review at Acme
 
-Tagged \`function.engineering\`, exactly. A \`tag: core\` entry must not reach it.
+A member of the \`function.engineering\` pack, and of no other. The \`core\` pack must not reach it.
 `;
 
 const FRONTEND_SKILL = `---
 name: design-tokens
 description: Acme's design tokens — color, spacing, and the type scale.
 ambit:
-  tags: [function.engineering.frontend]
   expects:
     - env: ACME_FIGMA_TOKEN
 ---
 
 # Design tokens
 
-Tagged one dot below \`function.engineering\`, which is exactly what no longer reaches it: a pattern
-without a \`*\` is an exact match, so \`tag: function.engineering\` takes \`code-review\` and leaves this
-behind, and \`tag: function.engineering.*\` takes this and leaves \`code-review\` behind. Both together
-is two entries. The dot is a character, not a level.
+Belongs to \`function.engineering.frontend\`, one dot below \`function.engineering\` and reached by
+neither that pack nor an exact-name entry for it: a pattern without a \`*\` is an exact match, so
+\`pack: function.engineering\` leaves this behind and \`pack: function.engineering.*\` leaves the
+narrower one's parent behind. Both together is two entries. The dot is a character, not a level.
 `;
 
 const PROJECT_SKILL = `---
 name: acme-brief
 description: The Acme engagement brief — remit, contacts, and conventions.
 ambit:
-  tags: [project.acme]
   # Unqualified, because a catalog author cannot write a consumer's alias — so each entry resolves
   # within this catalog. Exact names here: a pattern with no wildcard is one item, exactly.
   requires:
-    - name: company-context
-      capabilities: [skills]
-    - name: fixture
-      capabilities: [mcps]
-    - name: acme-standup
-      capabilities: [hooks]
+    - skill: company-context
+    - mcp: fixture
+    - hook: acme-standup
 ---
 
 # Acme engagement brief
 
 Reaches a skill, an MCP server and a hook that no entry a test writes selects on its own, so the
-\`requires\` closure is the only thing that can pull them in.
+\`requires\` closure is the only thing that can pull them in — a skill's \`requires\` and a pack's
+being the same grammar and the same closure.
 `;
 
 const REQUIRED_MCP = `name: fixture
-# No tags: reachable only because acme-brief requires it.
+# In no pack: reachable only because acme-brief requires it.
 
 transport:
   stdio:
@@ -103,21 +101,20 @@ expects:
   - env: FIXTURE_API_KEY
 `;
 
-const TAGGED_MCP = `name: tagged
-tags: [function.engineering]
+const PACKED_MCP = `name: linter
+# A member of the \`function.engineering\` pack, which is the only thing that reaches it.
 
 transport:
   http:
     url: https://mcp.invalid/fixture
     headers:
-      Authorization: "Bearer \${TAGGED_API_KEY}"
+      Authorization: "Bearer \${LINTER_API_KEY}"
 
 expects:
-  - env: TAGGED_API_KEY
+  - env: LINTER_API_KEY
 `;
 
 const COMMAND_HOOK = `name: session-notes
-tags: [core]
 description: Reminds a session that Acme's conventions apply.
 
 event: SessionStart
@@ -128,7 +125,6 @@ command: echo "acme conventions apply"
 `;
 
 const SCRIPT_HOOK = `name: guard-secrets
-tags: [function.engineering]
 description: Inspects a Bash command before Acme's tooling runs it.
 
 event: PreToolUse
@@ -149,12 +145,47 @@ exit 0
 `;
 
 const REQUIRED_HOOK = `name: acme-standup
-# No tags: reachable only because acme-brief requires it.
+# In no pack: reachable only because acme-brief requires it.
 description: Records what the session touched, for the Acme standup.
 
 event: SessionEnd
 type: command
 command: echo "acme session ended"
+`;
+
+const CORE_PACK = `name: core
+description: What every Acme session needs, whoever is in it.
+
+requires:
+  - skill: company-context
+  - hook: session-notes
+`;
+
+const ENGINEERING_PACK = `name: function.engineering
+description: Everything an Acme engineer needs — reviews, tooling, and the guards around them.
+
+# A pack requires other packs as readily as it requires items, which is what lets a catalog build a
+# large grouping out of small ones instead of restating the small one's membership.
+requires:
+  - pack: core
+  - skill: code-review
+  - mcp: linter
+  - hook: guard-secrets
+`;
+
+const FRONTEND_PACK = `name: function.engineering.frontend
+description: What an Acme engineer working on interfaces needs on top of the engineering pack.
+
+requires:
+  - pack: function.engineering
+  - skill: design-tokens
+`;
+
+const PROJECT_PACK = `name: project.acme
+description: The Acme engagement — its brief, and whatever the brief drags in.
+
+requires:
+  - skill: acme-brief
 `;
 
 /** Every file in the fixture, keyed by its path relative to the catalog root. */
@@ -165,7 +196,13 @@ export const FIXTURE_CATALOG_FILES: Readonly<Record<string, string>> = {
   "hooks/guard-secrets/guard.sh": HOOK_SCRIPT,
   "hooks/acme-standup/hook.yml": REQUIRED_HOOK,
   "mcps/fixture.yml": REQUIRED_MCP,
-  "mcps/tagged.yml": TAGGED_MCP,
+  "mcps/linter.yml": PACKED_MCP,
+  // Flat, nested one deep, and nested two deep, so the `packs/**` walk and the name it derives from a
+  // path are both exercised by the catalog every other test resolves against.
+  "packs/core.yml": CORE_PACK,
+  "packs/function/engineering.yml": ENGINEERING_PACK,
+  "packs/function/engineering/frontend.yml": FRONTEND_PACK,
+  "packs/project/acme.yml": PROJECT_PACK,
   "skills/company-context/SKILL.md": CORE_SKILL,
   "skills/code-review/SKILL.md": ENGINEERING_SKILL,
   "skills/design-tokens/SKILL.md": FRONTEND_SKILL,

@@ -113,16 +113,22 @@ const CATALOG_NAME = "company";
 
 const CORE_SKILL = "company-context";
 
+/** The pack this file writes to gather {@link EXTRA_HOOKS}, since nothing labels itself any more. */
+const EXTRA_PACK = "determinism.extras";
+
 /**
- * Enough tags to select every skill and server the fixture holds, so each surface has as much
- * to sort as it can. The fourth is a descendant label of the third, which now takes an entry of its
- * own — there is no subtree rule left to reach it implicitly.
+ * Enough packs to select every skill and server the fixture holds, so each surface has as much to
+ * sort as it can. The third is a descendant of the second by name, which takes an entry of its own —
+ * a name is a name, and there is no subtree rule that would reach it implicitly.
+ *
+ * The fourth is this file's own, written beside the extra hooks below.
  */
-const SELECTED_TAGS = [
+const SELECTED_PACKS = [
   "core",
   "function.engineering",
   "function.engineering.frontend",
   "project.acme",
+  EXTRA_PACK,
 ];
 
 /**
@@ -130,8 +136,8 @@ const SELECTED_TAGS = [
  *
  * Beyond the three the fixture ships, and arranged so both orderings a hook config file has are
  * non-trivial: two share an event, so an array's own order has to come from the bundle, and the event
- * keys are written in an order that is not the order the names sort in. Every one carries `core`, which
- * the project holds.
+ * keys are written in an order that is not the order the names sort in. All three are gathered into
+ * {@link EXTRA_PACK}, which the project selects.
  */
 const EXTRA_HOOKS: Readonly<Record<string, readonly string[]>> = {
   guard: ["event: PreToolUse", "matcher: Bash", "type: command", "command: ./bin/guard"],
@@ -143,7 +149,7 @@ const EXTRA_HOOK = "guard";
 
 /** The fixture's two credentials, stubbed so no surface depends on the developer's environment. */
 const ENV_STUBS: Readonly<Record<string, string>> = {
-  TAGGED_API_KEY: "determinism-tagged-key",
+  LINTER_API_KEY: "determinism-linter-key",
   FIXTURE_API_KEY: "determinism-fixture-key",
 };
 
@@ -224,12 +230,12 @@ let emptyDir: string;
 let installed: Record<string, string>;
 let fixture: Record<string, string>;
 
-/** One `requires` entry, selecting everything in `catalog` that carries `tag`. */
-function requiresEntry(tag: string, catalog = CATALOG_NAME): string {
-  return `  - { tag: "${catalog}/${tag}", capabilities: [skills, mcps, hooks] }`;
+/** One `requires` entry, taking a whole pack from `catalog`. */
+function requiresEntry(pack: string, catalog = CATALOG_NAME): string {
+  return `  - { pack: "${catalog}/${pack}" }`;
 }
 
-/** Points a project at a sibling `catalog/` directory and selects every tag the fixture declares. */
+/** Points a project at a sibling `catalog/` directory and takes every pack the fixture declares. */
 async function writeProfile(dir: string): Promise<void> {
   await writeFile(
     path.join(dir, "ambit.yml"),
@@ -238,23 +244,42 @@ catalogs:
   - name: ${CATALOG_NAME}
     source: path:../catalog
 requires:
-${SELECTED_TAGS.map((tag) => requiresEntry(tag)).join("\n")}
+${SELECTED_PACKS.map((pack) => requiresEntry(pack)).join("\n")}
 `,
     "utf8",
   );
 }
 
-/** Adds {@link EXTRA_HOOKS} to the catalog, each tagged `core` so the project's entries reach it. */
+/**
+ * Adds {@link EXTRA_HOOKS} to the catalog, and the pack that gathers them.
+ *
+ * The pack is nested one directory deep, so this file's own catalog edit exercises the `packs/**`
+ * walk rather than only the flat case.
+ */
 async function writeExtraHooks(dir: string): Promise<void> {
   for (const [name, lines] of Object.entries(EXTRA_HOOKS)) {
     const target = path.join(dir, "hooks", name);
     await mkdir(target, { recursive: true });
     await writeFile(
       path.join(target, "hook.yml"),
-      [`name: ${name}`, "tags: [core]", ...lines, ""].join("\n"),
+      [`name: ${name}`, ...lines, ""].join("\n"),
       "utf8",
     );
   }
+
+  const [group, leaf] = EXTRA_PACK.split(".");
+  await mkdir(path.join(dir, "packs", group!), { recursive: true });
+  await writeFile(
+    path.join(dir, "packs", group!, `${leaf!}.yml`),
+    [
+      `name: ${EXTRA_PACK}`,
+      "description: The hooks this determinism suite writes, so one entry selects them all.",
+      "requires:",
+      ...Object.keys(EXTRA_HOOKS).map((name) => `  - hook: ${name}`),
+      "",
+    ].join("\n"),
+    "utf8",
+  );
 }
 
 /** Runs the CLI, collecting both streams. */
@@ -369,6 +394,7 @@ describe("the shuffled read order this suite relies on", () => {
     // would show up in the cases below rather than passing unobserved.
     expect(readOrder.seen).toContain(path.join(catalogDir, "skills"));
     expect(readOrder.seen).toContain(path.join(catalogDir, "mcps"));
+    expect(readOrder.seen).toContain(path.join(catalogDir, "packs"));
   });
 });
 
@@ -464,9 +490,7 @@ describe("a report of problems is in the same order whatever order directories a
     await mkdir(path.dirname(target), { recursive: true });
     await writeFile(
       target,
-      ["---", `name: ${declared}`, "ambit:", "  tags: [core]", "---", "", "# fixture", ""].join(
-        "\n",
-      ),
+      ["---", `name: ${declared}`, "---", "", "# fixture", ""].join("\n"),
       "utf8",
     );
   }
@@ -557,6 +581,7 @@ describe("ambit install writes the same tree whatever order directories are read
   beforeEach(async () => {
     writeRoot = await mkdtemp(path.join(tmpdir(), "ambit-determinism-install-"));
     await buildFixtureCatalog(path.join(writeRoot, "catalog"));
+    await writeExtraHooks(path.join(writeRoot, "catalog"));
   });
 
   afterEach(async () => {

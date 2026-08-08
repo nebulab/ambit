@@ -3,7 +3,7 @@
  *
  * It validates everything a project configures: every catalog it lists, and its own `requires`
  * entries. That covers a catalog repo too, without a second command: a catalog repo lists **itself**
- * as `source: path:.`, so its `skills/`, `mcps/` and `hooks/` arrive as an ordinary catalog and
+ * as `source: path:.`, so its `packs/`, `skills/`, `mcps/` and `hooks/` arrive as an ordinary catalog and
  * `validateCatalog` checks every item in it whether the (possibly absent) `requires` list selects
  * anything or not.
  *
@@ -35,6 +35,7 @@ function toJson(report: ValidationReport): Readonly<Record<string, unknown>> {
     checked: {
       hooks: report.checked.hooks,
       mcps: report.checked.mcps,
+      packs: report.checked.packs,
       skills: report.checked.skills,
     },
     problems: report.problems.map(problemJson),
@@ -66,7 +67,7 @@ function problemLines(problems: readonly ValidationProblem[]): readonly string[]
 function toText(report: ValidationReport): readonly string[] {
   const { checked } = report;
   return [
-    `checked ${count(checked.skills, "skill")}, ${count(checked.mcps, "mcp")}, ${count(checked.hooks, "hook")}`,
+    `checked ${count(checked.packs, "pack")}, ${count(checked.skills, "skill")}, ${count(checked.mcps, "mcp")}, ${count(checked.hooks, "hook")}`,
     "",
     ...problemLines(report.problems),
   ];

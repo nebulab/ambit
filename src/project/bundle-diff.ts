@@ -14,14 +14,14 @@
  * nothing here reads a commit: an item is compared against its counterpart by what it declares and by
  * the bytes it ships, and a catalog's SHA belongs to the row above.
  *
- * **A declared difference outranks a byte difference.** `description changed` and `tags changed`
+ * **A declared difference outranks a byte difference.** `description changed` and `requires changed`
  * both also change a `SKILL.md`'s bytes, and naming the field is strictly more useful than naming the
  * file — so fields are compared first and content is what is left when none of them moved.
  *
  * **The comparison is of the *merged* item, not of the catalog's copy.** Two bundles can differ
- * because a name moved between catalogs, or because a skill is now reached through `requires` rather
- * than through a `tag:` entry; both are real changes to what the project got, so `catalog` and the
- * selection reason are compared alongside everything an entity declares.
+ * because a name moved between catalogs, or because a skill is now reached through a pack rather
+ * than through an entry of the project's own; both are real changes to what the project got, so
+ * `catalog` and the selection reason are compared alongside everything an entity declares.
  *
  * This is deliberately not what {@link assertLockCurrent} does. `--frozen` compares the lock as bytes
  * and must keep doing so — `src/project/lock.ts` argues that case, and a human-facing diff learning to
@@ -30,7 +30,7 @@
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 
-import type { MergedHook, MergedMcp, MergedSkill } from "../model/catalog.js";
+import type { MergedHook, MergedMcp, MergedPack, MergedSkill } from "../model/catalog.js";
 import { hookCommand } from "../model/catalog.js";
 import { SHARED_HOOKS_DIR } from "../harness/profile.js";
 import type { McpTransport } from "../model/mcp-entity.js";
@@ -64,6 +64,7 @@ export interface BundleChange {
 
 /** Two bundles compared, one list per namespace, each sorted by name. */
 export interface BundleDiff {
+  readonly packs: readonly BundleChange[];
   readonly skills: readonly BundleChange[];
   readonly mcps: readonly BundleChange[];
   readonly hooks: readonly BundleChange[];
@@ -76,9 +77,9 @@ export interface BundleChangeCounts {
   readonly removed: number;
 }
 
-/** Every change across the three namespaces, in the order a report prints them. */
+/** Every change across the four namespaces, in the order a report prints them. */
 export function allChanges(diff: BundleDiff): readonly BundleChange[] {
-  return [...diff.skills, ...diff.mcps, ...diff.hooks];
+  return [...diff.packs, ...diff.skills, ...diff.mcps, ...diff.hooks];
 }
 
 /** Whether the two bundles are the same bundle — the answer a report leads with. */
@@ -161,6 +162,22 @@ function firstFieldDifference(
   return undefined;
 }
 
+/**
+ * What a pack declares, as one comparable record.
+ *
+ * `requires` is the whole of what a pack does, so a pack whose membership moved reports
+ * `requires changed` — which is the one thing a reader wants to know about an update to a group they
+ * take wholesale. What it grew or lost shows up as its own rows in the other three sections.
+ */
+function packShape(pack: MergedPack, reason: string): Comparable {
+  return {
+    catalog: pack.catalog,
+    description: pack.description ?? null,
+    reason,
+    requires: pack.requires,
+  };
+}
+
 /** What a skill declares, as one comparable record. */
 function skillShape(skill: MergedSkill, reason: string): Comparable {
   return {
@@ -169,7 +186,6 @@ function skillShape(skill: MergedSkill, reason: string): Comparable {
     expects: skill.expects,
     reason,
     requires: skill.requires,
-    tags: skill.tags,
   };
 }
 
@@ -179,7 +195,6 @@ function mcpShape(mcp: MergedMcp, reason: string): Comparable {
     catalog: mcp.catalog,
     expects: mcp.expects,
     reason,
-    tags: mcp.tags,
     transport: transportShape(mcp.transport),
   };
 }
@@ -194,7 +209,6 @@ function hookShape(hook: MergedHook, reason: string): Comparable {
     expects: hook.expects,
     matcher: hook.matcher ?? null,
     reason,
-    tags: hook.tags,
     timeout: hook.timeout ?? null,
     type: hook.type,
   };
@@ -378,6 +392,11 @@ async function diffNamespace<T extends BundleEntity>(
  */
 export async function diffBundles(before: Bundle, after: Bundle): Promise<BundleDiff> {
   return {
+    packs: await diffNamespace<MergedPack>(
+      { kind: "pack", before: before.packs, after: after.packs, shape: packShape },
+      before,
+      after,
+    ),
     skills: await diffNamespace<MergedSkill>(
       { kind: "skill", before: before.skills, after: after.skills, shape: skillShape },
       before,

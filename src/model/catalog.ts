@@ -2,11 +2,12 @@
  * Catalog parsing.
  *
  * A catalog is a plain skills repo, and nothing else: skills at `skills/<name>/SKILL.md`, MCP
- * entities at `mcps/<name>.yml`, hooks at `hooks/<name>/hook.yml`. Nothing here is ambit-specific
- * except one extra frontmatter key and the extra directories, which other tools ignore — that
- * compatibility is a hard requirement.
+ * entities at `mcps/<name>.yml`, hooks at `hooks/<name>/hook.yml`, packs at `packs/<name>.yml` (which
+ * may nest, `packs/function/engineering.yml` being the pack `function.engineering`).
+ * Nothing here is ambit-specific except one extra frontmatter key and the extra directories, which
+ * other tools ignore — that compatibility is a hard requirement.
  *
- * There is no catalog-side config: parsing scans those three directories and takes what is there.
+ * There is no catalog-side config: parsing scans those four directories and takes what is there.
  * A file at the root ambit would read as a *project's* config is therefore ignored rather than
  * refused, because a project that publishes its own items lists itself as `source: path:.` — so a
  * directory that is both a catalog and a project is the ordinary case, not a mistake.
@@ -20,9 +21,9 @@
  * or a git repository fetched into the cache — is `sources.ts`'s job, so parsing is identical
  * whichever a catalog came from.
  *
- * Every definition ambit reads arrives this way. A project that ships a skill, a server or a hook of
- * its own puts it in `skills/`, `mcps/` or `hooks/` and lists itself as a catalog, so there is one
- * kind of thing to merge and resolution has exactly one place to look a name up.
+ * Every definition ambit reads arrives this way. A project that ships a skill, a server, a hook or a
+ * pack of its own puts it in `skills/`, `mcps/`, `hooks/` or `packs/` and lists itself as a catalog,
+ * so there is one kind of thing to merge and resolution has exactly one place to look a name up.
  */
 import { readdir, stat } from "node:fs/promises";
 import path from "node:path";
@@ -34,6 +35,8 @@ import type { HookEntity } from "./hook-entity.js";
 import { commandProgram, parseHookEntity, scriptReference } from "./hook-entity.js";
 import type { McpEntity } from "./mcp-entity.js";
 import { parseMcpEntity } from "./mcp-entity.js";
+import type { PackEntity } from "./pack-entity.js";
+import { parsePackEntity } from "./pack-entity.js";
 import type { Expectation } from "./expectation.js";
 import { parseExpectations } from "./expectation.js";
 import type { PatternEntry } from "./pattern.js";
@@ -56,6 +59,18 @@ export const SKILLS_DIRNAME = "skills";
 
 /** Where MCP entities live within a catalog. */
 export const MCPS_DIRNAME = "mcps";
+
+/**
+ * Where packs live within a catalog.
+ *
+ * A pack is a *file* rather than a directory, like an MCP entity and unlike a skill or a hook: it
+ * ships no bytes, so there is nothing for a directory of its own to hold. Its name is still its path
+ * under `packs/` with the extension dropped and `/` read as `.`, exactly as a skill's is — so
+ * `packs/function/engineering.yml` and `packs/function.engineering.yml` both declare
+ * `function.engineering`, and a catalog can group its packs into directories or not as it prefers.
+ * Declaring the same name both ways is refused rather than arbitrated.
+ */
+export const PACKS_DIRNAME = "packs";
 
 /** Where hooks live within a catalog. */
 export const HOOKS_DIRNAME = "hooks";
@@ -81,12 +96,18 @@ export const SKILL_FILENAME = "SKILL.md";
 export const HOOK_FILENAME = "hook.yml";
 
 /**
- * MCP entity extensions, in preference order. One stem carrying both is an error.
+ * The extensions a flat-file item may carry, in preference order. One stem carrying both is an error.
  *
  * Both are read because both are what an author may have written; `.yml` is the one ambit names in a
  * refusal, since a message telling someone to rename a file has to pick one.
  */
-export const MCP_EXTENSIONS: readonly string[] = [".yml", ".yaml"];
+const YAML_EXTENSIONS: readonly string[] = [".yml", ".yaml"];
+
+/** MCP entity extensions — see {@link YAML_EXTENSIONS}. */
+export const MCP_EXTENSIONS = YAML_EXTENSIONS;
+
+/** Pack extensions — the same two, a pack being a flat document as a server is. */
+export const PACK_EXTENSIONS = YAML_EXTENSIONS;
 
 /**
  * The one top-level `SKILL.md` frontmatter key ambit owns.
@@ -104,7 +125,7 @@ export const AMBIT_FRONTMATTER_KEY = "ambit";
  *
  * One list, in the layer that reads them, so nothing can drift apart on what an annotation is.
  */
-export const ANNOTATION_KEYS = ["tags", "requires", "expects"] as const;
+export const ANNOTATION_KEYS = ["requires", "expects"] as const;
 
 export type AnnotationKey = (typeof ANNOTATION_KEYS)[number];
 
@@ -136,11 +157,6 @@ export interface CatalogSkill {
   /** The harness's own summary, carried through to every report that lists the skill. */
   readonly description?: string;
   /**
-   * Declared tags: free-form labels, registered nowhere and described nowhere, that a consumer can
-   * select on. Empty means reachable by a `name:` entry or a `requires` edge, and by nothing else.
-   */
-  readonly tags: readonly string[];
-  /**
    * What this skill pulls into a bundle with it: a `requires` list in the same entry grammar a
    * project selects with, minus the qualifier — see {@link PatternEntry}. In the order the author
    * wrote them.
@@ -154,6 +170,12 @@ export interface CatalogSkill {
    * {@link Expectation}. In the order the author wrote them.
    */
   readonly expects: readonly Expectation[];
+}
+
+/** A pack as one catalog declares it, carrying the document it was read from. */
+export interface CatalogPack extends PackEntity {
+  /** The file that defines it, relative to the catalog root — whichever extension it carries. */
+  readonly file: string;
 }
 
 /** An MCP entity as one catalog declares it, carrying the document it was read from. */
@@ -202,12 +224,27 @@ export interface Catalog {
    * run that reached the remote can answer it without guessing.
    */
   readonly moving?: boolean;
+  /** Packs, sorted by name. */
+  readonly packs: readonly CatalogPack[];
   /** Skills, sorted by name. */
   readonly skills: readonly CatalogSkill[];
   /** MCP entities, sorted by name. */
   readonly mcps: readonly CatalogMcp[];
   /** Hooks, sorted by name. */
   readonly hooks: readonly CatalogHook[];
+}
+
+/**
+ * A pack in the merged view, tagged with the catalog it came from.
+ *
+ * No `catalogRoot` and no `commit`: a pack ships no bytes, so there is nothing to materialize out of
+ * a catalog directory and nothing whose revision a lock could pin. What it contributes to a bundle is
+ * the items its `requires` reaches, and each of those carries its own.
+ */
+export interface MergedPack extends PackEntity {
+  readonly catalog: string;
+  /** The file that defines it inside that catalog, catalog-relative — see {@link CatalogPack.file}. */
+  readonly file: string;
 }
 
 /** A skill in the merged view, tagged with the catalog it came from. */
@@ -292,6 +329,7 @@ export interface MergedCatalog {
    * copy of a name is dropped and no catalog takes precedence over another.
    */
   readonly catalogs: readonly string[];
+  readonly packs: readonly MergedPack[];
   readonly skills: readonly MergedSkill[];
   readonly mcps: readonly MergedMcp[];
   readonly hooks: readonly MergedHook[];
@@ -462,16 +500,17 @@ export async function resolveCatalogRoot(
  */
 function removedRegistry(): AmbitError {
   return configError(`the scope registry is gone (${REMOVED_REGISTRY_FILENAME})`, [
-    "scopes are gone; tag items with `ambit.tags` and select them with `tag:`",
-    `delete ${REMOVED_REGISTRY_FILENAME}, carrying each scope over as a tag on the items that declared it`,
+    `scopes are gone; a group of items is a pack now — one \`${PACKS_DIRNAME}/<name>.yml\` requiring them, selected with \`pack:\``,
+    `delete ${REMOVED_REGISTRY_FILENAME}, carrying each scope over as a pack requiring the items that declared it`,
   ]);
 }
 
 /**
- * The name↔path convention: the path under `skills/` — or under `hooks/` — with `/` → `.`.
+ * The name↔path convention: the path under `skills/`, `hooks/` or `packs/` with `/` → `.`.
  *
- * One function for both namespaces rather than one each, because it is one convention: a hook is
- * named from its directory exactly as a skill is, and two copies of the rule could drift.
+ * One function for all three rather than one each, because it is one convention: a hook is named from
+ * its directory exactly as a skill is, a pack from its file with the extension already dropped, and
+ * three copies of the rule could drift.
  */
 export function skillNameFromPath(relative: string): string {
   return relative.replaceAll("/", ".");
@@ -521,11 +560,8 @@ async function findHookDirectories(files: CatalogFiles): Promise<readonly string
  * Two opposite stances on unknown keys, and both are deliberate. At the top level they are allowed,
  * unlike everywhere else, because that block is the harness's and ambit is a guest in it. Under
  * `ambit:` they are rejected like everywhere else, because that block is ambit's: a misspelled
- * `tag:` there would otherwise be a skill that declares nothing and warns nobody, which is the
+ * `require:` there would otherwise be a skill that declares nothing and warns nobody, which is the
  * same silence the namespace exists to remove.
- *
- * A *value* under `tags` is unguarded by contrast — a misspelled tag is a new tag, and nothing can
- * tell the difference. That is the cost of dropping the registry, paid here.
  *
  * @throws {AmbitError} exit 2 for an `ambit:` that is not a mapping, or a key under it that §3.2
  *   does not define.
@@ -537,7 +573,6 @@ function skillAnnotations(mapping: YamlMapping): Omit<CatalogSkill, "name" | "pa
 
   return {
     ...(description !== undefined && { description }),
-    tags: ambit?.optionalStringList("tags") ?? [],
     // Unqualified: a catalog author cannot write a consumer's alias, so the pattern stands alone and
     // the entry resolves within this catalog.
     requires: ambit === undefined ? [] : parseEntries(ambit, "unqualified"),
@@ -583,31 +618,79 @@ async function parseSkill(
   return { name: derived, path: `${SKILLS_DIRNAME}/${relative}`, ...skillAnnotations(mapping) };
 }
 
-/** MCP entity stems under `mcps/`, each with the one file that defines it. */
-async function findMcpFiles(
+/**
+ * The flat-file item names under `dirname`, each with the one file that defines it.
+ *
+ * One walk for both namespaces that are documents rather than directories — `mcps/` and `packs/` —
+ * because it is one convention, and two copies of the both-extensions rule could drift.
+ *
+ * @param nested whether subdirectories are walked, and their segments joined into the name the way
+ *   {@link skillNameFromPath} joins a skill's. `mcps/` is flat: a server has always been one file
+ *   directly under it, and reading a nested one now would give an existing catalog names it never
+ *   declared. `packs/` is nested, because a catalog that offers thirty packs has something to group
+ *   them by and a directory is how one does that.
+ */
+async function findEntityFiles(
   files: CatalogFiles,
-): Promise<readonly { stem: string; file: string }[]> {
-  if (!(await files.isDirectory(MCPS_DIRNAME))) return [];
+  dirname: string,
+  nested: boolean,
+): Promise<readonly { name: string; file: string }[]> {
+  if (!(await files.isDirectory(dirname))) return [];
 
-  const byStem = new Map<string, string[]>();
-  for (const entry of await files.entries(MCPS_DIRNAME)) {
-    if (entry.directory) continue;
-    const extension = MCP_EXTENSIONS.find((candidate) => entry.name.endsWith(candidate));
-    if (extension === undefined) continue;
-    const stem = entry.name.slice(0, -extension.length);
-    byStem.set(stem, [...(byStem.get(stem) ?? []), entry.name]);
-  }
+  // Keyed by the derived name rather than by the filename, so the two spellings that can produce one
+  // name — `a/b.yml` and `a.b.yml` — collide here and are refused together with the two extensions.
+  const byName = new Map<string, string[]>();
 
-  return [...byStem.entries()].map(([stem, names]) => {
-    if (names.length > 1) {
-      const paths = names.map((name) => `${MCPS_DIRNAME}/${name}`);
-      throw configError(`${paths.join(" and ")} both define "${stem}"`, [
+  const walk = async (relative: string): Promise<void> => {
+    for (const entry of await files.entries(relative === "" ? dirname : `${dirname}/${relative}`)) {
+      const within = relative === "" ? entry.name : `${relative}/${entry.name}`;
+      if (entry.directory) {
+        if (nested) await walk(within);
+        continue;
+      }
+      const extension = YAML_EXTENSIONS.find((candidate) => entry.name.endsWith(candidate));
+      if (extension === undefined) continue;
+      const name = skillNameFromPath(within.slice(0, -extension.length));
+      byName.set(name, [...(byName.get(name) ?? []), within]);
+    }
+  };
+
+  await walk("");
+
+  return [...byName.entries()].map(([name, found]) => {
+    if (found.length > 1) {
+      const paths = found.map((relative) => `${dirname}/${relative}`);
+      throw configError(`${paths.join(" and ")} both define "${name}"`, [
         "ambit cannot tell which one is authoritative",
-        `delete one, keeping ${MCPS_DIRNAME}/${stem}${MCP_EXTENSIONS[0]!}`,
+        `delete one, keeping ${dirname}/${name}${YAML_EXTENSIONS[0]!}`,
       ]);
     }
-    return { stem, file: `${MCPS_DIRNAME}/${names[0]!}` };
+    return { name, file: `${dirname}/${found[0]!}` };
   });
+}
+
+/**
+ * Parses one pack document.
+ *
+ * A pack has no directory and no bytes, so this is the whole of loading one: read the document, and
+ * check that what it calls itself is what its filename says.
+ */
+async function parsePackFile(
+  files: CatalogFiles,
+  name: string,
+  file: string,
+): Promise<CatalogPack> {
+  const mapping = await files.mapping(file);
+  const entity = parsePackEntity(mapping);
+
+  if (entity.name !== name) {
+    throw mapping.keyError("name", `pack name "${entity.name}" does not match its path`, [
+      `${file} derives the name "${name}"`,
+      `rename the file to ${PACKS_DIRNAME}/${entity.name.replaceAll(".", "/")}${PACK_EXTENSIONS[0]!}, or correct \`name\``,
+    ]);
+  }
+
+  return { ...entity, file };
 }
 
 async function parseMcpFile(files: CatalogFiles, stem: string, file: string): Promise<CatalogMcp> {
@@ -792,10 +875,15 @@ export async function parseCatalogDirectory(
 
   try {
     // The one file at a catalog root ambit still has an opinion about, and the opinion is that it
-    // must not be there. Nothing else is read: a directory holding none of the three subdirectories
+    // must not be there. Nothing else is read: a directory holding none of the four subdirectories
     // is a catalog with zero items, which the patterns selecting from it report far better than a
     // missing-file error here could.
     if (await files.isFile(REMOVED_REGISTRY_FILENAME)) throw removedRegistry();
+
+    const packs: CatalogPack[] = [];
+    for (const { name: pack, file } of await findEntityFiles(files, PACKS_DIRNAME, true)) {
+      packs.push(await parsePackFile(files, pack, file));
+    }
 
     const skills: CatalogSkill[] = [];
     for (const relative of await findSkillDirectories(files)) {
@@ -803,7 +891,7 @@ export async function parseCatalogDirectory(
     }
 
     const mcps: CatalogMcp[] = [];
-    for (const { stem, file } of await findMcpFiles(files)) {
+    for (const { name: stem, file } of await findEntityFiles(files, MCPS_DIRNAME, false)) {
       mcps.push(await parseMcpFile(files, stem, file));
     }
 
@@ -817,6 +905,7 @@ export async function parseCatalogDirectory(
       source,
       root,
       ...(commit !== undefined && { commit }),
+      packs: byName(packs),
       skills: byName(skills),
       mcps: byName(mcps),
       hooks: byName(hooks),
@@ -905,11 +994,18 @@ export async function loadCatalogs(
  * can be written — so there is nothing to fold in beside these lists, and no item without a file.
  */
 export function mergeCatalogs(catalogs: readonly Catalog[]): MergedCatalog {
+  const packs: MergedPack[] = [];
   const skills: MergedSkill[] = [];
   const mcps: MergedMcp[] = [];
   const hooks: MergedHook[] = [];
 
   for (const catalog of catalogs) {
+    for (const pack of catalog.packs) {
+      // Neither `commit` nor `catalogRoot`: a pack ships no bytes, so there is nothing to pin and
+      // nothing to materialize out of the directory it was read from.
+      packs.push({ ...pack, catalog: catalog.name });
+    }
+
     for (const skill of catalog.skills) {
       skills.push({
         ...skill,
@@ -938,6 +1034,7 @@ export function mergeCatalogs(catalogs: readonly Catalog[]): MergedCatalog {
 
   return {
     catalogs: catalogs.map((catalog) => catalog.name),
+    packs: byNameThenCatalog(packs),
     skills: byNameThenCatalog(skills),
     mcps: byNameThenCatalog(mcps),
     hooks: byNameThenCatalog(hooks),

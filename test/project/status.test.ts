@@ -28,11 +28,11 @@ const ENGINEERING_SKILL = "code-review";
 const FRONTEND_SKILL = "design-tokens";
 
 /** The fixture's tag-matched http server, and the one only `requires` reaches. */
-const TAGGED_MCP = "tagged";
+const PACKED_MCP = "linter";
 const FIXTURE_MCP = "fixture";
 
 /** The variable the tagged server interpolates into its `Authorization` header. */
-const TAGGED_KEY_VAR = "TAGGED_API_KEY";
+const PACKED_KEY_VAR = "LINTER_API_KEY";
 
 /** The default profile's artifacts, by project-relative path and in status's order. */
 const CORE_TARGET = `${SKILLS_DIR}/${CORE_SKILL}`;
@@ -53,14 +53,15 @@ let root: string;
 let catalogDir: string;
 let projectDir: string;
 
-/** One `requires` entry, selecting everything in `catalog` that carries `tag`. */
-function requiresEntry(tag: string, catalog = CATALOG_NAME): string {
-  return `  - { tag: "${catalog}/${tag}", capabilities: [skills, mcps, hooks] }`;
+/** One `requires` entry, taking a whole pack from `catalog`. */
+function requiresEntry(pack: string, catalog = CATALOG_NAME): string {
+  return `  - { pack: "${catalog}/${pack}" }`;
 }
 
 /** Points the project at the fixture catalog and gives it a `requires` list. */
-async function writeProfile(tags: readonly string[]): Promise<void> {
-  const list = tags.length === 0 ? "[]" : `\n${tags.map((tag) => requiresEntry(tag)).join("\n")}`;
+async function writeProfile(packs: readonly string[]): Promise<void> {
+  const list =
+    packs.length === 0 ? "[]" : `\n${packs.map((pack) => requiresEntry(pack)).join("\n")}`;
   await writeFile(
     path.join(projectDir, "ambit.yml"),
     `version: 1
@@ -146,7 +147,7 @@ beforeEach(async () => {
   // `tagged` http server, which declares that same tag.
   await writeProfile(["core", "function.engineering", "function.engineering.*"]);
   // The tagged server interpolates this into a header, so what is on disk depends on it.
-  vi.stubEnv(TAGGED_KEY_VAR, undefined);
+  vi.stubEnv(PACKED_KEY_VAR, undefined);
 });
 
 afterEach(async () => {
@@ -279,10 +280,10 @@ describe("ambit status after a manual edit", () => {
   });
 
   it("reports an edited server as modified, naming the key", async () => {
-    await writeMcpFile({ mcpServers: { [TAGGED_MCP]: { command: "my-own-thing" } } });
+    await writeMcpFile({ mcpServers: { [PACKED_MCP]: { command: "my-own-thing" } } });
 
     expect(await detailOf(MCP_FILE)).toBe(
-      `"mcpServers.${TAGGED_MCP}" is not what install would write`,
+      `"mcpServers.${PACKED_MCP}" is not what install would write`,
     );
     expect(await states()).toContain(`${MCP_FILE}=modified`);
   });
@@ -290,7 +291,7 @@ describe("ambit status after a manual edit", () => {
   it("reports a deleted server as absent rather than as modified", async () => {
     await writeMcpFile({ mcpServers: {} });
 
-    expect(await detailOf(MCP_FILE)).toBe(`"mcpServers.${TAGGED_MCP}" is absent`);
+    expect(await detailOf(MCP_FILE)).toBe(`"mcpServers.${PACKED_MCP}" is absent`);
     expect(await states()).toContain(`${MCP_FILE}=missing`);
   });
 
@@ -303,9 +304,9 @@ describe("ambit status after a manual edit", () => {
   it("does not read a reordered server as drift: ambit owns the key, not the layout", async () => {
     const document = await readMcpConfig();
     const tagged =
-      (document.mcpServers as Record<string, Record<string, unknown>>)[TAGGED_MCP] ?? {};
+      (document.mcpServers as Record<string, Record<string, unknown>>)[PACKED_MCP] ?? {};
     await writeMcpFile({
-      mcpServers: { [TAGGED_MCP]: { headers: tagged.headers, url: tagged.url, type: tagged.type } },
+      mcpServers: { [PACKED_MCP]: { headers: tagged.headers, url: tagged.url, type: tagged.type } },
     });
 
     expect(isClean(await projectStatus(projectDir))).toBe(true);
@@ -341,7 +342,7 @@ describe("ambit status after a manual edit", () => {
   it("reports a change in the catalog, not only one in the project", async () => {
     await writeFile(
       path.join(catalogDir, "skills/company-context/SKILL.md"),
-      "---\nname: company-context\nambit:\n  tags: [core]\n---\n\n# rewritten upstream\n",
+      "---\nname: company-context\n---\n\n# rewritten upstream\n",
       "utf8",
     );
 
@@ -361,7 +362,7 @@ describe("ambit status on a symlinked install", () => {
 
     await writeFile(
       path.join(projectDir, CORE_TARGET, "SKILL.md"),
-      "---\nname: company-context\nambit:\n  tags: [core]\n---\n\n# edited in place\n",
+      "---\nname: company-context\n---\n\n# edited in place\n",
       "utf8",
     );
 
@@ -431,7 +432,7 @@ describe("ambit status before an install", () => {
     const target = path.join(projectDir, CORE_TARGET);
     await mkdir(target, { recursive: true });
     await writeFile(path.join(target, "SKILL.md"), "---\nname: not ambit's\n---\n", "utf8");
-    await writeMcpFile({ mcpServers: { [TAGGED_MCP]: { command: "not ambit's either" } } });
+    await writeMcpFile({ mcpServers: { [PACKED_MCP]: { command: "not ambit's either" } } });
 
     expect(await states()).toEqual([
       `${HOOK_TARGET}=missing`,
@@ -445,7 +446,7 @@ describe("ambit status before an install", () => {
     ]);
     expect(await detailOf(CORE_TARGET)).toBe("it exists but ambit did not create it");
     expect(await detailOf(MCP_FILE)).toBe(
-      `"mcpServers.${TAGGED_MCP}" exists but ambit did not create it`,
+      `"mcpServers.${PACKED_MCP}" exists but ambit did not create it`,
     );
   });
 

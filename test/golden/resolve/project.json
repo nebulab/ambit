@@ -15,6 +15,11 @@
       "catalog": "company"
     }
   },
+  "packs": {
+    "project.acme": {
+      "catalog": "company"
+    }
+  },
   "skills": {
     "acme-brief": {
       "catalog": "company",
