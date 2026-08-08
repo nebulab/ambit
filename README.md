@@ -459,10 +459,9 @@ scope over as a pack requiring the items that declared it.
 ## Resolution
 
 1. **Load and validate config.** Malformed → exit 2 naming the field.
-2. **Fetch catalogs**, each into the local cache, at its `ref`, resolved to a commit SHA. A cached
-   clone is refetched only when it cannot answer the `ref`, so a moving one keeps meaning what it
-   meant — except on a first install, which has no `ambit.lock` and therefore nothing to reproduce.
-   See [Staying up to date](#staying-up-to-date).
+2. **Fetch catalogs**, each into the local cache, at the commit `ambit.lock` recorded for it. A catalog
+   the lock has no commit for — a first install, a catalog just added, a `ref:` just edited — resolves
+   its `ref` against the remote instead. See [Staying up to date](#staying-up-to-date).
 3. **Parse each catalog:** every `packs/**/*.yml`, every `skills/**/SKILL.md`, every `mcps/*.yml`,
    every `hooks/**/hook.yml`. An item whose declared `name` disagrees with its path is an error. A
    leftover `scopes.yml` → exit 2 naming the rewrite.
@@ -543,14 +542,25 @@ one. `ambit why <kind>:<name>` walks the `required-by` chain back to the entry a
 
 ## Staying up to date
 
-A catalog is fetched into a local cache, and the cache is refetched only when it cannot answer the
-`ref` it was asked for. So `ref: main` keeps meaning whichever commit it meant the first time, and
-`ambit install` run twice a week apart installs the same bytes.
+`ambit.lock` records the commit each catalog resolved to, and every later command **resolves to that
+commit** rather than asking what the `ref` names now. So `ref: main` keeps meaning one commit, `ambit
+install` run twice a week apart installs the same bytes, and a lock committed on one machine installs
+the same bytes on another. That last part is the point of committing one: the local cache is shared with
+every other project on the machine, so without the lock a warm cache and a cold cache answer `main`
+differently, and `--frozen` in CI could not be satisfied by a project using a moving ref at all.
 
-The exception is the _first_ time — a project with no `ambit.lock`. There is no earlier run for it to
-agree with, and the cache is shared with every other project on the machine, so a first install
-resolves its moving refs against the remote rather than inheriting a commit some unrelated project
-last fetched. Every install after that leaves the cache alone. `--offline` opts out.
+A catalog with no recorded commit resolves its `ref` against the remote, because there is nothing to
+reproduce. Three ways to be in that position:
+
+- a **first install** — no `ambit.lock` yet;
+- a **catalog just added** to `catalogs:`;
+- a **`ref:` just edited**, which voids the pin it recorded. The lock stores the `source` and `ref` each
+  commit came from, so changing either means the recorded commit answers a question you stopped asking.
+
+`--offline` opts out of reaching the remote, and never opts out of a pin: a recorded commit already in
+the cache is an answer, so an offline install reproduces a lock rather than failing on it. A recorded
+commit the repository no longer has — a force-push, most likely — is exit 2 naming `ambit update`, not a
+quiet fallback to whatever the branch points at now.
 
 Moving forward after that is a decision, and these are the two commands that make it:
 

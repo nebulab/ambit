@@ -89,6 +89,7 @@ export {
   cacheRoot,
   fetchGitSource,
   gitCacheKey,
+  isCommitSha,
 } from "./model/git.js";
 export type { FetchedGitSource, GitFetchRequest, RefreshMode } from "./model/git.js";
 export { HOOK_EVENTS, HOOK_TYPES, MATCHABLE_EVENTS, parseHookEntity } from "./model/hook-entity.js";
@@ -306,6 +307,7 @@ export type {
   InstallOptions,
   InstallPreview,
   InstallResult,
+  PlanContext,
   PlannedInstall,
 } from "./project/install.js";
 export {
@@ -314,6 +316,7 @@ export {
   assertLockCurrent,
   buildLock,
   lockFilePath,
+  readCatalogPins,
   readLockText,
   serializeLock,
   writeLockText,

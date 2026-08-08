@@ -617,6 +617,227 @@ ambit:
 # Deploy runbook
 `;
 
+/**
+ * The lock as an *input*, which is the only thing that makes committing one worth doing.
+ *
+ * Every case here is the same experiment: put the project's recorded commit and the shared clone's idea
+ * of `main` into disagreement, then check which one wins. It has to be the lock, and it has to be the
+ * lock even when the clone is warm and wrong, even when the clone is missing entirely, and even when
+ * another project on the machine moved it on purpose. Nothing in the previous design could tell those
+ * apart from the intended commit, which is why `--frozen` could not be satisfied by a project using
+ * `ref: main` at all.
+ */
+describe("a reinstall, which has a recorded commit to reproduce", () => {
+  /** Moves the shared clone's own `main` forward, the way another project running `update` does. */
+  async function anotherProjectUpdates(): Promise<string> {
+    const moved = await commitFixtureGitRevision(fixture, {
+      "skills/deploy-runbook/SKILL.md": NEW_SKILL,
+      ...engineeringPack(["skill: deploy-runbook"]),
+    });
+
+    const mover = path.join(root, "mover");
+    await writeProject(mover, fixture.url, fixture.branch);
+    const update = await cli(mover, "update");
+    expect(update.code, update.stderr).toBe(ExitCode.Success);
+    expect(await cachedBranch()).toBe(moved);
+
+    return moved;
+  }
+
+  /** Rewrites every commit the lock records, standing in for a lock a teammate committed. */
+  async function rewriteLockedCommit(dir: string, commit: string): Promise<void> {
+    const file = path.join(dir, LOCK_FILENAME);
+    const text = await readFile(file, "utf8");
+    await writeFile(file, text.replaceAll(fixture.commit, commit), "utf8");
+  }
+
+  it("installs the commit the lock names, not the one the shared clone was moved to", async () => {
+    expect((await cli(project, "install")).code).toBe(ExitCode.Success);
+    expect(await lockedCommit(project)).toBe(fixture.commit);
+
+    const moved = await anotherProjectUpdates();
+
+    // The clone's `refs/heads/main` now says `moved`, so this is the case that used to drift: the
+    // project's own `ref: main` would have resolved through the moved clone and installed it.
+    const second = await cli(project, "install");
+
+    expect(second.code, second.stderr).toBe(ExitCode.Success);
+    expect(await cachedBranch()).toBe(moved);
+    expect(await lockedCommit(project)).toBe(fixture.commit);
+    expect(await resolvedSkills(project)).not.toContain("deploy-runbook");
+
+    // Every read-only command resolves the same commit as the install, or it would report on a project
+    // nobody has: `resolve` above, and `status`, which plans through the adapters as install does.
+    const status = await cli(project, "status");
+    expect(status.code, status.stderr).toBe(ExitCode.Success);
+  });
+
+  it("satisfies `--frozen` on a cold cache, whatever the branch points at now", async () => {
+    expect((await cli(project, "install")).code).toBe(ExitCode.Success);
+    const committed = await readFile(path.join(project, LOCK_FILENAME), "utf8");
+    await commitFixtureGitRevision(fixture, {
+      "skills/deploy-runbook/SKILL.md": NEW_SKILL,
+      ...engineeringPack(["skill: deploy-runbook"]),
+    });
+
+    // A CI runner: the committed lock, and a machine that has never fetched this repository. The clone
+    // it makes has `main` at the new commit, which is precisely what `--frozen` used to fail on.
+    await rm(cacheRoot(process.env), { recursive: true, force: true });
+
+    const frozen = await cli(project, "install", "--frozen");
+
+    expect(frozen.code, frozen.stderr).toBe(ExitCode.Success);
+    expect(await readFile(path.join(project, LOCK_FILENAME), "utf8")).toBe(committed);
+    expect(await resolvedSkills(project)).not.toContain("deploy-runbook");
+  });
+
+  it("reports the recorded commit as what the project resolves to, not the moved clone's", async () => {
+    expect((await cli(project, "install")).code).toBe(ExitCode.Success);
+    const moved = await anotherProjectUpdates();
+
+    const report = await json(project, "outdated");
+    const catalogs = report.catalogs as Record<string, Record<string, unknown>>;
+
+    // `commit` is the pin and `latest` is the remote, so a report whose `commit` column showed the
+    // clone's moved branch would be naming a commit this project would not install.
+    expect(catalogs[CATALOG_NAME]?.commit).toBe(fixture.commit);
+    expect(catalogs[CATALOG_NAME]?.latest).toBe(moved);
+    expect(catalogs[CATALOG_NAME]?.freshness).toBe("outdated");
+  });
+
+  it("moves past the recorded commit for `ambit update`, which is the command that exists to", async () => {
+    expect((await cli(project, "install")).code).toBe(ExitCode.Success);
+    const moved = await commitFixtureGitRevision(fixture, {
+      "skills/deploy-runbook/SKILL.md": NEW_SKILL,
+      ...engineeringPack(["skill: deploy-runbook"]),
+    });
+
+    const update = await cli(project, "update");
+
+    // The install `update` ends with reads the same lock, which at that point still holds the commit
+    // being replaced. Honouring it there would make the update undo itself.
+    expect(update.code, update.stderr).toBe(ExitCode.Success);
+    expect(await lockedCommit(project)).toBe(moved);
+    expect(await resolvedSkills(project)).toContain("deploy-runbook");
+  });
+
+  it("drops the pin when `ref:` is edited, since it answers a question that changed", async () => {
+    await writeProject(project, fixture.url, fixture.tag);
+    expect((await cli(project, "install")).code).toBe(ExitCode.Success);
+    expect(await lockedCommit(project)).toBe(fixture.commit);
+
+    // The tag stays where it is and the branch moves, so the two refs now name different commits and
+    // the edit is the only thing that can explain the new one.
+    const moved = await commitFixtureGitRevision(fixture, {
+      "skills/deploy-runbook/SKILL.md": NEW_SKILL,
+      ...engineeringPack(["skill: deploy-runbook"]),
+    });
+    await writeProject(project, fixture.url, fixture.branch);
+
+    const second = await cli(project, "install");
+
+    expect(second.code, second.stderr).toBe(ExitCode.Success);
+    expect(await lockedCommit(project)).toBe(moved);
+  });
+
+  it("resolves a catalog the lock has no entry for against its remote", async () => {
+    expect((await cli(project, "install")).code).toBe(ExitCode.Success);
+    const moved = await commitFixtureGitRevision(fixture, {
+      "skills/deploy-runbook/SKILL.md": NEW_SKILL,
+      ...engineeringPack(["skill: deploy-runbook"]),
+    });
+
+    // Renaming the catalog is the smallest form of adding one: the lock pins `company`, the config now
+    // declares `acme`, and nothing recorded says what `acme` resolves to. Taking the warm clone's
+    // answer would be inheriting a commit this project never asked for.
+    await mkdir(project, { recursive: true });
+    await writeFile(
+      path.join(project, "ambit.yml"),
+      `version: 1
+catalogs:
+  - name: acme
+    source: ${fixture.url}
+    ref: "${fixture.branch}"
+requires:
+${PACKS.map((pack) => requiresEntry(pack, "acme")).join("\n")}
+`,
+      "utf8",
+    );
+
+    const second = await cli(project, "install");
+
+    expect(second.code, second.stderr).toBe(ExitCode.Success);
+    expect(
+      parseYamlMapping(await readFile(path.join(project, LOCK_FILENAME), "utf8"), LOCK_FILENAME)
+        .requireMapping("catalogs")
+        .requireMapping("acme")
+        .optionalString("commit"),
+    ).toBe(moved);
+  });
+
+  it("exits 2 for a recorded commit the repository does not have, naming the way out", async () => {
+    expect((await cli(project, "install")).code).toBe(ExitCode.Success);
+    const vanished = "d".repeat(40);
+    await rewriteLockedCommit(project, vanished);
+
+    const second = await cli(project, "install");
+
+    // Fatal rather than a quiet fallback to `main`: installing a different commit than the lock names
+    // is the one thing a lock exists to prevent, and a force-push is how this happens for real.
+    expect(second.code).toBe(ExitCode.Config);
+    expect(second.stderr).toContain(`cannot find the locked commit for catalog "${CATALOG_NAME}"`);
+    expect(second.stderr).toContain(vanished);
+    expect(second.stderr).toContain("run `ambit update`");
+  });
+
+  it("exits 4 under `--offline` for a recorded commit the cache does not hold", async () => {
+    expect((await cli(project, "install")).code).toBe(ExitCode.Success);
+    await rewriteLockedCommit(project, "d".repeat(40));
+
+    const second = await cli(project, "install", "--offline");
+
+    // Exit 4 rather than 2: the commit may well exist, and `--offline` is what stopped ambit finding out.
+    expect(second.code).toBe(ExitCode.Network);
+    expect(second.stderr).toContain("cannot resolve the locked commit from the cache");
+    expect(second.stderr).toContain("without `--offline`");
+  });
+
+  it("exits 2 for a lock recording something that is not a commit", async () => {
+    expect((await cli(project, "install")).code).toBe(ExitCode.Success);
+    await rewriteLockedCommit(project, "main");
+
+    const second = await cli(project, "install");
+
+    expect(second.code).toBe(ExitCode.Config);
+    expect(second.stderr).toContain("is pinned to something that is not a commit");
+    expect(second.stderr).toContain(LOCK_FILENAME);
+  });
+
+  it("exits 2 for a lock it cannot read, rather than resolving as though there were none", async () => {
+    expect((await cli(project, "install")).code).toBe(ExitCode.Success);
+    await writeFile(path.join(project, LOCK_FILENAME), "catalogs: [\n", "utf8");
+
+    const second = await cli(project, "install");
+
+    // Ignoring it would resolve against the shared clone again, which is the drift the pins remove.
+    expect(second.code).toBe(ExitCode.Config);
+    expect(second.stderr).toContain(LOCK_FILENAME);
+  });
+
+  it("exits 2 for a lock version it does not know, since it cannot find the pins in it", async () => {
+    expect((await cli(project, "install")).code).toBe(ExitCode.Success);
+    const file = path.join(project, LOCK_FILENAME);
+    const text = await readFile(file, "utf8");
+    await writeFile(file, text.replace("version: 1", "version: 99"), "utf8");
+
+    const second = await cli(project, "install");
+
+    expect(second.code).toBe(ExitCode.Config);
+    expect(second.stderr).toContain("version 99");
+    expect(second.stderr).toContain("upgrade ambit");
+  });
+});
+
 describe("a first install, which has no earlier resolution to reproduce", () => {
   it("takes the commit the ref names now, not the one the shared cache happens to hold", async () => {
     // Some other project on this machine warmed the clone, and the branch moved afterwards.
