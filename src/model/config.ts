@@ -65,7 +65,7 @@ const REMOVED_INLINE_KEYS: readonly {
   readonly file: string;
 }[] = [
   { key: "mcps", subject: "an MCP server", file: "mcps/<name>.yml" },
-  { key: "hooks", subject: "a hook", file: "hooks/<name>/HOOK.yml" },
+  { key: "hooks", subject: "a hook", file: "hooks/<name>/hook.yml" },
 ];
 
 /**

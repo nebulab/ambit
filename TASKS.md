@@ -76,7 +76,7 @@ Per §_`scopes` becomes `tags`_ and §_A catalog is a directory, and nothing els
   `scopeDescriptionConflict`, and `MergedCatalog.scopes` are deleted. `parseCatalogDirectory` no
   longer requires or reads any catalog-side config, and ignores `ambit.yml` if it finds one.
 - `ANNOTATION_KEYS`' `scopes` becomes `tags` in `SKILL.md` frontmatter, in `mcps/<name>.yml`, and in
-  `HOOK.yml`. The field on `CatalogSkill`/`MergedMcp`/`MergedHook` is renamed with it. Free-form:
+  `hook.yml`. The field on `CatalogSkill`/`MergedMcp`/`MergedHook` is renamed with it. Free-form:
   unregistered, undescribed, no tree the author has to agree with.
 - Selection keeps working: `expandHeldScopes` expands held scopes over the tags items **declare**
   rather than over a registry, and the subtree rule is untouched. `assertScopesRegistered` becomes

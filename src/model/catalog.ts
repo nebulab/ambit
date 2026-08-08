@@ -2,7 +2,7 @@
  * Catalog parsing.
  *
  * A catalog is a plain skills repo, and nothing else: skills at `skills/<name>/SKILL.md`, MCP
- * entities at `mcps/<name>.yml`, hooks at `hooks/<name>/HOOK.yml`. Nothing here is ambit-specific
+ * entities at `mcps/<name>.yml`, hooks at `hooks/<name>/hook.yml`. Nothing here is ambit-specific
  * except one extra frontmatter key and the extra directories, which other tools ignore — that
  * compatibility is a hard requirement.
  *
@@ -60,7 +60,12 @@ export const MCPS_DIRNAME = "mcps";
 /** Where hooks live within a catalog. */
 export const HOOKS_DIRNAME = "hooks";
 
-/** The file whose presence makes a directory a skill. */
+/**
+ * The file whose presence makes a directory a skill.
+ *
+ * Uppercase because ambit does not get to choose: harnesses and other tools walk
+ * `skills/<name>/SKILL.md` already, and this is that file.
+ */
 export const SKILL_FILENAME = "SKILL.md";
 
 /**
@@ -69,8 +74,11 @@ export const SKILL_FILENAME = "SKILL.md";
  * A hook is always a directory, like a skill and unlike an MCP entity, because a hook may ship its
  * own script — and one that does not is a directory holding only this file, so both kinds are found,
  * named and materialized the same way.
+ *
+ * Lowercase, unlike {@link SKILL_FILENAME}, because nothing outside ambit reads it — so it is spelled
+ * like every other file ambit owns: `ambit.yml`, `ambit.lock`, `mcps/<name>.yml`.
  */
-export const HOOK_FILENAME = "HOOK.yml";
+export const HOOK_FILENAME = "hook.yml";
 
 /**
  * MCP entity extensions, in preference order. One stem carrying both is an error.
@@ -247,7 +255,7 @@ export interface MergedHook extends HookEntity {
    * The hook directory inside that catalog, catalog-relative.
    *
    * Always present, for the reason {@link MergedMcp.file} is: a hook is a directory holding
-   * `HOOK.yml`, and there is no other way to declare one.
+   * `hook.yml`, and there is no other way to declare one.
    */
   readonly path: string;
   /** The commit the hook's bytes came from, when its catalog has one — see {@link MergedSkill.commit}. */
@@ -641,7 +649,7 @@ export function hookCommand(hook: MergedHook, root: string): string {
   return `${script}${command.slice(program.length)}`;
 }
 
-/** Every file a hook's directory holds besides its own `HOOK.yml`, in path order. */
+/** Every file a hook's directory holds besides its own `hook.yml`, in path order. */
 async function hookDirectoryContents(
   files: CatalogFiles,
   directory: string,

@@ -76,7 +76,7 @@ A catalog is a plain git repo, and a catalog is a directory: three item director
 file of its own. `ambit init` scaffolds one; write its skills, servers and hooks with your editor.
 
 Add a skill by writing `skills/<name>/SKILL.md`, a server by writing `mcps/<name>.yml`, a hook by
-writing `hooks/<name>/HOOK.yml`, and tag each with the labels that say who needs it. Every format is
+writing `hooks/<name>/hook.yml`, and tag each with the labels that say who needs it. Every format is
 documented below, and `ambit validate` checks the result. There is no command that writes into a
 catalog: it is Markdown and YAML, and you have an editor.
 
@@ -165,7 +165,7 @@ Add `ambit status --check` beside it to fail on drift between `ambit.lock` and w
 | **Catalog**         | A source of skills, MCP definitions and hooks: a git repo or a local directory.                                                                                                                                                                |
 | **Skill**           | A directory containing `SKILL.md`. Its name is its path under `skills/`, so `skills/close-crm/` is `close-crm`. A nested directory joins its segments with `.`.                                                                                |
 | **MCP entity**      | A server definition in the catalog's `mcps/` directory.                                                                                                                                                                                        |
-| **Hook**            | A directory containing `HOOK.yml`, named from its path under `hooks/` the way a skill is. It runs a command on one harness event.                                                                                                              |
+| **Hook**            | A directory containing `hook.yml` (lowercase — ambit is its only reader), named from its path under `hooks/` the way a skill is. It runs a command on one harness event.                                                                                                              |
 | **Tag**             | A label a catalog item carries, saying _who needs it_: `function.engineering`, `project.vision-group`, `person.jane-doe`. Free-form, registered nowhere, and the dots are a convention rather than a structure — nothing reads them as levels. |
 | **Entry**           | One member of a `requires` list, in a project or in a skill: a field to match (`name` or `tag`), a glob to match it with, and the capabilities to match it against.                                                                            |
 | **Project**         | A directory containing `ambit.yml`.                                                                                                                                                                                                            |
@@ -206,7 +206,7 @@ requires:
 ```
 
 Every definition lives in a file a catalog holds: a skill in `skills/<name>/SKILL.md`, a server in
-`mcps/<name>.yml`, a hook in `hooks/<name>/HOOK.yml`. A project that ships one of its own puts it
+`mcps/<name>.yml`, a hook in `hooks/<name>/hook.yml`. A project that ships one of its own puts it
 there and lists **itself** as a catalog:
 
 ```yaml
@@ -358,10 +358,11 @@ expects:
 | `transport.http.headers`  | map      | no            | `${VAR}` becomes a reference in each harness's own syntax.          |
 | `expects`                 | map[]    | no            | Preconditions, each a single key naming its kind. Today: `env:`.    |
 
-### `hooks/<name>/HOOK.yml`: hooks
+### `hooks/<name>/hook.yml`: hooks
 
 A hook is always a directory, named from its path under `hooks/` the way a skill is. A hook that runs
-a command line holds nothing but its `HOOK.yml`; a hook that ships a script holds that too.
+a command line holds nothing but its `hook.yml`; a hook that ships a script holds that too. The name
+is lowercase, unlike `SKILL.md`, because ambit is the only thing that reads it.
 
 ```yaml
 name: block-rm
@@ -426,7 +427,7 @@ scope over as a tag on the items that declared it.
 2. **Fetch catalogs**, each into the local cache, at its `ref`, resolved to a commit SHA. A cached
    clone is refetched only when it cannot answer the `ref`, so a moving one keeps meaning what it
    meant — see [Staying up to date](#staying-up-to-date).
-3. **Parse each catalog:** every `skills/**/SKILL.md`, every `mcps/*.yml`, every `hooks/**/HOOK.yml`.
+3. **Parse each catalog:** every `skills/**/SKILL.md`, every `mcps/*.yml`, every `hooks/**/hook.yml`.
    A skill or hook whose declared `name` disagrees with its directory path is an error. A leftover
    `scopes.yml` → exit 2 naming the rewrite.
 4. **Merge catalogs.** Every catalog's copy of every skill, MCP and hook survives, identified by its
@@ -644,11 +645,11 @@ for. So each old spelling is _refused_, and the refusal is the migration path.
 | -------------------------------------------- | ------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `scopes:` in `ambit.yml`                     | one `requires` entry per member: `tag:`, qualified, `capabilities` written out | Exit 2, printing the entry each member becomes, line by line. It also names the **second** entry a faithful rewrite needs — `<catalog>/<tag>.*` — because a held scope reached everything beneath it and a pattern does not.  |
 | `skills:` in `ambit.yml`                     | one `requires` entry per member: `name:`, `capabilities: [skills]`             | Exit 2, the same shape, one entry per line.                                                                                                                                                                                   |
-| `mcps:` or `hooks:` in `ambit.yml`           | `mcps/<name>.yml` and `hooks/<name>/HOOK.yml` in a catalog                     | Exit 2, naming both halves: the file to move the definition into, and the `catalogs:` entry — `- name: local`, `source: path:.` — that makes it reachable.                                                                    |
+| `mcps:` or `hooks:` in `ambit.yml`           | `mcps/<name>.yml` and `hooks/<name>/hook.yml` in a catalog                     | Exit 2, naming both halves: the file to move the definition into, and the `catalogs:` entry — `- name: local`, `source: path:.` — that makes it reachable.                                                                    |
 | a `skills:` entry carrying its own `source:` | a skill in a catalog the project lists                                         | Exit 2, but only as _`skills[0]` must be a string, found a mapping_ — the removed-key check reads the list as names and hits the mapping first. The rewrite is the row above's: move the skill into `skills/<name>/SKILL.md`. |
 | `scopes.yml` in a catalog                    | deleted. A catalog is a directory and has no config file of its own            | Exit 2: _scopes are gone; tag items with `ambit.tags` and select them with `tag:`_ — then delete the file, carrying each scope over as a tag on the items that declared it.                                                   |
 | `ambit.scopes:` in `SKILL.md` frontmatter    | `ambit.tags:`                                                                  | Exit 2 as an unknown key, listing `expects`, `requires`, `tags`. It does **not** name the rename: the check is the generic one, and nothing sits behind `scopes` to say more.                                                 |
-| `scopes:` in `mcps/<name>.yml` or `HOOK.yml` | `tags:`                                                                        | The same unknown-key refusal, listing that file's accepted keys.                                                                                                                                                              |
+| `scopes:` in `mcps/<name>.yml` or `hook.yml` | `tags:`                                                                        | The same unknown-key refusal, listing that file's accepted keys.                                                                                                                                                              |
 | `- skill: company-context` in any `requires` | `- { name: "company-context", capabilities: [skills] }`                        | Exit 2, printing exactly that rewrite for the entry it found.                                                                                                                                                                 |
 
 A catalog repo needs one thing it did not need before: an `ambit.yml`, three lines, listing itself.

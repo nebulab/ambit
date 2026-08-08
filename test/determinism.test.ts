@@ -250,7 +250,7 @@ async function writeExtraHooks(dir: string): Promise<void> {
     const target = path.join(dir, "hooks", name);
     await mkdir(target, { recursive: true });
     await writeFile(
-      path.join(target, "HOOK.yml"),
+      path.join(target, "hook.yml"),
       [`name: ${name}`, "tags: [core]", ...lines, ""].join("\n"),
       "utf8",
     );

@@ -110,7 +110,7 @@ requires: ${list}
  * else, and the project holds that tag alone. That is the only way to declare a hook, so what these
  * cases are about stays the harness the project configures rather than where the hook came from.
  *
- * @param hooks the hook's `HOOK.yml` lines beyond its `name` and its tag; empty writes no hook.
+ * @param hooks the hook's `hook.yml` lines beyond its `name` and its tag; empty writes no hook.
  */
 async function writeHookProfile(
   harnesses: readonly string[],
@@ -120,7 +120,7 @@ async function writeHookProfile(
     const dir = path.join(catalogDir, "hooks", HOOK);
     await mkdir(dir, { recursive: true });
     await writeFile(
-      path.join(dir, "HOOK.yml"),
+      path.join(dir, "hook.yml"),
       [`name: ${HOOK}`, `tags: [${HOOK_TAG}]`, ...hooks, ""].join("\n"),
       "utf8",
     );

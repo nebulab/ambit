@@ -299,7 +299,7 @@ describe("project config", () => {
 
       expect(error.format()).toContain(`top-level \`hooks\` is gone (${FILE} line 2)`);
       expect(error.format()).toContain(
-        "a hook is defined by a file of its own: move each entry to `hooks/<name>/HOOK.yml`",
+        "a hook is defined by a file of its own: move each entry to `hooks/<name>/hook.yml`",
       );
       expect(error.format()).toContain(
         "then list this project as a catalog: `- name: local` with `source: path:.`",

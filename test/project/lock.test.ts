@@ -101,8 +101,8 @@ async function installedSkills(): Promise<readonly string[]> {
  * Adds a hook to the fixture catalog, held by `core`.
  *
  * @param name the hook's directory and name.
- * @param body further `HOOK.yml` lines — `event`, `command`, and whatever else the case needs.
- * @param script when given, written beside `HOOK.yml` under that filename, which makes `command:
+ * @param body further `hook.yml` lines — `event`, `command`, and whatever else the case needs.
+ * @param script when given, written beside `hook.yml` under that filename, which makes `command:
  *   <filename>` a shipped script rather than a command line.
  */
 async function writeCatalogHook(
@@ -113,7 +113,7 @@ async function writeCatalogHook(
   const dir = path.join(catalogDir, "hooks", name);
   await mkdir(dir, { recursive: true });
   await writeFile(
-    path.join(dir, "HOOK.yml"),
+    path.join(dir, "hook.yml"),
     [`name: ${name}`, "tags: [core]", ...body, ""].join("\n"),
     "utf8",
   );

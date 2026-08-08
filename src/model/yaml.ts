@@ -1,7 +1,7 @@
 /**
  * The shared YAML loader.
  *
- * Every ambit format goes through here — `ambit.yml`, `mcps/*.yml`, `HOOK.yml`, `SKILL.md`
+ * Every ambit format goes through here — `ambit.yml`, `mcps/*.yml`, `hook.yml`, `SKILL.md`
  * frontmatter — so the rules are enforced once and cannot drift between parsers. The rules
  * exist because the alternative is silent corruption: a commit SHA like `1234567` parses as
  * an integer, a duplicate key quietly wins, a tab looks like indentation.

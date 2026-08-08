@@ -1,5 +1,5 @@
 /**
- * Hooks end to end: a project's own `hooks/<name>/HOOK.yml` through `install`, `status`, `prune` and
+ * Hooks end to end: a project's own `hooks/<name>/hook.yml` through `install`, `status`, `prune` and
  * `clean`.
  *
  * `.claude/settings.json` is what this whole capability turns on. It is not ambit's document — a
@@ -98,7 +98,7 @@ async function writeProfile(
     const dir = path.join(projectDir, "hooks", hook.name);
     await mkdir(dir, { recursive: true });
     await writeFile(
-      path.join(dir, "HOOK.yml"),
+      path.join(dir, "hook.yml"),
       [`name: ${hook.name}`, "tags: [core]", ...hook.lines, ""].join("\n"),
       "utf8",
     );
@@ -454,7 +454,7 @@ describe("a hand-written entry identical to one ambit would install", () => {
  * state claims, so the next install takes it out and writes the current one: one entry, not two.
  */
 describe("an entry whose digest no longer matches what state recorded", () => {
-  /** The same hook with its timeout raised — what a person editing `HOOK.yml` would leave. */
+  /** The same hook with its timeout raised — what a person editing `hook.yml` would leave. */
   const RETIMED_HOOK: Hook = {
     name: "format",
     lines: [
@@ -937,7 +937,7 @@ describe("a hook that ships its own script", () => {
   async function writeCatalog(harnesses: readonly string[] = ["claude"]): Promise<void> {
     const catalogDir = path.join(root, "catalog");
     const files: Readonly<Record<string, string>> = {
-      [`hooks/${SCRIPT_HOOK}/HOOK.yml`]: [
+      [`hooks/${SCRIPT_HOOK}/hook.yml`]: [
         `name: ${SCRIPT_HOOK}`,
         "tags: [core]",
         "event: PreToolUse",
@@ -947,7 +947,7 @@ describe("a hook that ships its own script", () => {
         "",
       ].join("\n"),
       [`hooks/${SCRIPT_HOOK}/${SCRIPT}`]: SCRIPT_BODY,
-      "hooks/announce/HOOK.yml": [
+      "hooks/announce/hook.yml": [
         "name: announce",
         "tags: [core]",
         "event: Stop",

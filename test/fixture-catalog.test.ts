@@ -58,10 +58,10 @@ function annotations(source: string): Record<string, unknown> {
 
 const EXPECTED_FILES = [
   FIXTURE_MARKER,
-  "hooks/acme-standup/HOOK.yml",
-  "hooks/guard-secrets/HOOK.yml",
+  "hooks/acme-standup/hook.yml",
+  "hooks/guard-secrets/hook.yml",
   "hooks/guard-secrets/guard.sh",
-  "hooks/session-notes/HOOK.yml",
+  "hooks/session-notes/hook.yml",
   "mcps/fixture.yml",
   "mcps/tagged.yml",
   "skills/company-context/SKILL.md",
@@ -72,7 +72,7 @@ const EXPECTED_FILES = [
 
 const SKILL_PATHS = EXPECTED_FILES.filter((file) => file.endsWith("SKILL.md"));
 
-const HOOK_PATHS = EXPECTED_FILES.filter((file) => file.endsWith("HOOK.yml"));
+const HOOK_PATHS = EXPECTED_FILES.filter((file) => file.endsWith("hook.yml"));
 
 /** The name↔path convention, which hooks share with skills: path under `dirname`, `/` → `.`. */
 function nameFromPath(documentPath: string, dirname: "skills" | "hooks"): string {
@@ -212,7 +212,7 @@ describe("fixture catalog", () => {
     const read = async (file: string): Promise<unknown> =>
       parse(await readFile(path.join(dir, file), "utf8"));
 
-    expect(await read("hooks/session-notes/HOOK.yml")).toEqual({
+    expect(await read("hooks/session-notes/hook.yml")).toEqual({
       name: "session-notes",
       tags: ["core"],
       description: "Reminds a session that Acme's conventions apply.",
@@ -220,7 +220,7 @@ describe("fixture catalog", () => {
       type: "command",
       command: 'echo "acme conventions apply"',
     });
-    expect(await read("hooks/guard-secrets/HOOK.yml")).toEqual({
+    expect(await read("hooks/guard-secrets/hook.yml")).toEqual({
       name: "guard-secrets",
       tags: ["function.engineering"],
       description: "Inspects a Bash command before Acme's tooling runs it.",
@@ -230,7 +230,7 @@ describe("fixture catalog", () => {
       command: "guard.sh",
       timeout: 10,
     });
-    expect(await read("hooks/acme-standup/HOOK.yml")).toEqual({
+    expect(await read("hooks/acme-standup/hook.yml")).toEqual({
       name: "acme-standup",
       description: "Records what the session touched, for the Acme standup.",
       event: "SessionEnd",
@@ -241,10 +241,10 @@ describe("fixture catalog", () => {
 
   it("ships the script its script-shipping hook names, and only there", async () => {
     // A `type: script` hook is the only one that ships bytes, so the fixture's proof of the
-    // distinction is the file's presence: one hook's `command` names a file beside its `HOOK.yml`,
+    // distinction is the file's presence: one hook's `command` names a file beside its `hook.yml`,
     // and the other two directories hold nothing but their own document.
     const shipped = HOOK_PATHS.map((hook) => path.posix.dirname(hook)).filter((hookDir) =>
-      EXPECTED_FILES.some((file) => file.startsWith(`${hookDir}/`) && !file.endsWith("HOOK.yml")),
+      EXPECTED_FILES.some((file) => file.startsWith(`${hookDir}/`) && !file.endsWith("hook.yml")),
     );
 
     expect(shipped).toEqual(["hooks/guard-secrets"]);

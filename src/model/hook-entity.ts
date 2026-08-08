@@ -1,7 +1,7 @@
 /**
  * Hook entity parsing.
  *
- * One shape, one place it can be written: `hooks/<name>/HOOK.yml` in a catalog. A project that defines
+ * One shape, one place it can be written: `hooks/<name>/hook.yml` in a catalog. A project that defines
  * a hook of its own lists itself as a catalog and puts it there, so this parser has one caller and no
  * variant to reconcile.
  */
@@ -189,7 +189,7 @@ function assertScriptReference(mapping: YamlMapping, command: string): void {
 /**
  * Parses one hook entity.
  *
- * @param mapping the entity's mapping — a whole `hooks/<name>/HOOK.yml` document, or one item of
+ * @param mapping the entity's mapping — a whole `hooks/<name>/hook.yml` document, or one item of
  *   `ambit.yml`'s `hooks` list.
  * @throws {AmbitError} exit 2 for any shape violation.
  */

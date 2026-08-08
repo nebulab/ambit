@@ -254,7 +254,7 @@ async function writeTwoCatalogProfile(second: string, requires: readonly string[
 
 /** Adds a hook to the fixture catalog, its name derived from its path per §2. */
 async function writeHook(name: string, lines: readonly string[]): Promise<void> {
-  const target = path.join(catalogDir, "hooks", name.replaceAll(".", "/"), "HOOK.yml");
+  const target = path.join(catalogDir, "hooks", name.replaceAll(".", "/"), "hook.yml");
   await mkdir(path.dirname(target), { recursive: true });
   await writeFile(target, [`name: ${name}`, ...lines, ""].join("\n"), "utf8");
 }
@@ -1042,7 +1042,7 @@ describe("exact-name entries", () => {
 
     expect(result.code).toBe(ExitCode.Config);
     expect(result.stderr).toContain("top-level `hooks` is gone");
-    expect(result.stderr).toContain("move each entry to `hooks/<name>/HOOK.yml`");
+    expect(result.stderr).toContain("move each entry to `hooks/<name>/hook.yml`");
   });
 });
 
