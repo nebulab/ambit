@@ -1,44 +1,30 @@
 /**
- * Resolution — the project's `requires` list and the merged catalog in, the bundle out.
+ * Resolution: the project's `requires` list and the merged catalog in, the bundle out.
  *
- * Pure and synchronous: everything that touches disk or the network has already happened by the
- * time this runs. That is what makes determinism testable — the same inputs produce a
- * byte-identical bundle, so `resolve --json` can be committed as a golden file.
+ * Pure and synchronous. All disk and network access happens before this runs, so the same inputs
+ * always produce a byte-identical bundle and `resolve --json` can be committed as a golden file.
  *
- * **One addressing scheme.** A project writes `requires` entries, each one key naming a namespace
- * and carrying a glob to match names in it. An exact name is a pattern with no wildcard, so naming
- * one skill and taking a whole prefix are the same operator rather than two routes with two
- * spellings and two error classes. The grammar and the matcher live in `model/pattern.ts`; what
- * lives here is what a match *means*.
+ * A `requires` entry names a namespace and a glob matching names in it. An exact name is just a
+ * pattern with no wildcard. The grammar and matcher live in `model/pattern.ts`; this file defines
+ * what a match means.
  *
- * Three things follow, and all three are the point:
+ * A pattern matching nothing is exit 3 ({@link assertEntriesMatch} for a project's entries,
+ * {@link closeOverRequires} for a catalog's own), via {@link unmatchedEntryError} in both cases. A
+ * project's entry is qualified with the catalog it selects from; a catalog's own entry is bare and
+ * resolves within that catalog only. Every selected item's reason is either the entry that selected
+ * it or the requirer that pulled it in ({@link SelectionReason}) — never both, and the lock records
+ * it too.
  *
- * - **A pattern matching nothing is exit 3** ({@link assertEntriesMatch} for a project's entries,
- *   {@link closeOverRequires} for a catalog's own). A typo'd or stale entry that quietly selected
- *   nothing would leave a bundle missing exactly what the config went out of its way to ask for, and
- *   nobody would notice until the agent behaved oddly weeks later. One finding at both altitudes:
- *   {@link unmatchedEntryError}.
- * - **An address is qualified in a project, and bare in a catalog.** Every project entry names the
- *   catalog it selects from, so which copy of a name is being asked for never depends on the order
- *   `catalogs:` happens to list them in; a catalog's own entry cannot name one, so it resolves within
- *   that catalog and a catalog can only require what it ships.
- * - **A reason is the entry.** Every selected item carries either the entry that selected it or the
- *   requirer that pulled it in, and nothing else: two cases, so a reader gets an answer rather than a
- *   list of possibilities. The lock records the reason too, so it has to be part of resolution
- *   rather than a reporting afterthought.
+ * A **pack** and a **skill** both carry `requires`, and the closure follows both. A pack is a
+ * document whose whole content is what asking for it gets you — a catalog's way of offering a named,
+ * browsable group of items. A skill's `requires` declares what it cannot work without, so a project
+ * that reaches it gets a working bundle rather than a broken one. Servers and hooks are leaves.
  *
- * **Two kinds of item carry `requires`, and the closure follows both.** A **pack** exists for nothing
- * else: it is a document whose whole content is what asking for it gets you, which is how a catalog
- * offers *everything an engineer needs* as one browsable, describable name. A **skill** carries one
- * for a narrower reason — it declares what it cannot work without, so a project that reaches it gets
- * a working bundle rather than a plausible-looking broken one. Servers and hooks are leaves. See
- * {@link Requirer}, which is what the walk is actually over.
- *
- * Two catalogs may provide one name, and the merged catalog holds both copies — a bundle holds at
- * most one. A selection that reached both is refused, because harness layout is flat and externally
- * imposed and the two copies would materialize to one path; see {@link assertNoCollisions}. That
- * refusal is what makes a bare name an identity within a bundle, so every map here keys on one, while
- * everything reading the merged catalog keys on `<catalog>/<name>`.
+ * Two catalogs may provide one name; the merged catalog holds both copies, but a bundle holds at
+ * most one — a selection reaching both is refused ({@link assertNoCollisions}), because harness
+ * layout is flat and both copies would materialize to the same path. That refusal is what lets a
+ * bare name serve as an identity within a bundle, while the merged catalog itself keys on
+ * `<catalog>/<name>`.
  */
 import type {
   MergedCatalog,
@@ -59,12 +45,11 @@ import { KIND_SEPARATOR } from "../model/requirement.js";
 import { AmbitError, ExitCode, at, resolutionError } from "../errors.js";
 
 /**
- * A set of catalog items under consideration, each list in the merged catalog's own order — name,
- * then catalog.
+ * A set of catalog items under consideration, each list in the merged catalog's own order (name,
+ * then catalog).
  *
- * Two copies of one name can be in here: this is what {@link closeOverRequires} produces, and
- * {@link assertNoCollisions} is what judges it. A {@link Bundle} is a selection that has passed that
- * check.
+ * Two copies of one name can be in here. {@link closeOverRequires} produces a `Selection`;
+ * {@link assertNoCollisions} judges it. A {@link Bundle} is a selection that has passed that check.
  */
 export interface Selection {
   readonly packs: readonly MergedPack[];
@@ -78,9 +63,9 @@ export type { ItemKind };
 /**
  * One item of a bundle: which namespace, and the name inside it.
  *
- * A {@link Reference} over the item kinds, and not the same type a `requires` entry parses to. A
- * pattern entry is a question about a catalog, answered by zero or more items; a bundle item is one
- * item of one namespace. Sharing a type would let a selection name something no bundle item could be.
+ * A {@link Reference} over the item kinds. Not the same type a `requires` entry parses to: a pattern
+ * entry is a question about a catalog answered by zero or more items, while a bundle item is exactly
+ * one item of one namespace.
  */
 export type BundleItem = Reference<ItemKind>;
 
@@ -92,14 +77,14 @@ export function formatItem(item: BundleItem): string {
 /**
  * An item that carries a `requires` list, as the closure and the cycle hunt see one.
  *
- * A structural shape over the two kinds that have one, rather than a union of the two merged types,
- * because everything below asks the same four questions of both: which namespace, whose catalog,
- * what name, and what does it require. The fifth — which document to send a reader to — is the only
- * place the two genuinely differ, and it is settled once, in {@link requirersOf}.
+ * A structural shape over the two kinds that have one (pack and skill), rather than a union of the
+ * two merged types, because everything below asks the same four questions of both: which namespace,
+ * whose catalog, what name, and what does it require. Which document to send a reader to is settled
+ * once, in {@link requirersOf}.
  *
- * A pack and a skill can share a name, so {@link kind} is part of a requirer's identity and not
- * decoration: `pack:core` and `skill:core` are two nodes of the graph, and a cycle through one is
- * not a cycle through the other.
+ * A pack and a skill can share a name, so {@link kind} is part of a requirer's identity: `pack:core`
+ * and `skill:core` are two nodes of the graph, and a cycle through one is not a cycle through the
+ * other.
  */
 export interface Requirer {
   /** Which namespace it is in: the two that can require anything. */
@@ -110,8 +95,7 @@ export interface Requirer {
   /**
    * The document its `requires` is written in, catalog-relative, so a refusal can name a file.
    *
-   * A pack is its own document; a skill's annotations live in its `SKILL.md`. That difference is the
-   * whole of why this field exists rather than being derived at each call site.
+   * A pack is its own document; a skill's annotations live in its `SKILL.md`.
    */
   readonly file: string;
 }
@@ -121,8 +105,8 @@ export interface Requirer {
  *
  * Packs first because a pack is the more useful answer to *what pulled this in*: it is a name a
  * project wrote on purpose, where a skill's own requirement is an implementation detail of that
- * skill. The order is otherwise the merged catalog's — name, then catalog — so everything downstream
- * that picks "the first requirer that matches" picks a function of the names alone.
+ * skill. The order is otherwise the merged catalog's (name, then catalog), so "the first requirer
+ * that matches" depends only on names.
  */
 export function requirersOf(merged: MergedCatalog): readonly Requirer[] {
   return [
@@ -144,15 +128,14 @@ export function requirersOf(merged: MergedCatalog): readonly Requirer[] {
 }
 
 /**
- * Why one item is in the bundle — one of the two routes resolution offers, and never both, so a
- * reader gets an answer rather than a list of possibilities.
+ * Why one item is in the bundle: one of the two routes resolution offers, never both.
  *
  * A `selected` reason carries the entry itself rather than a rendering of it, so a caller can print
- * it whole ({@link formatEntry}) and nothing has to re-derive anything from a string.
+ * it whole ({@link formatEntry}).
  *
- * A `required-by` reason names the requirer's **namespace** as well as its name, because both kinds
- * that can require anything are addressable and a pack may share a name with a skill: `required-by:
- * pack:engineering` is an answer, `required-by:engineering` is a second question.
+ * A `required-by` reason names the requirer's namespace as well as its name, because a pack may
+ * share a name with a skill: `required-by:pack:engineering` is unambiguous, `required-by:engineering`
+ * is not.
  */
 export type SelectionReason =
   | { readonly kind: "selected"; readonly entry: PatternEntry }
@@ -166,9 +149,8 @@ export interface ReasonedItem extends BundleItem {
 /**
  * Every selected item's reason, keyed by name within each namespace.
  *
- * By name and not by address, because a bundle holds one item per name per namespace —
- * {@link assertNoCollisions} refuses anything else — and a reader asking why `house-style` is
- * installed has one thing installed under that name to ask about.
+ * Keyed by name, not address, because a bundle holds one item per name per namespace —
+ * {@link assertNoCollisions} refuses anything else.
  */
 export interface SelectionReasons {
   readonly packs: ReadonlyMap<string, SelectionReason>;
@@ -180,19 +162,16 @@ export interface SelectionReasons {
 /**
  * The resolved set of packs, skills, MCP servers and hooks for a project.
  *
- * One item per name within each namespace, which is what everything downstream — `install`, the
- * lock, `status`, `doctor`, `why` — relies on when it keys on a bare name. The guarantee comes from
- * {@link assertNoCollisions} rather than from the merged catalog, which holds every catalog's copy.
+ * One item per name within each namespace, guaranteed by {@link assertNoCollisions}. Everything
+ * downstream (`install`, the lock, `status`, `doctor`, `why`) relies on that when it keys on a bare
+ * name; the merged catalog itself does not, since it holds every catalog's copy.
  *
- * The packs are here even though **a pack materializes nothing**. Everything else in a bundle lands
- * somewhere a harness reads; a pack lands nowhere, because what it contributes is the other three
- * lists. It is carried anyway, because a bundle that dropped it could not answer *why is this skill
- * installed* with the name the project actually wrote — and a group you cannot see the effect of is
- * the thing packs replaced.
+ * Packs are included even though a pack materializes nothing — everything else in a bundle lands
+ * where a harness reads it, while a pack only contributes to the other three lists. It is kept so a
+ * bundle can answer *why is this skill installed* with the pack name the project actually wrote.
  *
- * The config's own `requires` list is deliberately not echoed back. A bundle is what was selected,
- * and the entries that did the selecting are already in the file the reader has open — one per
- * selected item, in {@link Bundle.reasons}, which is the half they cannot look up.
+ * The config's own `requires` list is not echoed back: it is already in the file the reader has
+ * open. What they cannot look up is {@link Bundle.reasons}, one per selected item.
  */
 export interface Bundle {
   /** Selected packs, sorted by name. Materialized nowhere — see above. */
@@ -206,12 +185,9 @@ export interface Bundle {
   /**
    * Every precondition the selection declares, unioned and grouped by kind.
    *
-   * Grouped rather than flat because an expectation's kind decides what checking it *means* — a
-   * variable is looked up in the environment, and the `bin:` that follows it would be looked up on the
-   * `PATH`. A flat list would make `doctor` re-derive from a name what the entry already said.
-   *
-   * Packs contribute nothing: a pack reads nothing from the world, and the items it names carry
-   * their own.
+   * Grouped rather than flat because an expectation's kind decides what checking it means: a
+   * variable is looked up in the environment, a `bin:` on the `PATH`. Packs contribute nothing; a
+   * pack reads nothing from the world, and the items it names carry their own expectations.
    */
   readonly expects: ExpectationSet;
   /** Why each of the above is here, one entry per selected item. */
@@ -233,10 +209,9 @@ function patternItem(
 /**
  * The entry that selected an item, or undefined when none did.
  *
- * Several entries may reach one item — a wildcard and the exact name under it — and any of them is a
- * true answer, so the tie-break only has to be a function of the entries themselves. It sorts on
- * {@link formatEntry}, which is what the reason prints: two entries that tie there say the same
- * words, so which one is chosen cannot be observed.
+ * Several entries may reach one item (a wildcard and the exact name under it); any of them is a true
+ * answer, so ties break on {@link formatEntry} — the same string the reason prints, so a tie between
+ * two entries that print identically is unobservable.
  */
 export function selectingEntry(
   entries: readonly PatternEntry[],
@@ -259,12 +234,7 @@ export function matchesAnything(entry: PatternEntry, merged: MergedCatalog): boo
   );
 }
 
-/**
- * What a namespace is called in a message about one of its members, without an article.
- *
- * Bare rather than carrying one, because an article reads wrong where a name follows immediately —
- * *a skill "house-style"* — and this is the sentence shape every message here has.
- */
+/** What a namespace is called in a message about one of its members, without an article. */
 const KIND_LABELS: Readonly<Record<ItemKind, string>> = {
   pack: "pack",
   skill: "skill",
@@ -273,27 +243,24 @@ const KIND_LABELS: Readonly<Record<ItemKind, string>> = {
 };
 
 /**
- * The error for a `requires` entry no item satisfies — **one finding at both altitudes** a `requires`
- * list is written at.
+ * The error for a `requires` entry no item satisfies. Used at every place a `requires` list is
+ * written and checked.
  *
  * A project's entry and a catalog's own are the same grammar asking the same question, so an entry
  * that selects nothing is one mistake with one message, whether it names one item or globs a whole
  * prefix, and whether it was written in `ambit.yml`, in a pack, or in a `SKILL.md`.
  *
- * A qualifier no catalog answers to is called out separately, because it is a different mistake with
- * a different fix, and because it is the one a reader is most likely to have made on purpose: the
- * qualifier is an **alias**, not a pattern, so a wildcard written in that half asks for a catalog
- * literally named `*`, and a message claiming that catalog holds nothing matching the rest of the
- * address would be answering the wrong question.
+ * A qualifier no catalog answers to is called out separately: the qualifier is an alias, not a
+ * pattern, so a wildcard written there asks for a catalog literally named `*`, and a message about
+ * "nothing matching the rest of the address" would be answering the wrong question.
  *
  * Exported because three surfaces reject an entry — the project check and the closure, each on the
  * first offender, and validation on every one of them — and the message must read identically from
  * all of them.
  *
- * @param within the catalog the entry resolves in. A project's entry names it, qualification being
- *   mandatory there ({@link entryCatalog}); a catalog's own cannot, so it is the catalog that holds
- *   the requirer and only the caller knows which that is. Either way it is exactly *one* catalog:
- *   "whichever one happens to hold a match" is the config-order dependence this addressing removed.
+ * @param within the catalog the entry resolves in: named by a project entry ({@link entryCatalog}),
+ *   or the catalog holding the requirer when the entry is a catalog's own. Always exactly one
+ *   catalog, never "whichever one happens to hold a match".
  * @param where the `(file line N)` suffix, as {@link at} renders it.
  * @param catalogs every catalog the config listed, in config order.
  */
@@ -321,9 +288,8 @@ export function unmatchedEntryError(
 
   return resolutionError(summary, [
     `no ${KIND_LABELS[entry.kind]} in catalog "${within}" has a name matching "${entry.pattern}"`,
-    // An entry carrying no qualifier is a catalog's own, by construction of the two spellings — so
-    // this is the one line the project altitude never prints, and the one the catalog altitude needs:
-    // another catalog holding a match is not an answer, however plainly it holds one.
+    // An entry with no qualifier is a catalog's own, so this line only applies there: another
+    // catalog holding a match does not count, since a catalog's own requires resolves within it.
     ...(catalog === undefined
       ? [
           `a catalog's own \`${REQUIRES_KEY}\` resolves within that catalog, which can only require what it ships`,
@@ -337,9 +303,8 @@ export function unmatchedEntryError(
  * The catalog a project's `requires` entry selects from.
  *
  * Non-optional, unlike {@link PatternEntry.catalog}: a project config is parsed as `"qualified"`, so
- * an entry that named no alias was refused at parse and cannot reach here. The assertion records that
- * rather than inventing a fallback whose message could never be true — an unqualified project entry
- * does not mean *any catalog*, it means a config that did not load.
+ * an entry naming no alias is refused at parse and cannot reach here. The assertion records that
+ * invariant rather than inventing a fallback.
  *
  * Exported so validation and resolution name the same catalog in the same words.
  */
@@ -350,13 +315,12 @@ export function entryCatalog(entry: PatternEntry): string {
 /**
  * Rejects a `requires` entry that selects nothing.
  *
- * A typo has to fail loudly, because the alternative is worse than an error: an entry that matches
- * nothing yields a bundle quietly missing everything it was meant to bring.
+ * An entry that matches nothing would yield a bundle quietly missing everything it was meant to
+ * bring, so it fails loudly instead.
  *
- * Stops at the first offender, in entry order — sorted on {@link formatEntry}, so which of several
- * bad entries is reported depends on what they say rather than on the order the config happens to
- * list them in. Listing every problem at once is validation's job, which reuses the same error
- * builder so the two agree.
+ * Stops at the first offender, sorted by {@link formatEntry}, so which of several bad entries is
+ * reported depends on what they say and not on config order. Listing every problem at once is
+ * validation's job, which reuses the same error builder.
  *
  * @throws {AmbitError} exit 3, naming the entry and the config line it was written on.
  */
@@ -377,8 +341,9 @@ export function assertEntriesMatch(config: ProjectConfig, merged: MergedCatalog)
 /**
  * Where an entry was written, as {@link at} renders it — the file alone if the parse gave no line.
  *
- * `ConfigOrigin.entryLines` is keyed by {@link entryYaml}, the entry rendered whole. Exported so
- * validation positions an entry exactly as resolution does.
+ * `ConfigOrigin.entryLines` is keyed by {@link entryYaml}, the entry rendered whole.
+ *
+ * Exported so validation positions an entry exactly as resolution does.
  */
 export function entryPosition(config: ProjectConfig, entry: PatternEntry): string {
   return at(config.origin.file, config.origin.entryLines.get(entryYaml(entry)));
@@ -387,10 +352,9 @@ export function entryPosition(config: ProjectConfig, entry: PatternEntry): strin
 /**
  * Where a requirer's `requires` entry was written, as {@link at} renders it.
  *
- * The file, and no line. A catalog's documents are parsed long before an entry is judged and nothing
- * keeps the line one sat on — unlike a project's, which `ConfigOrigin` records because a config is the
- * document a reader has open. The file is enough to act on: a `requires` list is a handful of lines
- * under one key, and the entry is quoted in the message.
+ * The file, and no line: a catalog's documents are parsed long before an entry is judged, so nothing
+ * keeps the line it sat on (unlike a project's, which `ConfigOrigin` records). The file is enough to
+ * act on, since the entry itself is quoted in the message.
  *
  * Exported so validation positions a catalog's entry exactly as the closure does.
  */
@@ -399,10 +363,9 @@ export function requirerPosition(requirer: Requirer): string {
 }
 
 /**
- * A requirer's `requires` list, deduplicated and in an order of its own.
- *
- * Ordered by {@link entryYaml} rather than kept as the author wrote it, so which of several problems
- * in one list is reported does not depend on the order they happened to write them in.
+ * A requirer's `requires` list, deduplicated and sorted by {@link entryYaml} rather than kept in
+ * authoring order, so which of several problems in a list gets reported does not depend on write
+ * order.
  *
  * Exported so validation walks a list exactly as the closure does.
  */
@@ -411,24 +374,22 @@ export function requiredEntries(requirer: Requirer): readonly PatternEntry[] {
 }
 
 /**
- * Every item one of a requirer's `requires` entries selects: matched against the catalog that
- * requirer came from, and against nothing else.
+ * Every item one of a requirer's `requires` entries selects, matched against the catalog that
+ * requirer came from and against nothing else.
  *
- * **A catalog is self-contained.** An entry written inside one resolves within it, so `core.*` in
- * `company`'s `packs/engineering.yml` reaches `company`'s items and no other catalog's. A catalog
- * author cannot write a consumer's alias, so the only honest reading of a bare pattern inside a
- * catalog is *my own catalog*.
+ * A catalog is self-contained: an entry written inside one resolves within it, so `core.*` in
+ * `company`'s `packs/engineering.yml` reaches only `company`'s items. A catalog author cannot write a
+ * consumer's alias, so a bare pattern inside a catalog can only mean "my own catalog".
  *
- * The locality is enforced here and not by {@link matches}, which skips its catalog test for an entry
- * carrying no qualifier: an unqualified entry does not know which catalog it was written in, so the
- * rule can only live with whoever offers it items.
+ * The locality is enforced here rather than in {@link matches}, which skips its catalog test for an
+ * unqualified entry: an unqualified entry does not know which catalog it was written in, so the rule
+ * has to live with whoever offers it items.
  *
- * In the merged catalog's order, being a filter of it, so nothing downstream depends on the order a
- * walk discovered things in.
+ * Results stay in the merged catalog's order, being a filter of it.
  *
  * Exported so validation follows an edge exactly as the closure does — its cycle hunt walks every
- * requirer in the catalog rather than only the selected ones, and must not disagree about where an
- * edge goes.
+ * requirer in the catalog, not only the selected ones, and must not disagree about where an edge
+ * goes.
  */
 export function requiredItems(
   entry: PatternEntry,
@@ -464,9 +425,9 @@ function isEmpty(selection: Selection): boolean {
 /**
  * Whether a requirer's `requires` entry selects anything its own catalog ships.
  *
- * The catalog-side counterpart of {@link matchesAnything}, and the same judgement: an entry that
- * selects nothing is a mistake. Exported because validation asks it of every entry in a catalog while
- * the closure asks it of the ones a selected requirer declares.
+ * The catalog-side counterpart of {@link matchesAnything}: an entry that selects nothing is a
+ * mistake. Exported because validation asks it of every entry in a catalog, while the closure asks it
+ * only of the ones a selected requirer declares.
  */
 export function matchesOwnCatalog(
   entry: PatternEntry,
@@ -479,19 +440,16 @@ export function matchesOwnCatalog(
 /**
  * The error for a `requires` cycle: the whole path, and the edge that closed it.
  *
- * The path is what makes a loop visible at all — which member of it is *the* problem is a choice, and
- * printing one name would make that choice ambit's rather than the reader's. What a path cannot say
- * is where to go and edit, so one line names the entry that closed the loop and the file it is
- * written in.
+ * The path shows the loop without deciding which member is "the" problem — printing only one name
+ * would make that choice for the reader. The closing edge is named separately, with its file, because
+ * that is the actionable part: removing it breaks the cycle.
  *
- * Members are printed as `<kind>:<name>`, not as bare names: a pack and a skill may share a name, and
- * a loop between the two of them printed as `core → core` would read as a single self-requiring item.
+ * Members print as `<kind>:<name>`, not bare names, because a pack and a skill may share a name, and
+ * `core → core` would misread as one item requiring itself.
  *
- * Only the closing edge is annotated. An entry is a namespace and a pattern, and a path annotated
- * with one per step is unreadable; the closing edge is the actionable half, because removing it
- * removes the loop. It matters more than it did when a requirement named a name: a pattern can close
- * a loop without naming anything in it — a skill matching its own `core.*` is a one-step cycle — and
- * the only way to see that is to be shown the entry.
+ * Only the closing edge is annotated with its entry. A pattern can close a loop without naming
+ * anything explicitly in it — a skill matching its own `core.*` is a one-step cycle — so showing the
+ * entry is the only way to make that visible.
  *
  * @param cycle the items around the loop, opening and closing on the same one.
  * @param requirer whose `requires` closed the loop, and whose file holds the entry.
@@ -515,38 +473,34 @@ function requirerKey(requirer: Requirer): string {
 }
 
 /**
- * Closes a selection over `requires` until fixpoint: every pack, skill, MCP entity and hook a
- * selected pack or skill requires joins the selection — whether or not the project's own entries
- * would ever have selected it.
+ * Closes a selection over `requires` until fixpoint: every pack, skill, MCP entity and hook that a
+ * selected pack or skill requires joins the selection, whether or not the project's own entries would
+ * have selected it.
  *
- * That is the point of the mechanism, and packs are the case it exists for. A catalog says once what
- * *engineering* means — these skills, that server, those hooks, and the `core` pack besides — and a
- * project takes the whole of it by writing one entry. A skill's own `requires` is the narrower case:
- * a skill that is useless without a company-context skill and a server declares so, and every project
- * that reaches it gets a working bundle instead of a plausible-looking broken one. A hook comes down
- * the same route for the same reason.
+ * Packs are the main case this exists for. A catalog says once what "engineering" means (these
+ * skills, that server, those hooks, plus the `core` pack) and a project takes the whole of it with
+ * one entry. A skill's own `requires` is the narrower case: a skill that is useless without a
+ * company-context skill and a server declares so, so a project reaching it gets a working bundle
+ * instead of a broken one. Hooks follow the same route for the same reason.
  *
- * **The closure is set-valued.** A requirer's entry is the project's entry minus the qualifier — it
- * may glob — so one entry answers with a *set* of items rather than with a single name. There is no
- * map to `get` from, and so no *missing* to report: there is an entry that matched nothing, which is
- * exactly the finding the project altitude raises about its own entries
- * ({@link unmatchedEntryError}).
+ * The closure is set-valued: a requirer's entry is the project's entry minus the qualifier, so it may
+ * glob and answers with a set of items, not a single name. There is nothing to look up by key, so
+ * there is no "missing" case — only an entry that matched nothing, reported the same way
+ * {@link unmatchedEntryError} reports it for a project's own entries.
  *
- * Packs and skills are the interior of the graph; servers and hooks are leaves, neither carrying
- * `requires`. Each entry resolves within the requirer's own catalog — see {@link requiredItems}.
+ * Packs and skills are the interior of the graph; servers and hooks are leaves and carry no
+ * `requires`. Each entry resolves within the requirer's own catalog (see {@link requiredItems}).
  *
- * **Accepted cost, deliberately.** A wildcard `requires` means a catalog author adding an item
- * changes what an unrelated pack pulls in: add `skills/core/internal-notes`, and every requirer
- * naming `skill: core.*` grows a dependency, at install, with no message anywhere. It is the same
- * class of hazard as the collision {@link assertNoCollisions} refuses, and it is silent where that one
- * is loud. It is recorded rather than fixed, because the only fixes are worse — forbidding wildcards
- * inside a catalog would leave a catalog less expressive than the project consuming it.
+ * Accepted cost: a wildcard `requires` means a catalog author adding an item changes what an
+ * unrelated pack pulls in silently. Add `skills/core/internal-notes`, and every requirer naming
+ * `skill: core.*` grows a dependency at install with no message anywhere. This is the same class of
+ * hazard as the collision {@link assertNoCollisions} refuses, but silent rather than loud. It is
+ * recorded, not fixed, because forbidding wildcards inside a catalog would make catalogs less
+ * expressive than the projects consuming them.
  *
- * One consequence of that expressiveness is worth stating outright: a pattern matches the requirer
- * itself if it can, and something that requires itself is a one-step cycle. So the skill `core.a`
- * cannot require `skill: core.*`. That is not special-cased — exempting the requirer would be
- * inventing a rule the addressing scheme does not have — and it is why {@link cycleError} names the
- * entry that closed the loop.
+ * One consequence: a pattern matches the requirer itself if it can, so something that requires itself
+ * is a one-step cycle — the skill `core.a` cannot require `skill: core.*`. This is not special-cased,
+ * so {@link cycleError} names the entry that closed the loop.
  *
  * @param roots what the project's entries selected among the two requiring kinds, in the merged
  *   catalog's order.
@@ -562,23 +516,19 @@ export function closeOverRequires(
   hooks: readonly MergedHook[],
   merged: MergedCatalog,
 ): Selection {
-  // Addresses rather than names throughout: one catalog's copy of a name being selected says nothing
-  // about another's, so a set of names would silently treat the two as one item.
+  // Keyed by address, not bare name: a set of names would treat two catalogs' copies as one item.
   const chosenPacks = new Set<string>();
   const chosenSkills = new Set<string>();
   const chosenMcps = new Set(mcps.map(qualifiedName));
   const chosenHooks = new Set(hooks.map(qualifiedName));
 
-  // The requirers, keyed the way the walk addresses them, so an edge selecting a pack or a skill can
-  // find the node to descend into without rebuilding the projection per step.
+  // Keyed the way the walk addresses requirers, so an edge can find its target node directly.
   const requirers = new Map(
     requirersOf(merged).map((requirer) => [requirerKey(requirer), requirer]),
   );
 
-  // The two colours a depth-first walk needs to tell a cycle from a diamond: `path` is the chain
-  // currently being followed, in order, so meeting something already on it yields the cycle
-  // itself; `closed` is what has been followed to completion, and revisiting that is just a
-  // requirement two requirers share.
+  // `path` is the chain currently being followed (meeting something already on it is a cycle);
+  // `closed` is what has been followed to completion (revisiting that is just a shared requirement).
   const path: Requirer[] = [];
   const closed = new Set<string>();
 
@@ -600,8 +550,8 @@ export function closeOverRequires(
         );
       }
 
-      // Both leaf namespaces end the walk: nothing an entity or a hook declares reaches anything
-      // else, so joining the selection is all there is to do.
+      // Leaf namespaces: an MCP or a hook carries no requires, so joining the selection is all
+      // there is to do.
       for (const mcp of required.mcps) chosenMcps.add(qualifiedName(mcp));
       for (const hook of required.hooks) chosenHooks.add(qualifiedName(hook));
 
@@ -615,8 +565,8 @@ export function closeOverRequires(
       ].filter((candidate): candidate is Requirer => candidate !== undefined);
 
       for (const child of next) {
-        // Checked at the call site rather than on entry to `follow`, because this is the only place
-        // that knows which entry the edge came from — and the cycle error names it.
+        // Checked here rather than on entry to `follow`, because only here do we know which entry
+        // the edge came from, and the cycle error needs to name it.
         const opened = path.findIndex((seen) => requirerKey(seen) === requirerKey(child));
         if (opened !== -1) {
           throw cycleError(
@@ -635,8 +585,8 @@ export function closeOverRequires(
 
   for (const root of roots) follow(root);
 
-  // Filtering the merged lists rather than collecting during the walk keeps the result in the merged
-  // catalog's order, whatever order the closure happened to discover things in.
+  // Filtering the merged lists, rather than collecting during the walk, keeps the result in the
+  // merged catalog's order regardless of discovery order.
   return {
     packs: merged.packs.filter((pack) => chosenPacks.has(qualifiedName(pack))),
     skills: merged.skills.filter((skill) => chosenSkills.has(qualifiedName(skill))),
@@ -649,13 +599,13 @@ export function closeOverRequires(
  * The error for one name two selected catalogs both provide.
  *
  * A harness's layout is flat and not ambit's to change — Claude reads `.claude/skills/<name>` — so
- * both copies want one path and there is no way to install both. Dropping one is refused rather than
- * chosen: nothing is left to prefer either with, since no catalog outranks another, and a bundle
- * quietly missing a copy the selection asked for is the failure nobody can debug.
+ * both copies want one path. Dropping one silently is refused instead: no catalog outranks another,
+ * so there is nothing to prefer either copy with, and a bundle quietly missing a requested copy would
+ * be undebuggable.
  *
- * A pack materializes nowhere and so has no path to collide over, and it is refused all the same: a
- * pack is addressable — `ambit why pack:core` — and two selected packs called `core` would leave that
- * question with two answers. Consistency here is cheaper than one namespace with its own rule.
+ * A pack materializes nowhere and so has no path to collide over, but it is refused all the same: a
+ * pack is addressable (`ambit why pack:core`), and two selected packs named `core` would leave that
+ * question with two answers.
  *
  * @param catalogs every catalog providing the name, in catalog order.
  */
@@ -687,13 +637,12 @@ function assertOnePerName(
 /**
  * Rejects a selection holding two catalogs' copies of one name.
  *
- * This is where the collision the merge stopped arbitrating is settled, and the conflict it is about
- * is materialization rather than selection: a name two catalogs ship costs nothing until a project
- * selects both copies and a harness is asked to hold them at one path.
+ * This is where the collision the merge left unarbitrated gets settled. The conflict is about
+ * materialization, not selection: a name two catalogs ship costs nothing until a project selects
+ * both copies and a harness is asked to hold them at one path.
  *
- * Stops at the first offender, in namespace order and then name order — the selection arrives sorted
- * by name and then catalog, so which collision is reported, and the order the catalogs are named in,
- * depend on the names alone.
+ * Stops at the first offender, in namespace order then name order. The selection arrives sorted by
+ * name and then catalog, so which collision gets reported depends only on the names.
  *
  * @throws {AmbitError} exit 3, naming the item and every catalog that provides it.
  */
@@ -717,9 +666,9 @@ export function formatReason(reason: SelectionReason): string {
 /**
  * The error for a bundle that cannot account for one of its own items.
  *
- * Exit 1 rather than 3: no catalog and no config can produce this, since every item in a bundle
- * arrived through one of the two routes by construction. Reaching it means the selection and the
- * explanation of it disagree, which is a bug and worth saying so.
+ * Exit 1, not 3: no catalog or config input can produce this, since every item in a bundle arrives
+ * through one of the two routes by construction. Reaching it means the selection and its explanation
+ * disagree, which is a bug.
  */
 function unexplainable(item: BundleItem, problem: string): AmbitError {
   return new AmbitError(ExitCode.Internal, `cannot explain ${item.kind} "${item.name}"`, [
@@ -731,15 +680,13 @@ function unexplainable(item: BundleItem, problem: string): AmbitError {
 /**
  * The `required-by` reason for an item: the first selected requirer whose `requires` matches it.
  *
- * The test is {@link matches} rather than an equality — a `requires` entry is a pattern, and the
- * question *did this pack ask for that item?* is the same question selection asks, one altitude down.
- * Only a requirer from the item's own catalog can be the answer, because that is as far as a
- * catalog's `requires` reaches.
+ * Tested with {@link matches}, not equality, since a `requires` entry is a pattern. Only a requirer
+ * from the item's own catalog can be the answer, because that is as far as a catalog's `requires`
+ * reaches.
  *
  * Recovered from the closure's result rather than recorded during its walk, so which requirer is
- * named depends only on the names — packs first, then skills, each in name order — and not on the
- * order the depth-first walk happened to reach the item. Several requirers naming one thing is
- * normal, and any of them is a true answer, so a tie-break only has to be a function of the inputs.
+ * named depends only on the names (packs first, then skills, each in name order) and not on
+ * discovery order. Several requirers may name one thing; any of them is a true answer.
  */
 function requiredByReason(
   item: PatternItem,
@@ -758,9 +705,8 @@ function requiredByReason(
 /**
  * The reason each selected item of one namespace carries.
  *
- * An entry beats a `requires` edge, because the entry ends a chain where the edge continues one:
- * preferring it keeps an explanation as short as it can be while staying true, and a project that
- * asked for something itself wants to hear which of its own entries did it.
+ * A `selected` entry beats a `required-by` edge: the entry ends a chain, while the edge continues
+ * one, so preferring it keeps the explanation as short as possible while staying true.
  *
  * @param entries the project's `requires` list.
  * @param selected the selected requirers, which is what a `requires` edge can come from.
@@ -828,10 +774,9 @@ export function reasonOf(bundle: Bundle, item: BundleItem): SelectionReason {
 /**
  * The whole chain behind one selected item, root cause first and the item itself last.
  *
- * A reason alone is only half an answer: `required-by:pack:engineering` prompts the same question one
- * level up, and it is the `requires` entry at the end of the walk that a reader can act on. So the
- * walk follows `required-by` edges backwards until it reaches a root — an entry of the project's own
- * — which terminates because `requires` cycles were rejected during closure.
+ * A reason alone is only half an answer: `required-by:pack:engineering` just raises the same question
+ * one level up. The walk follows `required-by` edges backwards until it reaches a root (an entry of
+ * the project's own), which terminates because `requires` cycles were rejected during closure.
  *
  * @throws {AmbitError} exit 1 if the item is not in the bundle, or the chain fails to terminate.
  */
@@ -845,8 +790,8 @@ export function explainSelection(bundle: Bundle, item: BundleItem): readonly Rea
     chain.unshift({ ...current, reason });
     if (reason.kind !== "required-by") return chain;
 
-    // Insurance against a broken invariant rather than against a catalog: a repeat here would mean
-    // a `requires` cycle survived closure, and looping forever is a worse way to report that.
+    // Guards against a broken invariant, not a bad catalog: a repeat here would mean a `requires`
+    // cycle survived closure. Looping forever would be a worse way to report that.
     const next = formatItem(reason.requirer);
     if (walked.has(next)) {
       throw unexplainable(current, `the \`requires\` chain through ${next} does not terminate`);
@@ -860,33 +805,32 @@ export function explainSelection(bundle: Bundle, item: BundleItem): readonly Rea
  * Computes the bundle for a project.
  *
  * Selection order comes from the merged catalog, which is already sorted by name, so filtering
- * preserves it and no collection is iterated in filesystem order.
+ * preserves it.
  *
- * `expects` is unioned over the closed selection, not the entry-selected one: a server pulled in by
- * a pack needs its credentials as much as one an entry named. A hook's `expects` joins it too — a
- * hook that cannot see its credential is as broken as a server that cannot. Packs contribute none:
- * a pack reads nothing from the world.
+ * `expects` is unioned over the closed selection, not just the entry-selected one: a server or hook
+ * pulled in by a pack needs its credentials checked as much as one an entry named directly. Packs
+ * contribute none, since a pack reads nothing from the world.
  *
  * Reasons are computed here rather than on request, so `--explain`, `ambit why`, and the lock all
- * report the same answer, and so a bundle that cannot account for an item fails at resolution
- * instead of at whichever surface happens to ask first.
+ * report the same answer, and a bundle that cannot account for an item fails at resolution instead
+ * of at whichever surface asks first.
  *
- * @param merged every configured catalog, which is where every definition is: a project that ships
- *   items of its own lists itself as a catalog, so all four namespaces arrive here the same way.
+ * @param merged every configured catalog. A project that ships items of its own lists itself as a
+ *   catalog, so all four namespaces arrive here the same way.
  * @throws {AmbitError} exit 3 for a `requires` entry that matches nothing, a `requires` cycle, or one
  *   name selected from two catalogs.
  */
 export function resolveBundle(config: ProjectConfig, merged: MergedCatalog): Bundle {
-  // First, and before anything is selected, so an install cannot half-run on a config that asked for
-  // something no catalog has.
+  // Checked first, before anything is selected, so an install cannot half-run on a config that asked
+  // for something no catalog has.
   assertEntriesMatch(config, merged);
   const entries = config.requires;
 
-  // Every seed list stays in the merged catalog's order, being a filter of it, so how something was
-  // selected cannot change where it lands in the bundle.
+  // Seed lists stay in the merged catalog's order, being a filter of it, so how something was
+  // selected does not affect where it lands in the bundle.
   //
   // Selection is per copy, not per name: an entry reaching two catalogs' copies of one name selects
-  // both, which is what makes the collision the project's to resolve rather than ambit's.
+  // both, leaving the collision for the project to resolve.
   const selection = closeOverRequires(
     requirersOf(merged).filter(
       (requirer) => selectingEntry(entries, requirer.kind, requirer) !== undefined,
@@ -896,8 +840,8 @@ export function resolveBundle(config: ProjectConfig, merged: MergedCatalog): Bun
     merged,
   );
 
-  // Before the bundle exists, and before any map below keys on a bare name: this is the check that
-  // makes a name an identity from here on, so nothing downstream can quietly drop a copy instead.
+  // Checked before the bundle exists and before any map below keys on a bare name: this is what
+  // makes a name an identity from here on.
   assertNoCollisions(selection);
   const { packs, skills, mcps, hooks } = selection;
 

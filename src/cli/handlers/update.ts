@@ -1,18 +1,15 @@
 /**
  * `ambit update [<catalog>…]` — move the pins, write the lock, materialize, prune.
  *
- * The report is `outdated`'s with the install's own two sections appended, and in that order: what
- * changed about the *bundle* is the answer someone ran the command for, and what changed about the
- * *project* is how it landed. Reusing the projections is what keeps the two commands from describing
- * one update two ways (`pins.ts`).
+ * The report is `outdated`'s, with the install's own two sections appended in that order: what
+ * changed about the bundle is the answer someone ran the command for, what changed about the project
+ * is how it landed.
  *
- * `--dry-run` prints exactly `outdated` restricted to the named catalogs, and nothing about artifacts.
- * That is not a gap: the run has deliberately not moved the pins, so an install plan drawn here would
- * be a plan against the resolution the update is trying to leave behind. `src/project/update.ts` makes
- * the case at length.
+ * `--dry-run` prints exactly `outdated` restricted to the named catalogs, nothing about artifacts.
+ * The run has deliberately not moved the pins, so an install plan drawn here would be a plan against
+ * the resolution the update is trying to leave behind (see `src/project/update.ts`).
  *
- * `--offline` is refused, for the reason `outdated` refuses it: the cache cannot know where a branch
- * points now, so the flag can only produce a confident wrong answer.
+ * `--offline` is refused, same as `outdated`: the cache cannot know where a branch points now.
  */
 import type { CommandContext, CommandHandler } from "../commands.js";
 import { dryRunRequested, jsonRequested, projectDirOf } from "../commands.js";
@@ -28,8 +25,7 @@ import { artifactJson, artifactRows } from "./artifacts.js";
 import { printSections, section } from "../output.js";
 
 /**
- * `--copy` / `--link`, as the materialization mode they force — `install`'s flags, meaning what they
- * mean there.
+ * `--copy` / `--link`, as the materialization mode they force. Same flags as `install`, same meaning.
  *
  * The two together never reach here: Commander refuses the invocation with exit 2 before any handler
  * runs (`src/cli/commands.ts`).
@@ -79,7 +75,7 @@ function toText(result: UpdateResult): readonly string[] {
 
 export const updateHandler: CommandHandler = async (ctx) => {
   const projectDir = projectDirOf(ctx);
-  // A variadic positional, so every argument is a catalog name; none means every catalog.
+  // Variadic positional: every argument is a catalog name, none means every catalog.
   const options = { catalogs: ctx.args };
 
   if (dryRunRequested(ctx)) {

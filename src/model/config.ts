@@ -43,9 +43,9 @@ export interface CatalogRef {
 /**
  * The second half of every rewrite below.
  *
- * A definition lives in a file, and a file is only reachable through a catalog — so wherever a
- * definition used to sit in `ambit.yml`, moving it takes two steps, and the second one is always this
- * one. The catalog that holds a project's own files is the project.
+ * A definition lives in a file, and a file is only reachable through a catalog, so moving a
+ * definition out of `ambit.yml` always takes two steps, and this is always the second one. The
+ * catalog that holds a project's own files is the project.
  */
 const SELF_CATALOG_ADVICE =
   "then list this project as a catalog: `- name: local` with `source: path:.`";
@@ -53,10 +53,10 @@ const SELF_CATALOG_ADVICE =
 /**
  * The keys that used to carry a definition in `ambit.yml`, with the file each entry moves into.
  *
- * Kept only so their presence can be refused. {@link YamlMapping.rejectUnknownKeys} would already
- * stop a config that still writes one, but its message says *unknown key* and lists the accepted
- * set — which reads as a typo, and leaves a reader holding a definition that used to work with no
- * idea where it went. The rewrite is two lines, so it is stated.
+ * Kept only so their presence can be refused with a specific message. {@link
+ * YamlMapping.rejectUnknownKeys} would already stop a config that still writes one, but its
+ * message says "unknown key" and lists the accepted set, which reads as a typo rather than telling
+ * the reader where the definition went.
  */
 const REMOVED_INLINE_KEYS: readonly {
   readonly key: string;
@@ -72,8 +72,8 @@ const REMOVED_INLINE_KEYS: readonly {
 /**
  * Refuses a top-level `mcps:` or `hooks:`, naming the file the definitions move into.
  *
- * Runs before {@link YamlMapping.rejectUnknownKeys} for the reason above: the generic message would
- * fire first and say the wrong thing.
+ * Runs before {@link YamlMapping.rejectUnknownKeys} so this message fires first instead of the
+ * generic "unknown key" one.
  */
 function assertNoInlineDefinitions(root: YamlMapping): void {
   for (const removed of REMOVED_INLINE_KEYS) {
@@ -88,11 +88,11 @@ function assertNoInlineDefinitions(root: YamlMapping): void {
 /**
  * The two keys a project used to select with, and the entry each of their members becomes.
  *
- * Both are gone in favour of one `requires:` list of one-key entries, and the rewrite is mechanical
- * enough to print: a `skills` entry selected one skill by name, so it becomes `- skill:` qualified
- * with an alias. A held scope selected across every namespace at once by label, which no single entry
- * does any more — that job belongs to a **pack**, declared in the catalog — so its refusal says so
- * rather than printing a rewrite that would only be half true.
+ * Both are gone in favour of one `requires:` list of one-key entries. A `skills` entry selected one
+ * skill by name, so it becomes `- skill:` qualified with an alias, and the rewrite is mechanical
+ * enough to print. A held scope selected across every namespace at once by label, which no single
+ * entry does any more — that job belongs to a pack declared in the catalog — so its refusal
+ * explains that instead of printing a rewrite that would only be half true.
  */
 const REMOVED_SELECTION_KEYS: readonly {
   readonly key: string;
@@ -111,9 +111,9 @@ const ALIAS_PLACEHOLDER = "<catalog>";
 /**
  * The catalog aliases this config declares, for the rewrite a removed key's refusal prints.
  *
- * Read defensively rather than through {@link parseCatalogs}: a malformed `catalogs:` is refused on
- * its own terms once the removed key is gone, and until then it should cost the message a concrete
- * alias and nothing else.
+ * Read defensively rather than through {@link parseCatalogs}: a malformed `catalogs:` is refused
+ * on its own terms once the removed key is gone, so a failure here should only cost the message a
+ * concrete alias, nothing else.
  */
 function catalogAliases(root: YamlMapping): readonly string[] {
   try {
@@ -129,10 +129,9 @@ function catalogAliases(root: YamlMapping): readonly string[] {
 /**
  * Which alias a rewrite qualifies its patterns with.
  *
- * The one the config declares, when it declares exactly one — the case the migration note has in
- * mind, since the alias is right there in the same file. With several there is nothing to pick with:
- * a held scope reached every catalog at once, and which of them a given entry should now name is the
- * reader's call, so the placeholder says so rather than guessing.
+ * The one the config declares, when it declares exactly one. With several there is nothing to pick
+ * with: a held scope reached every catalog at once, and which of them a given entry should now
+ * name is the reader's call, so the placeholder is used instead of guessing.
  */
 function rewriteAlias(root: YamlMapping): string {
   const aliases = catalogAliases(root);
@@ -143,8 +142,8 @@ function rewriteAlias(root: YamlMapping): string {
  * Refuses a top-level `scopes:` or `skills:`, naming the `requires` entry each member becomes.
  *
  * Runs before {@link YamlMapping.rejectUnknownKeys} for the same reason
- * {@link assertNoInlineDefinitions} does: the generic message would say *unknown key* and list the
- * accepted set, which reads as a typo and leaves a reader holding a selection that used to work.
+ * {@link assertNoInlineDefinitions} does: the generic "unknown key" message would say nothing about
+ * where the selection went.
  */
 function assertNoRemovedSelection(root: YamlMapping): void {
   for (const removed of REMOVED_SELECTION_KEYS) {
@@ -179,10 +178,10 @@ function assertNoRemovedSelection(root: YamlMapping): void {
 /**
  * Where the config came from, and where inside it the values live that a later stage judges.
  *
- * Resolution runs long after parsing, so an error about a `requires` entry has no YAML node left to
- * point at — yet it still has to name the file and the line. This carries just
- * enough of the document's positions for that, keeping {@link ProjectConfig} itself a plain
- * object with no parser state hanging off it.
+ * Resolution runs long after parsing, so an error about a `requires` entry has no YAML node left
+ * to point at, yet it still has to name the file and the line. This carries just enough of the
+ * document's positions for that, keeping {@link ProjectConfig} itself a plain object with no
+ * parser state hanging off it.
  */
 export interface ConfigOrigin {
   /** How the config file is named in messages — `ambit.yml` or `ambit.yaml`, project-relative. */
@@ -190,9 +189,9 @@ export interface ConfigOrigin {
   /**
    * 1-based line each `requires` entry was written on, keyed by {@link entryYaml}.
    *
-   * An entry renders to exactly one line, so the rendering is the key: two entries that render alike
-   * are the same selection, and the first line either was written on is the one a reader scanning
-   * downward finds.
+   * An entry renders to exactly one line, so the rendering is the key: two entries that render
+   * alike are the same selection, and the first line either was written on is the one a reader
+   * scanning downward finds.
    */
   readonly entryLines: ReadonlyMap<string, number>;
 }
@@ -226,7 +225,7 @@ export interface ProjectConfig {
  * Records the names one config list has used, rejecting a repeat and naming both lines.
  *
  * Every list in `ambit.yml` is keyed by a name, and every later stage looks each name up exactly
- * once — so a repeat is never a merge, always a mistake, and refusing it here is what lets
+ * once, so a repeat is always a mistake rather than a merge. Refusing it here is what lets
  * resolution treat the lists as maps.
  *
  * @param subject how the list's entries are named in the message.
@@ -255,15 +254,13 @@ function nameTracker(
 /**
  * Refuses a catalog alias holding the one character that separates an alias from a pattern.
  *
- * An alias is the qualifier half of `<catalog>/<pattern>`, so an alias holding a `/` cannot appear in
- * an address at all: every entry qualified with it reads as a second separator and is refused at
- * parse, while `validate` reports the catalog as one nothing selects from and advises qualifying an
- * entry with it. Two refusals pointing at each other, and no spelling satisfying both — so the alias
- * is refused where it is written, which is the only place a rename can happen.
+ * An alias is the qualifier half of `<catalog>/<pattern>`, so an alias holding a `/` cannot appear
+ * in an address at all: every entry qualified with it would read as a second separator. The alias
+ * is refused where it is written, since that is the only place a rename can happen.
  *
- * The separator is the *only* character an alias may not hold. A dot is fine, which is the whole
- * reason the separator is `/` and not `.`; a `*` is fine too, and matched literally, because a
- * qualifier is an alias rather than a pattern.
+ * The separator is the only character an alias may not hold. A dot is fine — the reason the
+ * separator is `/` and not `.` — and so is a `*`, matched literally, because a qualifier is an
+ * alias rather than a pattern.
  */
 function assertAddressableAlias(entry: YamlMapping, name: string): void {
   if (!name.includes(CATALOG_SEPARATOR)) return;
@@ -304,11 +301,10 @@ interface Selection {
 /**
  * The project's `requires` list, deduplicated, with each entry's line kept.
  *
- * The lines come from a second read of the same key rather than from
- * {@link parseEntries}, which returns entries and not positions. Pairing them by index is exact:
- * the parse maps one entry to one item of the sequence, in document order, so item *i* is where
- * entry *i* was written. An entry repeated verbatim keeps the first line — that is the one a reader
- * scanning downward finds, and the two are the same selection.
+ * The lines come from a second read of the same key rather than from {@link parseEntries}, which
+ * returns entries and not positions. Pairing them by index is exact: the parse maps one entry to
+ * one item of the sequence, in document order, so item *i* is where entry *i* was written. An
+ * entry repeated verbatim keeps the first line, the one a reader scanning downward finds.
  */
 function parseSelection(root: YamlMapping): Selection {
   const written = parseEntries(root, "qualified");
@@ -379,8 +375,8 @@ async function isFile(target: string): Promise<boolean> {
  * Which accepted config filenames `projectDir` already holds, in preference order.
  *
  * Shared with `ambit init`, whose question is the opposite of {@link findConfigFile}'s: it must
- * refuse a directory that holds *either* name, and refuse it naming the file it found rather than
- * the one it was about to write.
+ * refuse a directory that holds either name, naming the file it found rather than the one it was
+ * about to write.
  */
 export async function existingConfigFiles(projectDir: string): Promise<readonly string[]> {
   const present: string[] = [];

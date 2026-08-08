@@ -48,3 +48,42 @@ Everything in the file has to serve one of those three. If a paragraph serves no
 
 Comments in the source are where internals belong. A comment explaining why the code is shaped a
 certain way is good and should stay in the code, not migrate to the readme.
+
+## Code comments
+
+Ambit is a commented codebase, but comments must earn their place. A comment exists to tell the
+reader something the code cannot: keep the reasoning, cut the rhetoric.
+
+### What to write
+
+- **Doc comments on exported symbols.** TSDoc (`/** */`), one-sentence summary first. Describe the
+  contract from the caller's side: constraints, return semantics, side effects, `@throws` with exit
+  codes. Skip the doc comment entirely when the name already says everything.
+- **Why, not what.** Rationale for a non-obvious decision, ordering requirements, invariants,
+  units, what a sentinel value means, why the obvious alternative was rejected.
+- **Negative information.** What is deliberately absent ("no lock here: callers already hold it"),
+  so a future "fix" doesn't reintroduce a bug.
+- **File headers only for real design.** A short block stating the module's design decisions and
+  invariants, once. Most files need no header. Never repeat in the header what per-symbol docs
+  already say.
+
+### What not to write
+
+- **Editorializing.** State the fact; don't argue for it or perform it. No flourishes, metaphors,
+  or persuasion ("that is the point", "a standing bet that...", "the kind of waste a cache exists
+  to avoid"). If a comment reads like an essay, cut it to the fact it contains.
+- **Restating the code.** No doc comment that rephrases the symbol name
+  (`/** Where skills live. */` on `SKILLS_DIRNAME = "skills"`). Delete, don't decorate.
+- **Play-by-play.** Never narrate what the next line does.
+- **Reviewer-directed commentary.** No comments explaining why a change is correct or what the code
+  did before. That belongs in the PR description.
+- **Commented-out code, change journals, section banners.**
+
+### Style
+
+- Short, plain, factual sentences. Capitalized and punctuated.
+- Prefer separate sentences over clauses chained with em dashes.
+- One canonical explanation per decision; elsewhere, point to it with `{@link}` instead of
+  retelling it.
+- Reference constants by name (`{@link STALE_THRESHOLD}`), never restate their value in prose.
+- When changing code, update or delete every adjacent comment your change touches.

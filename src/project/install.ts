@@ -1,34 +1,29 @@
 /**
  * Installation: resolve a project, then hand the bundle to each harness adapter.
  *
- * The order is load → resolve → plan → apply → write lock → write state → rewrite the gitignore
- * block, and the two record-keeping
- * writes coming last is a safety property, not an implementation detail: a crash mid-apply leaves
- * artifacts unowned but present, which `doctor` can report, whereas recording ownership first would
- * leave state claiming files that were never written. The lock is written on the same terms — it
- * says what *was* installed, so it must not claim a resolution that failed to materialize.
+ * Order: load, resolve, plan, apply, write lock, write state, rewrite the gitignore block. The two
+ * record-keeping writes (lock, state) come last: a crash mid-apply then leaves artifacts unowned but
+ * present, which `doctor` can report, instead of state claiming files that were never written. The
+ * lock records what *was* installed, so it must not claim a resolution that failed to materialize.
  *
- * Everything up to the first write is `planInstall`, and `previewInstall` is that plan rendered for
- * `--dry-run` instead of applied: `plan` is pure and testable, and `apply` is the only thing
- * that touches disk. Keeping the split at the function boundary is what makes a dry run a print of
- * the same plan rather than a second implementation of installation — and what lets `ambit prune`
- * (`clean.ts`) reach the same bundle without materializing it.
+ * Everything up to the first write is `planInstall`. `previewInstall` renders that plan for
+ * `--dry-run` instead of applying it. `plan` is pure and testable; `apply` is the only thing that
+ * touches disk. This split lets a dry run print the same plan rather than reimplement installation,
+ * and lets `ambit prune` (`clean.ts`) reach the same bundle without materializing it.
  *
- * `--frozen` is checked before anything is written. A CI run whose committed lock is stale
- * has to leave the project exactly as it found it, so the comparison happens while nothing has been
- * touched — planning and reading state are both reads.
+ * `--frozen` is checked before anything is written, so a CI run with a stale committed lock leaves
+ * the project untouched (planning and reading state are both reads).
  *
- * Every adapter is asked to plan before any of them applies, so ownership can be checked against the
- * complete set of targets while the project is still untouched (`ownership.ts`).
+ * Every adapter plans before any of them applies, so ownership (`ownership.ts`) is checked against
+ * the complete set of targets while the project is still untouched.
  *
- * Pruning comes after the last adapter and before the two record-keeping writes, so
- * a prune that fails is retryable — state still owns what it was about to remove — and a failed
- * `apply` leaves the previous install standing rather than half-dismantled.
+ * Pruning runs after the last adapter and before the two record-keeping writes, so a failed prune is
+ * retryable (state still owns what it was about to remove) and a failed `apply` leaves the previous
+ * install standing.
  *
- * Nothing here reads the environment on materialization's behalf. A `${VAR}` in an MCP entity becomes
- * a reference in the target harness's own syntax rather than a resolved value, so an adapter's `plan`
- * is a pure function of the bundle and the project, and the environment is `doctor`'s subject rather
- * than install's input.
+ * Nothing here reads the environment. A `${VAR}` in an MCP entity becomes a reference in the target
+ * harness's own syntax rather than a resolved value, so an adapter's `plan` is a pure function of the
+ * bundle and the project; the environment is `doctor`'s concern, not install's.
  */
 import type {
   AppliedArtifact,
@@ -93,10 +88,9 @@ export interface AdapterPlan {
 /**
  * A project resolved and planned, with nothing written yet.
  *
- * This is the point every mutating command starts from: `install` applies it, `--dry-run` prints it,
- * and `prune` uses it only to know what the current bundle keeps. Sharing it is what stops the three
- * from disagreeing about what the bundle is — the same argument `status.ts` makes for planning
- * through the adapters rather than reasoning about state.
+ * Every mutating command starts from this: `install` applies it, `--dry-run` prints it, and `prune`
+ * uses it to know what the current bundle keeps. Sharing it keeps the three from disagreeing about
+ * what the bundle is.
  */
 export interface PlannedInstall {
   readonly bundle: Bundle;
@@ -177,9 +171,9 @@ export function adaptersFor(harnesses: readonly string[]): readonly HarnessAdapt
  * What makes two planned artifacts the same artifact.
  *
  * A path, for anything owned as a path. For a config file the path is not enough, because ambit owns
- * *keys* there rather than the file: two harnesses writing different entries into one document both
- * have to write, so identity is the whole write — the section, the driver it goes through, the root
- * keys it seeds, and the entries themselves.
+ * *keys* there, not the file: two harnesses writing different entries into one document both have to
+ * write. Identity there is the whole write: the section, the driver, the root keys it seeds, and the
+ * entries themselves.
  */
 function identityOf(artifact: PlannedArtifact): string {
   if (artifact.kind !== "harness-config") return artifact.path;
@@ -196,25 +190,22 @@ function identityOf(artifact: PlannedArtifact): string {
 /**
  * Every adapter's plan, with each artifact planned exactly once.
  *
- * The skills directory is shared, so *every* harness plans the same `.agents/skills/<name>` targets,
- * and two harnesses of one family plan the same skills link. Those are not two artifacts that happen
- * to collide — a path is an artifact's identity — so the first adapter to name one plans it and the
- * rest defer. Without this the second adapter's `apply` finds a symlink the first just created and
- * refuses, state records the same path twice, and `install` prints it twice.
+ * The skills directory is shared: every harness plans the same `.agents/skills/<name>` targets, and
+ * two harnesses of one family plan the same skills link. A path is an artifact's identity, so the
+ * first adapter to name one plans it and the rest defer. Without this, the second adapter's `apply`
+ * finds a symlink the first just created and refuses, state records the same path twice, and
+ * `install` prints it twice.
  *
- * A config file two harnesses write the *same* entries into goes the same way, and for the same
- * reason: Claude and VS Code read one `.claude/settings.json`, so a project configuring both writes it
- * once. Anything else about a config artifact differing — a different section, a different rendering
- * of the same hook — makes it a second write rather than a duplicate, because dropping it would
- * quietly install less than the project asked for.
+ * A config file two harnesses write the *same* entries into is deduped the same way: Claude and VS
+ * Code read one `.claude/settings.json`, so a project configuring both writes it once. Anything else
+ * differing about a config artifact (a different section, a different rendering of the same hook)
+ * makes it a second write, since dropping it would install less than the project asked for.
  *
- * A shared `.agents/hooks/<name>` is the case this dedupe was widened for and needed no widening: every
- * harness that can express a hook plans the same directory for it, exactly as every harness plans the
- * same skill directories, so the first to name it plans it and the rest defer.
+ * A shared `.agents/hooks/<name>` dedupes the same way: every harness that can express a hook plans
+ * the same directory for it.
  *
- * @param adapters the harnesses to plan for, in the order they were configured — which is the order
- *   that decides who plans a shared target, and is sorted, so it does not depend on `ambit.yml`'s
- *   spelling.
+ * @param adapters the harnesses to plan for, in configured order, sorted so the result does not
+ *   depend on `ambit.yml`'s spelling. This order decides who plans a shared target.
  */
 export function planFor(
   adapters: readonly HarnessAdapter[],
@@ -237,9 +228,8 @@ export function planFor(
  * What the command doing the planning contributes, as against what the CLI parsed into
  * {@link InstallOptions}.
  *
- * Separate from the options for exactly that reason: neither field is a flag anyone types. They are how
- * `install`, `install --dry-run`, `prune` and `ambit update`'s trailing install say which of them is
- * asking.
+ * Separate from the options because neither field is a flag anyone types. They are how `install`,
+ * `install --dry-run`, `prune`, and `ambit update`'s trailing install say which of them is asking.
  */
 export interface PlanContext {
   /**
@@ -267,37 +257,33 @@ interface CatalogPlan {
 /**
  * Decides, per catalog, whether it reproduces a commit or asks where its ref points.
  *
- * **A pinned catalog reproduces.** `readCatalogPins` hands back the commit the lock recorded for every
- * catalog whose `source` and `ref` are still what config says, and resolution takes that commit instead
- * of asking. That is what makes a committed lock mean something: without it a moving `ref:` was answered
- * from the machine-wide git cache, which refetches only when it cannot resolve a ref at all — so the
- * commit a project got was whatever the shared clone held, and any other project on the machine could
- * move it.
+ * A pinned catalog reproduces: `readCatalogPins` hands back the commit the lock recorded for every
+ * catalog whose `source` and `ref` still match config, and resolution takes that commit instead of
+ * asking. This is what makes a committed lock mean something. Without it, a moving `ref:` would be
+ * answered from the machine-wide git cache, which refetches only when it cannot resolve a ref at
+ * all, so the commit a project got would be whatever the shared clone held, and any other project on
+ * the machine could move it.
  *
- * **An unpinned catalog asks.** Three ways to be unpinned, and the same argument covers all three: a
- * project with no lock, a catalog added since the lock was written, and a catalog whose `ref:` was just
- * edited. None of them has an earlier resolution to agree with, so there is nothing to reproduce, and the
- * only defensible meaning of `ref: main` is the commit main names *now*. Inheriting the shared clone's
- * answer instead is the silent failure this whole mechanism exists to remove: an old catalog installs
- * fine, right up until it does not, and then it is a resolution error about a catalog that has been
- * correct upstream for weeks.
+ * An unpinned catalog asks. It is unpinned in three cases: no lock yet, a catalog added since the
+ * lock was written, or a `ref:` just edited. None has an earlier resolution to reproduce, so `ref:
+ * main` means the commit main names now. Inheriting the shared clone's answer instead would mean an
+ * old catalog installs fine until it silently doesn't, surfacing later as a resolution error about a
+ * catalog that has been correct upstream for weeks.
  *
- * A `released` catalog does neither: its pin is dropped, and it is not refreshed either, because
- * `ambit update` already moved the clone to the commit it reported and asking again would risk resolving
- * to something it did not.
+ * A `released` catalog does neither: its pin is dropped, and it is not refreshed, because `ambit
+ * update` already moved the clone to the commit it reported, and asking again risks a different
+ * answer.
  *
- * `--offline` opts out of every refresh, because it is a promise not to reach the remote and outranks
- * this. It does not opt out of pins — reproducing a recorded commit is the one thing an offline run can
- * do *better* than resolving a ref, since a commit in the cache is an answer and a stale branch is not.
+ * `--offline` disables every refresh, but not pins: reproducing a recorded commit works offline
+ * (the commit is in the cache), resolving a ref does not.
  *
- * `doctor`, `clean` and `prune` plan with no mode at all: they report on or dismantle what is installed,
- * and neither is an install asking what its catalogs say today. They still honour pins, so all three
- * agree with the install they are describing.
+ * `doctor`, `clean`, and `prune` plan with no refresh mode: they report on or dismantle what is
+ * installed rather than asking what catalogs say today. They still honour pins, so all three agree
+ * with the install they describe.
  *
- * `"advance"` rather than `"probe"` for `install`, and for the same reason `ambit update` advances: a
- * clone is shared, so a probe would resolve this install against a commit the *next* run — reading the
- * clone's own refs, and now holding a lock — would not agree with, which is the drift this is here to
- * remove rather than a milder form of it. The cost is the one `refreshPlan` in `update.ts` already names:
+ * `install` uses `"advance"`, not `"probe"`, for the same reason `ambit update` advances: the clone
+ * is shared, so a probe would resolve against a commit the next run (reading the clone's own refs,
+ * now with a lock) would disagree with. The cost, as `refreshPlan` in `update.ts` also notes, is that
  * another project pointed at the same repository sees the moved clone too.
  */
 async function catalogPlan(
@@ -325,10 +311,9 @@ async function catalogPlan(
 /**
  * Resolves the project and plans every adapter's writes, touching nothing.
  *
- * Everything up to the first write lives here so that `install`, `install --dry-run` and
- * `ambit prune` share one notion of what the project resolves to. Reading state is part of it: it is
- * an input to the run rather than something the run decides, and reading it is not touching the
- * project.
+ * Everything up to the first write lives here, so `install`, `install --dry-run`, and `ambit prune`
+ * share one notion of what the project resolves to. Reading state is part of it: it is an input to
+ * the run, not something the run decides, and reading is not touching the project.
  *
  * @param projectDir the project root, absolute.
  * @param options `--offline` and `--copy`/`--link`, which are the two that change a plan.
@@ -346,9 +331,8 @@ export async function planInstall(
   const harnesses = [...new Set(config.harnesses)].sort(compare);
   const adapters = adaptersFor(harnesses);
 
-  // `process.env` is read once, here, and only for source resolution — where the cache lives, and
-  // what a `git:` source authenticates with — so nothing deeper down reaches for ambient state of
-  // its own.
+  // `process.env` is read once, here, only for source resolution (where the cache lives, what a
+  // `git:` source authenticates with). Nothing deeper reaches for ambient state of its own.
   const context: SourceContext = {
     projectDir,
     env: process.env,
@@ -363,15 +347,15 @@ export async function planInstall(
   const bundle = resolveBundle(config, mergeCatalogs(loaded));
 
   // Serialized up front so `--frozen` compares the same bytes the run would go on to write, rather
-  // than a second rendering that could differ from it.
+  // than a second rendering that could differ.
   const lock = buildLock(loaded, bundle);
   const project: ProjectPaths = {
     root: projectDir,
     ...(options.mode !== undefined && { mode: options.mode }),
   };
 
-  // Every adapter plans before any of them writes: the ownership check has to see every target
-  // first, or a project whose second skill collides is left with its first one already installed.
+  // Every adapter plans before any of them writes, so the ownership check sees every target before a
+  // project whose second skill collides is left with its first one already installed.
   const plans = planFor(adapters, bundle, project);
 
   return {
@@ -379,8 +363,8 @@ export async function planInstall(
     harnesses,
     plans,
     artifacts: plans.flatMap(({ plan }) => plan),
-    // Asked of every configured adapter, not only the ones that planned something: a harness with no
-    // hook mechanism plans nothing at all, which is exactly the case worth saying out loud.
+    // Asked of every configured adapter, not only the ones that planned something, so a harness with
+    // no hook mechanism is reported as skipping every hook rather than silently.
     skipped: adapters.flatMap((adapter) => adapter.skips(bundle)),
     prior: await readState(projectDir),
     lock,
@@ -393,11 +377,11 @@ export async function planInstall(
  *
  * A print of the plan rather than a second implementation of installation: the artifacts come from
  * the same `plan` call `apply` would receive, the removals from the same `planPrune` install acts on,
- * and the two derived files are answered by asking the pure functions that write them whether they
- * would change anything. Nothing here is a prediction ambit makes twice.
+ * and the two derived files come from the same pure functions that write them, asked whether they
+ * would change anything.
  *
  * Ownership is checked, because a refusal is part of what would happen: a dry run of an install that
- * would stop should stop, and say the same thing.
+ * would stop should also stop, and say why.
  *
  * @param projectDir the project root, absolute.
  * @param options every flag `install` takes; `--frozen` still refuses a stale lock, since refusing is
@@ -410,16 +394,13 @@ export async function previewInstall(
   projectDir: string,
   options: InstallOptions = {},
 ): Promise<InstallPreview> {
-  // `"probe"` rather than `"advance"`: an unpinned catalog resolves against what the remote says now
-  // (see {@link catalogPlan}), and a dry run has to report that same commit without leaving the
-  // cache's own refs moved — the run is a preview, and the install it previews is what moves them.
+  // `"probe"`, not `"advance"`: an unpinned catalog resolves against what the remote says now (see
+  // {@link catalogPlan}), and a preview must report that commit without moving the cache's own refs.
   const planned = await planInstall(projectDir, options, { refresh: "probe" });
   if (options.frozen === true) await assertLockCurrent(projectDir, planned.lockText);
   await authorizePlan(planned.artifacts, planned.prior, { adopt: options.adopt === true });
 
   const pruned = planPrune(planned.artifacts, planned.prior);
-  // The blocks install would write are derived from the artifacts it wrote, which here are the ones
-  // it would write.
   const gitignore = await gitignoreStatus(projectDir, planned.artifacts);
 
   return {
@@ -463,17 +444,16 @@ export async function installProject(
     artifacts.push(...(await adapter.apply(plan, owner)));
   }
 
-  // Against `prior` rather than `owner`: what `--adopt` just took over is by definition in the plan,
-  // so the two agree here, and pruning should be answerable from what the last install recorded.
+  // Against `prior`, not `owner`: what `--adopt` just took over is already in the plan, so the two
+  // agree here, and pruning is answerable from what the last install recorded.
   const pruned = await pruneArtifacts(projectDir, planned.artifacts, prior);
 
   await writeLockText(projectDir, lockText);
   await writeState(projectDir, { version: STATE_VERSION, harnesses, artifacts });
 
-  // Last, and deliberately after state: the blocks are derived from what was just written and are
-  // rendered afresh every run, so a failure here is the one that costs nothing — the next install
-  // rewrites them — whereas failing before `writeState` would leave correctly installed artifacts
-  // unowned and the next plain install refusing them.
+  // Last, deliberately after state: the blocks are rendered afresh every run, so a failure here
+  // costs nothing (the next install rewrites them), whereas failing before `writeState` would leave
+  // correctly installed artifacts unowned and the next plain install refusing them.
   await writeGitignoreBlocks(projectDir, artifacts);
 
   return { bundle, harnesses, artifacts, skipped, pruned, lock };

@@ -1,13 +1,11 @@
 /**
  * How `outdated` and `update` render where a pin stands and what moving it changes.
  *
- * The two commands print the same report — `update` adds what the install then did — so the
- * projections live here once, for the reason `artifacts.ts` gives: a reader moving between them
- * should not have to work out whether two tools are describing one project.
+ * `outdated` and `update` print the same report (`update` adds what the install then did), so the
+ * projections live here once rather than in each command.
  *
- * The commit column is abbreviated because the report is not about SHAs. A full pair of forty-hex
- * strings pushes everything worth reading off the line, and the lock already holds the exact commits
- * for anyone who needs them.
+ * The commit column is abbreviated: a full pair of forty-hex strings pushes everything worth reading
+ * off the line, and `ambit.lock` already holds the exact commits for anyone who needs them.
  */
 import type { BundleChange, BundleDiff } from "../../project/bundle-diff.js";
 import { countChanges } from "../../project/bundle-diff.js";
@@ -34,8 +32,8 @@ function abbreviate(commit: string): string {
 /**
  * Where a pin stands, in one cell: the commit, or the move it would make.
  *
- * A catalog that has not moved shows one commit rather than the same one twice — the arrow is the
- * report, so printing it where nothing changed would make every row look like a change.
+ * A catalog that has not moved shows one commit rather than the same one twice: the arrow means
+ * change, so printing it where nothing changed would make every row look like one.
  */
 function transitionOf(pin: CatalogPin): string {
   if (pin.commit === undefined) return NO_COMMIT;
@@ -52,7 +50,7 @@ export function pinRows(pins: readonly CatalogPin[]): readonly (readonly string[
  * Every pin as a name-keyed JSON record.
  *
  * Full commits here, unlike the text form: a consumer comparing this against `ambit.lock` needs the
- * value the lock holds, and abbreviating for a machine would only make it re-lengthen them.
+ * exact value the lock holds.
  */
 export function pinJson(pins: readonly CatalogPin[]): Readonly<Record<string, unknown>> {
   return keyed(
@@ -76,8 +74,8 @@ function changeRows(changes: readonly BundleChange[]): readonly (readonly string
 /**
  * One namespace's changes as JSON records, in the order the text form lists them.
  *
- * A list rather than a name-keyed map, unlike everything else ambit emits, because the counts are what
- * a consumer reads first and a map would make them count keys by hand.
+ * A list rather than a name-keyed map, unlike everything else ambit emits: the counts are what a
+ * consumer reads first, and a map would make them count keys by hand.
  */
 function changeJson(changes: readonly BundleChange[]): Readonly<Record<string, unknown>> {
   return {
@@ -93,9 +91,8 @@ function changeJson(changes: readonly BundleChange[]): Readonly<Record<string, u
 /**
  * The whole bundle diff as one section per namespace, in the order every other report lists them.
  *
- * The packs lead, and they are worth a section of their own even though a pack materializes nothing:
- * a pack whose membership moved is the *cause* of most of the rows below it, and a report that showed
- * only the effects would send a reader looking for a change that is not in any of them.
+ * Packs lead even though a pack materializes nothing: a pack whose membership moved is the cause of
+ * most of the rows below it.
  */
 export function diffSections(diff: BundleDiff): readonly string[] {
   return [

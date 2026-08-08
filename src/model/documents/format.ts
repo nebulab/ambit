@@ -1,18 +1,15 @@
 /**
  * The document-format seam.
  *
- * A harness config file is never ambit's document. `.mcp.json` may hold servers someone added by
- * hand; `.codex/config.toml` holds a person's model, sandbox and approval settings; an
- * `opencode.jsonc` holds their comments. So every driver here answers the same three questions —
- * what keys are in the managed section, what the file looks like with ambit's entries merged in, and
- * what it looks like with them removed — and each one is required to leave everything it does not own
- * exactly as it found it.
+ * A harness config file is never ambit's document alone. `.mcp.json` may hold servers added by hand;
+ * `.codex/config.toml` holds a person's model, sandbox and approval settings; `opencode.jsonc` holds
+ * their comments. Every driver here answers the same three questions — what keys are in the managed
+ * section, what the file looks like with ambit's entries merged in, and what it looks like with them
+ * removed — and must leave everything it does not own exactly as it found it.
  *
- * Drivers take and return **text** rather than a parsed document. Two formats here cannot be
- * round-tripped through a parse without losing something a person wrote (TOML comments, JSONC
- * comments), so text is the only representation all three share, and the only one in which
- * "unchanged" means what it says. The files are a few hundred bytes; parsing one twice costs nothing
- * worth designing around.
+ * Drivers take and return text rather than a parsed document. TOML and JSONC cannot round-trip
+ * through a parse without losing comments, so text is the only representation all three formats
+ * share, and the only one in which "unchanged" means what it says.
  */
 import { readFile } from "node:fs/promises";
 
@@ -27,13 +24,13 @@ export type DocumentFormat = (typeof DOCUMENT_FORMATS)[number];
 /**
  * The two shapes a managed section can have.
  *
- * `map` is a table keyed by an entity's name — `mcpServers.<name>` — where identity is written in the
+ * `map` is a table keyed by an entity's name (`mcpServers.<name>`), where identity is written in the
  * document and a merge is a key assignment. `array` is `<Event>: [entries]`, the shape every harness
- * uses for hooks, where nothing in the document says which entry belongs to whom: identity has to be
- * derived from the entry's content, and a merge is an append.
+ * uses for hooks, where nothing in the document says which entry belongs to whom: identity is derived
+ * from the entry's content, and a merge is an append.
  *
- * A shape is not a property of the format. `.mcp.json` and `.claude/settings.json` are both JSON, so
- * the format alone cannot pick a driver and both have to be carried.
+ * Shape is not a property of format: `.mcp.json` and `.claude/settings.json` are both JSON, so format
+ * alone cannot pick a driver and both have to be carried.
  */
 export const DOCUMENT_SHAPES = ["map", "array"] as const;
 
@@ -60,9 +57,9 @@ export function isRecord(value: unknown): value is JsonObject {
 /**
  * Structural equality, ignoring key order.
  *
- * What "unchanged" means for a format ambit can parse losslessly: a person may have reformatted the
- * file or reordered a server's keys, and ambit owns the server rather than its layout — so neither is
- * drift, and reporting it as drift would send someone to look at a file that is already correct.
+ * This is what "unchanged" means for a format ambit can parse losslessly. A person may have
+ * reformatted the file or reordered a server's keys; ambit owns the server, not its layout, so
+ * neither counts as drift.
  */
 export function structurallyEqual(expected: unknown, actual: unknown): boolean {
   if (expected === actual) return true;
@@ -90,15 +87,15 @@ export interface DocumentDriver {
    * The keys currently in the managed section — what ownership enforcement compares a plan against.
    *
    * An absent file, an absent section, or a section that is not a table of keys all read as empty:
-   * none of them is a *collision* with anything ambit would write, and an unusable section is
-   * {@link DocumentDriver.mergeSection}'s error to raise, since that is the code which cannot
-   * proceed with it.
+   * none is a collision with anything ambit would write. An unusable section is
+   * {@link DocumentDriver.mergeSection}'s error to raise instead, since that is the code which
+   * cannot proceed with it.
    */
   sectionKeys(text: string | undefined, section: string, file: string): ReadonlySet<string>;
   /**
    * The file with `entries` merged into the managed section.
    *
-   * Keys already present keep their position and only new ones are appended, so an install does not
+   * Keys already present keep their position; only new ones are appended, so an install does not
    * reorder lines ambit does not own.
    */
   mergeSection(
@@ -110,9 +107,9 @@ export interface DocumentDriver {
   /**
    * Whether one entry is already in the file as install would write it — `status`'s drift question.
    *
-   * Each format answers in its own terms rather than through a single shared rule, because what counts
-   * as "the same" differs: where a document can be parsed losslessly, key order and indentation are
-   * not differences, and where it cannot, the bytes ambit would write are the only available answer.
+   * Each format answers in its own terms, because what counts as "the same" differs: where a document
+   * parses losslessly, key order and indentation are not differences; where it cannot, the bytes
+   * ambit would write are the only available answer.
    */
   entryMatches(
     text: string | undefined,
@@ -123,9 +120,8 @@ export interface DocumentDriver {
   /**
    * The file with `keys` removed from the managed section, or `undefined` when it held none of them.
    *
-   * `undefined` is what lets a caller skip the write entirely rather than rewriting a file it has
-   * nothing to change — which is what keeps a prune with nothing stale byte-identical, and what stops
-   * pruning from recreating a file someone deleted by hand.
+   * `undefined` lets a caller skip the write entirely: it keeps a prune with nothing stale
+   * byte-identical, and stops pruning from recreating a file someone deleted by hand.
    */
   removeKeys(
     text: string | undefined,
@@ -141,8 +137,7 @@ export interface DocumentDriver {
  * @param target the absolute path to read.
  * @param file how the file is named in errors, conventionally project-relative.
  * @throws {AmbitError} exit 2 when the file exists but cannot be read. "I could not look" is not the
- *   same answer as "nothing is there", and guessing the second would be guessing in the one
- *   direction that destroys data.
+ *   same answer as "nothing is there"; treating it as the latter risks destroying data.
  */
 export async function readDocumentText(target: string, file: string): Promise<string | undefined> {
   try {

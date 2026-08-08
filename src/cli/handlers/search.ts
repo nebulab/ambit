@@ -1,34 +1,23 @@
 /**
  * `ambit search <pattern>` — search the merged catalog.
  *
- * A consumer command, and named as one. Its subject is a *project*: the merged view is what several
- * catalogs and one `ambit.yml` add up to, which no catalog directory holds on its own. It spent its
- * first life as `ambit catalog` — the default action of the group that also maintains a catalog —
- * where it was the one command under that word reading `ambit.yml` while every other read a catalog
- * root, and then as `ambit dump-catalog`, which named the *implementation* (a dump) after a noun that
- * is plural in every real project. What a reader wants from this command is one item they half
- * remember, so the name is the question and the filters are how it is narrowed.
+ * The subject is the project's merged view: several catalogs plus one `ambit.yml`, which no single
+ * catalog directory holds on its own. `ambit search "*"` prints the whole merged catalog. `--json`
+ * output carries no absolute paths and emits every record in the merged catalog's own order (by name,
+ * then by catalog), so it is comparable between machines and stable enough to commit as a golden file.
  *
- * This is still the window onto everything resolution works from, so it prints what was parsed rather
- * than a summary of it, and `ambit search "*"` is the whole merged catalog. `--json` output carries no
- * absolute paths and emits every record in the merged catalog's own order — by name, then by
- * catalog — so it is comparable between machines and stable enough to commit as a golden file.
+ * Each JSON record is keyed by an item's address, `<catalog>/<name>`, not by its name alone: a name is
+ * not unique in this view (two catalogs may both provide `house-style`), and a name-keyed record would
+ * drop one copy. The text form doesn't need this since it already prints one row per copy with the
+ * catalog in its own column.
  *
- * Each JSON record is keyed by an item's **address** — `<catalog>/<name>` — and not by its name,
- * because a name is not unique in this view: two catalogs may both provide `house-style`, both copies
- * are here, and a name-keyed record would silently drop one of them. That is exactly the loss the
- * merge stopped performing, so the window onto it must not reintroduce it. The text form needs no
- * such thing: it already prints one row per copy with the catalog in its own column.
+ * Three filters: `<pattern>` matches names, `--capability` picks namespaces, `--catalog` picks
+ * catalogs. Repeating one flag widens it (`--catalog a --catalog b` is *either*); different flags
+ * narrow (a skill in neither catalog is not a result).
  *
- * **Three filters, and the pattern is one of them.** `<pattern>` matches names, `--capability` picks
- * namespaces, `--catalog` picks catalogs. Repeating one flag widens (`--catalog a --catalog b` is
- * *either*), and different flags narrow (a skill in neither catalog is not a result). That is the
- * only combination a person means by typing both, and stating it here is cheaper than a reader
- * inferring it from the loop.
- *
- * **A pattern matching nothing is exit 0**, which is the opposite of what the same pattern means in a
- * `requires` entry. The two are asking different questions: a requirement that reaches nothing is a
- * config that will not do what it says, while a search that finds nothing is the answer to the search.
+ * A pattern matching nothing is exit 0. This differs from a `requires` entry matching nothing: a
+ * requirement that reaches nothing is a broken config, while a search that finds nothing is just the
+ * answer to the search.
  */
 import type {
   Catalog,
@@ -54,11 +43,10 @@ import { keyed, printSections, section } from "../output.js";
 const UNDESCRIBED = "-";
 
 /**
- * A `requires` list as a record carries it: the namespace and the pattern kept apart, as the document
- * writes them.
+ * A `requires` list as a record, with namespace and pattern kept apart as the document writes them.
  *
- * No `catalog` key, because a catalog's own entry carries no qualifier — it resolves within the
- * catalog the record is already keyed by.
+ * No `catalog` key: a catalog's own entry carries no qualifier, since it resolves within the catalog
+ * the record is already keyed by.
  */
 function requiresJson(
   requires: readonly PatternEntry[],
@@ -66,13 +54,7 @@ function requiresJson(
   return requires.map((entry) => ({ kind: entry.kind, pattern: entry.pattern }));
 }
 
-/**
- * One pack: what it is for, and what asking for it gets you.
- *
- * This is the record that makes a pack worth being a document. The grouping it replaced was a
- * free-form label, so this view could only ever have listed which strings an item happened to carry;
- * a pack has a description and an enumerable membership, and both are here.
- */
+/** One pack: what it is for, and what asking for it gets you. */
 function packJson(pack: MergedPack): Readonly<Record<string, unknown>> {
   return {
     catalog: pack.catalog,
@@ -108,9 +90,7 @@ function mcpJson(mcp: MergedMcp): Readonly<Record<string, unknown>> {
   };
 }
 
-/**
- * One hook, including the one fact a reader cannot see in the document: which catalog provided it.
- */
+/** One hook, including the catalog that provided it, which the document itself doesn't say. */
 function hookJson(hook: MergedHook): Readonly<Record<string, unknown>> {
   return {
     catalog: hook.catalog,
@@ -144,7 +124,7 @@ function transportSummary(transport: McpTransport): string {
   }
 }
 
-/** What the hook runs, and — for a shipped script — that it is one, since the name alone cannot say. */
+/** What the hook runs. Marks a shipped script explicitly, since the name alone doesn't say. */
 function commandSummary(hook: MergedHook): string {
   return hook.type === "script" ? `${hook.command} (shipped)` : hook.command;
 }
@@ -152,11 +132,9 @@ function commandSummary(hook: MergedHook): string {
 /**
  * The three filters, already checked against the project, in the form the walk below wants them.
  *
- * A filter absent from the command line is an empty set rather than a set holding everything, and
- * every test is `set.size === 0 || set.has(x)`. The alternative — expanding an absent `--capability`
- * into all four kinds — reads the same for one run and lies for the next: it makes *asked for
- * nothing* and *asked for all four* indistinguishable, and the only place that matters is the one
- * place it would be checked.
+ * A filter absent from the command line is an empty set rather than a set holding everything; every
+ * test is `set.size === 0 || set.has(x)`. Expanding an absent `--capability` into all four kinds would
+ * make "asked for nothing" and "asked for all four" indistinguishable.
  */
 interface SearchFilter {
   /** The glob every result's name must match. Always present: the pattern is a required argument. */
@@ -171,11 +149,10 @@ interface SearchFilter {
  * The filters as the command line gave them, with every `--catalog` checked against what the project
  * actually lists.
  *
- * An unknown catalog alias is exit 2 rather than an empty result, and this is the one place in the
- * command where nothing-found is an error. The difference is what a reader can act on: a pattern
- * matching nothing has the pattern to look at, while `--catalog acme` when the config spells it
- * `acme-core` produces an empty listing that looks exactly like a catalog with no matching items.
- * So the flag that names a thing is checked, and the flag that describes a thing is not.
+ * An unknown catalog alias is exit 2 rather than an empty result. Otherwise `--catalog acme` when the
+ * config spells it `acme-core` would produce an empty listing indistinguishable from a catalog with no
+ * matching items. The flag that names a thing is checked; the flag that describes a thing (the
+ * pattern) is not, since a pattern matching nothing is a legitimate answer.
  *
  * @throws {AmbitError} exit 2 when a `--catalog` names no catalog in `ambit.yml`.
  */
@@ -198,7 +175,7 @@ function filterOf(ctx: CommandContext, configured: readonly string[]): SearchFil
   }
 
   // Filtered out of `ITEM_KINDS` rather than built from what was typed, so the set is `ItemKind`
-  // without a cast — the CLI already refuses a value that is not one of the four.
+  // without a cast. The CLI already refuses a value that is not one of the four.
   const capabilities = listOf(ctx, "capability");
   return {
     pattern: ctx.args[0] ?? "",
@@ -215,9 +192,9 @@ function wants(filter: SearchFilter, kind: ItemKind): boolean {
 /**
  * The items of one namespace that survive the pattern and the `--catalog` filter.
  *
- * The `--capability` filter is not applied here: it decides whether a *section* is printed at all,
- * which is a question about the report rather than about any item, and applying it per item would
- * leave `--capability skill` printing three empty sections it was told not to show.
+ * `--capability` is not applied here: it decides whether a whole section is printed, not whether an
+ * item survives. Applying it per item would still leave `--capability skill` printing three empty
+ * sections it was told not to show.
  */
 function matching<T extends { readonly name: string; readonly catalog: string }>(
   items: readonly T[],
@@ -235,8 +212,8 @@ function matching<T extends { readonly name: string; readonly catalog: string }>
  *
  * A namespace `--capability` excluded becomes empty here rather than absent, so both output modes
  * take the same shape from the same value: the text form asks {@link wants} which sections to print,
- * and the JSON form emits all four keys whatever was asked for, so a script reading `.skills` never
- * has to check whether the key exists.
+ * and the JSON form always emits all four keys, so a script reading `.skills` never has to check
+ * whether the key exists.
  */
 function narrow(merged: MergedCatalog, filter: SearchFilter): MergedCatalog {
   return {
@@ -256,8 +233,8 @@ function toText(
   merged: MergedCatalog,
   filter: SearchFilter,
 ): readonly string[] {
-  // The catalogs actually searched, so the header answers "where did I just look" rather than
-  // "what does this project list" — the two differ exactly when `--catalog` was given.
+  // The catalogs actually searched, so the header answers "where did I just look", not "what does
+  // this project list". The two differ when `--catalog` was given.
   const searched = catalogs.filter(
     (catalog) => filter.catalogs.size === 0 || filter.catalogs.has(catalog.name),
   );
@@ -268,8 +245,8 @@ function toText(
 
   return [
     ...heading,
-    // Packs first, and carrying their descriptions, because this is the section a person browsing a
-    // catalog is actually reading: it is the list of things there are names for.
+    // Packs first, and carrying their descriptions, since this is the list of things there are
+    // names for.
     ...(wants(filter, "pack")
       ? section(
           "packs",

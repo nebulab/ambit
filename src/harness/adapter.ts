@@ -1,14 +1,13 @@
 /**
  * The harness adapter boundary.
  *
- * One adapter ships in v1, but the seam is explicit anyway: `plan` is pure and therefore
- * testable without a filesystem, and `apply` is the only thing in ambit that writes into a
- * project. Keeping that split is what makes `--dry-run` a print of the plan rather than a second
+ * `plan` is pure and testable without a filesystem; `apply` is the only thing in ambit that writes
+ * into a project. This split makes `--dry-run` a print of the plan rather than a second
  * implementation of installation.
  *
- * A planned artifact carries both its project-relative `path` — the identity state records, and
- * the only form that survives the project being moved — and its absolute `target`, so `apply`
- * writes exactly what `plan` decided and never re-derives a location.
+ * A planned artifact carries both its project-relative `path` (the identity state records, and the
+ * only form that survives the project being moved) and its absolute `target`, so `apply` writes
+ * exactly what `plan` decided and never re-derives a location.
  */
 import type {
   ConfigEntry,
@@ -21,12 +20,11 @@ import type { Bundle } from "../resolution/resolve.js";
 import type { ArtifactMode, OwnedArtifact, State } from "../model/state.js";
 
 /**
- * Where — and how — a bundle is being materialized.
+ * Where, and how, a bundle is being materialized.
  *
- * Nothing about the environment appears here, and that is the point: ambit writes a harness-native
- * reference for every `${VAR}` rather than a value, so a plan is a function of the bundle and the
- * project alone. Two people installing the same bundle get byte-identical files whatever their shells
- * hold, and `plan` has nothing ambient to read.
+ * Nothing about the environment appears here: ambit writes a harness-native reference for every
+ * `${VAR}` rather than a value, so a plan is a function of the bundle and the project alone. Two
+ * people installing the same bundle get byte-identical files whatever their shells hold.
  */
 export interface ProjectPaths {
   /** The project root, absolute. Every artifact path is relative to it. */
@@ -34,9 +32,9 @@ export interface ProjectPaths {
   /**
    * `--copy` / `--link`: force every skill's materialization mode for this run.
    *
-   * Absent — the normal case — means each skill follows its own source: a pinned remote one is
-   * copied, a local one is symlinked. Carried here rather than read from a flag inside the adapter,
-   * because `plan` decides the mode and must decide it from its arguments.
+   * Absent (the normal case) means each skill follows its own source: a pinned remote one is
+   * copied, a local one is symlinked. Carried here, rather than read from a flag inside the
+   * adapter, because `plan` must decide the mode from its arguments alone.
    */
   readonly mode?: ArtifactMode;
 }
@@ -62,14 +60,13 @@ export interface PlannedSkillDir {
 /**
  * A hook's own directory to materialize — the bytes a hook that ships a script is made of.
  *
- * Field for field a {@link PlannedSkillDir}, because it is the same artifact: a directory inside a
- * catalog, put under `.agents/` in one of two modes, owned as a whole path. Only the kind differs, and
- * it differs so that state, pruning, `status` and the gitignore blocks can say which of the two they
- * are looking at — a hook directory is not a skill and reporting it as one would be a lie in every one
- * of those places.
+ * Field for field a {@link PlannedSkillDir}, because it is the same kind of artifact: a directory
+ * inside a catalog, put under `.agents/` in one of two modes, owned as a whole path. Only `kind`
+ * differs, so state, pruning, `status`, and the gitignore blocks can tell a hook directory from a
+ * skill.
  *
- * Planned only for a hook whose `command` names a file its directory holds. Any other hook is a command
- * line and some config values, so it plans a config entry and nothing else.
+ * Planned only for a hook whose `command` names a file its directory holds. Any other hook is a
+ * command line and some config values, so it plans a config entry and nothing else.
  */
 export interface PlannedHookDir {
   readonly kind: "hook-dir";
@@ -80,9 +77,9 @@ export interface PlannedHookDir {
   /** Absolute source directory within the catalog. */
   readonly source: string;
   /**
-   * How the source reaches the target — the same rule a skill follows: copied for a source pinned to a
-   * commit, symlinked for a local directory someone edits, and forced for the whole run by
-   * `--copy`/`--link`. `cp` preserves mode, so a script's executable bit survives either.
+   * How the source reaches the target — the same rule a skill follows: copied for a source pinned
+   * to a commit, symlinked for a local directory someone edits, forced for the whole run by
+   * `--copy`/`--link`. `cp` preserves mode, so a script's executable bit survives either way.
    */
   readonly mode: ArtifactMode;
   /** The hook's name, so a failure names the hook and not only a path. */
@@ -92,8 +89,8 @@ export interface PlannedHookDir {
 /**
  * A directory symlink pointing a harness at the shared skills directory.
  *
- * Separate from a skill directory because it is one artifact whatever the bundle holds, and because it
- * is the one thing ambit installs that a harness reads *through* rather than reads.
+ * Separate from a skill directory because it is one artifact regardless of what the bundle holds,
+ * and it is the one thing ambit installs that a harness reads through rather than reads directly.
  */
 export interface PlannedSkillsLink {
   readonly kind: "skills-link";
@@ -104,9 +101,9 @@ export interface PlannedSkillsLink {
   /** Absolute path the link points at: the shared skills directory. */
   readonly source: string;
   /**
-   * Always `link`, and carried anyway so that what `plan` describes and what `apply` records are the
-   * same shape. `--dry-run` prints the plan and `install` prints what it applied; the two are required
-   * to render identically, which they cannot do if one of them is missing a column.
+   * Always `link`, carried anyway so that what `plan` describes and what `apply` records are the
+   * same shape. `--dry-run` prints the plan and `install` prints what it applied, and the two must
+   * render identically.
    */
   readonly mode: "link";
 }
@@ -114,7 +111,7 @@ export interface PlannedSkillsLink {
 /**
  * A section of a harness's own config file to write.
  *
- * Unlike a skill directory the target is not ambit's to replace: the file may hold entries a
+ * Unlike a skill directory, the target is not ambit's to replace: the file may hold entries a
  * person added by hand, so `apply` merges into it and ownership is recorded per key.
  */
 export interface PlannedHarnessConfig {
@@ -130,17 +127,17 @@ export interface PlannedHarnessConfig {
   /**
    * How the managed section is laid out: a table keyed by name, or one array per event.
    *
-   * Carried beside `format` because the format cannot pick a driver on its own — `.mcp.json` and
+   * Carried beside `format` because the format alone cannot pick a driver — `.mcp.json` and
    * `.claude/settings.json` are both JSON. Absent reads as `"map"`, which is what every MCP config
-   * is.
+   * uses.
    */
   readonly shape?: DocumentShape;
   /**
    * Root keys the file should carry beside the managed section — Cursor's `version: 1`.
    *
-   * Seeded only where the document lacks the key, so ambit adds one creating the file and never
-   * overwrites a value someone else wrote. Not recorded in state, unlike `shape`: a removal applies no
-   * defaults, so prune and clean need nothing but the shape to edit this file.
+   * Seeded only where the document lacks the key, so ambit adds one when creating the file and
+   * never overwrites a value someone else wrote. Not recorded in state, unlike `shape`: removal
+   * applies no defaults, so prune and clean need only the shape to edit this file.
    */
   readonly rootDefaults?: JsonObject;
   /** What ambit puts there, sorted by key. */
@@ -159,10 +156,9 @@ export type PlannedPathArtifact = PlannedSkillDir | PlannedHookDir | PlannedSkil
 /**
  * The two artifacts that are a directory copied out of a catalog.
  *
- * One type because everything that acts on them acts on them identically: writing one, comparing one
- * against its source, and reporting the mode it landed in are the same operation whether the directory
- * holds a skill or a hook's script. Naming the union is what keeps that from being two implementations
- * that drift — see `applyCatalogDir` (`profile.ts`) and `catalogDirVerdict` (`project/status.ts`).
+ * One type because they are handled identically: writing, comparing against source, and reporting
+ * the landed mode are the same operation whether the directory holds a skill or a hook's script. See
+ * `applyCatalogDir` (`profile.ts`) and `catalogDirVerdict` (`project/status.ts`).
  */
 export type PlannedCatalogDir = PlannedSkillDir | PlannedHookDir;
 
@@ -175,10 +171,8 @@ export type AppliedArtifact = OwnedArtifact;
  * - `no-mechanism` — the harness expresses hooks nowhere, which is opencode.
  * - `no-event` — the harness expresses hooks, but has no spelling for this one's event.
  *
- * Two kinds rather than one string, because they are answered in different places: the first is a fact
- * about the harness and the second a fact about the vocabulary outgrowing a harness's event map. Neither
- * is an error — the hook installs everywhere else, and failing the run would make one harness in
- * `harnesses` able to veto every other harness's hooks.
+ * Neither is an error: the hook installs everywhere else. Failing the run would let one harness in
+ * `harnesses` veto every other harness's hooks.
  */
 export type HookSkipReason = "no-mechanism" | "no-event";
 
@@ -201,9 +195,9 @@ export interface HarnessAdapter {
   /**
    * The hooks in the bundle this harness cannot express, which `plan` leaves out.
    *
-   * Beside `plan` rather than inside it because a skipped hook is not an artifact: nothing writes it,
-   * nothing owns it, and nothing prunes it. It is only ever reported — so the two answers come from one
-   * predicate (`profile.ts`) and cannot disagree about which hooks were installed.
+   * Separate from `plan` because a skipped hook is not an artifact: nothing writes it, nothing owns
+   * it, nothing prunes it. Both answers come from one predicate (`profile.ts`), so they cannot
+   * disagree about which hooks were installed.
    */
   skips(bundle: Bundle): readonly SkippedHook[];
   /**

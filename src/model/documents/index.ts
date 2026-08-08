@@ -33,11 +33,11 @@ const MAP_DRIVERS: Readonly<Record<DocumentFormat, DocumentDriver>> = {
 
 /**
  * Only JSON, because every file with an array-shaped section is JSON: Claude's `settings.json`,
- * Cursor's `hooks.json`, Codex's `hooks.json`. Partial rather than padded out with drivers that would
- * write JSON into a `.toml`, so a pairing nothing supports is a refusal and not silent corruption.
+ * Cursor's `hooks.json`, Codex's `hooks.json`. Partial rather than padded with drivers that would
+ * write JSON into a `.toml`, so a pairing nothing supports is a refusal, not silent corruption.
  *
  * Factories rather than instances, because an array-section driver carries the root defaults of the
- * harness whose file it is about to edit — Cursor's `version: 1` — and those are the caller's to name.
+ * harness whose file it edits (Cursor's `version: 1`), and those are the caller's to name.
  */
 const ARRAY_DRIVERS: Readonly<
   Partial<Record<DocumentFormat, (rootDefaults?: JsonObject) => DocumentDriver>>
@@ -49,15 +49,15 @@ const ARRAY_DRIVERS: Readonly<
  * The driver for one format and section shape.
  *
  * The map row is total over `DocumentFormat`, so adding a format to that union is a type error here
- * until a driver exists for it — which is the point of keeping it exhaustive rather than looking one
- * up. An absent `shape` reads as `"map"`, exactly as an absent `format` reads as `json`: both fields
- * were added after artifacts were being recorded, and every one of those was a name-keyed JSON map.
+ * until a driver exists for it. An absent `shape` reads as `"map"`, exactly as an absent `format`
+ * reads as `json`: both fields were added after artifacts were already being recorded, and every one
+ * of those was a name-keyed JSON map.
  *
  * @param rootDefaults root keys to seed where the document lacks them, for an array-shaped section.
  *   Absent for every caller that only reads or removes: defaults belong to writing a document.
  * @throws {AmbitError} exit 1 for a format with no array-section driver. Nothing in ambit plans one,
- *   so reaching it is a bug rather than something a person did — and answering with the map driver
- *   would mean editing a hooks file as if its arrays were tables.
+ *   so reaching it is a bug, not something a person did. Falling back to the map driver would mean
+ *   editing a hooks file as if its arrays were tables.
  */
 export function driverFor(
   format: DocumentFormat,

@@ -1,10 +1,9 @@
 /**
  * Shaping for command output.
  *
- * Both output modes have a determinism requirement behind them: `--json` is compared as a golden
- * file, and the text form is what a human diffs between runs. So JSON records are built
- * in the order they are given rather than by object-key luck, and text sections are laid out from
- * one place so `search` and `resolve` cannot drift into looking like different tools.
+ * Both modes must be deterministic: `--json` is compared as a golden file, and the text form is
+ * diffed by hand between runs. JSON records are built in the order given, not by object-key
+ * order, and text sections are laid out from one place so `search` and `resolve` look consistent.
  */
 
 /** A record with the keys in the order given, so the emitted JSON is byte-stable. */

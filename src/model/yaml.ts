@@ -2,25 +2,21 @@
  * The shared YAML loader.
  *
  * Every ambit format goes through here — `ambit.yml`, `mcps/*.yml`, `hook.yml`, `SKILL.md`
- * frontmatter — so the rules are enforced once and cannot drift between parsers. The rules
- * exist because the alternative is silent corruption: a commit SHA like `1234567` parses as
- * an integer, a duplicate key quietly wins, a tab looks like indentation.
+ * frontmatter — so parsing rules are enforced once and cannot drift between parsers. Without them a
+ * commit SHA like `1234567` would parse as an integer, a duplicate key would quietly win, or a tab
+ * could pass as indentation.
  *
- * Reading returns a {@link YamlMapping}, a positioned view over the document rather than a
- * plain object. Keeping the nodes around is what lets every downstream error name the line it
- * came from, which every message requires.
+ * Reading returns a {@link YamlMapping}, a positioned view over the document rather than a plain
+ * object, so every downstream error can name the line it came from.
  *
- * Writing goes through {@link emitYaml}, in this module rather than beside whatever generates a
- * document, so the emit half of §3.0 is enforced once too — and so what ambit writes is
- * guaranteed readable by what ambit reads.
+ * Writing goes through {@link emitYaml}, kept in this module so the emit rules match the parse rules:
+ * what ambit writes is guaranteed readable by what ambit reads.
  *
- * There used to be a third half: `EditableYaml`, which kept the parsed node tree and re-emitted it so
- * that rewriting one key of a hand-maintained file left comments, unknown keys, key order and
- * formatting byte-for-byte intact. It is gone, because nothing rewrites such a file any more — its only
- * caller was the catalog editor, and authoring a catalog is hand-editing now. It was 170 lines and its
- * own emit options, kept alive by nothing but the possibility of a future caller; the git history holds
- * it, which is the better place for code with no user. A command that needs to edit a document ambit
- * did not write brings it back, and brings back a test for it at the same time.
+ * A third piece used to live here, `EditableYaml`, which re-emitted a parsed node tree so that
+ * rewriting one key of a hand-maintained file left comments, key order, and formatting intact. It was
+ * removed because its only caller, the catalog editor, no longer rewrites such files — authoring a
+ * catalog is hand-editing now. A future command that needs to edit a document ambit did not write
+ * should bring it back along with a test for it.
  *
  * Nothing outside this module touches the `yaml` package, so read and emit cannot drift apart.
  */
@@ -97,9 +93,9 @@ class YamlSource {
     private readonly text: string,
     private readonly counter: LineCounter,
     /**
-     * Lines of the containing file that sit above the parsed text — the `---` delimiter of a
-     * frontmatter block, and any blank lines under it. A reader told "line 4" must be able to go to
-     * line 4 of the file named, and what was parsed is only part of that file.
+     * Lines of the containing file above the parsed text — a frontmatter block's opening
+     * delimiter and any blank lines under it. Needed so a reported line number matches the whole
+     * file, not just the parsed slice.
      */
     private readonly lineOffset = 0,
   ) {}
@@ -225,9 +221,9 @@ export class YamlMapping {
   /**
    * The same sequence, each item paired with the line it was written on.
    *
-   * A rule enforced after parsing — a `requires` pattern no catalog's items match, say — has no YAML
-   * node left to point at, and its error is still expected to name a line. Carrying the positions
-   * forward is cheaper and less fragile than reparsing the document to find them again.
+   * A rule enforced after parsing — a `requires` pattern no catalog's items match, say — has no
+   * YAML node left to point at, but its error still needs to name a line. Carrying the positions
+   * forward avoids reparsing the document to find them again.
    */
   optionalPositionedStringList(key: string): readonly PositionedString[] | undefined {
     const items = this.sequence(key, "a sequence of strings");
@@ -263,14 +259,12 @@ export class YamlMapping {
    * A sequence whose items are each a string or a mapping — the shape `requires` reads, where only
    * the mapping form is legal.
    *
-   * The string form is handed back rather than rejected here so its caller can refuse it with the
-   * rewrite it needs: a bare pattern says neither which field it matches nor which capabilities it
-   * selects, and *must be a mapping* would read as a shape complaint rather than as the two missing
-   * declarations it is.
+   * The string form is returned rather than rejected here so the caller can give a specific error:
+   * a bare pattern names neither the field it matches nor the capabilities it selects, and a
+   * generic "must be a mapping" message would not say that.
    *
-   * That form carries its line for the same reason
-   * {@link YamlMapping.optionalPositionedStringList} does: an entry is judged long after this parse,
-   * and its error is still expected to name the line it was written on.
+   * Each string carries its line, like {@link YamlMapping.optionalPositionedStringList}, because it
+   * may be judged long after parsing and its error must still name the line it was written on.
    */
   optionalEntryList(key: string): readonly (PositionedString | YamlMapping)[] | undefined {
     const items = this.sequence(key, "a sequence of strings or mappings");
@@ -507,8 +501,8 @@ interface CheckedDocument {
 }
 
 /**
- * Parses `text` and enforces every §3.0 rule on it, keeping the document rather than reducing it to
- * a value — which is what lets one caller read positions off it and another re-emit it unchanged.
+ * Parses `text` and enforces every §3.0 rule on it, keeping the parsed document rather than
+ * reducing it to a plain value, so callers can read node positions off it.
  *
  * @param lineOffset lines of the containing file above `text`, for a frontmatter block.
  * @throws {AmbitError} exit 2, naming the offending file, identifier, and line.
@@ -570,10 +564,9 @@ type ParsedFrontmatter = matter.GrayMatterFile<string> & { readonly isEmpty?: bo
 /**
  * A Markdown document cut into its frontmatter block and the bytes around it.
  *
- * The three pieces concatenate back to the document exactly, which is what lets an edit rewrite the
- * block and leave the body byte-for-byte alone. `block` carries no
- * surrounding blank lines, because the parser does not preserve those on re-emit and they therefore
- * have to survive as bytes rather than as parsed structure.
+ * The three pieces concatenate back to the document exactly, so an edit can rewrite `block` and
+ * leave the body byte-for-byte alone. `block` carries no surrounding blank lines, because the YAML
+ * parser does not preserve those; they survive as bytes in `open`/`close` instead.
  */
 export interface FrontmatterSplit {
   /** The opening delimiter, its language tag if any, and every blank line under it. */
@@ -702,8 +695,7 @@ export async function readFrontmatterMapping(path: string, file = path): Promise
 }
 
 /**
- * How ambit writes YAML. Every option here answers a rule, so none of them is a
- * preference:
+ * How ambit writes YAML. Each option below encodes a rule:
  *
  * - `sortMapEntries` makes the byte order a function of the keys rather than of whichever order a
  *   generator happened to build its object in — the property that lets a lock be diffed at all.

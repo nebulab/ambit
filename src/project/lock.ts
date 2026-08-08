@@ -1,28 +1,24 @@
 /**
  * `ambit.lock` — the resolution result, written so an install can be reproduced.
  *
- * This is the half that *builds and writes* the document. The half that reads it — where the file lives,
- * and the pins catalog loading resolves against — is `src/model/lock-file.ts`, and the two constants
- * they share live there. `LOCK_FILENAME`, `LOCK_VERSION`, `lockFilePath` and `readLockText` are
- * re-exported here so a caller reaching for "the lock" finds all of it in one place.
+ * This is the half that builds and writes the document. The half that reads it — where the file
+ * lives, and the pins catalog loading resolves against — is `src/model/lock-file.ts`; the shared
+ * constants live there and are re-exported here so a caller finds all of "the lock" in one place.
  *
- * **The `catalogs` section is an input; every other section is a record.** A human diffing what changed
- * between two commits, and `--frozen` asking whether a committed lock is still current, are both served
- * by bytes — so the lock is *compared* as text, and a file that would be rewritten is out of date
- * whatever the two documents mean. A `commit` under `catalogs` is the exception, because comparing it is
- * not enough to make it true: `readCatalogPins` reads it back, and resolution goes to that commit.
+ * The `catalogs` section is an input; every other section is a record. `--frozen` compares the lock
+ * as text, so a file that would be rewritten is out of date regardless of what the two documents
+ * mean. The one exception is `commit` under `catalogs`: `readCatalogPins` reads it back and
+ * resolution goes to that commit, so it must be true, not just byte-equal.
  *
- * **A pin is void as soon as the config it was resolved from changes.** Each entry records the `source`
- * and `ref` its commit came from, which is what lets the reader tell a pin worth honouring from one that
- * answers a question nobody is asking any more. Editing `ref:` therefore works exactly as it always did.
+ * A pin is void once the config it was resolved from changes. Each entry records the `source` and
+ * `ref` its commit came from, so a reader can tell a pin worth honoring from a stale one. Editing
+ * `ref:` invalidates the pin as it always did.
  *
- * Byte-stability is the contract for everything written here, and it is bought by emitting through
- * {@link emitYaml} and by holding nothing a second run could disagree about: no timestamps, no absolute
- * paths, no cache locations, and a commit only where a source actually has one.
- *
- * Every value in it is machine-independent on purpose. A lock is committed by teams who want
- * reproducible installs, so a path into someone's cache would turn a shared file into a
- * per-machine one and produce a diff on every developer's first install.
+ * Byte-stability is the contract for everything written here: emit through {@link emitYaml}, and
+ * hold nothing a second run could disagree about (no timestamps, no absolute paths, no cache
+ * locations, a commit only where a source actually has one). Every value is machine-independent so
+ * a committed lock stays shared across a team; a path into someone's local cache would make it
+ * per-machine and produce a diff on every developer's first install.
  */
 import { writeFile } from "node:fs/promises";
 
@@ -54,10 +50,9 @@ export interface LockCatalog {
 /**
  * One selected pack, explained.
  *
- * No `path` and no `commit`: a pack materializes nothing and ships no bytes, so there is nothing to
- * pin. It is recorded because it is what the project *asked for* — the reason line on every skill,
- * server and hook it pulled in names it, and a lock that showed the effects without the cause would
- * make every one of those reasons unresolvable against the file.
+ * No `path` and no `commit`: a pack materializes nothing and ships no bytes. It is recorded because
+ * the reason line on every skill, server, and hook it pulled in names it, and those reasons need
+ * something in the lock to resolve against.
  */
 export interface LockPack {
   /** The catalog it came from. */
@@ -94,15 +89,14 @@ export interface LockMcp {
 /**
  * One selected hook, explained — and pinned when it ships bytes.
  *
- * A hook is both kinds of thing the two sections above are: a set of config values that a harness
- * file renders, and — when its `command` names a script the hook's own directory ships — a tree of
- * files that gets materialized. So `path` and `commit` appear only in the second case, for the same
- * reason {@link LockSkill} carries them and {@link LockMcp} does not: there are bytes to pin. A hook
- * whose command is a command line is config values, and takes {@link LockMcp}'s shape.
+ * A hook is config values rendered into a harness file, or — when its `command` names a script the
+ * hook's directory ships — also a tree of files to materialize. `path` and `commit` appear only in
+ * the second case, the same reason {@link LockSkill} carries them and {@link LockMcp} does not. A
+ * hook whose command is a command line takes {@link LockMcp}'s shape instead.
  *
- * `path` is the hook's directory within its source, as {@link LockSkill.path} is — never the command
- * ambit writes into a harness file. That command is rewritten per harness, so it is not one value
- * the lock could hold.
+ * `path` is the hook's directory within its source, like {@link LockSkill.path}. It is never the
+ * command ambit writes into a harness file, since that command is rewritten per harness and is not
+ * one value the lock could hold.
  */
 export interface LockHook {
   /** The catalog it came from. */
@@ -118,9 +112,8 @@ export interface LockHook {
 /**
  * A lock document.
  *
- * The five sections are keyed maps rather than lists because a name is the
- * identity of everything in them — and because a map is what makes a diff show one changed entry
- * instead of a reordered list.
+ * The five sections are keyed maps, not lists: a name is the identity of everything in them, and a
+ * map makes a diff show one changed entry instead of a reordered list.
  */
 export interface Lock {
   readonly version: number;
@@ -149,17 +142,17 @@ function byName<T, V>(
 /**
  * Builds the lock for a resolved project.
  *
- * Pure, so what the lock says is a function of what resolution decided and nothing else — and so a
- * test can compare two locks without touching disk.
+ * Pure: what the lock says is a function of what resolution decided, so a test can compare two locks
+ * without touching disk.
  *
- * Every configured catalog is listed, including one that contributed nothing to this bundle: the
- * lock pins the *inputs*, and a catalog whose commit moves changes what a later resolve selects even
- * though today's bundle never named it.
+ * Every configured catalog is listed, even one that contributed nothing to this bundle. The lock
+ * pins the inputs, and a catalog whose commit moves changes what a later resolve selects even though
+ * today's bundle never named it.
  *
  * @param catalogs the loaded catalogs, in config order.
  * @param bundle the resolved bundle, whose reasons the lock records.
- * @throws {AmbitError} exit 1 if the bundle cannot account for one of its own items, which is a bug
- *   rather than anything a catalog can cause.
+ * @throws {AmbitError} exit 1 if the bundle cannot account for one of its own items — a bug, not
+ *   anything a catalog can cause.
  */
 export function buildLock(catalogs: readonly Catalog[], bundle: Bundle): Lock {
   return {
@@ -204,8 +197,8 @@ export function buildLock(catalogs: readonly Catalog[], bundle: Bundle): Lock {
       (hook) => hook.name,
       (hook) => ({
         catalog: hook.catalog,
-        // A hook that ships no script has no bytes of its own to pin, so it records neither where
-        // they live nor which commit they came from — see LockHook.
+        // A hook with no script has no bytes to pin, so it records neither path nor commit — see
+        // LockHook.
         ...(hook.type === "script" && { path: hook.path }),
         ...(hook.type === "script" && hook.commit !== undefined && { commit: hook.commit }),
         reason: formatReason(reasonOf(bundle, { kind: "hook", name: hook.name })),
@@ -217,9 +210,8 @@ export function buildLock(catalogs: readonly Catalog[], bundle: Bundle): Lock {
 /**
  * Renders a lock as the bytes written to disk.
  *
- * Empty sections are emitted as empty maps rather than omitted, so the document's shape is the same
- * whatever a project resolves to: a project that loses its last MCP server should show `mcps: {}`
- * in the diff, not a vanished key a reader has to notice the absence of.
+ * Empty sections are emitted as empty maps, not omitted, so a project that loses its last MCP server
+ * shows `mcps: {}` in the diff instead of a vanished key.
  */
 export function serializeLock(lock: Lock): string {
   return emitYaml(lock);

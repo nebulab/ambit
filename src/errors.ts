@@ -21,9 +21,8 @@ export type ExitCode = (typeof ExitCode)[keyof typeof ExitCode];
 /**
  * An error with a known exit code and a message already formatted for the user.
  *
- * Every message names the offending file, the offending identifier, and one
- * concrete next step. `detail` lines carry the latter two; they are printed indented under
- * the summary.
+ * Every message names the offending file, the offending identifier, and one concrete next step.
+ * `detail` lines carry the latter two, printed indented under the summary.
  */
 export class AmbitError extends Error {
   readonly code: ExitCode;

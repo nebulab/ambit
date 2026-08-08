@@ -1,45 +1,25 @@
 /**
- * The git cache: bare clones under `$XDG_CACHE_HOME/ambit`, fetched on demand, plus one
- * checkout per commit so the catalog parser reads a git source exactly as it reads a directory.
+ * Git source cache: bare clones under `$XDG_CACHE_HOME/ambit`, fetched on demand, plus one
+ * checkout per commit.
  *
- * Three decisions here are load-bearing.
- *
- * **A recorded commit answers before a ref does.** A caller that already knows which commit this
- * source resolved to — `ambit.lock`, via `pin` — gets that commit checked out and the ref is not
- * consulted at all. That is what makes a committed lock *reproduce* an install rather than merely
- * describe one, and it is the only mechanism here that is a promise about two different machines
- * rather than about two runs on one.
- *
- * **A cached clone is refetched only when it cannot answer.** Fetching on every resolve would let
- * `ref: main` mean two different commits in two runs a minute apart, which is precisely what
- * determinism promises it will not do. So the cache grows when it is asked something it does not know,
- * and the way to move a project forward is `ambit update`.
- *
- * That much is a claim about a *second* run, and it is the caller's job to notice when there has not
- * been a first: a source with no pin to reproduce has no earlier resolution to agree with, so
- * `install` asks the remote rather than inheriting whatever commit some unrelated project last left in
- * the shared cache. See `catalogPlan` in `src/project/install.ts`.
- *
- * **A checkout is keyed by commit, never by ref.** Two projects pinned to different refs of one
- * repository share the clone without racing over a working tree, and a checkout that is already
- * there is byte-for-byte the one an earlier run produced.
- *
- * **The checkout is a `git worktree`,** because the alternative — piping `git archive` into `tar` —
- * would put a second tool on the required-PATH list, and only git may be on that list.
- *
- * **`--offline` refuses the clone and the fetch, and nothing else.** It is a promise about the
- * network rather than about the cache as a whole: a checkout ambit can produce from a clone it
- * already has is still an answer that came out of the cache, so a first offline run against a
- * warm clone is allowed to write one. What it may not do is reach for the remote — so both places
- * this module would have done that fail with exit 4 naming what the cache is missing.
- *
- * **Two commands are allowed to ask the remote anyway, and they ask differently.** `ambit update`
- * exists to move a pin forward, so it fetches into the clone's own refs and every later resolve sees
- * the new commit — that is the whole point of it. `ambit outdated` reports and changes nothing, so it
- * may not do that: a read-only command that left `ref: main` meaning a different commit would make
- * the *next* `install` move a pin nobody asked to move. It therefore fetches the remote's refs into
- * {@link PROBE_NAMESPACE}, which ref resolution never reads, and answers out of there. The two are
- * {@link RefreshMode}'s `"advance"` and `"probe"`; everything else resolves as it always has.
+ * - A pin (`ambit.lock`'s recorded commit) is checked out directly, without resolving the ref.
+ *   This is what lets a committed lock reproduce an install on a different machine's cache.
+ * - The clone is refetched only when it cannot resolve the requested ref. Fetching on every
+ *   resolve would let a moving ref like `ref: main` mean different commits between runs.
+ *   `ambit update` is what advances the cache. A source with no pin has no earlier resolution to
+ *   agree with, so `install` always asks the remote for it rather than reusing whatever another
+ *   project last left in the shared cache (see `catalogPlan` in `src/project/install.ts`).
+ * - A checkout is keyed by commit, not by ref, so projects pinned to different refs of one
+ *   repository share the clone and reuse an existing checkout.
+ * - Checkouts use `git worktree` rather than `git archive | tar`, so git is the only required
+ *   PATH tool.
+ * - `--offline` blocks only the clone and the fetch. A checkout ambit can produce from a clone it
+ *   already has is still allowed; both places that would otherwise reach the remote fail with
+ *   exit 4 instead.
+ * - Two commands reach the remote anyway. `ambit update` fetches into the clone's own refs
+ *   (`refresh: "advance"`), so later resolves see the new commit. `ambit outdated` reports and
+ *   must change nothing, so it fetches into {@link PROBE_NAMESPACE} instead (`refresh: "probe"`),
+ *   which ref resolution never reads.
  */
 import { execFile } from "node:child_process";
 import { mkdir, rename, rm, stat, writeFile } from "node:fs/promises";
@@ -71,21 +51,19 @@ const INCOMING_SUFFIX = ".incoming";
 const LOCAL_HOST = "local";
 
 /**
- * Where a probe puts what the remote says, inside the cached clone.
+ * Where a probe writes what the remote says, inside the cached clone.
  *
- * Deliberately outside `refs/heads/` and `refs/tags/`, which is what makes a probe read-only in the
- * only sense that matters: {@link resolveCommit} resolves a project's `ref` against the clone's own
- * refs, so a namespace it never names cannot change what any later command installs. The refs are
- * kept rather than deleted afterwards because they are what stops git garbage-collecting the objects
- * a probed checkout is made of.
+ * Outside `refs/heads/` and `refs/tags/`, which {@link resolveCommit} resolves a project's `ref`
+ * against — so a probe cannot change what a later command installs. The refs are kept rather than
+ * deleted afterward so git does not garbage-collect the objects a probed checkout needs.
  */
 export const PROBE_NAMESPACE = "refs/ambit/latest";
 
 /**
- * What a probe fetches, and where it puts it.
+ * What a probe fetches, and where it lands. All three run every time.
  *
- * All three, every time: a `ref` may name a branch or a tag, an absent one means the remote's `HEAD`,
- * and which of the three answered is also how {@link GitRefResolution.moving} is decided.
+ * An absent `ref` means the remote's `HEAD`. Which of the three resolves also decides
+ * {@link GitRefResolution.moving}.
  */
 const PROBE_REFSPECS: readonly string[] = [
   `+refs/heads/*:${PROBE_NAMESPACE}/heads/*`,
@@ -108,10 +86,8 @@ export const REFRESH_MODES = ["none", "probe", "advance"] as const;
 export type RefreshMode = (typeof REFRESH_MODES)[number];
 
 /**
- * Variables that would point git at the caller's repository instead of the cache.
- *
- * ambit is a plausible thing to run from a git hook or an alias, and all three of these are set in
- * that environment.
+ * Env vars that would point git at the caller's repository instead of the cache. Set when ambit
+ * runs from inside a git hook or alias.
  */
 const REDIRECTING_GIT_VARS = ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"] as const;
 
@@ -121,17 +97,17 @@ const SCP_LIKE = /^(?:[^@/]+@)?([^@/:]+):(?!\/)(.*)$/;
 /**
  * A full commit SHA: sha1 today, sha256 in a repository built for it.
  *
- * Full rather than abbreviated, and hex rather than anything git would accept, because this is what a
- * *pin* is allowed to be. A pin that could name a branch would be a moving pin, which is a
- * contradiction, and one that could start with `-` would be a git option.
+ * Full rather than abbreviated, and hex only, because that is what a pin must be. A pin that
+ * could name a branch would be a moving pin, and one that could start with `-` would be a git
+ * option.
  */
 const COMMIT_SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
 
 /**
- * Whether a string is a full commit SHA — what a pin has to be, wherever it was read from.
+ * Whether a string is a full commit SHA, which is what a pin must be.
  *
- * Exported so the lock reader can refuse a hand-edited pin against the same rule this module enforces,
- * and report it against `ambit.lock` rather than as a git failure.
+ * Exported so the lock reader can validate a hand-edited pin against the same rule and report it
+ * against `ambit.lock` rather than as a git failure.
  */
 export function isCommitSha(value: string): boolean {
   return COMMIT_SHA.test(value);
@@ -146,12 +122,11 @@ export interface GitFetchRequest {
   /** Tag, branch, or commit. Absent means the repository's default branch. */
   readonly ref?: string;
   /**
-   * The commit an earlier resolution of this source recorded — `ambit.lock`'s.
+   * The commit an earlier resolution of this source recorded, from `ambit.lock`.
    *
-   * When present it *replaces* ref resolution: this commit is checked out and {@link GitFetchRequest.ref}
-   * is not consulted, which is how a committed lock reproduces an install on a machine whose shared
-   * cache says something else. Consulted only under `refresh: "none"`, since the two refreshing modes
-   * exist to ask where a ref points now and a recorded commit cannot answer that.
+   * When present, this commit is checked out directly and {@link GitFetchRequest.ref} is not
+   * consulted. Only used under `refresh: "none"`; the refreshing modes exist to ask where a ref
+   * points now, which a recorded commit cannot answer.
    *
    * Must be a full commit SHA ({@link isCommitSha}).
    */
@@ -177,12 +152,11 @@ export interface FetchedGitSource {
   /** The full commit SHA the ref resolved to. */
   readonly commit: string;
   /**
-   * Whether the `ref` this resolved through is one that can move: a branch, a tag, or the
-   * repository's default branch. False for a `ref` naming a commit, which is already a pin.
+   * Whether the `ref` this resolved through can move: a branch, a tag, or the repository's
+   * default branch. False for a `ref` naming a commit, which is already a pin.
    *
-   * Absent under `refresh: "none"`, which is not a question that path asks — deciding it costs a
-   * `rev-parse` nothing else needs, and answering it from a clone that may be arbitrarily stale
-   * would be answering it wrong.
+   * Absent under `refresh: "none"`, which does not need it: deciding it costs an extra
+   * `rev-parse`, and answering it from a clone that may be stale would be answering it wrong.
    */
   readonly moving?: boolean;
 }
@@ -230,8 +204,7 @@ function splitUrl(url: string): { readonly host: string; readonly target: string
  * Where a repository is cached, relative to the cache root: `<host>/<path…>` — host, then owner, then repo.
  *
  * A trailing `.git` is stripped so `https://github.com/acme/skills` and
- * `https://github.com/acme/skills.git` share one clone — they are the same repository, and fetching
- * it twice under two names would be the kind of waste a cache exists to avoid.
+ * `https://github.com/acme/skills.git` share one clone, since they are the same repository.
  */
 export function gitCacheKey(url: string): string {
   const { host, target } = splitUrl(url);
@@ -280,8 +253,8 @@ function lastLine(text: string): string {
 
 /** The environment git is run in: the caller's, minus anything that would redirect it. */
 function gitEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  // A prompt for credentials on a non-interactive run is indistinguishable from a hang, so a
-  // missing credential has to fail instead of asking.
+  // Fails instead of prompting for credentials: a prompt on a non-interactive run is
+  // indistinguishable from a hang.
   const copy: NodeJS.ProcessEnv = { ...env, GIT_TERMINAL_PROMPT: "0" };
   for (const name of REDIRECTING_GIT_VARS) delete copy[name];
   return copy;
@@ -295,8 +268,8 @@ interface GitOutcome {
 }
 
 /**
- * Runs git, treating a non-zero exit as data: `rev-parse` failing is how ambit asks whether the
- * cache already knows a ref, so only a git that will not start at all is an error here.
+ * Runs git, treating a non-zero exit as data rather than an error: `rev-parse` failing is how
+ * ambit asks whether the cache already knows a ref. Only a git that cannot start at all throws.
  *
  * @throws {AmbitError} exit 4 if git is not on PATH.
  */
@@ -336,12 +309,11 @@ function gitFailed(summary: string, outcome: GitOutcome, advice: string): never 
 /**
  * Clones a repository into the cache.
  *
- * `--mirror` rather than plain `--bare`: a bare clone gets no `remote.origin.fetch`, so it can never
- * be updated afterwards, and every tag and branch is what makes a later `ref:` resolvable without a
- * second network round trip.
+ * `--mirror` rather than plain `--bare`, so the clone gets `remote.origin.fetch` and can be
+ * updated later, with every tag and branch resolvable without a second network round trip.
  *
- * The clone lands beside its final location and is renamed on success, so an interrupted one leaves
- * no directory a later run would treat as a cache hit.
+ * The clone lands beside its final location and is renamed on success, so an interrupted clone
+ * never leaves a directory a later run would treat as a cache hit.
  *
  * @throws {AmbitError} exit 4 if the clone fails.
  */
@@ -385,11 +357,10 @@ async function fetchInto(repo: string, request: GitFetchRequest): Promise<void> 
 /**
  * Fetches the remote's refs into {@link PROBE_NAMESPACE}, leaving the clone's own refs alone.
  *
- * Addressed by **URL rather than by `origin`**, and that is the whole trick. A mirror clone carries
- * `remote.origin.mirror = true`, and git applies a mirror's `+refs/*:refs/*` alongside whatever
- * refspecs a fetch names — so `git fetch origin <probe refspec>` updates `refs/heads/*` too, which is
- * precisely what a probe must not do. An anonymous remote has no configured refspec and no mirror
- * flag, so it fetches exactly what it is told to.
+ * Fetched by URL rather than by `origin`. A mirror clone has `remote.origin.mirror = true`, so
+ * `git fetch origin <probe refspec>` would apply the mirror's `+refs/*:refs/*` alongside the probe
+ * refspecs and update `refs/heads/*` too. An anonymous remote has no configured refspec and no
+ * mirror flag, so it fetches only what it is told.
  *
  * @throws {AmbitError} exit 4 if the fetch fails.
  */
@@ -401,8 +372,8 @@ async function probeInto(repo: string, request: GitFetchRequest): Promise<void> 
       "fetch",
       "--quiet",
       "--prune",
-      // Without it, git follows tags reachable from what it just fetched into `refs/tags/*` — the
-      // clone's own namespace, which a probe may not touch.
+      // Without this, git also follows tags reachable from what it just fetched into
+      // `refs/tags/*`, the clone's own namespace, which a probe must not touch.
       "--no-tags",
       "--",
       request.url,
@@ -454,14 +425,13 @@ interface GitRefResolution {
 /**
  * Resolves the request's ref against what a probe just fetched.
  *
- * The candidates are tried in the order that decides {@link GitRefResolution.moving}: a branch, then a
- * tag, then the ref taken literally. Only the last is a commit, and it is the only one that cannot
- * move — a tag is in the moving set because a force-pushed tag is a thing that happens, and a project
- * that would silently pick up its new contents deserves the same row a branch gets.
+ * Tries a branch, then a tag, then the ref taken literally as a commit, in the order that decides
+ * {@link GitRefResolution.moving}. Only the literal candidate cannot move; a tag counts as moving
+ * because a force-pushed tag can point elsewhere.
  *
- * The literal candidate resolves against the clone's own refs as well as the objects the probe
- * brought, which is why it comes last: a stale `refs/heads/main` would otherwise answer for a branch
- * the probe has a current value for.
+ * The literal candidate is tried last because it also resolves against the clone's own refs, and
+ * a stale `refs/heads/main` there would otherwise answer ahead of the current value the probe just
+ * fetched.
  */
 async function resolveProbed(
   repo: string,
@@ -485,10 +455,10 @@ async function resolveProbed(
 }
 
 /**
- * Whether the request's ref is one that can move, judged against the clone's own refs.
+ * Whether the request's ref can move, judged against the clone's own refs.
  *
- * The `advance` counterpart of {@link resolveProbed}'s ordering, and asked only after a fetch, so the
- * branches and tags it looks at are the ones the remote has.
+ * The `advance` counterpart of {@link resolveProbed}'s ordering. Called only after a fetch, so the
+ * branches and tags checked are the remote's current ones.
  */
 async function isMovingRef(repo: string, request: GitFetchRequest): Promise<boolean> {
   const ref = request.ref;
@@ -521,9 +491,9 @@ function assertUsableRef(request: GitFetchRequest): void {
 /**
  * Rejects a pin that is not a full commit SHA.
  *
- * The lock reader refuses these first, with a message pointing at the file the pin was written in. This
- * is the backstop for every other caller, and it is what lets the pin be handed to git without a `--`
- * dance: a string that passes {@link isCommitSha} cannot be an option and cannot name a branch.
+ * The lock reader checks this first, with a message pointing at the file the pin was written in.
+ * This is the backstop for every other caller. A string passing {@link isCommitSha} cannot be a
+ * git option and cannot name a branch, so it can be handed to git without a `--` separator.
  *
  * @throws {AmbitError} exit 2 for a pin that is not one.
  */
@@ -556,9 +526,8 @@ function unknownRef(request: GitFetchRequest): never {
 /**
  * The error for a repository `--offline` would have had to clone.
  *
- * Exit 4 rather than 2: nothing here says the config is wrong. The source may well be correct and
- * reachable — it simply is not in the cache, which is a cache error, and the fix is a run that is
- * allowed to fetch.
+ * Exit 4, not 2: nothing here says the config is wrong. The source may be correct and reachable;
+ * it is simply not in the cache yet.
  */
 function notCached(request: GitFetchRequest, repo: string): never {
   throw networkError(`${request.subject} is not in the cache ${request.where}`, [
@@ -570,9 +539,8 @@ function notCached(request: GitFetchRequest, repo: string): never {
 /**
  * The error for a refresh `--offline` forbids.
  *
- * Refusing rather than quietly falling back to the cache, because the fallback would answer the
- * question wrongly rather than not at all: only the remote knows where a branch points now, so a
- * cached answer under `--offline` is a stale commit reported as the current one.
+ * Refuses rather than falling back to the cache: only the remote knows where a ref points now, so
+ * a cached answer under `--offline` would be a stale commit reported as the current one.
  */
 function cannotRefreshOffline(request: GitFetchRequest): never {
   throw networkError(`cannot check ${request.subject} for updates offline ${request.where}`, [
@@ -584,10 +552,9 @@ function cannotRefreshOffline(request: GitFetchRequest): never {
 /**
  * The error for a recorded commit the repository does not have.
  *
- * Exit 2, and fatal rather than a fallback to the ref: falling back would install a *different* commit
- * than the lock names, which is the one thing a lock exists to prevent, and it would do it silently. So
- * the two ways this happens — a force-push that dropped the commit, a lock naming a commit that was
- * never pushed — are reported with the command that resolves both.
+ * Exit 2, not a fallback to the ref: falling back would silently install a different commit than
+ * the lock names, which is what a lock exists to prevent. Happens from a force-push that dropped
+ * the commit, or a lock naming a commit that was never pushed; both are fixed by `ambit update`.
  */
 function unknownPin(request: GitFetchRequest, pin: string): never {
   throw configError(`cannot find the locked commit for ${request.subject} ${request.where}`, [
@@ -624,13 +591,12 @@ function refNotCached(request: GitFetchRequest): never {
 /**
  * Resolves a recorded commit against the clone, fetching once if the clone does not have it.
  *
- * The ordinary case is a `rev-parse` and no network at all: ambit wrote this commit into the lock from
- * a clone it had. The fetch is for the two ways a warm clone can be missing one — the project's first
- * run on this machine, and a teammate whose push landed after this clone's last fetch — and it is the
- * same conditional fetch ref resolution does, for the same reason.
+ * Ordinarily just a `rev-parse` with no network: ambit wrote this commit into the lock from a
+ * clone it had. The fetch covers a warm clone missing it anyway: the project's first run on this
+ * machine, or a teammate's push landing after this clone's last fetch.
  *
- * @param cloned whether the clone was made by this call, in which case it is already the remote's
- *   current answer and a fetch would find nothing.
+ * @param cloned whether the clone was made by this call, in which case it already reflects the
+ *   remote's current state and a fetch would find nothing.
  * @throws {AmbitError} exit 4 if the fetch fails or `--offline` forbids it; exit 2 if the repository
  *   does not have the commit.
  */
@@ -709,23 +675,21 @@ async function ensureCheckout(
 /**
  * Fetches a git source into the cache and returns the commit's checkout.
  *
- * A {@link GitFetchRequest.pin} short-circuits all of it: the recorded commit is checked out and the
- * ref is never resolved, which is what makes a lock reproduce an install rather than describe one.
+ * A {@link GitFetchRequest.pin} short-circuits everything else: the recorded commit is checked out
+ * and the ref is never resolved.
  *
- * Without one, and under the default `refresh: "none"`, the clone is fetched only when the cache cannot
- * resolve the ref, so a second run over an unchanged config touches the network not at all. The two
- * refreshing modes are the module header's subject: `"advance"` fetches into the clone's own refs and
- * every later resolve follows, `"probe"` fetches into {@link PROBE_NAMESPACE} and nothing later can see
- * it. Both ignore a pin, since both exist to ask what a pin cannot answer.
+ * Otherwise, under the default `refresh: "none"`, the clone is fetched only when it cannot resolve
+ * the ref, so a second run over an unchanged config need not touch the network. `refresh: "advance"`
+ * fetches into the clone's own refs, so later resolves see the result. `refresh: "probe"` fetches
+ * into {@link PROBE_NAMESPACE}, which nothing else reads. Both ignore a pin, since both ask a
+ * question a pin cannot answer.
  *
- * A probe writes a checkout like any other resolve. That is not a contradiction with being read-only:
- * a checkout is keyed by commit, so it adds a directory rather than changing what any existing path
- * means, and the whole reason to probe is to read the catalog at the commit the remote now names.
+ * A probe still writes a checkout: checkouts are keyed by commit, so this adds a directory rather
+ * than changing what any existing path means.
  *
- * @throws {AmbitError} exit 4 if git is missing, a clone, fetch, probe, or checkout fails, or
- *   `--offline` was given and the cache cannot answer — including any refresh at all, which the
- *   cache by definition cannot answer; exit 2 for a ref or a pinned commit the repository does not
- *   have.
+ * @throws {AmbitError} exit 4 if git is missing, a clone/fetch/probe/checkout fails, or
+ *   `--offline` was given and the cache cannot answer; exit 2 for a ref or a pinned commit the
+ *   repository does not have.
  */
 export async function fetchGitSource(request: GitFetchRequest): Promise<FetchedGitSource> {
   assertUsableRef(request);
@@ -746,8 +710,8 @@ export async function fetchGitSource(request: GitFetchRequest): Promise<FetchedG
     cloned = true;
   }
 
-  // Before any ref is looked at, and only when nothing is refreshing: a recorded commit is the answer a
-  // previous resolution already gave, and a refreshing run was asked for a newer one.
+  // Only consulted when nothing is refreshing: a refreshing run was asked for a newer answer than
+  // the recorded commit.
   const pin = refresh === "none" ? request.pin : undefined;
   if (pin !== undefined) {
     const commit = await pinnedCommit(repo, pin, cloned, request);
@@ -755,8 +719,7 @@ export async function fetchGitSource(request: GitFetchRequest): Promise<FetchedG
   }
 
   if (refresh === "probe") {
-    // Even straight after a clone: the probe namespace is empty until something fetches into it, and
-    // one redundant fetch of a repository already on disk is cheaper than a second resolution path.
+    // Needed even right after a clone: the probe namespace is empty until fetched into.
     await probeInto(repo, request);
     const probed = await resolveProbed(repo, request);
     if (probed === undefined) unknownRef(request);
@@ -772,9 +735,8 @@ export async function fetchGitSource(request: GitFetchRequest): Promise<FetchedG
 
   let commit = await resolveCommit(repo, request.ref, request);
   if (commit === undefined && !cloned && refresh !== "advance") {
-    // Offline, an unresolvable ref is reported as the cache miss it is rather than as the config
-    // error the online path would go on to prove it was: the clone has simply never been told
-    // about it, and only a fetch could tell the two apart.
+    // Reported as a cache miss, not a config error: only a fetch can tell whether the ref is
+    // simply unfetched or genuinely does not exist.
     if (offline) refNotCached(request);
     await fetchInto(repo, request);
     commit = await resolveCommit(repo, request.ref, request);

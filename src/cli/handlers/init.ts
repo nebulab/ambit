@@ -1,17 +1,15 @@
 /**
  * `ambit init` — scaffold a project, which is also a catalog.
  *
- * Two counted sections rather than a line, because the command writes four files and "created" and
- * "kept" are different news: a project is routinely initialized inside a repo that already has a
- * `skills/` directory, and a reader has to be able to see that theirs was left alone. Both are
- * printed even when empty, the way every other counted section in this tool is, so a quiet run is
+ * Two counted sections, not one line: "created" and "kept" are different news, since a project is
+ * routinely initialized inside a repo that already has a `skills/` directory and a reader needs to
+ * see that theirs was left alone. Both sections print even when empty, so a quiet run is
  * distinguishable from a run that did nothing.
  *
- * `--dry-run` prints the config's bytes in place of the next step. For every other command a preview
- * is a rendering of a plan; here the plan *is* the bytes, so printing anything less would be
- * withholding the only thing worth previewing. The three `.gitkeep` files have no bytes to withhold —
- * the whole of each one is its path, which the section above already lists. `--json` carries every
- * file either way, so a consuming tool that wants to write the scaffold itself can.
+ * `--dry-run` prints the config's bytes instead of the next step, since here the plan is the bytes.
+ * The three `.gitkeep` files have nothing further to show; their whole content is the path already
+ * listed above. `--json` carries every file either way, so a consuming tool can write the scaffold
+ * itself.
  */
 import type { CommandHandler } from "../commands.js";
 import { dryRunRequested, jsonRequested, projectDirOf } from "../commands.js";
@@ -23,10 +21,9 @@ import { printSections, section } from "../output.js";
 /**
  * The two things left to do, in the order they have to happen in.
  *
- * A scaffolded project selects nothing — its `requires` block is commented out, because an entry
- * matching nothing is exit 3 and its own `local` catalog is empty — so `ambit install` on it installs
- * nothing at all. That is the honest state of a fresh project, and saying so here is what stops a
- * reader hitting it as a surprise.
+ * A scaffolded project selects nothing: its `requires` block is commented out, because an entry
+ * matching nothing is exit 3 and its own `local` catalog starts empty. `ambit install` on it would
+ * install nothing, so these steps say so up front rather than let it be a surprise.
  */
 const NEXT_STEPS: readonly string[] = [
   "next: put a skill in `skills/<name>/SKILL.md`, or add a catalog under `catalogs`",

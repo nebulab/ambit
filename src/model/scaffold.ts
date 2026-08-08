@@ -1,21 +1,20 @@
 /**
  * How ambit writes a scaffolded file that is documentation as much as configuration.
  *
- * A scaffold is not a template. Every value goes through {@link emitYaml}, and the prose around it is
- * added as comments afterwards, so stripping the comment lines from a scaffolded file leaves exactly
- * what ambit would emit from the same values — sorted keys, quoting where a string could
- * coerce, byte-stable across runs and machines. Templating the same file as text would let it drift
- * into an unsorted key or an unquoted `1e5` that the very parser it is written for rejects, and
- * nothing would notice until someone ran the tool.
+ * A scaffold is not a template. Every value goes through {@link emitYaml}, and prose is added as
+ * comments afterwards, so stripping the comment lines from a scaffolded file leaves exactly what
+ * ambit would emit from the same values: sorted keys, quoting where a string could coerce,
+ * byte-stable across runs and machines. Templating the file as text instead could drift into an
+ * unsorted key or an unquoted `1e5` that the parser it is written for rejects, unnoticed until
+ * someone ran the tool.
  *
- * Blocks are laid out in sorted-key order for the same reason, including a block shown commented out:
- * the one part of a scaffold a reader is expected to uncomment must leave the file sorted, and must be
- * valid YAML the moment the `# ` comes off.
+ * Blocks are laid out in sorted-key order for the same reason, including a block shown commented
+ * out: uncommenting it must leave the file sorted and produce valid YAML immediately.
  *
- * `ambit init` is the only caller now that a project and a catalog are scaffolded by one command. It
- * stays a module of its own for the reason it became one: the emit-then-comment rule is a property of
- * how ambit writes a documented file, not of which file is being written, and the next scaffold to
- * exist should inherit it rather than reinvent it as a template.
+ * `ambit init` is the only caller now that a project and a catalog are scaffolded by one command.
+ * This stays a separate module because the emit-then-comment rule is a property of how ambit writes
+ * a documented file, not of which file is being written, so a future scaffold should reuse it
+ * rather than reinvent it as a template.
  */
 import { emitYaml } from "./yaml.js";
 

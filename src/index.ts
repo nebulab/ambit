@@ -2,11 +2,10 @@
  * The public surface, grouped by layer and alphabetical by module within each.
  *
  * Every symbol is named explicitly rather than re-exported wholesale, so adding something to the
- * API is a deliberate edit here rather than a side effect of exporting it from its own module.
+ * API is a deliberate edit here.
  *
- * The order follows `src/`'s dependency layers, top to bottom: ambient, then what is on disk
- * (`model/`), what is derived from it (`resolution/`), and the two consumers — `harness/` and
- * `project/` — with `cli/` last.
+ * Order follows `src/`'s dependency layers: ambient, then what is on disk (`model/`), what is
+ * derived from it (`resolution/`), the two consumers `harness/` and `project/`, and `cli/` last.
  */
 
 // ── ambient ───────────────────────────────────────────────────────────────────────────────────

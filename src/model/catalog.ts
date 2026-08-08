@@ -1,29 +1,24 @@
 /**
  * Catalog parsing.
  *
- * A catalog is a plain skills repo, and nothing else: skills at `skills/<name>/SKILL.md`, MCP
- * entities at `mcps/<name>.yml`, hooks at `hooks/<name>/hook.yml`, packs at `packs/<name>.yml` (which
- * may nest, `packs/function/engineering.yml` being the pack `function.engineering`).
- * Nothing here is ambit-specific except one extra frontmatter key and the extra directories, which
- * other tools ignore — that compatibility is a hard requirement.
+ * A catalog is a plain skills repo: skills at `skills/<name>/SKILL.md`, MCP entities at
+ * `mcps/<name>.yml`, hooks at `hooks/<name>/hook.yml`, and packs at `packs/<name>.yml` (which may
+ * nest, so `packs/function/engineering.yml` is the pack `function.engineering`). Nothing here is
+ * ambit-specific except one extra frontmatter key and these extra directories, both ignored by
+ * other tools; that compatibility is a hard requirement.
  *
- * There is no catalog-side config: parsing scans those four directories and takes what is there.
- * A file at the root ambit would read as a *project's* config is therefore ignored rather than
- * refused, because a project that publishes its own items lists itself as `source: path:.` — so a
- * directory that is both a catalog and a project is the ordinary case, not a mistake.
+ * There is no catalog-side config: parsing scans the four directories and takes what is there. A
+ * project's own config file at the catalog root is ignored rather than refused, because a project
+ * that publishes its own items lists itself as `source: path:.` — a directory can be both a
+ * catalog and a project at once.
  *
- * A skill's name is not stored anywhere authoritative: it is derived from the path, and the
- * frontmatter `name` must agree. Disagreement is an error rather than a preference for one over
- * the other, because every other tool derives the name from the path and would silently
- * install the thing under a different name than ambit resolved.
+ * A skill's name is derived from its path, and the frontmatter `name` must agree; disagreement is
+ * an error, because every other tool derives the name from the path and would install the skill
+ * under a different name than ambit resolved.
  *
- * This module reads from a directory, and nothing more: turning a `source` into one — a local path,
- * or a git repository fetched into the cache — is `sources.ts`'s job, so parsing is identical
- * whichever a catalog came from.
- *
- * Every definition ambit reads arrives this way. A project that ships a skill, a server, a hook or a
- * pack of its own puts it in `skills/`, `mcps/`, `hooks/` or `packs/` and lists itself as a catalog,
- * so there is one kind of thing to merge and resolution has exactly one place to look a name up.
+ * This module only reads from a directory. Turning a `source` (a local path, or a git repository
+ * fetched into the cache) into a directory is `sources.ts`'s job, so parsing is identical
+ * regardless of where the catalog came from.
  */
 import { readdir, stat } from "node:fs/promises";
 import path from "node:path";
@@ -50,37 +45,32 @@ import { readFrontmatterMapping, readYamlMapping } from "./yaml.js";
 /**
  * The registry a catalog used to carry, kept only so its presence can be refused.
  *
- * Not exported: nothing reads this file any more, and the one thing left to say about it is the
- * rewrite in {@link removedRegistry}.
+ * Not exported: nothing reads this file any more except {@link removedRegistry}.
  */
 const REMOVED_REGISTRY_FILENAME = "scopes.yml";
 
-/** Where skills live within a catalog. */
 export const SKILLS_DIRNAME = "skills";
 
-/** Where MCP entities live within a catalog. */
 export const MCPS_DIRNAME = "mcps";
 
 /**
  * Where packs live within a catalog.
  *
- * A pack is a *file* rather than a directory, like an MCP entity and unlike a skill or a hook: it
- * ships no bytes, so there is nothing for a directory of its own to hold. Its name is still its path
- * under `packs/` with the extension dropped and `/` read as `.`, exactly as a skill's is — so
- * `packs/function/engineering.yml` and `packs/function.engineering.yml` both declare
- * `function.engineering`, and a catalog can group its packs into directories or not as it prefers.
- * Declaring the same name both ways is refused rather than arbitrated.
+ * A pack is a file, not a directory, like an MCP entity and unlike a skill or a hook: it ships no
+ * bytes. Its name is its path under `packs/` with the extension dropped and `/` read as `.`, the
+ * same convention a skill's name follows — so `packs/function/engineering.yml` and
+ * `packs/function.engineering.yml` both declare `function.engineering`. Declaring the same name
+ * both ways is refused.
  */
 export const PACKS_DIRNAME = "packs";
 
-/** Where hooks live within a catalog. */
 export const HOOKS_DIRNAME = "hooks";
 
 /**
  * The file whose presence makes a directory a skill.
  *
- * Uppercase because ambit does not get to choose: harnesses and other tools walk
- * `skills/<name>/SKILL.md` already, and this is that file.
+ * Uppercase because harnesses and other tools already walk `skills/<name>/SKILL.md`; ambit matches
+ * that spelling rather than choosing its own.
  */
 export const SKILL_FILENAME = "SKILL.md";
 
@@ -88,63 +78,52 @@ export const SKILL_FILENAME = "SKILL.md";
  * The file whose presence makes a directory a hook.
  *
  * A hook is always a directory, like a skill and unlike an MCP entity, because a hook may ship its
- * own script — and one that does not is a directory holding only this file, so both kinds are found,
- * named and materialized the same way.
+ * own script; one that does not is just a directory holding this one file.
  *
- * Lowercase, unlike {@link SKILL_FILENAME}, because nothing outside ambit reads it — so it is spelled
- * like every other file ambit owns: `ambit.yml`, `ambit.lock`, `mcps/<name>.yml`.
+ * Lowercase, unlike {@link SKILL_FILENAME}, because nothing outside ambit reads it, so it is
+ * spelled like every other file ambit owns: `ambit.yml`, `ambit.lock`, `mcps/<name>.yml`.
  */
 export const HOOK_FILENAME = "hook.yml";
 
 /**
- * The extensions a flat-file item may carry, in preference order. One stem carrying both is an error.
- *
- * Both are read because both are what an author may have written; `.yml` is the one ambit names in a
- * refusal, since a message telling someone to rename a file has to pick one.
+ * The extensions a flat-file item may carry, in preference order. One stem carrying both is an
+ * error. Both are read because either is valid; `.yml` is the one ambit names in a refusal.
  */
 const YAML_EXTENSIONS: readonly string[] = [".yml", ".yaml"];
 
 /** MCP entity extensions — see {@link YAML_EXTENSIONS}. */
 export const MCP_EXTENSIONS = YAML_EXTENSIONS;
 
-/** Pack extensions — the same two, a pack being a flat document as a server is. */
+/** Pack extensions — the same two, a pack being a flat document as an MCP entity is. */
 export const PACK_EXTENSIONS = YAML_EXTENSIONS;
 
 /**
  * The one top-level `SKILL.md` frontmatter key ambit owns.
  *
- * Every annotation lives under it, so the block a harness reads and the block ambit reads cannot
- * collide however either grows: a harness that one day defines its own `tags` or `requires` takes
- * the top-level name, and ambit's are a level down where they always were. The cost is one line of
- * nesting; the alternative was a standing bet that no harness ever picks those two words.
+ * Every annotation lives under it, so ambit's keys can never collide with a key a harness defines
+ * at the top level, however either grows.
  */
 export const AMBIT_FRONTMATTER_KEY = "ambit";
 
-/**
- * The keys ambit reads under {@link AMBIT_FRONTMATTER_KEY}, in the order the format tabulates them, so
- * a message about one of them reads like the format's own documentation.
- *
- * One list, in the layer that reads them, so nothing can drift apart on what an annotation is.
- */
+/** The keys ambit reads under {@link AMBIT_FRONTMATTER_KEY}, in the order the format tabulates them. */
 export const ANNOTATION_KEYS = ["requires", "expects"] as const;
 
 export type AnnotationKey = (typeof ANNOTATION_KEYS)[number];
 
 /**
- * How a catalog is parsed when the caller wants every problem rather than only the first — the validation split.
+ * How a catalog is parsed when the caller wants every problem rather than only the first.
  *
- * Only validation passes one — both `validate` commands. Everything else parses strictly, because a
- * resolution that carried on past a broken skill would install something nobody described.
+ * Only validation passes one — both `validate` commands. Everything else parses strictly, because
+ * a resolution that carried on past a broken skill would install something nobody described.
  */
 export interface CatalogParseOptions {
   /**
    * Receives a problem that would otherwise have been thrown, letting parsing continue past it.
    *
-   * Exactly one problem takes this route: a skill whose frontmatter `name` disagrees with its path.
-   * It is the one violation parsing can recover from — the path is what every other tool derives
-   * the name from, so taking the path's answer and reporting the disagreement leaves a catalog
-   * whose remaining checks still mean something. Everything else is a document ambit cannot read,
-   * and there is no useful report to build on top of that.
+   * Exactly one problem takes this route: a skill whose frontmatter `name` disagrees with its
+   * path. It is the one violation parsing can recover from, by taking the path's answer, because
+   * every other tool derives the name from the path anyway. Everything else is a document ambit
+   * cannot read, and there is no useful report to build on top of that.
    */
   readonly collect?: (problem: AmbitError) => void;
 }
@@ -162,8 +141,8 @@ export interface CatalogSkill {
    * project selects with, minus the qualifier — see {@link PatternEntry}. In the order the author
    * wrote them.
    *
-   * Unqualified, and therefore confined to this catalog: the alias belongs to the consumer's config,
-   * so a catalog author cannot write one, and a catalog can only require what it ships.
+   * Unqualified, and confined to this catalog: the alias belongs to the consumer's config, so a
+   * catalog author cannot write one, and a catalog can only require what it ships.
    */
   readonly requires: readonly PatternEntry[];
   /**
@@ -182,13 +161,12 @@ export interface CatalogPack extends PackEntity {
 /** An MCP entity as one catalog declares it, carrying the document it was read from. */
 export interface CatalogMcp extends McpEntity {
   /**
-   * The file that defines it, relative to the catalog root — whichever §3.3 extension it actually
+   * The file that defines it, relative to the catalog root, whichever extension it actually
    * carries.
    *
    * Carried from parsing rather than derived from the name, because `mcps/<name>.yml` is only the
-   * extension ambit *writes*: an entity spelled `.yaml` has no `.yml` for an error to send a reader
-   * to. Parsing already knows which one is there, so nothing downstream has to ask the
-   * filesystem again — or guess.
+   * extension ambit writes; an entity spelled `.yaml` has no `.yml` to fall back to. Parsing
+   * already knows which one is there.
    */
   readonly file: string;
 }
@@ -221,8 +199,8 @@ export interface Catalog {
    * Whether its `ref` is one that can move — a branch, a tag, or the source's default branch — as
    * against a `ref` naming a commit, which is already a pin.
    *
-   * Present only when the load refreshed this catalog: it is `ambit outdated`'s question, and only a
-   * run that reached the remote can answer it without guessing.
+   * Present only when the load refreshed this catalog: it is `ambit outdated`'s question, and only
+   * a run that reached the remote can answer it without guessing.
    */
   readonly moving?: boolean;
   /** Packs, sorted by name. */
@@ -238,9 +216,8 @@ export interface Catalog {
 /**
  * A pack in the merged view, tagged with the catalog it came from.
  *
- * No `catalogRoot` and no `commit`: a pack ships no bytes, so there is nothing to materialize out of
- * a catalog directory and nothing whose revision a lock could pin. What it contributes to a bundle is
- * the items its `requires` reaches, and each of those carries its own.
+ * No `catalogRoot` and no `commit`: a pack ships no bytes, so there is nothing to materialize out
+ * of a catalog directory and no revision to pin.
  */
 export interface MergedPack extends PackEntity {
   readonly catalog: string;
@@ -252,12 +229,8 @@ export interface MergedPack extends PackEntity {
 export interface MergedSkill extends CatalogSkill {
   readonly catalog: string;
   /**
-   * The commit the skill's bytes came from, inherited from its catalog. Absent for a `path:` source,
-   * which has no revision.
-   *
-   * Recorded per skill rather than left to the catalog entry alone because pinning the bytes is the
-   * whole point of the lock, and every surface that writes one reads the item rather than looking its
-   * catalog up again.
+   * The commit the skill's bytes came from, inherited from its catalog. Absent for a `path:`
+   * source, which has no revision.
    */
   readonly commit?: string;
   /**
@@ -273,9 +246,7 @@ export interface MergedMcp extends McpEntity {
   readonly catalog: string;
   /**
    * The file that defines it inside that catalog, catalog-relative — see {@link CatalogMcp.file}.
-   *
-   * Always present: every definition lives in a file, so there is no server without a document to
-   * cite, and nothing downstream has to invent a location for one.
+   * Always present: every definition lives in a file.
    */
   readonly file: string;
 }
@@ -283,17 +254,15 @@ export interface MergedMcp extends McpEntity {
 /**
  * A hook in the merged view, tagged with the catalog it came from.
  *
- * The union of what {@link MergedSkill} needs and what {@link MergedMcp} needs, because a hook is both
- * kinds of thing at once: it renders into a harness's config file, and — when it ships a script — it
- * also materializes a directory.
+ * The union of what {@link MergedSkill} needs and what {@link MergedMcp} needs, because a hook is
+ * both kinds of thing at once: it renders into a harness's config file, and — when it ships a
+ * script — it also materializes a directory.
  */
 export interface MergedHook extends HookEntity {
   readonly catalog: string;
   /**
-   * The hook directory inside that catalog, catalog-relative.
-   *
-   * Always present, for the reason {@link MergedMcp.file} is: a hook is a directory holding
-   * `hook.yml`, and there is no other way to declare one.
+   * The hook directory inside that catalog, catalog-relative. Always present: a hook is a
+   * directory holding `hook.yml`, and there is no other way to declare one.
    */
   readonly path: string;
   /** The commit the hook's bytes came from, when its catalog has one — see {@link MergedSkill.commit}. */
@@ -307,27 +276,25 @@ export interface MergedHook extends HookEntity {
 }
 
 /**
- * Every configured catalog, merged into one namespace per kind — every catalog's copy of every name.
+ * Every configured catalog, merged into one namespace per kind — every catalog's copy of every
+ * name.
  *
  * A name is not an identity here. Two catalogs may both provide `house-style`, and both copies
- * survive the merge, each identified by its catalog *and* its name — see {@link qualifiedName}. So
- * anything that keys, groups or looks up a merged item keys on the pair, and a lookup by name alone
- * answers with a set rather than an item.
+ * survive the merge, each identified by its catalog and its name — see {@link qualifiedName}. A
+ * lookup by name alone answers with a set rather than an item.
  *
- * There is no name-keyed grouping helper here to do that with. One was added when the merge stopped
- * collapsing copies, on the expectation that the callers of the name-keyed `Map` it replaced would
- * want it, and not one of them did. `ambit why` wants a *filter*: one name it already has, in one
- * namespace it already knows, so grouping the whole namespace to read a single bucket out of it is
- * work for nothing. Resolution's collision check wants the opposite — every name at once — but keyed
- * by *catalog* rather than by item, since what its message needs is where each copy came from. Two
- * call sites, two shapes, neither of them a lookup.
+ * There is no name-keyed grouping helper here. `ambit why` wants a filter: one name it already
+ * has, in one namespace it already knows, so grouping the whole namespace to read one bucket back
+ * out is unnecessary. Resolution's collision check wants every name at once, but keyed by
+ * *catalog* rather than by item, since its message needs to say where each copy came from. The two
+ * call sites want different shapes, neither of them a lookup.
  */
 export interface MergedCatalog {
   /**
    * Catalog names, in config order.
    *
-   * A record of what the config listed, and nothing more: the order settles nothing, because no
-   * copy of a name is dropped and no catalog takes precedence over another.
+   * A record of what the config listed, nothing more: no copy of a name is dropped and no catalog
+   * takes precedence over another, so the order settles nothing.
    */
   readonly catalogs: readonly string[];
   readonly packs: readonly MergedPack[];
@@ -339,23 +306,20 @@ export interface MergedCatalog {
 /**
  * What separates a catalog from a name in the address of a merged item.
  *
- * `/` rather than `.`, so an address introduces no phantom level into the dotted name space a
- * catalog already has — `company/core.a` is the item `core.a` in the catalog `company`, and a dot in
- * a catalog's alias needs no refusing.
+ * `/` rather than `.`, so an address introduces no phantom level into the dotted namespace a
+ * catalog already has — `company/core.a` is the item `core.a` in the catalog `company`.
  */
 export const CATALOG_SEPARATOR = "/";
 
 /**
  * The address of one item in the merged catalog: `<catalog>/<name>`.
  *
- * The identity a bare name stopped being once every catalog's copy survives the merge. Anything that
- * needs one string per item — a `Map` key, a JSON record key, a set of what a walk has already
- * followed — uses this, so two catalogs' copies of `house-style` cannot collapse into one entry by
- * accident, which is the silent loss the merge no longer performs.
+ * Used anywhere a single string per item is needed — a `Map` key, a JSON record key, a visited
+ * set — so two catalogs' copies of `house-style` cannot collapse into one entry by accident.
  *
- * A *bundle* is the one view where a bare name is still an identity, and it is one because
- * resolution refuses a selection holding two copies of a name (`assertNoCollisions`) rather than
- * because the merge guarantees it.
+ * A *bundle* is the one view where a bare name is still an identity, because resolution refuses a
+ * selection holding two copies of a name (`assertNoCollisions`), not because the merge guarantees
+ * it.
  */
 export function qualifiedName(item: { readonly catalog: string; readonly name: string }): string {
   return `${item.catalog}${CATALOG_SEPARATOR}${item.name}`;
@@ -373,10 +337,9 @@ function byName<T extends { readonly name: string }>(items: readonly T[]): reado
 /**
  * Merged items in name order, then catalog order.
  *
- * Name first, so two catalogs' copies of one name sit next to each other in every listing that walks
- * this — a reader scanning `ambit search` sees the pair rather than having to notice it. Catalog
- * second, because a name alone is no longer a total order, and an order that fell back to the order
- * catalogs happened to be read in would make every downstream listing depend on config order again.
+ * Name first, so two catalogs' copies of one name sit next to each other in listings like `ambit
+ * search`. Catalog second, because a name alone is no longer a total order across catalogs, and
+ * falling back to config order would make listings depend on it again.
  */
 function byNameThenCatalog<T extends { readonly name: string; readonly catalog: string }>(
   items: readonly T[],
@@ -402,7 +365,6 @@ async function isFile(target: string): Promise<boolean> {
   }
 }
 
-/** One entry of a catalog directory, as parsing sees it. */
 interface CatalogEntry {
   readonly name: string;
   readonly directory: boolean;
@@ -423,14 +385,9 @@ async function sortedEntries(dir: string): Promise<readonly CatalogEntry[]> {
 /**
  * A catalog's files, addressed the way its own errors and reports address them.
  *
- * Every read parsing does goes through here, which is what keeps a catalog-relative `/`-separated
- * path the only kind of path the walk below deals in: the root is joined on in one place, so nothing
- * that reports a file has an absolute one to accidentally print.
- *
- * It used to do more. An in-flight authoring edit handed its pending bytes to parsing as an overlay,
- * so a mutation could validate its own result before writing it, and every read had to consult that
- * overlay first. Nothing mutates a catalog any more, so the pending case is gone and these are five
- * plain reads.
+ * Every read parsing does goes through here, so a catalog-relative `/`-separated path is the only
+ * kind of path the walk below deals in: the root is joined on in one place, keeping absolute paths
+ * out of anything that reports a file.
  */
 class CatalogFiles {
   constructor(private readonly root: string) {}
@@ -467,12 +424,13 @@ class CatalogFiles {
 /**
  * Resolves a catalog's `source` to a directory on disk, fetching it if it is a git source.
  *
- * @param file how the config file is named in errors. Catalog entries carry no line of their own, so
- *   the message names the file alone.
- * @param refresh how much of the remote this one catalog may consult. Defaults to `"none"`, which is
- *   every command but `ambit outdated` and `ambit update`.
- * @param pin the commit an earlier resolution recorded for this catalog, from `ambit.lock`. Resolves
- *   to that commit rather than to whatever its `ref` names now — see `SourceRequest.pin`.
+ * @param file how the config file is named in errors. Catalog entries carry no line of their own,
+ *   so the message names the file alone.
+ * @param refresh how much of the remote this one catalog may consult. Defaults to `"none"`, which
+ *   is every command but `ambit outdated` and `ambit update`.
+ * @param pin the commit an earlier resolution recorded for this catalog, from `ambit.lock`.
+ *   Resolves to that commit rather than to whatever its `ref` names now — see
+ *   `SourceRequest.pin`.
  * @throws {AmbitError} exit 2 for a source ambit cannot read, a missing directory, or an unknown
  *   ref; exit 4 if a fetch fails.
  */
@@ -499,9 +457,9 @@ export async function resolveCatalogRoot(
 /**
  * The refusal for a catalog that still holds the registry.
  *
- * A hard break, and loud on purpose: the file parses as YAML and every scope in it looks like it is
- * still doing something, so silence would leave an author believing a catalog is labelled when
- * nothing in it is. The message carries the whole rewrite, since it is short enough to state.
+ * A hard break, and loud on purpose: the file still parses as YAML and every scope in it still
+ * looks active, so silence would leave an author believing the catalog is labelled when nothing in
+ * it is. The message carries the whole rewrite, since it is short enough to state.
  */
 function removedRegistry(): AmbitError {
   return configError(`the scope registry is gone (${REMOVED_REGISTRY_FILENAME})`, [
@@ -513,9 +471,8 @@ function removedRegistry(): AmbitError {
 /**
  * The name↔path convention: the path under `skills/`, `hooks/` or `packs/` with `/` → `.`.
  *
- * One function for all three rather than one each, because it is one convention: a hook is named from
- * its directory exactly as a skill is, a pack from its file with the extension already dropped, and
- * three copies of the rule could drift.
+ * One function for all three, since it is one convention: a hook is named from its directory
+ * exactly as a skill is, and a pack from its file with the extension already dropped.
  */
 export function skillNameFromPath(relative: string): string {
   return relative.replaceAll("/", ".");
@@ -524,8 +481,8 @@ export function skillNameFromPath(relative: string): string {
 /**
  * Every directory under `parent` holding `marker`, relative to `parent` and `/`-separated.
  *
- * The walk skills and hooks share: both are named from their path under one directory, and both are
- * found by the file that marks one.
+ * The walk skills and hooks share: both are named from their path under one directory, and both
+ * are found by the file that marks one.
  */
 async function findEntityDirectories(
   files: CatalogFiles,
@@ -562,11 +519,9 @@ async function findHookDirectories(files: CatalogFiles): Promise<readonly string
 /**
  * What ambit reads off a skill's frontmatter once its name is settled.
  *
- * Two opposite stances on unknown keys, and both are deliberate. At the top level they are allowed,
- * unlike everywhere else, because that block is the harness's and ambit is a guest in it. Under
- * `ambit:` they are rejected like everywhere else, because that block is ambit's: a misspelled
- * `require:` there would otherwise be a skill that declares nothing and warns nobody, which is the
- * same silence the namespace exists to remove.
+ * Unknown keys are allowed at the top level, since that block is the harness's and ambit is a
+ * guest in it. Unknown keys under `ambit:` are rejected, since that block is ambit's own: a
+ * misspelled `require:` there would otherwise silently declare nothing.
  *
  * @throws {AmbitError} exit 2 for an `ambit:` that is not a mapping, or a key under it that §3.2
  *   does not define.
@@ -578,8 +533,8 @@ function skillAnnotations(mapping: YamlMapping): Omit<CatalogSkill, "name" | "pa
 
   return {
     ...(description !== undefined && { description }),
-    // Unqualified: a catalog author cannot write a consumer's alias, so the pattern stands alone and
-    // the entry resolves within this catalog.
+    // Unqualified: a catalog author cannot write a consumer's alias, so the entry resolves within
+    // this catalog.
     requires: ambit === undefined ? [] : parseEntries(ambit, "unqualified"),
     expects: ambit === undefined ? [] : parseExpectations(ambit),
   };
@@ -618,22 +573,21 @@ async function parseSkill(
     collect(problem);
   }
 
-  // The path's name, always: it is what every other tool would install the skill under, so it is
-  // the answer that keeps a collected disagreement from cascading into a second, invented problem.
+  // The path's name, always: it is what every other tool would install the skill under, so a
+  // collected disagreement does not cascade into a second, invented problem.
   return { name: derived, path: `${SKILLS_DIRNAME}/${relative}`, ...skillAnnotations(mapping) };
 }
 
 /**
  * The flat-file item names under `dirname`, each with the one file that defines it.
  *
- * One walk for both namespaces that are documents rather than directories — `mcps/` and `packs/` —
- * because it is one convention, and two copies of the both-extensions rule could drift.
+ * One walk for both namespaces that are documents rather than directories — `mcps/` and `packs/`.
  *
- * @param nested whether subdirectories are walked, and their segments joined into the name the way
- *   {@link skillNameFromPath} joins a skill's. `mcps/` is flat: a server has always been one file
- *   directly under it, and reading a nested one now would give an existing catalog names it never
- *   declared. `packs/` is nested, because a catalog that offers thirty packs has something to group
- *   them by and a directory is how one does that.
+ * @param nested whether subdirectories are walked, and their segments joined into the name the
+ *   way {@link skillNameFromPath} joins a skill's. `mcps/` is flat: a server has always been one
+ *   file directly under it, and reading a nested one now would give an existing catalog names it
+ *   never declared. `packs/` is nested, since a catalog offering many packs needs a way to group
+ *   them.
  */
 async function findEntityFiles(
   files: CatalogFiles,
@@ -642,8 +596,9 @@ async function findEntityFiles(
 ): Promise<readonly { name: string; file: string }[]> {
   if (!(await files.isDirectory(dirname))) return [];
 
-  // Keyed by the derived name rather than by the filename, so the two spellings that can produce one
-  // name — `a/b.yml` and `a.b.yml` — collide here and are refused together with the two extensions.
+  // Keyed by the derived name rather than by the filename, so the two spellings that can produce
+  // one name — `a/b.yml` and `a.b.yml` — collide here and are refused together with the two
+  // extensions.
   const byName = new Map<string, string[]>();
 
   const walk = async (relative: string): Promise<void> => {
@@ -675,10 +630,9 @@ async function findEntityFiles(
 }
 
 /**
- * Parses one pack document.
+ * Parses one pack document: reads it, and checks that what it calls itself matches its filename.
  *
- * A pack has no directory and no bytes, so this is the whole of loading one: read the document, and
- * check that what it calls itself is what its filename says.
+ * A pack has no directory and no bytes, so this is the whole of loading one.
  */
 async function parsePackFile(
   files: CatalogFiles,
@@ -715,18 +669,17 @@ async function parseMcpFile(files: CatalogFiles, stem: string, file: string): Pr
 /**
  * One hook's `command` as a harness should read it: a shipped script's path moved under `root`.
  *
- * The rewrite is the whole reason a hook can ship bytes. A catalog declares `command: guard.sh`, which
- * names a file relative to the hook's own directory — a location that exists in the catalog and nowhere
- * a harness looks. Once installed the script sits at `<root>/<name>/guard.sh`, and `root` is how each
- * harness spells the way there — its profile's `hookConfig` chooses it (`harness/definitions.ts`).
+ * A catalog declares `command: guard.sh`, naming a file relative to the hook's own directory — a
+ * location that exists in the catalog but not where a harness looks. Once installed the script
+ * sits at `<root>/<name>/guard.sh`; `root` is how each harness spells the way there (its profile's
+ * `hookConfig` in `harness/definitions.ts`).
  *
- * Only the program is rewritten. Everything after the first token is arguments, and a `command` is a
- * shell fragment ambit does not parse: rewriting inside it would corrupt a quoted string or a path that
- * means something to the program rather than to ambit. So `guard.sh --strict` becomes
- * `<root>/<name>/guard.sh --strict`, and the arguments arrive exactly as written.
+ * Only the program token is rewritten. Everything after it is arguments, and a `command` is a
+ * shell fragment ambit does not parse; rewriting inside it could corrupt a quoted string or an
+ * unrelated path. So `guard.sh --strict` becomes `<root>/<name>/guard.sh --strict`.
  *
- * A `type: command` hook is returned verbatim, which is most of them: `npx --yes prettier` is a command
- * line the harness runs as-is, and prefixing it with a directory would break it.
+ * A `type: command` hook is returned verbatim: `npx --yes prettier` is a command line the harness
+ * runs as-is, and prefixing it with a directory would break it.
  */
 export function hookCommand(hook: MergedHook, root: string): string {
   if (hook.type !== "script") return hook.command;
@@ -760,13 +713,10 @@ async function hookDirectoryContents(
 /**
  * Asserts that a `type: script` hook ships the file its `command` names.
  *
- * The declaration says a script is there; this is the catalog being asked whether it is. A hook that
- * claims a file it does not hold is refused naming the directory's contents, because installing it
- * would write a command pointing at bytes that never arrive — a hook that cannot run, and says nothing
- * about why.
+ * A hook that claims a file it does not hold is refused, naming the directory's contents: without
+ * this check, installing it would write a command pointing at bytes that never arrive.
  *
- * The shape of the reference was already settled by the parser, so what is left here is existence
- * alone. A `type: command` hook is never asked: its `command` is a command line, and whether a file of
+ * A `type: command` hook is never checked: its `command` is a command line, and whether a file of
  * that name happens to sit in the directory is a coincidence.
  *
  * @param name the hook's name as its path derives it, which is what it will be installed under.
@@ -795,12 +745,12 @@ async function assertScriptShipped(
 /**
  * Parses one hook directory.
  *
- * A disagreement between `name` and the path is thrown rather than collected, unlike a skill's: the
- * recovery there exists because every other tool installs a skill under its path's name, and nothing
- * but ambit reads a `hooks/` directory at all.
+ * A disagreement between `name` and the path is thrown rather than collected, unlike a skill's:
+ * the recovery there exists because every other tool installs a skill under its path's name, and
+ * nothing but ambit reads a `hooks/` directory at all.
  *
- * @throws {AmbitError} exit 2 for a malformed document, a `name` that disagrees with the path, or a
- *   `command` naming a file the directory does not hold.
+ * @throws {AmbitError} exit 2 for a malformed document, a `name` that disagrees with the path, or
+ *   a `command` naming a file the directory does not hold.
  */
 async function parseHookDirectory(files: CatalogFiles, relative: string): Promise<CatalogHook> {
   if (relative === "") {
@@ -845,9 +795,8 @@ function inSource(subject: string, root: string, error: unknown): unknown {
  * The same attribution for a *collected* problem, naming the catalog but not its root.
  *
  * The root is a machine path — a cache checkout, for a git source — and a collected problem is
- * printed as part of a report rather than as a fatal error, which is output tests compare
- * byte-for-byte across machines. The catalog's name is what disambiguates two catalogs holding the
- * same relative path anyway.
+ * printed as part of a report that output tests compare byte-for-byte across machines. The
+ * catalog's name is enough to disambiguate two catalogs holding the same relative path.
  */
 function fromCatalog(name: string, problem: AmbitError): AmbitError {
   return new AmbitError(problem.code, problem.message, [`in catalog "${name}"`, ...problem.detail]);
@@ -879,9 +828,9 @@ export async function parseCatalogDirectory(
   const files = new CatalogFiles(root);
 
   try {
-    // The one file at a catalog root ambit still has an opinion about, and the opinion is that it
-    // must not be there. Nothing else is read: a directory holding none of the four subdirectories
-    // is a catalog with zero items, which the patterns selecting from it report far better than a
+    // The one file at a catalog root ambit still has an opinion about: it must not be there.
+    // Nothing else is read here — a directory holding none of the four subdirectories is a
+    // catalog with zero items, which the patterns selecting from it report better than a
     // missing-file error here could.
     if (await files.isFile(REMOVED_REGISTRY_FILENAME)) throw removedRegistry();
 
@@ -924,34 +873,33 @@ export async function parseCatalogDirectory(
  * How a load reaches each catalog's source, on top of what parsing needs.
  *
  * Separate from {@link CatalogParseOptions} because it is about the fetch rather than the parse:
- * `parseCatalogDirectory` is handed a directory and never learns where it came from, so a refresh has
- * nothing to say to it.
+ * `parseCatalogDirectory` is handed a directory and never learns where it came from.
  */
 export interface CatalogLoadOptions extends CatalogParseOptions {
   /**
    * How each catalog may consult its remote, keyed by catalog name.
    *
-   * A name the map does not hold — and an absent map — resolves from the cache exactly as every other
-   * command does. Per catalog rather than per run because `ambit update company` moves one pin: a
-   * run-wide setting would move every catalog's, which is a pin nobody asked to move.
+   * A name the map does not hold — and an absent map — resolves from the cache exactly as every
+   * other command does. Per catalog rather than per run because `ambit update company` moves only
+   * one pin.
    */
   readonly refresh?: ReadonlyMap<string, RefreshMode>;
   /**
-   * The commit an earlier resolution recorded for each catalog, keyed by catalog name — `ambit.lock`'s
-   * pins, as {@link readCatalogPins} reads them.
+   * The commit an earlier resolution recorded for each catalog, keyed by catalog name —
+   * `ambit.lock`'s pins, as {@link readCatalogPins} reads them.
    *
-   * A catalog the map holds resolves to that commit instead of to whatever its `ref` names now, which is
-   * what makes a committed lock reproduce an install. A name it does not hold resolves through its
-   * `ref`, exactly as before there were pins at all.
+   * A catalog the map holds resolves to that commit instead of to whatever its `ref` names now,
+   * which is what lets a committed lock reproduce an install. A name it does not hold resolves
+   * through its `ref`, as if there were no pins at all.
    *
-   * **Omitting this reads the project's lock; it does not skip pinning.** Every command has to agree with
-   * the install it describes about which commit a catalog is, so honouring the lock is the default and a
-   * caller opts *out* by passing an explicit map — an empty one to pin nothing. Only the two commands
-   * that decide pins for themselves do that: `install`, which drops the pins `ambit update` is replacing,
-   * and `update`, which computes both these and the refresh below.
+   * Omitting this reads the project's lock; it does not skip pinning. Every command has to agree
+   * with the install it describes about which commit a catalog is, so honouring the lock is the
+   * default and a caller opts out by passing an explicit map — an empty one to pin nothing. Only
+   * `install` (which drops the pins `ambit update` is about to replace) and `update` (which
+   * computes both these and the refresh below) do that.
    *
-   * A `refresh` for the same catalog wins over its pin: the two refreshing commands were asked for a
-   * newer commit than the pin holds, and that is the whole of what they do.
+   * A `refresh` for the same catalog wins over its pin: the two refreshing commands were asked for
+   * a newer commit than the pin holds.
    */
   readonly pins?: ReadonlyMap<string, string>;
 }
@@ -960,7 +908,7 @@ export interface CatalogLoadOptions extends CatalogParseOptions {
  * Loads every catalog the config declares, in config order.
  *
  * Sequential rather than concurrent: two catalogs can be two refs of one repository, and a shared
- * cache directory is not something two fetches may race over.
+ * cache directory must not be fetched into by two operations at once.
  *
  * @param options a collector for the one problem parsing can continue past — see
  *   {@link CatalogParseOptions} — and the per-catalog pins and refresh plan, see
@@ -973,9 +921,9 @@ export async function loadCatalogs(
   context: SourceContext,
   options: CatalogLoadOptions = {},
 ): Promise<readonly Catalog[]> {
-  // Read here rather than at each call site, because a command that forgot would resolve a different
-  // commit than the install it is describing — which is the drift pins exist to remove, reintroduced one
-  // command at a time. See CatalogLoadOptions.pins for how a caller opts out.
+  // Read here rather than at each call site, so no command can forget and resolve a different
+  // commit than the install it is describing. See CatalogLoadOptions.pins for how a caller opts
+  // out.
   const pins = options.pins ?? (await readCatalogPins(context.projectDir, config));
 
   const catalogs: Catalog[] = [];
@@ -994,10 +942,10 @@ export async function loadCatalogs(
       resolved.commit,
       options,
     );
-    // `ref` and `moving` are facts about the config entry and about how its source answered, not
-    // about the directory that was parsed, so both are attached here rather than threaded through
+    // `ref` and `moving` are facts about the config entry and how its source answered, not about
+    // the directory that was parsed, so both are attached here rather than threaded through
     // parsing — which also keeps a `path:` catalog, whose directory has neither a ref nor a
-    // revision to speak of, from having to invent either.
+    // revision, from having to invent either.
     catalogs.push({
       ...parsed,
       ...(entry.ref !== undefined && { ref: entry.ref }),
@@ -1011,17 +959,17 @@ export async function loadCatalogs(
  * Merges catalogs into one namespace per kind, keeping every catalog's copy of every name.
  *
  * Nothing is dropped and nothing is arbitrated. Two catalogs both providing `house-style` is a
- * non-event here: both copies are in the merged view, each addressable by its catalog and its name,
- * and `catalogs:` order therefore settles nothing — there is no precedence left to establish.
+ * non-event here: both copies are in the merged view, each addressable by its catalog and its
+ * name, so `catalogs:` order settles nothing.
  *
- * The collision this function used to decide is decided at *materialization* instead. Harness layout
- * is flat and externally imposed — Claude reads `.claude/skills/<name>` — so two copies of one name
- * that are both *selected* would want one path, and resolution refuses that (`assertNoCollisions`).
- * Refusing a selection is a different thing from refusing a catalog: a name two catalogs ship costs
- * nothing until a project asks for both.
+ * The collision this function used to decide is decided at materialization instead. Harness
+ * layout is flat and externally imposed — Claude reads `.claude/skills/<name>` — so two copies of
+ * one name that are both *selected* would want one path, and resolution refuses that
+ * (`assertNoCollisions`). Refusing a selection is different from refusing a catalog: a name two
+ * catalogs ship costs nothing until a project asks for both.
  *
- * Every item in the result came out of a catalog directory, since that is the only place a definition
- * can be written — so there is nothing to fold in beside these lists, and no item without a file.
+ * Every item in the result came out of a catalog directory, since that is the only place a
+ * definition can be written.
  */
 export function mergeCatalogs(catalogs: readonly Catalog[]): MergedCatalog {
   const packs: MergedPack[] = [];
@@ -1051,8 +999,7 @@ export function mergeCatalogs(catalogs: readonly Catalog[]): MergedCatalog {
 
     for (const hook of catalog.hooks) {
       // `catalogRoot` for the same reason a skill carries one: a hook that ships a script is
-      // materialized out of the catalog it came from, and nothing downstream should have to look the
-      // catalog up again to find it.
+      // materialized out of the catalog it came from.
       hooks.push({
         ...hook,
         catalog: catalog.name,

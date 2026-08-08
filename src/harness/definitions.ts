@@ -1,22 +1,16 @@
 /**
- * The five harnesses, as profiles.
+ * Profiles for the five supported harnesses.
  *
- * Each one's server shape is what that tool's own documentation tells a person to write by hand, so an
- * installed config is indistinguishable from a hand-written one — which is the property that makes a
- * harness willing to read it and a person willing to look at it.
+ * Each profile's server shape matches what that tool's own documentation tells a person to write by
+ * hand, so an ambit-generated config is indistinguishable from a hand-written one.
  *
- * Two families, on the skills side. Claude Code and Cursor read `.claude/skills`, so they get a link
- * to the shared directory. Codex, VS Code and opencode read `.agents/skills` natively and need nothing.
- * Both Claude and Cursor name the same link, so a project using both plans it once.
+ * Skills: Claude Code and Cursor read `.claude/skills`, so both get a link to the shared directory.
+ * Codex, VS Code and opencode read `.agents/skills` natively and need no link.
  *
- * The hooks side splits along a different seam again, and into three. VS Code reads Claude's own
- * `.claude/settings.json`, so the two share a file *and* a renderer where they share nothing on the MCP
- * side. A project configuring both writes that file once, exactly as one configuring Claude and Cursor
- * plans one skills link. Codex shares the renderer and not the file: its entries are Claude-shaped, in
- * `.codex/hooks.json`. Cursor shares neither — its own file, its own event names, its own entry shape.
- *
- * opencode expresses hooks nowhere at all, so it carries no layout, and a project that selects a hook
- * while configuring it is told the hook was skipped (`skippedHooks`, `profile.ts`).
+ * Hooks: Claude and VS Code share both the file (`.claude/settings.json`) and its renderer. Codex
+ * shares the renderer but not the file (its entries live in `.codex/hooks.json`). Cursor shares
+ * neither: its own file, its own event names, its own entry shape. opencode has no declarative hooks;
+ * a hook selected for it is reported as skipped (`skippedHooks`, `profile.ts`).
  */
 import type { HarnessProfile, HookLayout } from "./profile.js";
 import { SHARED_HOOKS_DIR } from "./profile.js";
@@ -38,11 +32,11 @@ import type { HookEvent } from "../model/hook-entity.js";
 const CLAUDE_SKILLS_LINK = ".claude/skills";
 
 /**
- * Where Claude Code keeps its hooks — and VS Code with it, which reads this file natively.
+ * Claude Code's hooks file. Also read natively by VS Code.
  *
- * The file is a person's before it is ambit's: their `model`, their `permissions`, and hooks they wrote
- * themselves live in it. Which is why the section is `array`-shaped rather than `map`-shaped — ambit
- * owns entries inside `hooks.<Event>` by digest, not the `hooks` root.
+ * The section is `array`-shaped, not `map`-shaped, because the file is the user's own: their `model`,
+ * `permissions`, and hand-written hooks live in it. ambit owns entries inside `hooks.<Event>` by
+ * digest, not the `hooks` root.
  */
 const CLAUDE_HOOKS: HookLayout = {
   file: ".claude/settings.json",
@@ -54,29 +48,26 @@ const CLAUDE_HOOKS: HookLayout = {
 /**
  * Where Claude Code resolves a materialized hook script from.
  *
- * `${CLAUDE_PROJECT_DIR}` is Claude's own documented placeholder, and its documentation says exactly
- * what this is for: "use these placeholders to reference hook scripts relative to the project or plugin
- * root, regardless of the working directory when the hook runs". So the script is found however deep in
- * the tree a session's cwd happens to sit — which a relative path cannot promise.
+ * `${CLAUDE_PROJECT_DIR}` is Claude's own documented placeholder for referencing hook scripts relative
+ * to the project root, regardless of the session's working directory. A relative path cannot promise
+ * that.
  *
- * Written for VS Code too, which reads this same file. Whether VS Code interpolates it is *not*
- * documented either way — see {@link vscode}, where that is set out.
+ * Also written for VS Code, which reads this same file. Whether VS Code interpolates this placeholder
+ * is undocumented either way; see {@link vscode}.
  */
 const CLAUDE_HOOK_ROOT = `\${CLAUDE_PROJECT_DIR}/${SHARED_HOOKS_DIR}`;
 
 /**
- * Where the harnesses with no placeholder resolve one from: the path as written, project-relative.
+ * Where harnesses with no placeholder resolve a hook script from: the path as written,
+ * project-relative.
  *
- * Cursor and Codex interpolate nothing in a `command`, so the plain project-relative path is all there
- * is to write. Cursor documents the resolution and documents it as the project root's — "project hooks
- * (`.cursor/hooks.json` in a repository): run from the project root" — with a caution that spells out
- * this exact case: `./hooks/script.sh` "would look for `<project>/hooks/script.sh`". Nothing confines it to
- * `.cursor/`, so a script under `.agents/` is found the same way.
+ * Cursor and Codex interpolate nothing in a `command`. Cursor documents project hooks as running from
+ * the project root, with `./hooks/script.sh` resolving to `<project>/hooks/script.sh`; nothing confines
+ * that to `.cursor/`, so a script under `.agents/` resolves the same way.
  *
- * Deliberately *not* Codex's own documented suggestion of `$(git rev-parse --show-toplevel)/…`: that
- * assumes git and a POSIX shell, and a config file holding a subshell is the opposite of a value a reader
- * can check. A relative path misses if a session's cwd is not the project root, which is the harness's
- * own limitation and exactly what a person writing the hook by hand would hit.
+ * Not Codex's own documented suggestion of `$(git rev-parse --show-toplevel)/…`: that requires git and
+ * a POSIX shell. A relative path still misses if a session's cwd is not the project root, but that is
+ * the harness's own limitation, the same one a person writing the hook by hand would hit.
  */
 const RELATIVE_HOOK_ROOT = SHARED_HOOKS_DIR;
 
@@ -84,17 +75,13 @@ const RELATIVE_HOOK_ROOT = SHARED_HOOKS_DIR;
  * One hook, Claude-shaped: an entry in `hooks.<Event>` pairing an optional tool `matcher` with the
  * commands to run.
  *
- * The nesting is the harness's rather than ambit's, and one entry carries one command because one
- * declaration is one hook — grouping several under one entry would make a digest name a set whose
- * membership changes as other hooks come and go.
+ * One entry carries one command, because one declaration is one hook; grouping several under one entry
+ * would make a digest name a set whose membership changes as other hooks come and go.
  *
- * VS Code reads exactly this and ignores `matcher`, so it needs no rendering of its own. A second
- * spelling would put two entries in one array for one declared hook, which is the opposite of sharing
- * the file. Codex reads it too, and differs in one string: `root`, which is why that is a parameter
- * rather than a constant read from here — the three harnesses share an entry shape and not a way to
- * name a file.
+ * VS Code reads exactly this shape and ignores `matcher`. Codex reads it too, differing only in
+ * `root`, which is why `root` is a parameter here rather than a constant.
  *
- * Key order here is the digest's input, so it is fixed in this one place and read off nowhere else.
+ * Key order here is the digest's input, so it is fixed in this one place only.
  */
 function claudeHook(hook: MergedHook, root: string): unknown {
   return {
@@ -110,16 +97,15 @@ function claudeHook(hook: MergedHook, root: string): unknown {
 }
 
 /**
- * Where Codex keeps its hooks: a file of its own, holding Claude's own entry shape.
+ * Where Codex keeps its hooks: `.codex/hooks.json`, holding Claude's own entry shape.
  *
- * A file rather than `[hooks]` in `.codex/config.toml`, which Codex also reads. A TOML `hooks` table is
- * an array-of-tables — `[[hooks.PreToolUse]]` — and the TOML driver splices named-table spans and
- * refuses that shape outright, so reaching for `config.toml` would mean a second driver to write a
- * document Codex is equally happy to read as JSON. Which is also why there is no `rootDefaults` here:
- * `.codex/hooks.json` holds hooks and nothing else, so ambit seeds no key beside them.
+ * A separate file rather than `[hooks]` in `.codex/config.toml`, which Codex also reads: a TOML
+ * `hooks` table is an array-of-tables (`[[hooks.PreToolUse]]`), and the TOML driver refuses that
+ * shape. Reaching for `config.toml` would mean a second driver for no benefit, since Codex reads JSON
+ * just as well. No `rootDefaults` either, since this file holds hooks and nothing else.
  *
- * Codex's hooks are experimental and gated behind `[features] codex_hooks = true` in a user's own
- * config, which is not a file ambit writes into. `doctor` is where that is said out loud.
+ * Codex's hooks are experimental, gated behind `[features] codex_hooks = true` in the user's own
+ * config, which ambit does not write into. `doctor` reports this.
  */
 const CODEX_HOOKS: HookLayout = {
   file: ".codex/hooks.json",
@@ -131,10 +117,9 @@ const CODEX_HOOKS: HookLayout = {
 /**
  * How Cursor spells each of ambit's events: the same names, camelCased.
  *
- * The one harness that needs a map at all — Claude, VS Code and Codex read the PascalCase spellings
- * verbatim. Written out rather than derived from the neutral name, because the mapping is a fact about
- * Cursor rather than a rule: the record is total over {@link HookEvent}, so an event added to the
- * vocabulary is a type error here until someone has looked up what Cursor calls it.
+ * The only harness that needs a map; Claude, VS Code and Codex read the PascalCase spellings verbatim.
+ * Written out rather than derived, because the mapping is a fact about Cursor: the record is total
+ * over {@link HookEvent}, so adding an event without a spelling here is a type error.
  */
 const CURSOR_EVENTS: Readonly<Record<HookEvent, string>> = {
   SessionStart: "sessionStart",
@@ -148,12 +133,11 @@ const CURSOR_EVENTS: Readonly<Record<HookEvent, string>> = {
 };
 
 /**
- * Where Cursor keeps its hooks: a file of its own, and a `version` beside them.
+ * Where Cursor keeps its hooks: `.cursor/hooks.json`, with a `version` beside them.
  *
- * The `version` is `rootDefaults` rather than something the renderer writes, because it is the
- * document's and not an entry's: ambit seeds it creating the file and leaves a `version: 2` someone
- * else wrote exactly where it is — where the tool ambit replaces forces it back to `1`, having claimed
- * the whole document.
+ * `version` is a `rootDefaults` value rather than something the renderer writes, because it belongs to
+ * the document, not to an entry: ambit seeds it at 1 when creating the file, and leaves an existing
+ * `version: 2` in place unless ambit replaces the whole document.
  */
 const CURSOR_HOOKS: HookLayout = {
   file: ".cursor/hooks.json",
@@ -167,17 +151,15 @@ const CURSOR_HOOKS: HookLayout = {
 /**
  * One hook, Cursor-shaped: a flat entry naming the command, in the array for its camelCased event.
  *
- * Two things go missing on the way here, and both are the harness's doing. Cursor nests nothing — one
- * entry is one command, so there is no inner `hooks` array to build — and it has no field for a tool
- * `matcher`, so a matcher is **dropped**. Which is why declaring one on an unmatchable event is an
- * error at parse time: that is the case where a person would be surprised, whereas a `matcher` reaching
- * Cursor is a filter Cursor simply cannot express, and dropping it installs the hook unfiltered rather
- * than not at all.
+ * Cursor nests nothing (one entry is one command, so there is no inner `hooks` array) and has no field
+ * for a tool `matcher`, so a matcher is dropped. Declaring a matcher on an unmatchable event is
+ * therefore a parse-time error: a dropped matcher would otherwise install the hook unfiltered rather
+ * than not at all, which is the surprising outcome.
  *
- * A shipped script is named project-relative, because Cursor interpolates nothing in a `command` —
- * {@link RELATIVE_HOOK_ROOT} is where that is argued.
+ * A shipped script is named project-relative, because Cursor interpolates nothing in a `command`; see
+ * {@link RELATIVE_HOOK_ROOT}.
  *
- * Key order here is the digest's input, so it is fixed in this one place and read off nowhere else.
+ * Key order here is the digest's input, so it is fixed in this one place only.
  */
 function cursorHook(hook: MergedHook): unknown {
   return {
@@ -189,10 +171,9 @@ function cursorHook(hook: MergedHook): unknown {
 /**
  * The remote half of a server: its url, with references translated.
  *
- * The url is translated for the same reason the headers and the stdio arguments are — a tenant's
- * endpoint is `https://${TENANT}.example.com/mcp`, and every string that reaches a config file from
- * the catalog has to be spelled in the syntax the harness reading it expands. Missing one of them
- * would leave a literal `${TENANT}` in the file for three of the five harnesses.
+ * Every string reaching a config file from the catalog is translated into the syntax the reading
+ * harness expands (e.g. a tenant endpoint like `https://${TENANT}.example.com/mcp`), so it is not
+ * left as a literal `${TENANT}` in the file.
  */
 function url(mcp: MergedMcp & { transport: { kind: "http" } }, style: EnvRefStyle): string {
   return translateRefs(mcp.transport.url, style);
@@ -216,9 +197,8 @@ function headersFor(
 /**
  * The stdio half of a server, shared by every harness that spells it `command`/`args`/`env`.
  *
- * `args` carries the entity's `${VAR}` references translated too: a server invoked through a bridge
- * like `mcp-remote` takes its credential as an argument, and that is the case the translation exists
- * for.
+ * `args` also carries `${VAR}` references translated, since a server invoked through a bridge like
+ * `mcp-remote` can take its credential as an argument.
  */
 function stdio(
   mcp: MergedMcp & { transport: { kind: "stdio" } },
@@ -263,9 +243,8 @@ export const claude: HarnessProfile = {
 /**
  * Cursor. Infers the transport from the presence of `url`, so it wants no `type`.
  *
- * The harness that makes the neutral vocabulary pay for itself: its hooks live in their own file, under
- * its own event names, in an entry shaped nothing like Claude's. All of which is stated here — a layout,
- * a map and a renderer — and none of which the install path knows about.
+ * Its hooks live in their own file, under their own event names, in an entry shape unlike Claude's.
+ * All three differences are captured here: a layout, a map, and a renderer.
  */
 export const cursor: HarnessProfile = {
   name: "cursor",
@@ -285,21 +264,19 @@ export const cursor: HarnessProfile = {
 /**
  * VS Code (Copilot). Its section is `servers`, and it wants an explicit `type` on both transports.
  *
- * `${env:VAR}` throughout, including in a stdio server's `env`. VS Code also has `${input:VAR}`, which
- * prompts the user — but only when the file declares a matching entry in its own `inputs` array, which
- * ambit does not write. Emitting one without the other would reference a prompt that does not exist.
+ * Uses `${env:VAR}` throughout, including in a stdio server's `env`. VS Code also supports
+ * `${input:VAR}`, which prompts the user, but only when the file declares a matching entry in its own
+ * `inputs` array; ambit does not write one, so this form is not used.
  *
- * Its hooks are Claude's outright: it reads `.claude/settings.json` natively, so the profile names
- * Claude's layout and Claude's renderer rather than any of its own — including its `${CLAUDE_PROJECT_DIR}`
- * spelling of a shipped script's path, which is the one thing here that is not documented either way.
- * VS Code documents reading the file and parsing Claude's format; it documents expanding
- * `${CLAUDE_PLUGIN_ROOT}` in a hook command for Claude-format plugins, and documents no project-root
- * token at all. So this may be a literal `${CLAUDE_PROJECT_DIR}` to VS Code rather than a path.
+ * Its hooks are Claude's outright: VS Code reads `.claude/settings.json` natively, so this profile
+ * reuses Claude's layout and renderer, including the `${CLAUDE_PROJECT_DIR}` placeholder. That
+ * placeholder is undocumented for VS Code specifically: VS Code documents parsing Claude's format and
+ * expanding `${CLAUDE_PLUGIN_ROOT}` for Claude-format plugins, but no project-root token, so this may
+ * resolve to a literal string rather than a path.
  *
- * Written anyway, because the alternative is worse in a way this is not: a second spelling would put two
- * entries in one array for one declared hook — VS Code would run both, and Claude would too — and every
- * project reading the file would see the same hook twice. If it turns out to bite, it is one string in
- * one place, and `doctor` is where §6 puts a harness limitation ambit cannot write its way out of.
+ * Written anyway: a separate spelling would require two entries in one array for one declared hook,
+ * and both VS Code and Claude would run it, so every project would see the hook twice. `doctor` is
+ * where a harness limitation like this gets surfaced if it turns out to matter.
  */
 export const vscode: HarnessProfile = {
   name: "vscode",
@@ -323,14 +300,13 @@ export const vscode: HarnessProfile = {
 /**
  * Codex. TOML, and the one harness with a first-class way to keep a credential out of the file.
  *
- * A header whose value is nothing but a `${VAR}` reference becomes `env_http_headers`, which names the
- * variable and lets Codex read it at spawn time. A header with a variable *embedded* in a larger string
- * — `Bearer ${TOKEN}` — cannot be expressed that way, so it goes in `http_headers` with the reference
- * left in place for Codex to expand.
+ * A header whose value is nothing but a `${VAR}` reference becomes `env_http_headers`, naming the
+ * variable for Codex to read at spawn time. A header with a variable embedded in a larger string
+ * (`Bearer ${TOKEN}`) can't be expressed that way, so it goes in `http_headers` with the reference
+ * left for Codex to expand.
  *
- * Its hooks are the one place the TOML stops: they live in `.codex/hooks.json`, and are Claude's own
- * entries — so the profile names Claude's renderer, and Claude's file is the only thing it does not
- * share.
+ * Its hooks live in `.codex/hooks.json` using Claude's own entry shape, so this profile reuses
+ * Claude's renderer; the file itself is Codex's own.
  */
 export const codex: HarnessProfile = {
   name: "codex",
@@ -365,9 +341,9 @@ export const codex: HarnessProfile = {
  * stdio/http, one `command` array rather than a command and its arguments, and `environment` for the
  * env map.
  *
- * The one harness with no declarative hooks at all — it runs TypeScript plugins instead, which is code
- * rather than config and so nothing ambit can write from a declaration. No `hooks`, therefore, and a
- * project that configures opencode and selects a hook is told the hook was skipped for it.
+ * Has no declarative hooks; it runs TypeScript plugins instead, which ambit cannot generate from a
+ * declaration. No `hooks` field is set, and a project that selects a hook for opencode is told the
+ * hook was skipped.
  */
 export const opencode: HarnessProfile = {
   name: "opencode",

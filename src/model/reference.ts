@@ -1,37 +1,26 @@
 /**
  * The one shape two vocabularies share: which kind a thing is, and the name inside that kind.
  *
- * This module used to be 337 lines of parameterized grammar. A `ReferenceGrammar` carried a closed set
- * of kinds plus the handful of words a refusal about one is written in, and a single parser, formatter,
- * deduplicator and list reader were written against it — so `requires` and `expects` could be two
- * vocabularies over one implementation, and no message about one could drift from the message about the
- * other.
+ * This used to be a parameterized grammar shared by `requires` and `expects`: a closed set of kinds
+ * plus the words a refusal about one is written in, with a single parser, formatter, deduplicator,
+ * and list reader built against it.
  *
- * The parameterization is gone, and what took it away was not the loss of a caller but the loss of the
- * *sharing*:
+ * The parameterization is gone because the sharing is gone:
  *
- * - `requires` left outright. An entry selects by pattern now — a field, a glob and a set of
- *   capabilities — so it is neither a kind nor a name, and it lives in `pattern.ts`.
- * - The projections went with it, from both ends. `formatReference`, `referenceYaml`, `sameReference`
- *   and `sortedUniqueReferences` were reached through two wrappers apiece: the `requires` ones, which
- *   `pattern.ts` now answers for itself (`formatEntry`, `entryYaml`, `sameEntry`, `uniqueEntries`), and
- *   the `expects` ones, whose callers were the authoring commands that rewrote an annotation list —
- *   deleted, because authoring a catalog is hand-editing now.
- * - `ReferenceGrammar.guess` was already set by no grammar: it existed for the bare-entry refusal a
- *   `requires` list needed.
+ * - `requires` now selects by pattern (a namespace, a glob, and an optional catalog qualifier), not
+ *   by kind and name, and lives in `pattern.ts`.
+ * - Its projections (`formatEntry`, `entryYaml`, `sameEntry`, `uniqueEntries`) moved with it, and the
+ *   authoring commands that used the `expects` equivalents were deleted, since authoring a catalog
+ *   is hand-editing now.
  *
- * What was left was one parser per surviving surface, each with exactly one caller — a *document* list
- * of one-key mappings for `expects`, and a `<kind>:<name>` *string* for the subject of `ambit why`.
- * Those are two grammars, not one in two vocabularies: the list never writes a separator and the
- * subject is never a mapping, so the wording table was a seam between two things that no longer meet.
- * Collapsing it therefore duplicated nothing, which is the whole of the argument — each reader now sits
- * in the module that owns its words:
+ * What is left is one parser per surface, each with exactly one caller: `expects`'s document list of
+ * one-key mappings, in `expectation.ts`; and `ambit why`'s `<kind>:<name>` command-line subject, in
+ * `requirement.ts`. Those are two grammars, not one shared vocabulary — a list never writes a
+ * separator and a subject is never a mapping — so each reader now lives in the module that owns its
+ * words.
  *
- * - `expects`, in `expectation.ts`, which also holds why a kind is declared in a document.
- * - `ambit why`'s subject, in `requirement.ts`, which also holds why a bare name is refused.
- *
- * This shape survives because both of them parse *to* it, and because a bundle item is one item of one
- * namespace and so is spelled the same way. It is deliberately only the shape: a kind's set of legal
+ * This shape survives because both of them parse *to* it: a bundle item is one item of one
+ * namespace, spelled the same way either place. It is deliberately only the shape — a kind's legal
  * values, and every word said about one, belong to the vocabulary that has them.
  */
 

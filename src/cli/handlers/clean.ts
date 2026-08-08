@@ -1,14 +1,13 @@
 /**
  * `ambit clean` — remove everything ambit owns.
  *
- * Two sections, because clean removes two different kinds of thing: the artifacts state records, and
- * the places ambit keeps its own record of having run — `.ambit/` and each managed `.gitignore`
- * block. The second section names them individually rather than reporting a boolean, because "was
- * there a state file" is the question someone asks after a clean that found less than they expected.
+ * Two sections: the artifacts state records, and the places ambit keeps its own record of having run
+ * (`.ambit/` and each managed `.gitignore` block). The second names them individually rather than
+ * reporting a boolean, since "was there a state file" is a question someone asks after a clean that
+ * found less than expected.
  *
- * What is deliberately absent from both: `ambit.lock` and a `.mcp.json` left holding an empty
- * `mcpServers`. Neither is ambit's to delete (see `project/clean.ts`), so neither is ambit's to report having
- * deleted.
+ * Deliberately absent from both: `ambit.lock` and a `.mcp.json` left holding an empty `mcpServers`.
+ * Neither is ambit's to delete (see `project/clean.ts`), so neither is reported as deleted.
  */
 import type { CleanResult } from "../../project/clean.js";
 import { cleanProject } from "../../project/clean.js";

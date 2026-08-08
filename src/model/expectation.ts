@@ -1,11 +1,11 @@
 /**
  * What an `expects` entry names: a fact about the world that has to be true for the thing to work.
  *
- * `expects` is not `requires` with a different vocabulary. A requirement is **resolved** — it selects
- * catalog items by pattern, they join the bundle, and an entry that selects nothing fails the install at
- * exit 3. An expectation is **checked** — nothing provides it, no two catalogs can offer competing
- * copies of it, it cannot expect anything back and it cannot cycle. `doctor` asks the world about it, and a world that says no leaves
- * the install alone and fails at exit 6.
+ * `expects` differs from `requires`: a requirement is **resolved** — it selects catalog items by
+ * pattern, and an entry matching nothing fails install at exit 3. An expectation is **checked** —
+ * nothing provides it, no two catalogs can offer competing copies of it, it cannot expect anything
+ * back, and it cannot cycle. `doctor` asks the world about it; if the world says no, the install is
+ * left alone and `doctor` fails at exit 6.
  *
  * ```yaml
  * ambit:
@@ -16,26 +16,24 @@
  *     - env: CLOSE_API_KEY
  * ```
  *
- * `env:` is its only kind today, and the list exists rather than a bare `env:` key because it is the
- * shape the *next* precondition arrives in. A skill whose instructions shell out to `docker` or `gh` has
- * a precondition it cannot write down, and `doctor` is already the right surface to check `PATH` — so
- * `bin:` is one entry in {@link EXPECTATION_KINDS} and one case in `doctor`, rather than another
- * top-level list beside `env:` that means *check this* all over again.
+ * `env:` is the only kind today. It is a list rather than a bare `env:` key because a skill that
+ * shells out to `docker` or `gh` has a precondition — the binary being on `PATH` — that does not fit
+ * `env:`. Adding it later means one more entry in {@link EXPECTATION_KINDS} and one more case in
+ * `doctor`, not a second top-level list.
  *
- * Unlike `requires`, this is the one annotation every kind of catalog entity carries: a skill reads
- * variables at runtime, a server reads its own credentials, and a hook's command reads whatever the
- * shell the harness spawns hands it.
+ * `expects` is the one annotation every kind of catalog entity carries: a skill reads variables at
+ * runtime, a server reads its own credentials, and a hook's command reads whatever the shell the
+ * harness spawns hands it.
  *
- * It is also the last list written as one-key `<kind>: <name>` mappings, and the reader for that shape
- * is here rather than in `reference.ts`: the parameterized grammar the two lists shared collapsed when
- * `requires` left for `pattern.ts`, because a document list and `ambit why`'s command-line subject turn
- * out to share no reader at all — see `reference.ts`' header. So the words a refusal here is written in
- * sit next to the thing they describe.
+ * This is also the last list still written as one-key `<kind>: <name>` mappings. Its reader lives
+ * here, not in `reference.ts`, because the shared parameterized grammar collapsed once `requires`
+ * moved to `pattern.ts` (see `reference.ts`'s header): a document list and `ambit why`'s
+ * command-line subject turned out to share no reader at all.
  *
- * An entry declares its kind rather than encoding it in the value, using the same one-key discriminator
- * an MCP entity's `transport` does. Nothing guesses: a bare `expects: [CLOSE_API_KEY]` is refused with
- * the spelling it was missing rather than read as an environment variable, because `env` being the only
- * kind today is a fact about today and a shorthand is not removable once written.
+ * An entry declares its kind rather than encoding it in the value, the same one-key discriminator an
+ * MCP entity's `transport` uses. Nothing guesses: a bare `expects: [CLOSE_API_KEY]` is refused
+ * rather than read as an environment variable, since "`env` is the only kind today" is a fact about
+ * today, not a shorthand that stays correct once a second kind is added.
  */
 import { at, configError } from "../errors.js";
 import type { AmbitError } from "../errors.js";
@@ -45,9 +43,9 @@ import { YamlMapping } from "./yaml.js";
 /**
  * The kinds of precondition an `expects` entry can name, in the order every report lists them.
  *
- * One today. The list is the extension point: `bin:` for a program that must be on the `PATH`, a
- * minimum harness version, a file that must exist — each of them lands here, in `doctor`, and nowhere
- * else, because every surface that reads an entry reads this array to know what one may say.
+ * One today. This is the extension point: `bin:` for a program that must be on the `PATH`, a
+ * minimum harness version, a required file — each lands here, in `doctor`, and nowhere else, since
+ * every surface that reads an entry reads this array to know what one may say.
  */
 export const EXPECTATION_KINDS = ["env"] as const;
 
@@ -65,7 +63,7 @@ export const EXPECTATION_NOUNS: Readonly<Record<ExpectationKind, string>> = {
 /** The key the list is written under, wherever one is written. */
 const EXPECTS_KEY = "expects";
 
-/** The kinds as a refusal lists them. Singular today, and a list because it will not be. */
+/** The kinds as a refusal lists them. One today, but the join stays correct once more are added. */
 function kindList(): string {
   return EXPECTATION_KINDS.join(", ");
 }
@@ -83,9 +81,9 @@ function isExpectationKind(value: string): value is ExpectationKind {
 /**
  * The error for an entry written as a bare string — the shape a list of plain names has.
  *
- * Names the spelling rather than assuming it: `expects: [CLOSE_API_KEY]` is *probably* an environment
- * variable, because that is the only kind there is, but reading it as one is the shorthand this format
- * refuses — and a `bin:` arriving later would make yesterday's guess wrong in a file nobody edited.
+ * Names the spelling rather than assuming it: `expects: [CLOSE_API_KEY]` is probably an environment
+ * variable today, since that is the only kind, but treating it as one is the shorthand this format
+ * refuses. A `bin:` kind arriving later would otherwise silently reinterpret a file nobody edited.
  */
 function bareEntry(mapping: YamlMapping, value: string): AmbitError {
   const kind = EXPECTATION_KINDS[0];
@@ -120,20 +118,19 @@ function ambiguousEntry(entry: YamlMapping, keys: readonly string[]): AmbitError
 /**
  * Parses an `expects` list: a sequence of one-key mappings, each naming a kind and a value in it.
  *
- * The list is returned in the order it was written. Nothing here sorts it — ambit only ever reads one,
- * and reordering a list it merely read is the reformatting authoring rule 2 forbids.
+ * Returned in the order it was written; nothing here sorts it.
  *
  * @param mapping the block the key sits in — a skill's `ambit:`, or an entity's whole document.
- * @throws {AmbitError} exit 2 for an entry that is not a mapping, one that names no kind or several, or
- *   one whose value is not a string.
+ * @throws {AmbitError} exit 2 for an entry that is not a mapping, one that names no kind or several,
+ *   or one whose value is not a string.
  */
 export function parseExpectations(mapping: YamlMapping): readonly Expectation[] {
   const entries = mapping.optionalEntryList(EXPECTS_KEY);
   if (entries === undefined) return [];
 
   return entries.map((entry) => {
-    // A `PositionedString` is a list of plain names, the one shape with a spelling to describe;
-    // everything else the sequence could hold was already refused by `optionalEntryList`.
+    // A `PositionedString` is a plain name; everything else the sequence could hold was already
+    // refused by `optionalEntryList`.
     if (!(entry instanceof YamlMapping)) throw bareEntry(mapping, entry.value);
 
     const keys = entry.keys();
@@ -159,8 +156,8 @@ function compare(a: string, b: string): number {
  * The environment variables an `expects` list names, sorted and deduplicated.
  *
  * The one projection with callers outside `doctor`: a harness config passes a server's variables
- * through to the process it spawns, and the value it needs is a list of names rather than of entries.
- * Here rather than at each call site so a second kind arriving cannot leak into a `env` map.
+ * through to the process it spawns, and needs a list of names rather than of entries. Kept here,
+ * rather than at each call site, so a second kind arriving cannot leak into an `env` map.
  */
 export function expectedEnv(expects: readonly Expectation[]): readonly string[] {
   return [...new Set(expects.filter((item) => item.kind === "env").map((item) => item.name))].sort(
@@ -171,9 +168,8 @@ export function expectedEnv(expects: readonly Expectation[]): readonly string[] 
 /**
  * Every expectation a set of declarers states, grouped by kind — the shape a bundle reports.
  *
- * Grouped rather than flat, and with every kind present even when empty, so the key a consumer reads is
- * a function of {@link EXPECTATION_KINDS} rather than of what this particular project happens to
- * declare. A `bin` key that appears only in projects that use one is a shape nobody can write against.
+ * Every kind is present even when empty, so the keys a consumer reads are fixed by
+ * {@link EXPECTATION_KINDS} rather than by what a particular project happens to declare.
  */
 export type ExpectationSet = Readonly<Record<ExpectationKind, readonly string[]>>;
 
