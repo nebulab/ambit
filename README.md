@@ -96,7 +96,7 @@ requires:
 ```
 
 A pack ships no bytes and installs nowhere. What it does is give a grouping a **name in the catalog**
-— so `ambit dump-catalog` can list it, it carries a description saying what it is for, and a
+— so `ambit search` can list it, it carries a description saying what it is for, and a
 `requires` entry naming one that does not exist fails the install rather than reaching nobody. A pack
 may require other packs, which is how a large grouping is built out of small ones.
 
@@ -127,6 +127,7 @@ requires:
 Then:
 
 ```
+$ ambit search "*"             # everything the catalogs offer, whether you selected it or not
 $ ambit resolve --explain      # what you would get, and why
 $ ambit install                # write the lock, materialize the bundle, prune what left it
 $ ambit outdated               # has any catalog moved, and would it change anything?
@@ -144,6 +145,22 @@ artifacts (5)
   .claude/skills              skills-link     link
   .mcp.json                   harness-config  -
 ```
+
+### Finding what to select
+
+`ambit search` is how you find the name to put in `requires`. Its `<pattern>` is the same glob a
+`requires` entry is written with, so what you typed to find an item is what selects it:
+
+```
+$ ambit search --capability pack "*"       # every grouping the catalogs named
+$ ambit search --capability skill "core.*" # skills beneath the `core` prefix
+$ ambit search --catalog company "*lint*"  # one catalog, anything with `lint` in the name
+```
+
+Repeating a flag widens (`--catalog a --catalog b` means _either_); different flags narrow, so the
+three above are read together when all three are given. A pattern that matches nothing prints an
+empty report and exits 0 — unlike the same pattern in a `requires` entry, which is exit 3, because a
+requirement reaching nothing is a config that will not do what it says.
 
 ### Checking it in CI
 
@@ -269,7 +286,7 @@ once declares a **pack** and a consumer writes `- pack: company/engineering`. Th
 replaced the free-form tags this grammar used to select on — and the trade is deliberate. A tag let a
 consumer invent a grouping the catalog had never blessed; a pack does not, and in exchange the
 grouping is a document with a name, a description and an enumerable membership, so `ambit
-dump-catalog` can show it and a misspelling in it is an error rather than a label reaching nobody.
+search` can show it and a misspelling in it is an error rather than a label reaching nobody.
 
 ### `packs/<name>.yml`: packs
 
@@ -291,7 +308,7 @@ requires:
 | Key           | Type   | Required | Notes                                                                                                                                                         |
 | ------------- | ------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `name`        | string | yes      | Must match the path under `packs/`, with the extension dropped and `/` read as `.`, the way a skill's does. `.yml` and `.yaml` are both accepted.             |
-| `description` | string | no       | What the pack is for. Carried into `ambit dump-catalog`, which is the point of a pack being a document.                                                       |
+| `description` | string | no       | What the pack is for. Carried into `ambit search`, which is the point of a pack being a document.                                                             |
 | `requires`    | map[]  | no       | Each entry: exactly one key of `pack`/`skill`/`mcp`/`hook`, carrying a **bare** pattern. Resolved within this catalog. An entry matching nothing is an error. |
 
 `packs/` nests, unlike `mcps/`: `packs/function/engineering.yml` and `packs/function.engineering.yml`
@@ -635,20 +652,20 @@ surface is a group. `--offline` is the one flag not every command answers to —
 exist to ask a remote, so they refuse it. Nothing writes into a catalog: a catalog is Markdown and YAML
 in a git repo, maintained the way the rest of the repo is, with an editor and a validate step in CI.
 
-| Command                                                | What it does                                                                                                                                                                                                       |
-| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `ambit init`                                           | Scaffold `ambit.yml`, the four item directories, and a live `catalogs:` entry naming the project itself. Refuses a directory that already holds a config, `--dry-run` included, and does not create a missing one. |
-| `ambit dump-catalog`                                   | Dump the merged catalog: every item in every catalog the project lists, the project's own among them, whether anything selects it or not.                                                                          |
-| `ambit resolve [--explain]`                            | Compute the bundle and print it.                                                                                                                                                                                   |
-| `ambit why <kind:name>`                                | Explain why one item is in the bundle, as a chain. The subject declares its namespace, as everything that names an item does.                                                                                      |
-| `ambit install [--frozen] [--adopt] [--copy\|--link]`  | Resolve, write `ambit.lock`, materialize the bundle, prune what left it.                                                                                                                                           |
-| `ambit outdated`                                       | Ask each catalog's remote where its `ref` points now, and report what moving there would change.                                                                                                                   |
-| `ambit update [<catalog>…] [--adopt] [--copy\|--link]` | Move those pins forward, then install. Every catalog when none is named.                                                                                                                                           |
-| `ambit status [--check]`                               | Compare what is installed against what resolve produces. `--check` exits 5 on drift.                                                                                                                               |
-| `ambit prune`                                          | Remove owned artifacts not in the current bundle.                                                                                                                                                                  |
-| `ambit clean`                                          | Remove everything ambit owns.                                                                                                                                                                                      |
-| `ambit validate`                                       | Validate everything this project configures, for CI — every catalog it lists, the project's own items among them. A catalog repo runs this too: it lists itself.                                                   |
-| `ambit doctor`                                         | Check preconditions, the lock, ownership, drift, materialization mode, and harness limits.                                                                                                                         |
+| Command                                                             | What it does                                                                                                                                                                                                                                                                                                                                              |
+| ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ambit init`                                                        | Scaffold `ambit.yml`, the four item directories, and a live `catalogs:` entry naming the project itself. Refuses a directory that already holds a config, `--dry-run` included, and does not create a missing one.                                                                                                                                        |
+| `ambit search [--catalog <name>…] [--capability <kind>…] <pattern>` | Search the merged catalog: every item in every catalog the project lists, the project's own among them, whether anything selects it or not. `<pattern>` is the same glob a `requires` entry uses, matched against names, so `ambit search "*"` is the whole of it. Repeating a flag widens; different flags narrow. A pattern matching nothing is exit 0. |
+| `ambit resolve [--explain]`                                         | Compute the bundle and print it.                                                                                                                                                                                                                                                                                                                          |
+| `ambit why <kind:name>`                                             | Explain why one item is in the bundle, as a chain. The subject declares its namespace, as everything that names an item does.                                                                                                                                                                                                                             |
+| `ambit install [--frozen] [--adopt] [--copy\|--link]`               | Resolve, write `ambit.lock`, materialize the bundle, prune what left it.                                                                                                                                                                                                                                                                                  |
+| `ambit outdated`                                                    | Ask each catalog's remote where its `ref` points now, and report what moving there would change.                                                                                                                                                                                                                                                          |
+| `ambit update [<catalog>…] [--adopt] [--copy\|--link]`              | Move those pins forward, then install. Every catalog when none is named.                                                                                                                                                                                                                                                                                  |
+| `ambit status [--check]`                                            | Compare what is installed against what resolve produces. `--check` exits 5 on drift.                                                                                                                                                                                                                                                                      |
+| `ambit prune`                                                       | Remove owned artifacts not in the current bundle.                                                                                                                                                                                                                                                                                                         |
+| `ambit clean`                                                       | Remove everything ambit owns.                                                                                                                                                                                                                                                                                                                             |
+| `ambit validate`                                                    | Validate everything this project configures, for CI — every catalog it lists, the project's own items among them. A catalog repo runs this too: it lists itself.                                                                                                                                                                                          |
+| `ambit doctor`                                                      | Check preconditions, the lock, ownership, drift, materialization mode, and harness limits.                                                                                                                                                                                                                                                                |
 
 There is no `ambit catalog`. A catalog repo is a project that lists itself — three lines of
 `ambit.yml`, which `ambit init` writes — so `ambit validate` reads its `packs/`, `skills/`, `mcps/` and

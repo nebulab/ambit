@@ -1630,7 +1630,10 @@ describe("ambit why", () => {
     // The namespace is named rather than hedged over all three: the subject said which it meant.
     expect(result.code).toBe(ExitCode.Resolution);
     expect(result.stderr).toContain('unknown skill "absent-skill"');
-    expect(result.stderr).toContain("run `ambit dump-catalog` to see what is available");
+    // The next step carries the name that was typed, so a misremembered one is one paste away.
+    expect(result.stderr).toContain(
+      'run `ambit search --capability skill "*absent-skill*"` to see what is available',
+    );
   });
 
   it("exits 3 for a reference nothing provides, without falling back to another namespace", async () => {

@@ -24,7 +24,7 @@
  * {@link ItemKind}'s `pack` is what took their job: an author who wants one name to reach a skill, a
  * server and a hook declares a **pack** in the catalog that requires all three, and a consumer writes
  * `- pack: company/engineering`. The grouping is a document with a name and a description, browsable
- * with `ambit dump-catalog`, instead of a label that nothing registered and nothing described.
+ * with `ambit search`, instead of a label that nothing registered and nothing described.
  *
  * The declaration that survives is the namespace, and it survives for the reason it always had: a
  * catalog's namespaces are flat and independent, so a skill at `skills/mcp/sentry/SKILL.md` is

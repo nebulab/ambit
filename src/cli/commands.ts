@@ -1,8 +1,9 @@
 import path from "node:path";
 
-import { Command, Option } from "commander";
+import { Command, InvalidArgumentError, Option } from "commander";
 
 import { AmbitError, ExitCode } from "../errors.js";
+import { ITEM_KINDS } from "../model/requirement.js";
 import type { SourceContext } from "../model/sources.js";
 
 /**
@@ -17,7 +18,10 @@ import type { SourceContext } from "../model/sources.js";
  * project. Every project is a catalog now — it lists itself as `source: path:.` — so there is one
  * subject, one directory flag, and no command that reads a directory instead of an `ambit.yml`.
  * `--offline` becomes uniform with it: it was withheld from the catalog commands because a catalog
- * directory is read off disk and resolves no source, and there is no such command left.
+ * directory is read off disk and resolves no source, and there is no such command left. `ambit
+ * search` declares a `--catalog <name>` of its own, and it is not that flag returning: it takes an
+ * alias out of `catalogs:`, it names one of the things being searched rather than where to search
+ * from, and it belongs to the one command that has several of them to choose between.
  *
  * `--quiet` and `--no-color` are deliberately absent. Both were accepted here and read nowhere: ambit
  * prints no progress chatter to suppress and no color to disable, so each parsed cleanly and then did
@@ -36,6 +40,30 @@ function globalOptions(): Option[] {
 /** `--dry-run`, added only to commands that touch disk. */
 function dryRunOption(): Option {
   return new Option("--dry-run", "print the plan without touching disk");
+}
+
+/**
+ * A flag that may be given more than once, collecting into a list — `--catalog a --catalog b`.
+ *
+ * Repeating rather than accepting a list is deliberate: Commander's variadic form (`<name...>`) eats
+ * every following word until the next `-`, so `ambit search --capability skill "foo*"` would read the
+ * pattern as a second capability. One value per flag cannot do that, whatever order the arguments
+ * come in.
+ *
+ * `allowed`, when given, is checked here rather than left to `.choices()`. Commander's `.choices()`
+ * *replaces* the option's parser with one that returns a single value, so the two cannot both be
+ * installed; the call below is kept anyway, because it is also what puts `(choices: …)` in `--help`,
+ * and the parser attached after it does the checking with Commander's own wording.
+ */
+function listOption(flags: string, description: string, allowed?: readonly string[]): Option {
+  const option = new Option(flags, description);
+  if (allowed) option.choices([...allowed]);
+  return option.argParser((value: string, previous: readonly string[] | undefined) => {
+    if (allowed && !allowed.includes(value)) {
+      throw new InvalidArgumentError(`Allowed choices are ${allowed.join(", ")}.`);
+    }
+    return [...(previous ?? []), value];
+  });
 }
 
 export interface CommandSpec {
@@ -75,7 +103,18 @@ export interface CommandSpec {
  */
 export const COMMAND_SPECS: readonly CommandSpec[] = [
   { name: "init", summary: "scaffold ambit.yml, skills/, mcps/, hooks/", mutating: true },
-  { name: "dump-catalog", summary: "dump the merged catalog" },
+  {
+    name: "search",
+    summary: "search the merged catalog",
+    // Required, and `*` is how everything is asked for. An optional pattern would make the bare
+    // command mean *match everything*, which is a default no one typed and the one reading of a
+    // missing argument that cannot be told apart from a shell that swallowed it.
+    args: [["<pattern>", "glob matched against item names; `*` matches every name"]],
+    options: [
+      listOption("--catalog <name>", "limit to this catalog; repeatable"),
+      listOption("--capability <kind>", "limit to this namespace; repeatable", ITEM_KINDS),
+    ],
+  },
   {
     name: "resolve",
     summary: "compute the bundle and print it",
@@ -184,6 +223,20 @@ export function jsonRequested(ctx: CommandContext): boolean {
 /** Whether `--offline` was requested: resolve from the cache alone. */
 export function offlineRequested(ctx: CommandContext): boolean {
   return ctx.options.offline === true;
+}
+
+/**
+ * Every value given for a repeatable flag ({@link listOption}), in the order they were typed. Empty
+ * when the flag was never given.
+ *
+ * Empty and absent are the same answer on purpose: a repeatable flag has no spelling that means *and
+ * nothing at all*, so there is nothing for a caller to tell apart, and one of the two shapes would
+ * only ever be handled by copying the other's branch.
+ */
+export function listOf(ctx: CommandContext, name: string): readonly string[] {
+  const given = ctx.options[name];
+  if (!Array.isArray(given)) return [];
+  return given.filter((value): value is string => typeof value === "string");
 }
 
 /**

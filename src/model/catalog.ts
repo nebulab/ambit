@@ -374,7 +374,7 @@ function byName<T extends { readonly name: string }>(items: readonly T[]): reado
  * Merged items in name order, then catalog order.
  *
  * Name first, so two catalogs' copies of one name sit next to each other in every listing that walks
- * this — a reader scanning `dump-catalog` sees the pair rather than having to notice it. Catalog
+ * this — a reader scanning `ambit search` sees the pair rather than having to notice it. Catalog
  * second, because a name alone is no longer a total order, and an order that fell back to the order
  * catalogs happened to be read in would make every downstream listing depend on config order again.
  */

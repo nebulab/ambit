@@ -5,12 +5,12 @@ import { COMMAND_SPECS, buildCommand } from "./commands.js";
 import { AmbitError, ExitCode } from "../errors.js";
 import { cleanHandler } from "./handlers/clean.js";
 import { doctorHandler } from "./handlers/doctor.js";
-import { dumpCatalogHandler } from "./handlers/dump-catalog.js";
 import { initHandler } from "./handlers/init.js";
 import { installHandler } from "./handlers/install.js";
 import { outdatedHandler, refusesOfflineRule } from "./handlers/outdated.js";
 import { pruneHandler } from "./handlers/prune.js";
 import { resolveHandler } from "./handlers/resolve.js";
+import { searchHandler } from "./handlers/search.js";
 import { statusHandler } from "./handlers/status.js";
 import { updateHandler } from "./handlers/update.js";
 import { validateHandler } from "./handlers/validate.js";
@@ -31,12 +31,12 @@ export type Io = Pick<CommandContext, "cwd" | "stdout" | "stderr">;
 export const HANDLERS: CommandHandlers = {
   clean: cleanHandler,
   doctor: doctorHandler,
-  "dump-catalog": dumpCatalogHandler,
   init: initHandler,
   install: installHandler,
   outdated: outdatedHandler,
   prune: pruneHandler,
   resolve: resolveHandler,
+  search: searchHandler,
   status: statusHandler,
   update: updateHandler,
   validate: validateHandler,

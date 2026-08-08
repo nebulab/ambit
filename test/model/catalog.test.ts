@@ -1,5 +1,5 @@
 /**
- * Catalog parsing from a `path:` source, and the `ambit dump-catalog` view built on it.
+ * Catalog parsing from a `path:` source, and the `ambit search` view built on it.
  *
  * Every case runs against the fixture catalog, mutated in place for the malformed ones, so the
  * subject is the same tree the rest of the suite resolves against.
@@ -501,7 +501,7 @@ catalogs:
     source: ../catalog
 `);
 
-    const result = await cli("dump-catalog");
+    const result = await cli("search", "*");
     expect(result.code).toBe(ExitCode.Config);
     expect(result.stderr).toContain(`catalog "${CATALOG_NAME}" has an unrecognized source`);
     expect(result.stderr).toContain("use owner/repo, a git URL, `git:<url>`, or `path:./dir`");
@@ -514,15 +514,15 @@ catalogs:
     source: path:../missing
 `);
 
-    const result = await cli("dump-catalog");
+    const result = await cli("search", "*");
     expect(result.code).toBe(ExitCode.Config);
     expect(result.stderr).toContain(`catalog "${CATALOG_NAME}" is not a directory`);
   });
 });
 
-describe("ambit dump-catalog", () => {
+describe("ambit search", () => {
   it("emits the full fixture catalog as JSON", async () => {
-    const result = await cli("dump-catalog", "--json");
+    const result = await cli("search", "*", "--json");
 
     expect(result.code).toBe(ExitCode.Success);
     expect(JSON.parse(result.stdout)).toEqual({
@@ -649,8 +649,8 @@ describe("ambit dump-catalog", () => {
   });
 
   it("emits byte-identical JSON on a second run, with keys sorted", async () => {
-    const first = await cli("dump-catalog", "--json");
-    const second = await cli("dump-catalog", "--json");
+    const first = await cli("search", "*", "--json");
+    const second = await cli("search", "*", "--json");
 
     expect(second.stdout).toBe(first.stdout);
     const emitted = JSON.parse(first.stdout) as Record<string, unknown>;
@@ -658,13 +658,13 @@ describe("ambit dump-catalog", () => {
   });
 
   it("carries no machine-specific paths into JSON output", async () => {
-    const result = await cli("dump-catalog", "--json");
+    const result = await cli("search", "*", "--json");
 
     expect(result.stdout).not.toContain(root);
   });
 
   it("lists packs with their descriptions, and skills and MCPs, as text", async () => {
-    const result = await cli("dump-catalog");
+    const result = await cli("search", "*");
 
     expect(result.code).toBe(ExitCode.Success);
     expect(result.stdout).toContain(`${CATALOG_NAME}  path:../catalog`);
@@ -682,7 +682,7 @@ describe("ambit dump-catalog", () => {
   it("succeeds with nothing to dump when no catalogs are configured", async () => {
     await writeConfig("version: 1\nrequires: []\n");
 
-    const result = await cli("dump-catalog");
+    const result = await cli("search", "*");
     expect(result.code).toBe(ExitCode.Success);
     expect(result.stdout).toContain("no catalogs configured");
   });
@@ -690,7 +690,7 @@ describe("ambit dump-catalog", () => {
   it("exits 2 on a skill name that disagrees with its path", async () => {
     await writeCatalogFile(CODE_REVIEW, "---\nname: wrong-name\n---\n");
 
-    const result = await cli("dump-catalog", "--json");
+    const result = await cli("search", "*", "--json");
     expect(result.code).toBe(ExitCode.Config);
     expect(result.stdout).toBe("");
     expect(result.stderr).toContain("does not match its path");
@@ -699,9 +699,183 @@ describe("ambit dump-catalog", () => {
   it("exits 2 when the project has no config", async () => {
     await rm(path.join(projectDir, "ambit.yml"));
 
-    const result = await cli("dump-catalog");
+    const result = await cli("search", "*");
     expect(result.code).toBe(ExitCode.Config);
     expect(result.stderr).toContain("no ambit config");
+  });
+});
+
+/**
+ * The three filters `ambit search` narrows with, and how they combine.
+ *
+ * Repeating one flag widens and different flags narrow, which is the only reading that makes both
+ * halves of `--catalog a --catalog b --capability skill "foo*"` mean something — and the half worth
+ * asserting is that a result has to satisfy every flag that was given, not merely one of them.
+ *
+ * The pattern is the same glob a `requires` entry is written with, deliberately: a person who has
+ * found an item with this command can paste what they typed into `requires:` and reach the same
+ * items. What differs is what an empty result means, and that is asserted here too — matching nothing
+ * is exit 0 and a report, where the same pattern in a `requires` entry is exit 3.
+ */
+describe("ambit search, narrowed", () => {
+  /** The section body `ambit search` prints under `title`, without its heading or its indent. */
+  function rowsUnder(stdout: string, title: string): readonly string[] {
+    const lines = stdout.split("\n");
+    const start = lines.findIndex((line) => line.startsWith(`${title} (`));
+    if (start === -1) return [];
+    const rest = lines.slice(start + 1);
+    const end = rest.findIndex((line) => !line.startsWith("  "));
+    return (end === -1 ? rest : rest.slice(0, end)).map((line) => line.trim());
+  }
+
+  /** Whether a section was printed at all, which is what `--capability` decides. */
+  function hasSection(stdout: string, title: string): boolean {
+    return stdout.split("\n").some((line) => line.startsWith(`${title} (`));
+  }
+
+  it("matches names with the glob a `requires` entry uses, prefix included", async () => {
+    const result = await cli("search", "function.*", "--capability", "pack");
+
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+    expect(rowsUnder(result.stdout, "packs").map((row) => row.split("  ")[0])).toEqual([
+      "function.engineering",
+      "function.engineering.frontend",
+    ]);
+  });
+
+  it("excludes the prefix itself, exactly as the same pattern does in `requires`", async () => {
+    // `function.engineering.*` says *`function.engineering`, a dot, then anything*, and the pack
+    // named exactly that has no dot left. A search that was generous here would find items a
+    // `requires` entry copied out of it would then miss.
+    const result = await cli("search", "function.engineering.*", "--capability", "pack");
+
+    expect(rowsUnder(result.stdout, "packs").map((row) => row.split("  ")[0])).toEqual([
+      "function.engineering.frontend",
+    ]);
+  });
+
+  it("treats a pattern with no wildcard as an exact name", async () => {
+    const result = await cli("search", "code-review", "--capability", "skill");
+
+    expect(rowsUnder(result.stdout, "skills").map((row) => row.split("  ")[0])).toEqual([
+      "code-review",
+    ]);
+  });
+
+  it("prints only the sections `--capability` asked for", async () => {
+    const result = await cli("search", "*", "--capability", "skill");
+
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+    expect(hasSection(result.stdout, "skills")).toBe(true);
+    // Omitted rather than printed empty: a section shown as `(none)` reads as *this catalog has no
+    // packs*, which is a different answer from *you did not ask about packs*.
+    for (const title of ["packs", "mcps", "hooks"]) {
+      expect(hasSection(result.stdout, title), title).toBe(false);
+    }
+  });
+
+  it("widens when `--capability` is repeated", async () => {
+    const result = await cli("search", "*", "--capability", "skill", "--capability", "mcp");
+
+    expect(hasSection(result.stdout, "skills")).toBe(true);
+    expect(hasSection(result.stdout, "mcps")).toBe(true);
+    expect(hasSection(result.stdout, "packs")).toBe(false);
+    expect(hasSection(result.stdout, "hooks")).toBe(false);
+  });
+
+  it("emits every namespace as a JSON key whatever was asked for, so a reader need not branch", async () => {
+    const result = await cli("search", "*", "--capability", "skill", "--json");
+
+    const emitted = JSON.parse(result.stdout) as Record<string, Record<string, unknown>>;
+    expect(Object.keys(emitted)).toEqual(["catalogs", "hooks", "mcps", "packs", "skills"]);
+    expect(Object.keys(emitted.skills!).length).toBeGreaterThan(0);
+    expect(emitted.packs).toEqual({});
+    expect(emitted.mcps).toEqual({});
+    expect(emitted.hooks).toEqual({});
+  });
+
+  it("limits to one catalog, and widens when `--catalog` is repeated", async () => {
+    const second = "acme";
+    await writeCollidingCatalog(second);
+    await writeCatalogOrder([second]);
+
+    // `company-context` is the name both catalogs provide, so it is the one that can tell a filter
+    // that narrowed from a filter that did nothing.
+    const one = await cli("search", CORE_SKILL, "--capability", "skill", "--catalog", second);
+    expect(rowsUnder(one.stdout, "skills")).toEqual([`${CORE_SKILL}  ${second}`]);
+    // The header answers *where did I just look*, so it narrows with the filter.
+    expect(one.stdout).not.toContain(`${CATALOG_NAME}  path:../catalog`);
+
+    const both = await cli(
+      "search",
+      CORE_SKILL,
+      "--capability",
+      "skill",
+      "--catalog",
+      second,
+      "--catalog",
+      CATALOG_NAME,
+    );
+    expect(rowsUnder(both.stdout, "skills")).toEqual([
+      `${CORE_SKILL}  ${second}`,
+      `${CORE_SKILL}  ${CATALOG_NAME}`,
+    ]);
+  });
+
+  it("narrows across flags: a result satisfies the pattern, the capability and the catalog", async () => {
+    const second = "acme";
+    await writeCollidingCatalog(second);
+    await writeCatalogOrder([second]);
+
+    // `jane-notes` exists only in the second catalog, so restricting to the first is a filter the
+    // pattern alone would not have applied.
+    const result = await cli(
+      "search",
+      OWN_SKILL,
+      "--capability",
+      "skill",
+      "--catalog",
+      CATALOG_NAME,
+    );
+
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+    expect(rowsUnder(result.stdout, "skills")).toEqual(["(none)"]);
+  });
+
+  it("succeeds with an empty report when the pattern matches nothing", async () => {
+    // The opposite of what the same pattern means in a `requires` entry, and deliberately so: a
+    // requirement reaching nothing is a config that will not do what it says, while a search finding
+    // nothing is the answer to the search.
+    const result = await cli("search", "no-such-*");
+
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+    expect(result.stderr).toBe("");
+    for (const title of ["packs", "skills", "mcps", "hooks"]) {
+      expect(rowsUnder(result.stdout, title), title).toEqual(["(none)"]);
+    }
+  });
+
+  it("exits 2 on a `--catalog` this project does not list, naming what it does", async () => {
+    const result = await cli("search", "*", "--catalog", "nope");
+
+    expect(result.code).toBe(ExitCode.Config);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain('no catalog named "nope"');
+    expect(result.stderr).toContain(`this project lists: ${CATALOG_NAME}`);
+  });
+
+  it("exits 2 on a `--capability` that is not a namespace", async () => {
+    const result = await cli("search", "*", "--capability", "tag");
+
+    expect(result.code).toBe(ExitCode.Config);
+    expect(result.stderr).toContain("pack, skill, mcp, hook");
+  });
+
+  it("requires the pattern, so `*` is asked for rather than defaulted to", async () => {
+    const result = await cli("search");
+
+    expect(result.code).toBe(ExitCode.Config);
+    expect(result.stderr).toContain("missing required argument");
   });
 });
 
@@ -887,7 +1061,7 @@ describe("catalog hooks", () => {
     expect((await rejection()).message).toContain('unknown hook event "OnTuesday"');
   });
 
-  it("shows hooks in `dump-catalog`, JSON and text, with the derivation JSON cannot see otherwise", async () => {
+  it("shows hooks in `ambit search`, JSON and text, with the derivation JSON cannot see otherwise", async () => {
     await writeCatalogFile(
       HOOK_FILE,
       document(HOOK_NAME, [
@@ -899,7 +1073,7 @@ describe("catalog hooks", () => {
     );
     await writeCatalogFile(`${HOOK_DIR}/hook.sh`, "#!/bin/sh\nexit 0\n");
 
-    const emitted = JSON.parse((await cli("dump-catalog", "--json")).stdout) as {
+    const emitted = JSON.parse((await cli("search", "*", "--json")).stdout) as {
       hooks: Record<string, unknown>;
     };
     expect(emitted.hooks[`${CATALOG_NAME}/${HOOK_NAME}`]).toEqual({
@@ -918,7 +1092,7 @@ describe("catalog hooks", () => {
     );
 
     // The row's fields rather than its padding, which widens with whatever else the catalog holds.
-    const row = (await cli("dump-catalog")).stdout
+    const row = (await cli("search", "*")).stdout
       .split("\n")
       .find((line) => line.trimStart().startsWith(`${HOOK_NAME} `));
     expect(row?.replace(/\s+/g, " ").trim()).toBe(
@@ -985,15 +1159,15 @@ describe("the command surface", () => {
     return result.stdout;
   }
 
-  it("dumps the merged catalog under `ambit dump-catalog`", async () => {
-    const dump = await cli("dump-catalog");
+  it("dumps the merged catalog under `ambit search`", async () => {
+    const dump = await cli("search", "*");
 
     expect(dump.code, dump.stderr).toBe(ExitCode.Success);
     expect(dump.stdout).toContain(CATALOG_NAME);
   });
 
   it("emits the merged catalog as JSON", async () => {
-    const dump = await cli("dump-catalog", "--json");
+    const dump = await cli("search", "*", "--json");
 
     expect(dump.code, dump.stderr).toBe(ExitCode.Success);
     expect(JSON.parse(dump.stdout)).toMatchObject({ catalogs: [CATALOG_NAME] });
@@ -1016,16 +1190,19 @@ describe("the command surface", () => {
     }
   });
 
-  it("gives every command the same three global flags, and none of them `--catalog`", async () => {
+  it("gives every command the same three global flags, and none of them a `--catalog` directory", async () => {
     // One subject, one directory flag. `--offline` is uniform for the same reason: the rule that
-    // withheld it existed for the catalog commands, and there are none.
+    // withheld it existed for the catalog commands, and there are none. `ambit search --catalog
+    // <name>` is not that flag returning — it names a catalog to search rather than a directory to
+    // read a catalog out of — so what is asserted is the spelling that would mean the old thing.
     for (const name of COMMANDS) {
       const help = await usage(name);
 
       expect(help, name).toContain("--project <dir>");
       expect(help, name).toContain("--json");
       expect(help, name).toContain("--offline");
-      expect(help, name).not.toContain("--catalog");
+      expect(help, name).not.toContain("--catalog <dir>");
+      if (name !== "search") expect(help, name).not.toContain("--catalog");
     }
   });
 
@@ -1336,7 +1513,7 @@ describe("multi-catalog merge", () => {
     await writeCollidingCatalog(SECOND);
     await writeCatalogOrder([SECOND]);
 
-    const dumped = JSON.parse((await cli("dump-catalog", "--json")).stdout) as {
+    const dumped = JSON.parse((await cli("search", "*", "--json")).stdout) as {
       mcps: Record<string, { catalog: string; transport: Record<string, unknown> }>;
     };
 

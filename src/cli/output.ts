@@ -4,7 +4,7 @@
  * Both output modes have a determinism requirement behind them: `--json` is compared as a golden
  * file, and the text form is what a human diffs between runs. So JSON records are built
  * in the order they are given rather than by object-key luck, and text sections are laid out from
- * one place so `catalog` and `resolve` cannot drift into looking like different tools.
+ * one place so `search` and `resolve` cannot drift into looking like different tools.
  */
 
 /** A record with the keys in the order given, so the emitted JSON is byte-stable. */

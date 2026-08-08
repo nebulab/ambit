@@ -195,9 +195,9 @@ describe("ambit init", () => {
   it("is read by the commands that load a project, not merely by the parser", async () => {
     await cli("init");
 
-    // `dump-catalog` loads the config the way every command does, so a scaffold it accepts is one the
+    // `ambit search` loads the config the way every command does, so a scaffold it accepts is one the
     // whole tool accepts — and what it dumps is the project's own empty catalog.
-    const result = await cli("dump-catalog");
+    const result = await cli("search", "*");
 
     expect(result.code, result.stderr).toBe(ExitCode.Success);
     expect(result.stdout).toContain("local");

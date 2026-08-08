@@ -9,7 +9,7 @@
  * free-form labels declared per item, registered nowhere and described nowhere, so a misspelled tag
  * was silently a new tag reaching nobody, and there was no surface that could list what groups a
  * catalog offered or say what one was for. A pack is a **document**: it is browsable with
- * `ambit dump-catalog`, it carries a description, a `requires` entry naming a pack that does not
+ * `ambit search`, it carries a description, a `requires` entry naming a pack that does not
  * exist is exit 3 like every other unmatched pattern, and `ambit why` walks back through it.
  *
  * The consequence worth stating is that grouping moved from the consumer's side of the boundary to
@@ -31,7 +31,7 @@ export interface PackEntity {
   /**
    * What this pack is for, in the author's own words.
    *
-   * The half a tag never had. It is why a pack is worth being a document: `ambit dump-catalog` can
+   * The half a tag never had. It is why a pack is worth being a document: `ambit search` can
    * print what `engineering` means, and a consumer choosing between two packs has something to
    * choose on.
    */

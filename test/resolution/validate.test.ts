@@ -456,7 +456,7 @@ describe("ambit validate: name↔path agreement", () => {
   it("still exits 2 for a mismatch outside validation", async () => {
     await writeMisnamedSkill("misnamed-thing", "wrong-name");
 
-    const result = await cli("dump-catalog");
+    const result = await cli("search", "*");
 
     expect(result.code).toBe(ExitCode.Config);
     expect(result.stderr).toContain("does not match its path");
