@@ -72,6 +72,15 @@ export interface SourceRequest {
    * catalog whose pin moved because a sibling was named is a pin nobody asked to move.
    */
   readonly refresh?: RefreshMode;
+  /**
+   * The commit an earlier resolution of this source recorded — `ambit.lock`'s.
+   *
+   * Resolves to that commit instead of asking what `ref` names now, which is how a committed lock
+   * reproduces an install on a machine whose shared cache holds something else. Ignored alongside a
+   * `refresh`, which is a request for a newer answer than a pin can give, and meaningless for a `path:`
+   * source, which has no revision to pin.
+   */
+  readonly pin?: string;
 }
 
 /**
@@ -215,7 +224,8 @@ async function resolvePathRoot(
  * A `path:` source is read in place, so `--offline` has nothing to say about it: there is no cache
  * between the project and the directory it names. A `refresh` has nothing to say about it either, and
  * for the same reason — the directory is whatever it currently holds, with no remote to ask and no
- * revision to have moved.
+ * revision to have moved. Nor does a `pin`, which is the same fact from the other end: there is no
+ * revision to have been recorded.
  *
  * @throws {AmbitError} exit 2 for a source ambit cannot read, a missing directory, or an unknown
  *   ref; exit 4 if git is missing, a fetch fails, or `--offline` was given and the cache cannot
@@ -240,6 +250,7 @@ export async function resolveSource(
     cwd: context.projectDir,
     ...(context.offline !== undefined && { offline: context.offline }),
     ...(request.refresh !== undefined && { refresh: request.refresh }),
+    ...(request.pin !== undefined && { pin: request.pin }),
   });
   return {
     root: fetched.root,

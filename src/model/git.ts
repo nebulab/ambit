@@ -4,16 +4,21 @@
  *
  * Three decisions here are load-bearing.
  *
- * **A cached clone is refetched only when it cannot answer the ref.** Fetching on every resolve
- * would let `ref: main` mean two different commits in two runs a minute apart, which is precisely
- * what determinism promises it will not do; and the reproducibility mechanism for a moving ref is the
- * lock, not the network. So the cache grows when it is asked something it does not know, and the way
- * to move a project forward is to change what it asks for.
+ * **A recorded commit answers before a ref does.** A caller that already knows which commit this
+ * source resolved to — `ambit.lock`, via `pin` — gets that commit checked out and the ref is not
+ * consulted at all. That is what makes a committed lock *reproduce* an install rather than merely
+ * describe one, and it is the only mechanism here that is a promise about two different machines
+ * rather than about two runs on one.
  *
- * That is a claim about a *second* run, and it is the caller's job to notice when there has not been
- * a first: a project with no `ambit.lock` has no earlier resolution to agree with, so `install` asks
- * the remote rather than inheriting whatever commit some unrelated project last left in the shared
- * cache. See `unlockedRefresh` in `src/project/install.ts`.
+ * **A cached clone is refetched only when it cannot answer.** Fetching on every resolve would let
+ * `ref: main` mean two different commits in two runs a minute apart, which is precisely what
+ * determinism promises it will not do. So the cache grows when it is asked something it does not know,
+ * and the way to move a project forward is `ambit update`.
+ *
+ * That much is a claim about a *second* run, and it is the caller's job to notice when there has not
+ * been a first: a source with no pin to reproduce has no earlier resolution to agree with, so
+ * `install` asks the remote rather than inheriting whatever commit some unrelated project last left in
+ * the shared cache. See `catalogPlan` in `src/project/install.ts`.
  *
  * **A checkout is keyed by commit, never by ref.** Two projects pinned to different refs of one
  * repository share the clone without racing over a working tree, and a checkout that is already
@@ -113,6 +118,25 @@ const REDIRECTING_GIT_VARS = ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"] as c
 /** A scp-like git URL — `git@github.com:acme/skills.git` — which is not a parseable URL. */
 const SCP_LIKE = /^(?:[^@/]+@)?([^@/:]+):(?!\/)(.*)$/;
 
+/**
+ * A full commit SHA: sha1 today, sha256 in a repository built for it.
+ *
+ * Full rather than abbreviated, and hex rather than anything git would accept, because this is what a
+ * *pin* is allowed to be. A pin that could name a branch would be a moving pin, which is a
+ * contradiction, and one that could start with `-` would be a git option.
+ */
+const COMMIT_SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
+
+/**
+ * Whether a string is a full commit SHA — what a pin has to be, wherever it was read from.
+ *
+ * Exported so the lock reader can refuse a hand-edited pin against the same rule this module enforces,
+ * and report it against `ambit.lock` rather than as a git failure.
+ */
+export function isCommitSha(value: string): boolean {
+  return COMMIT_SHA.test(value);
+}
+
 const execFileAsync = promisify(execFile);
 
 /** One repository to fetch, and everything the errors and the cache need to know about it. */
@@ -121,6 +145,17 @@ export interface GitFetchRequest {
   readonly url: string;
   /** Tag, branch, or commit. Absent means the repository's default branch. */
   readonly ref?: string;
+  /**
+   * The commit an earlier resolution of this source recorded — `ambit.lock`'s.
+   *
+   * When present it *replaces* ref resolution: this commit is checked out and {@link GitFetchRequest.ref}
+   * is not consulted, which is how a committed lock reproduces an install on a machine whose shared
+   * cache says something else. Consulted only under `refresh: "none"`, since the two refreshing modes
+   * exist to ask where a ref points now and a recorded commit cannot answer that.
+   *
+   * Must be a full commit SHA ({@link isCommitSha}).
+   */
+  readonly pin?: string;
   /** How the thing being fetched is named in errors: `catalog "company"`. */
   readonly subject: string;
   /** The `(file line N)` suffix its config entry sits at. */
@@ -483,6 +518,25 @@ function assertUsableRef(request: GitFetchRequest): void {
   }
 }
 
+/**
+ * Rejects a pin that is not a full commit SHA.
+ *
+ * The lock reader refuses these first, with a message pointing at the file the pin was written in. This
+ * is the backstop for every other caller, and it is what lets the pin be handed to git without a `--`
+ * dance: a string that passes {@link isCommitSha} cannot be an option and cannot name a branch.
+ *
+ * @throws {AmbitError} exit 2 for a pin that is not one.
+ */
+function assertUsablePin(request: GitFetchRequest): void {
+  const pin = request.pin;
+  if (pin === undefined || isCommitSha(pin)) return;
+
+  throw configError(`${request.subject} has an unusable pin ${request.where}`, [
+    `"${pin}" is not a full commit SHA`,
+    "delete `ambit.lock` and run `ambit install` again to write a correct one",
+  ]);
+}
+
 /** The error for a ref the repository does not have, after a fetch has already been tried. */
 function unknownRef(request: GitFetchRequest): never {
   const ref = request.ref;
@@ -527,6 +581,32 @@ function cannotRefreshOffline(request: GitFetchRequest): never {
   ]);
 }
 
+/**
+ * The error for a recorded commit the repository does not have.
+ *
+ * Exit 2, and fatal rather than a fallback to the ref: falling back would install a *different* commit
+ * than the lock names, which is the one thing a lock exists to prevent, and it would do it silently. So
+ * the two ways this happens — a force-push that dropped the commit, a lock naming a commit that was
+ * never pushed — are reported with the command that resolves both.
+ */
+function unknownPin(request: GitFetchRequest, pin: string): never {
+  throw configError(`cannot find the locked commit for ${request.subject} ${request.where}`, [
+    `\`ambit.lock\` pins ${pin}, and ${request.url} does not have it`,
+    "run `ambit update` to pin the commit its `ref` names now, and commit the new lock",
+  ]);
+}
+
+/** The error for a recorded commit that is not in the cache, which `--offline` may not fetch for. */
+function pinNotCached(request: GitFetchRequest, pin: string): never {
+  throw networkError(
+    `cannot resolve the locked commit from the cache for ${request.subject} ${request.where}`,
+    [
+      `\`--offline\` was given, and the cached clone of ${request.url} does not have ${pin}`,
+      "run the command again without `--offline` to fetch it",
+    ],
+  );
+}
+
 /** The error for a ref the cached clone cannot answer, which `--offline` may not fetch for. */
 function refNotCached(request: GitFetchRequest): never {
   const ref = request.ref;
@@ -539,6 +619,35 @@ function refNotCached(request: GitFetchRequest): never {
       "run the command again without `--offline` to fetch it",
     ],
   );
+}
+
+/**
+ * Resolves a recorded commit against the clone, fetching once if the clone does not have it.
+ *
+ * The ordinary case is a `rev-parse` and no network at all: ambit wrote this commit into the lock from
+ * a clone it had. The fetch is for the two ways a warm clone can be missing one — the project's first
+ * run on this machine, and a teammate whose push landed after this clone's last fetch — and it is the
+ * same conditional fetch ref resolution does, for the same reason.
+ *
+ * @param cloned whether the clone was made by this call, in which case it is already the remote's
+ *   current answer and a fetch would find nothing.
+ * @throws {AmbitError} exit 4 if the fetch fails or `--offline` forbids it; exit 2 if the repository
+ *   does not have the commit.
+ */
+async function pinnedCommit(
+  repo: string,
+  pin: string,
+  cloned: boolean,
+  request: GitFetchRequest,
+): Promise<string> {
+  let commit = await revParse(repo, pin, request);
+  if (commit === undefined && !cloned) {
+    if (request.offline === true) pinNotCached(request, pin);
+    await fetchInto(repo, request);
+    commit = await revParse(repo, pin, request);
+  }
+  if (commit === undefined) unknownPin(request, pin);
+  return commit;
 }
 
 /**
@@ -600,10 +709,14 @@ async function ensureCheckout(
 /**
  * Fetches a git source into the cache and returns the commit's checkout.
  *
- * Under the default `refresh: "none"` the clone is fetched only when the cache cannot resolve the
- * ref, so a second run over an unchanged config touches the network not at all. The two refreshing
- * modes are the module header's subject: `"advance"` fetches into the clone's own refs and every
- * later resolve follows, `"probe"` fetches into {@link PROBE_NAMESPACE} and nothing later can see it.
+ * A {@link GitFetchRequest.pin} short-circuits all of it: the recorded commit is checked out and the
+ * ref is never resolved, which is what makes a lock reproduce an install rather than describe one.
+ *
+ * Without one, and under the default `refresh: "none"`, the clone is fetched only when the cache cannot
+ * resolve the ref, so a second run over an unchanged config touches the network not at all. The two
+ * refreshing modes are the module header's subject: `"advance"` fetches into the clone's own refs and
+ * every later resolve follows, `"probe"` fetches into {@link PROBE_NAMESPACE} and nothing later can see
+ * it. Both ignore a pin, since both exist to ask what a pin cannot answer.
  *
  * A probe writes a checkout like any other resolve. That is not a contradiction with being read-only:
  * a checkout is keyed by commit, so it adds a directory rather than changing what any existing path
@@ -611,10 +724,12 @@ async function ensureCheckout(
  *
  * @throws {AmbitError} exit 4 if git is missing, a clone, fetch, probe, or checkout fails, or
  *   `--offline` was given and the cache cannot answer — including any refresh at all, which the
- *   cache by definition cannot answer; exit 2 for a ref the repository does not have.
+ *   cache by definition cannot answer; exit 2 for a ref or a pinned commit the repository does not
+ *   have.
  */
 export async function fetchGitSource(request: GitFetchRequest): Promise<FetchedGitSource> {
   assertUsableRef(request);
+  assertUsablePin(request);
 
   const refresh = request.refresh ?? "none";
   const offline = request.offline === true;
@@ -629,6 +744,14 @@ export async function fetchGitSource(request: GitFetchRequest): Promise<FetchedG
     if (offline) notCached(request, repo);
     await clone(repo, request);
     cloned = true;
+  }
+
+  // Before any ref is looked at, and only when nothing is refreshing: a recorded commit is the answer a
+  // previous resolution already gave, and a refreshing run was asked for a newer one.
+  const pin = refresh === "none" ? request.pin : undefined;
+  if (pin !== undefined) {
+    const commit = await pinnedCommit(repo, pin, cloned, request);
+    return { root: await ensureCheckout(cache, key, repo, commit, request), commit };
   }
 
   if (refresh === "probe") {

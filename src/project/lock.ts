@@ -1,34 +1,45 @@
 /**
  * `ambit.lock` — the resolution result, written so an install can be reproduced.
  *
- * The lock is a *record*, not an input: nothing here feeds back into resolution, which is why it
- * needs no parser. Its two jobs are both comparisons — a human diffing what changed between two
- * commits, and `--frozen` asking whether a committed lock is still current — and both are served by
- * bytes. So the lock is compared as text rather than as a parsed document: a file that would be
- * rewritten *is* out of date, whatever the two documents mean.
+ * This is the half that *builds and writes* the document. The half that reads it — where the file lives,
+ * and the pins catalog loading resolves against — is `src/model/lock-file.ts`, and the two constants
+ * they share live there. `LOCK_FILENAME`, `LOCK_VERSION`, `lockFilePath` and `readLockText` are
+ * re-exported here so a caller reaching for "the lock" finds all of it in one place.
  *
- * That makes byte-stability the whole contract, and it is bought by emitting through
- * {@link emitYaml} and by holding nothing a second run could disagree about: no timestamps, no
- * absolute paths, no cache locations, and a commit only where a source actually has one.
+ * **The `catalogs` section is an input; every other section is a record.** A human diffing what changed
+ * between two commits, and `--frozen` asking whether a committed lock is still current, are both served
+ * by bytes — so the lock is *compared* as text, and a file that would be rewritten is out of date
+ * whatever the two documents mean. A `commit` under `catalogs` is the exception, because comparing it is
+ * not enough to make it true: `readCatalogPins` reads it back, and resolution goes to that commit.
+ *
+ * **A pin is void as soon as the config it was resolved from changes.** Each entry records the `source`
+ * and `ref` its commit came from, which is what lets the reader tell a pin worth honouring from one that
+ * answers a question nobody is asking any more. Editing `ref:` therefore works exactly as it always did.
+ *
+ * Byte-stability is the contract for everything written here, and it is bought by emitting through
+ * {@link emitYaml} and by holding nothing a second run could disagree about: no timestamps, no absolute
+ * paths, no cache locations, and a commit only where a source actually has one.
  *
  * Every value in it is machine-independent on purpose. A lock is committed by teams who want
  * reproducible installs, so a path into someone's cache would turn a shared file into a
  * per-machine one and produce a diff on every developer's first install.
  */
-import { readFile, writeFile } from "node:fs/promises";
-import path from "node:path";
+import { writeFile } from "node:fs/promises";
 
 import type { Catalog } from "../model/catalog.js";
-import { configError, driftError } from "../errors.js";
+import { driftError } from "../errors.js";
+import { LOCK_FILENAME, LOCK_VERSION, lockFilePath, readLockText } from "../model/lock-file.js";
 import type { Bundle } from "../resolution/resolve.js";
 import { formatReason, reasonOf } from "../resolution/resolve.js";
 import { emitYaml } from "../model/yaml.js";
 
-/** The lockfile's name, at the project root beside `ambit.yml`. */
-export const LOCK_FILENAME = "ambit.lock";
-
-/** The only lock version this build writes. */
-export const LOCK_VERSION = 1;
+export {
+  LOCK_FILENAME,
+  LOCK_VERSION,
+  lockFilePath,
+  readCatalogPins,
+  readLockText,
+} from "../model/lock-file.js";
 
 /** One configured catalog, pinned. */
 export interface LockCatalog {
@@ -212,41 +223,6 @@ export function buildLock(catalogs: readonly Catalog[], bundle: Bundle): Lock {
  */
 export function serializeLock(lock: Lock): string {
   return emitYaml(lock);
-}
-
-/** Where the lock lives for a project. */
-export function lockFilePath(projectDir: string): string {
-  return path.join(projectDir, LOCK_FILENAME);
-}
-
-/** Whether a filesystem error means the path simply is not there. */
-function isMissing(error: unknown): boolean {
-  return (
-    typeof error === "object" && error !== null && (error as { code?: unknown }).code === "ENOENT"
-  );
-}
-
-/**
- * Reads a project's lock as text, returning undefined when there is none.
- *
- * Text rather than a parsed document because that is all any caller needs: the lock is compared,
- * never consumed.
- *
- * @throws {AmbitError} exit 2 for a lock that exists but cannot be read — reported rather than
- *   treated as absent, since "there is no lock" and "your lock is unreadable" call for different
- *   fixes.
- */
-export async function readLockText(projectDir: string): Promise<string | undefined> {
-  const file = lockFilePath(projectDir);
-  try {
-    return await readFile(file, "utf8");
-  } catch (error) {
-    if (isMissing(error)) return undefined;
-    throw configError(`cannot read ${LOCK_FILENAME}`, [
-      error instanceof Error ? error.message : String(error),
-      `make ${file} readable, or delete it and run \`ambit install\` again`,
-    ]);
-  }
 }
 
 /** Writes a project's lock. */

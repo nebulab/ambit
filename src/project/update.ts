@@ -1,10 +1,10 @@
 /**
  * `ambit outdated` and `ambit update` — moving a pin, and finding out what moving it would cost.
  *
- * The lock records the commit each catalog resolved to, and until now nothing moved one forward: the
- * git cache refetches only when it cannot answer a ref (`src/model/git.ts`), so `ref: main` keeps
- * meaning whatever it meant the first time. Editing `ref:` by hand and reinstalling worked, and told
- * you nothing about what changed until you read the lock diff afterwards.
+ * The lock records the commit each catalog resolved to and every other command resolves *to* that commit
+ * (`readCatalogPins`), so these two are the only way a pin moves. Editing `ref:` by hand and reinstalling
+ * also works — a pin is void once the config it was resolved from changes — but it tells you nothing
+ * about what changed until you read the lock diff afterwards.
  *
  * Both commands are one shape with one switch. Resolve the project twice — once from the cache as it
  * stands, once with the named catalogs' refs resolved against the remote — and hand the two bundles to
@@ -33,6 +33,7 @@ import { diffBundles } from "./bundle-diff.js";
 import type { RefreshMode } from "../model/git.js";
 import type { InstallOptions, InstallResult } from "./install.js";
 import { installProject } from "./install.js";
+import { readCatalogPins } from "./lock.js";
 import type { Bundle } from "../resolution/resolve.js";
 import { resolveBundle } from "../resolution/resolve.js";
 import type { SourceContext } from "../model/sources.js";
@@ -155,6 +156,19 @@ interface Resolution {
   readonly bundle: Bundle;
 }
 
+/**
+ * The report, plus which catalogs this run refreshed.
+ *
+ * The second is not part of the report — nobody reading `ambit outdated` needs it — but it is exactly what
+ * the install at the end of `ambit update` has to be told: those catalogs' lock pins are the commits the
+ * update is replacing, so an install that honoured them would undo it. Kept internal for that reason.
+ */
+interface PlannedUpdate {
+  readonly plan: UpdatePlan;
+  /** The catalogs whose pin this run moved past, by name. */
+  readonly released: readonly string[];
+}
+
 /** Resolves the project through one load, so the two passes below cannot differ in anything else. */
 async function resolveWith(
   config: ProjectConfig,
@@ -163,6 +177,24 @@ async function resolveWith(
 ): Promise<Resolution> {
   const catalogs = await loadCatalogs(config, context, options);
   return { catalogs, bundle: resolveBundle(config, mergeCatalogs(catalogs)) };
+}
+
+/**
+ * Both passes are given the lock's pins, and the refresh is what overrides them.
+ *
+ * The `before` pass has to be the commit the project resolves to *today*, which for a pinned catalog is
+ * the locked commit rather than whatever the shared clone's `refs/heads/main` happens to hold — otherwise
+ * the report's `commit` column would name a commit the project would not install. The `after` pass gets
+ * the same pins and the refresh plan on top, and a refresh wins per catalog (`fetchGitSource` ignores a
+ * pin unless it is resolving from the cache), so a named catalog is answered by the remote and an unnamed
+ * one stays exactly where it was pinned. That is what makes `ambit update company` a claim about
+ * `company` alone.
+ */
+function loadOptions(
+  pins: ReadonlyMap<string, string>,
+  refresh?: ReadonlyMap<string, RefreshMode>,
+): CatalogLoadOptions {
+  return { pins, ...(refresh !== undefined && { refresh }) };
 }
 
 /**
@@ -183,9 +215,10 @@ async function resolveWith(
 async function resolveBefore(
   config: ProjectConfig,
   context: SourceContext,
+  pins: ReadonlyMap<string, string>,
 ): Promise<Resolution | undefined> {
   try {
-    return await resolveWith(config, context, {});
+    return await resolveWith(config, context, loadOptions(pins));
   } catch (error) {
     if (error instanceof AmbitError && error.code !== ExitCode.Network) return undefined;
     throw error;
@@ -271,21 +304,25 @@ async function planUpdate(
   projectDir: string,
   mode: RefreshMode,
   options: UpdateOptions,
-): Promise<UpdatePlan> {
+): Promise<PlannedUpdate> {
   const config = await loadProjectConfig(projectDir);
   const refresh = refreshPlan(config, options.catalogs, mode);
   const context: SourceContext = { projectDir, env: process.env };
+  const pins = await readCatalogPins(projectDir, config);
 
-  const before = await resolveBefore(config, context);
-  const after = await resolveWith(config, context, { refresh });
+  const before = await resolveBefore(config, context, pins);
+  const after = await resolveWith(config, context, loadOptions(pins, refresh));
 
   const latest = new Map(after.catalogs.map((catalog) => [catalog.name, catalog]));
   return {
-    catalogs:
-      before === undefined
-        ? after.catalogs.map(unresolvedPinOf)
-        : before.catalogs.map((catalog) => pinOf(catalog, latest.get(catalog.name))),
-    diff: await diffBundles(before?.bundle ?? NOTHING, after.bundle),
+    plan: {
+      catalogs:
+        before === undefined
+          ? after.catalogs.map(unresolvedPinOf)
+          : before.catalogs.map((catalog) => pinOf(catalog, latest.get(catalog.name))),
+      diff: await diffBundles(before?.bundle ?? NOTHING, after.bundle),
+    },
+    released: [...refresh.keys()],
   };
 }
 
@@ -304,7 +341,7 @@ export async function checkOutdated(
   projectDir: string,
   options: UpdateOptions = {},
 ): Promise<UpdatePlan> {
-  return planUpdate(projectDir, "probe", options);
+  return (await planUpdate(projectDir, "probe", options)).plan;
 }
 
 /**
@@ -327,9 +364,11 @@ export async function previewUpdate(
 /**
  * `ambit update` — move the pins, then install.
  *
- * The install is `installProject`, unchanged and unhelped: by the time it runs the cache holds the
- * advanced refs, so it resolves to what was just reported without reaching the network, and `ambit
- * update` and `ambit install` install by exactly one code path.
+ * The install is `installProject` and installs by exactly one code path, told one thing this module knows
+ * and it does not: which catalogs' lock pins this run is replacing. Without that it would reproduce the
+ * commits still written in the lock and quietly undo the update. With it, those catalogs resolve from the
+ * cache — whose refs this run just advanced — so the install writes the commits that were reported and
+ * reaches the network not at all.
  *
  * @param projectDir the project root, absolute.
  * @param options which catalogs to move.
@@ -343,6 +382,6 @@ export async function updateProject(
   options: UpdateOptions = {},
   install: UpdateInstallOptions = {},
 ): Promise<UpdateResult> {
-  const plan = await planUpdate(projectDir, "advance", options);
-  return { ...plan, install: await installProject(projectDir, install) };
+  const { plan, released } = await planUpdate(projectDir, "advance", options);
+  return { ...plan, install: await installProject(projectDir, install, released) };
 }

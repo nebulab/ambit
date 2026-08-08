@@ -33,6 +33,7 @@ import { AmbitError, at, configError } from "../errors.js";
 import type { RefreshMode } from "./git.js";
 import type { HookEntity } from "./hook-entity.js";
 import { commandProgram, parseHookEntity, scriptReference } from "./hook-entity.js";
+import { readCatalogPins } from "./lock-file.js";
 import type { McpEntity } from "./mcp-entity.js";
 import { parseMcpEntity } from "./mcp-entity.js";
 import type { PackEntity } from "./pack-entity.js";
@@ -470,6 +471,8 @@ class CatalogFiles {
  *   the message names the file alone.
  * @param refresh how much of the remote this one catalog may consult. Defaults to `"none"`, which is
  *   every command but `ambit outdated` and `ambit update`.
+ * @param pin the commit an earlier resolution recorded for this catalog, from `ambit.lock`. Resolves
+ *   to that commit rather than to whatever its `ref` names now — see `SourceRequest.pin`.
  * @throws {AmbitError} exit 2 for a source ambit cannot read, a missing directory, or an unknown
  *   ref; exit 4 if a fetch fails.
  */
@@ -478,6 +481,7 @@ export async function resolveCatalogRoot(
   context: SourceContext,
   file: string,
   refresh: RefreshMode = "none",
+  pin?: string,
 ): Promise<ResolvedSource> {
   return resolveSource(
     {
@@ -486,6 +490,7 @@ export async function resolveCatalogRoot(
       subject: `catalog "${catalog.name}"`,
       where: at(file, undefined),
       refresh,
+      ...(pin !== undefined && { pin }),
     },
     context,
   );
@@ -931,6 +936,24 @@ export interface CatalogLoadOptions extends CatalogParseOptions {
    * run-wide setting would move every catalog's, which is a pin nobody asked to move.
    */
   readonly refresh?: ReadonlyMap<string, RefreshMode>;
+  /**
+   * The commit an earlier resolution recorded for each catalog, keyed by catalog name — `ambit.lock`'s
+   * pins, as {@link readCatalogPins} reads them.
+   *
+   * A catalog the map holds resolves to that commit instead of to whatever its `ref` names now, which is
+   * what makes a committed lock reproduce an install. A name it does not hold resolves through its
+   * `ref`, exactly as before there were pins at all.
+   *
+   * **Omitting this reads the project's lock; it does not skip pinning.** Every command has to agree with
+   * the install it describes about which commit a catalog is, so honouring the lock is the default and a
+   * caller opts *out* by passing an explicit map — an empty one to pin nothing. Only the two commands
+   * that decide pins for themselves do that: `install`, which drops the pins `ambit update` is replacing,
+   * and `update`, which computes both these and the refresh below.
+   *
+   * A `refresh` for the same catalog wins over its pin: the two refreshing commands were asked for a
+   * newer commit than the pin holds, and that is the whole of what they do.
+   */
+  readonly pins?: ReadonlyMap<string, string>;
 }
 
 /**
@@ -940,7 +963,8 @@ export interface CatalogLoadOptions extends CatalogParseOptions {
  * cache directory is not something two fetches may race over.
  *
  * @param options a collector for the one problem parsing can continue past — see
- *   {@link CatalogParseOptions} — and the per-catalog refresh plan, see {@link CatalogLoadOptions}.
+ *   {@link CatalogParseOptions} — and the per-catalog pins and refresh plan, see
+ *   {@link CatalogLoadOptions}.
  * @throws {AmbitError} exit 2 for an unresolvable source or a malformed catalog; exit 4 if a fetch
  *   fails.
  */
@@ -949,6 +973,11 @@ export async function loadCatalogs(
   context: SourceContext,
   options: CatalogLoadOptions = {},
 ): Promise<readonly Catalog[]> {
+  // Read here rather than at each call site, because a command that forgot would resolve a different
+  // commit than the install it is describing — which is the drift pins exist to remove, reintroduced one
+  // command at a time. See CatalogLoadOptions.pins for how a caller opts out.
+  const pins = options.pins ?? (await readCatalogPins(context.projectDir, config));
+
   const catalogs: Catalog[] = [];
   for (const entry of config.catalogs) {
     const resolved = await resolveCatalogRoot(
@@ -956,6 +985,7 @@ export async function loadCatalogs(
       context,
       config.origin.file,
       options.refresh?.get(entry.name),
+      pins.get(entry.name),
     );
     const parsed = await parseCatalogDirectory(
       entry.name,
