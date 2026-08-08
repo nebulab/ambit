@@ -121,7 +121,7 @@ function selectionEntry(item: BundleItem, catalog: string): string {
  * the catalog intends — an item a pack already covers is more naturally taken by asking for the pack.
  * Naming that pack instead would mean searching every pack's `requires` for one that reaches this
  * item, then choosing between the several that might, so the direct entry is what is offered and
- * `ambit dump-catalog` is where the packs are.
+ * `ambit search --capability pack "*"` is where the packs are.
  */
 function notSelected(
   item: BundleItem,
@@ -148,7 +148,9 @@ function notSelected(
 function unknownName(item: BundleItem, config: ProjectConfig): AmbitError {
   return resolutionError(`unknown ${subject(item)}`, [
     `nothing configured in ${config.origin.file} provides ${NOUNS[item.kind]} by that name`,
-    "run `ambit dump-catalog` to see what is available",
+    // The name that was typed, wrapped in wildcards, because the likeliest cause of this error is a
+    // name remembered slightly wrong — so the next step offered is the one that finds it.
+    `run \`ambit search --capability ${item.kind} "*${item.name}*"\` to see what is available`,
   ]);
 }
 

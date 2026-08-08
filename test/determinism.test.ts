@@ -182,8 +182,8 @@ interface Surface {
 const SURFACES: readonly Surface[] = [
   { argv: ["init", "--dry-run"], dir: "empty" },
   { argv: ["init", "--dry-run", "--json"], dir: "empty" },
-  { argv: ["dump-catalog"], dir: "project" },
-  { argv: ["dump-catalog", "--json"], dir: "project" },
+  { argv: ["search", "*"], dir: "project" },
+  { argv: ["search", "*", "--json"], dir: "project" },
   { argv: ["resolve"], dir: "project" },
   { argv: ["resolve", "--json"], dir: "project" },
   { argv: ["resolve", "--explain"], dir: "project" },
