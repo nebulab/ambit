@@ -147,10 +147,6 @@ requires:
 `https://github.com/owner/repo`, `git@host:owner/repo.git`, `git:<any-git-url>`,
 `path:./relative/dir`.
 
-Every entry names its kind, because a catalog's four namespaces are independent: a skill can be
-called `mcp.sentry` while an MCP server called `sentry` sits one namespace over. It also means hooks
-are never taken by accident, since only a `hook:` entry or a pack can reach one.
-
 ## Selecting items by name
 
 `*` matches any run of characters, including `.`, and may appear anywhere. A pattern with no `*` is
