@@ -273,9 +273,6 @@ requires:
 | `description` | string | no       | What the pack is for. Shown by `ambit search`.                             |
 | `requires`    | map[]  | no       | Same grammar as a skill's: one key per entry, bare patterns, same catalog. |
 
-`packs/` may nest, so `packs/function/engineering.yml` and `packs/function.engineering.yml` both
-declare `function.engineering`. Declaring the same name both ways is an error.
-
 ## Staying up to date
 
 `ambit.lock` records the exact commit each catalog resolved to, and every later command uses that
