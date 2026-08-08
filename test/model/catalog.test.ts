@@ -666,7 +666,7 @@ describe("ambit dump-catalog", () => {
 });
 
 /**
- * `hooks/<name>/HOOK.yml`: the third namespace a catalog distributes, and the one whose declaration is
+ * `hooks/<name>/hook.yml`: the third namespace a catalog distributes, and the one whose declaration is
  * not the whole truth about it.
  *
  * A hook is a directory for the same reason a skill is — it may ship bytes — so it is found and named
@@ -682,7 +682,7 @@ describe("ambit dump-catalog", () => {
 describe("catalog hooks", () => {
   const HOOK_NAME = "block-rm";
   const HOOK_DIR = `hooks/${HOOK_NAME}`;
-  const HOOK_FILE = `${HOOK_DIR}/HOOK.yml`;
+  const HOOK_FILE = `${HOOK_DIR}/hook.yml`;
 
   /** The second catalog, for the one case about two of them providing one hook. */
   const SECOND_CATALOG = "personal";
@@ -698,7 +698,7 @@ describe("catalog hooks", () => {
     name: string,
     lines: readonly string[],
   ): Promise<void> {
-    const target = path.join(root, catalog, "hooks", name.replaceAll(".", "/"), "HOOK.yml");
+    const target = path.join(root, catalog, "hooks", name.replaceAll(".", "/"), "hook.yml");
     await mkdir(path.dirname(target), { recursive: true });
     await writeFile(target, document(name, lines), "utf8");
   }
@@ -746,7 +746,7 @@ describe("catalog hooks", () => {
 
   it("joins a nested hook's path segments with `.`, exactly as a skill's are", async () => {
     await writeCatalogFile(
-      "hooks/team/notify/HOOK.yml",
+      "hooks/team/notify/hook.yml",
       document("team.notify", ["event: Stop", "type: command", "command: npx notify"]),
     );
 
@@ -815,7 +815,7 @@ describe("catalog hooks", () => {
       document(HOOK_NAME, ["event: Stop", "type: script", "command: hook.sh"]),
     );
 
-    expect((await rejection()).detail).toContain(`${HOOK_DIR} holds nothing but HOOK.yml`);
+    expect((await rejection()).detail).toContain(`${HOOK_DIR} holds nothing but hook.yml`);
   });
 
   it("refuses a hook whose `name` disagrees with its path", async () => {
@@ -831,13 +831,13 @@ describe("catalog hooks", () => {
     expect(error.detail.join("\n")).toContain(`derives the name "${HOOK_NAME}"`);
   });
 
-  it("refuses a `HOOK.yml` that is in no hook directory at all", async () => {
+  it("refuses a `hook.yml` that is in no hook directory at all", async () => {
     await writeCatalogFile(
-      "hooks/HOOK.yml",
+      "hooks/hook.yml",
       document("x", ["event: Stop", "type: command", "command: npx x"]),
     );
 
-    expect((await rejection()).message).toBe("hooks/HOOK.yml is not inside a hook directory");
+    expect((await rejection()).message).toBe("hooks/hook.yml is not inside a hook directory");
   });
 
   it("carries every hook entity rejection through, since one parser serves both surfaces", async () => {

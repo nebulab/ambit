@@ -91,7 +91,7 @@ const BLOCKS: readonly ScaffoldBlock[] = [
       "",
       "`version` is the only required key. Every definition lives in a file a catalog holds, so this",
       "project lists itself below: a skill of its own goes in `skills/<name>/SKILL.md`, a server in",
-      "`mcps/<name>.yml`, a hook in `hooks/<name>/HOOK.yml`.",
+      "`mcps/<name>.yml`, a hook in `hooks/<name>/hook.yml`.",
     ],
   },
   {

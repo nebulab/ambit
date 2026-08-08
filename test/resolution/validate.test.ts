@@ -151,7 +151,7 @@ async function writeHook(
   lines: readonly string[],
   within = catalogDir,
 ): Promise<void> {
-  const target = path.join(within, "hooks", name.replaceAll(".", "/"), "HOOK.yml");
+  const target = path.join(within, "hooks", name.replaceAll(".", "/"), "hook.yml");
   await mkdir(path.dirname(target), { recursive: true });
   await writeFile(target, [`name: ${name}`, ...lines, ""].join("\n"), "utf8");
 }

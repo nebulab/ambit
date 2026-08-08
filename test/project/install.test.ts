@@ -1574,7 +1574,7 @@ describe("idempotence", () => {
     `${SKILLS_DIR}/${CORE_SKILL}/SKILL.md`,
     `${SKILLS_DIR}/${FRONTEND_SKILL}/SKILL.md`,
     // The script-shipping hook's materialized directory, which is bytes rather than config values.
-    `${HOOK_DIR}/HOOK.yml`,
+    `${HOOK_DIR}/hook.yml`,
     `${HOOK_DIR}/guard.sh`,
     // The link Claude Code reads through, which is one entry however many skills sit behind it.
     CLAUDE_LINK,

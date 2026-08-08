@@ -10,7 +10,7 @@ import { AmbitError, ExitCode } from "../../src/errors.js";
 import { HOOK_EVENTS, MATCHABLE_EVENTS, parseHookEntity } from "../../src/model/hook-entity.js";
 import { parseYamlMapping } from "../../src/model/yaml.js";
 
-const FILE = "hooks/block-rm/HOOK.yml";
+const FILE = "hooks/block-rm/hook.yml";
 
 function parse(text: string) {
   return parseHookEntity(parseYamlMapping(text, FILE));

@@ -392,7 +392,7 @@ matcher: Bash
 type: command
 command: ./bin/block-force-push
 `;
-    const report = await changesAfter({ "hooks/block-force-push/HOOK.yml": hook });
+    const report = await changesAfter({ "hooks/block-force-push/hook.yml": hook });
 
     expect(report.hooks?.changes).toEqual([
       {
@@ -412,7 +412,7 @@ type: script
 command: audit.sh --strict
 `;
     const report = await changesAfter({
-      "hooks/audit-trail/HOOK.yml": hook,
+      "hooks/audit-trail/hook.yml": hook,
       "hooks/audit-trail/audit.sh": "#!/bin/sh\nexit 0\n",
     });
 
