@@ -323,8 +323,7 @@ without touching anything you selected reports a moved commit and an empty diff.
 | `unversioned` | A `path:` source. It has no revision, so use `ambit status` instead. |
 
 `ambit update` is the command that moves the pins forward and then installs. `ambit update
---dry-run` is `ambit outdated` limited to the catalogs you named. Neither accepts `--offline`, since
-only the remote knows where a branch points now.
+--dry-run` is `ambit outdated` limited to the catalogs you named.
 
 ## Checking it in CI
 
