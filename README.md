@@ -17,7 +17,6 @@ You write a few lines of config. ambit fetches, resolves, and writes the files.
 - [Configuring your project](#configuring-your-project)
 - [Authoring a catalog](#authoring-a-catalog)
 - [Staying up to date](#staying-up-to-date)
-- [Checking it in CI](#checking-it-in-ci)
 - [CLI reference](#cli-reference)
 - [Development](#development)
 - [License](#license)
@@ -324,33 +323,6 @@ without touching anything you selected reports a moved commit and an empty diff.
 
 `ambit update` is the command that moves the pins forward and then installs. `ambit update
 --dry-run` is `ambit outdated` limited to the catalogs you named.
-
-## Checking it in CI
-
-`ambit validate` is the check worth running on every push. It reads every catalog the project lists,
-its own items included, and reports every `requires` entry that matches nothing, every cycle, every
-item whose declared name disagrees with its path, and every catalog nothing selects from. Catching
-those here is the point: a broken catalog otherwise fails for whoever installs it next.
-
-```yaml
-name: ambit
-on: [push, pull_request]
-jobs:
-  validate:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out the project
-        uses: actions/checkout@v4
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-      - name: Validate
-        run: npx --yes @nebulab/ambit validate
-```
-
-Add `ambit status --check` beside it to fail when what is installed drifts from `ambit.lock`, or
-`ambit install --frozen` to fail when resolution would rewrite the lock.
 
 ## CLI reference
 
