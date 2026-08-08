@@ -1,10 +1,8 @@
 /**
- * How a selection is written down, and what it selects: the `requires` entry and its glob.
+ * How a selection is written: the `requires` entry and its glob.
  *
- * One addressing scheme, shared by the three places a selection is written. A project's `requires`
- * says which of the catalogs it listed to take items from; a pack's says what that pack pulls in; a
- * skill's says which of its siblings it cannot work without. All three are the same entry, and the
- * only difference is whether the address carries a catalog — see {@link Addressing}.
+ * Used the same way in a project's `requires`, a pack's `requires`, and a skill's `requires` — only
+ * whether the address carries a catalog differs (see {@link Addressing}).
  *
  * ```yaml
  * requires:
@@ -13,36 +11,28 @@
  *   - hook: "company/guards.*"
  * ```
  *
- * **One key, naming a namespace, carrying a pattern.** An entry is a mapping of exactly one key: the
- * key is the {@link ItemKind} being selected, and the value is the glob to match names in that
- * namespace against. There is nothing else to declare, because there is nothing else to match on — a
- * catalog item has a name and no other selectable field.
+ * An entry is a one-key mapping: the key is the {@link ItemKind} being selected, and the value is
+ * the glob to match names in that namespace. There is nothing else to match on, since a catalog item
+ * has only a name.
  *
- * That is the whole of what replaced the two-key entry this grammar had. The old one named a *field*
- * (`name` or `tag`) and a *capability list*, because an item could also carry free-form tags and one
- * tag entry was expected to reach a skill, a server and a hook at once. Tags are gone, and
- * {@link ItemKind}'s `pack` is what took their job: an author who wants one name to reach a skill, a
- * server and a hook declares a **pack** in the catalog that requires all three, and a consumer writes
- * `- pack: company/engineering`. The grouping is a document with a name and a description, browsable
- * with `ambit search`, instead of a label that nothing registered and nothing described.
+ * This replaced an older two-key entry (`name` plus a tag list), used because one tag was expected
+ * to reach a skill, a server, and a hook at once. Tags are gone; {@link ItemKind}'s `pack` does that
+ * job instead — an author declares a **pack** requiring all three, and a consumer writes
+ * `- pack: company/engineering`.
  *
- * The declaration that survives is the namespace, and it survives for the reason it always had: a
- * catalog's namespaces are flat and independent, so a skill at `skills/mcp/sentry/SKILL.md` is
- * legitimately named `mcp.sentry` while an MCP entity called `sentry` sits one namespace over. A bare
- * `- mcp.sentry` cannot say which of the two it means, so the key does.
+ * The namespace key is mandatory because a catalog's namespaces are flat and independent: a skill at
+ * `skills/mcp/sentry/SKILL.md` can be named `mcp.sentry` while an unrelated MCP entity is also called
+ * `sentry`. `- mcp.sentry` alone cannot say which is meant.
  *
- * **No bare shorthand.** No spelling omits the key. `- "company/core.*"` is refused rather than
- * resolved against whichever namespace happens to hold a match today.
+ * No bare shorthand: `- "company/core.*"` is refused rather than resolved against a guessed
+ * namespace.
  *
- * **No negation.** `!company/core.internal.*` is not part of this grammar, so `!` is an ordinary
- * character: a leading one is matched literally, and the entry names nothing any catalog holds. That
- * fails loudly rather than quietly, because a pattern matching nothing is an error at resolve — and
- * reserving the character here would settle a question that belongs to whoever adds exclusion.
+ * No negation: `!company/core.internal.*` is not part of this grammar, so a leading `!` is matched
+ * literally. A pattern matching nothing is an error at resolve time.
  *
- * Pure, and deliberately so: nothing here reads a catalog, and matching is a function of the entry
- * and the one item handed to it. What a pattern matching nothing means, which items a catalog's own
- * `requires` is allowed to see, and how a reason is rendered all live with the resolution that asks
- * those questions.
+ * This module is pure: nothing here reads a catalog. Matching is a function of the entry and one
+ * item. What a pattern matching nothing means, which items a catalog's own `requires` may see, and
+ * how a reason is rendered live in the resolution code that asks those questions.
  */
 import { at, configError } from "../errors.js";
 import type { AmbitError } from "../errors.js";
@@ -53,40 +43,33 @@ import { YamlMapping } from "./yaml.js";
 import type { PositionedString } from "./yaml.js";
 
 /**
- * The key a selection list is written under, in a project config, in a pack, and in a skill's
- * `ambit:` block alike.
- *
- * One word for all three, because it is one operator: everything an entry names joins the bundle. The
- * documents differ in what an address may say, not in what the list means.
+ * The key a selection list is written under, in a project config, a pack, or a skill's `ambit:`
+ * block. The documents differ in what an address may say, not in what the list means.
  */
 export const REQUIRES_KEY = "requires";
 
 /**
  * Which spelling of an address a `requires` list is written in.
  *
- * - `"qualified"` — `<catalog>/<pattern>`, **mandatory in a project config**. A project is where
- *   the aliases in `catalogs:` are declared, so it is the only document that can name one, and
- *   without the qualifier `core.*` would mean *whichever catalog happens to hold a match*, which is
- *   the config-order dependence this addressing scheme removes.
- * - `"unqualified"` — the bare pattern, **mandatory inside a catalog**. A catalog author cannot
- *   write a qualifier correctly: the alias belongs to the consumer's config, and the same catalog is
- *   `company` in one project and `acme` in the next. So a pack's or a skill's `requires` names its
- *   siblings unqualified and resolves within its own catalog, which is what makes a catalog
- *   self-contained — it can only require what it ships. That is a deliberate tightening on what a
- *   requirement used to reach; the argument is with the closure that enforces it, in
- *   `resolution/resolve.ts`.
+ * - `"qualified"` — `<catalog>/<pattern>`, mandatory in a project config. Only a project declares
+ *   catalog aliases in `catalogs:`, so only a project can name one; without the qualifier, `core.*`
+ *   would depend on catalog order.
+ * - `"unqualified"` — the bare pattern, mandatory inside a catalog. A catalog author cannot write the
+ *   alias correctly, since it belongs to the consumer's config and the same catalog is `company` in
+ *   one project and `acme` in the next. A pack's or a skill's `requires` therefore names its siblings
+ *   unqualified and resolves within its own catalog, which keeps a catalog self-contained: it can
+ *   only require what it ships (enforced in `resolution/resolve.ts`).
  *
- * A qualifier where it is refused, and a missing one where it is required, are both exit 2 naming
- * the key and the line, rather than a value quietly resolved against a guess.
+ * A qualifier where it is refused, or a missing one where it is required, is exit 2 naming the key
+ * and line, rather than a value resolved against a guess.
  */
 export type Addressing = "qualified" | "unqualified";
 
 /**
  * One entry of a `requires` list: which namespace to select from, and the glob to select with.
  *
- * Not an {@link ItemKind}-and-name pair, however much it looks like one: an entry is a *question*
- * about a catalog, answered by zero or more items, where a bundle item is one item. `- skill: core.*`
- * names a namespace and a pattern; `skill:core.a` names a thing.
+ * An entry is a question about a catalog, answered by zero or more items — a bundle item is one
+ * item. `- skill: core.*` names a namespace and a pattern; `skill:core.a` names a single item.
  */
 export interface PatternEntry {
   /** The namespace this entry selects from — the entry's one key. */
@@ -99,13 +82,12 @@ export interface PatternEntry {
    */
   readonly pattern: string;
   /**
-   * The catalog alias the pattern is qualified with, present exactly when the entry was parsed as
+   * The catalog alias the pattern is qualified with, present only when the entry was parsed as
    * `"qualified"`.
    *
-   * Absent is not *any catalog*. An unqualified entry is catalog-blind by construction, and it is
-   * the caller resolving one — a catalog's own `requires` — that must offer it only that catalog's
-   * items. {@link matches} cannot enforce that rule, because an unqualified entry does not carry the
-   * catalog it would be enforced against.
+   * Absent does not mean "any catalog": an unqualified entry is catalog-blind, and it is the caller
+   * resolving one — a catalog's own `requires` — that must restrict it to that catalog's items.
+   * {@link matches} cannot enforce this, since an unqualified entry carries no catalog to check.
    */
   readonly catalog?: string;
 }
@@ -113,9 +95,9 @@ export interface PatternEntry {
 /**
  * One item, of one namespace, as a pattern is matched against it.
  *
- * A structural shape rather than a merged-catalog type, so this module needs to know nothing about
- * how an item is loaded: a `MergedPack`, a `MergedSkill`, a `MergedMcp` and a `MergedHook` all
- * satisfy it once the caller says which namespace the array it is walking holds.
+ * A structural shape rather than a merged-catalog type, so this module does not need to know how an
+ * item is loaded: `MergedPack`, `MergedSkill`, `MergedMcp`, and `MergedHook` all satisfy it once the
+ * caller says which namespace the array holds.
  */
 export interface PatternItem {
   /** Which namespace this item is in. */
@@ -132,11 +114,10 @@ const WILDCARD = "*";
 /**
  * Every regular-expression metacharacter, escaped.
  *
- * The whole reason the matcher is built by splitting on {@link WILDCARD} rather than by rewriting it
- * in place: a pattern's characters are otherwise *literal*, and a dotted name space is full of dots.
- * A naive `replace("*", ".*")` leaves every other metacharacter live, so `coreXa` would match
- * `core.a` — silently selecting an item nobody asked for, which is the worst direction for this
- * mistake to fail in.
+ * The matcher is built by splitting on {@link WILDCARD} rather than rewriting it in place, because a
+ * pattern's other characters are literal and a dotted name is full of dots. A naive
+ * `replace("*", ".*")` leaves every other metacharacter live, so `coreXa` would match `core.a` and
+ * silently select an item nobody asked for.
  */
 function escapeLiteral(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -145,9 +126,8 @@ function escapeLiteral(text: string): string {
 /**
  * Whether `pattern` matches `text`.
  *
- * `*` matches any run of characters — **including `.`** — may appear anywhere, and may appear any
- * number of times. A pattern holding no `*` is an exact name, which is why explicit names and
- * wildcards are one grammar rather than two selection routes.
+ * `*` matches any run of characters — **including `.`** — anywhere, any number of times. A pattern
+ * holding no `*` is an exact name.
  *
  * ```
  * core.*  ->  core.a, core.a.b     (NOT core)
@@ -156,24 +136,20 @@ function escapeLiteral(text: string): string {
  * ```
  *
  * **`core.*` excludes `core` itself.** The pattern says *`core`, a dot, then anything*, and `core`
- * has no dot; reading it as *also `core`* would be the matcher being generous with a syntax that
- * says something else. Selecting a prefix and the item named exactly that therefore takes two
- * entries, and the accepted cost is that the omission is silent — a reader notices the missing item
- * later, not at install.
+ * has no dot. Selecting a prefix and the item named exactly that therefore takes two entries; the
+ * omission of the bare name is silent.
  *
- * `*` spans `.` because the dot in a name is not a level separator to this grammar, it is a
- * character: a catalog's namespaces are flat, and the tree a dotted name suggests is a naming
- * convention rather than a structure anything here knows about. So `core.*` reaches `core.a.b` in
- * one entry, and there is no depth to pre-register or agree with.
+ * `*` spans `.` because a catalog's namespaces are flat: the dot in a name is a naming convention,
+ * not a structural separator this grammar understands. So `core.*` reaches `core.a.b` in one entry.
  */
 export function matchesPattern(pattern: string, text: string): boolean {
   const literals = pattern.split(WILDCARD);
-  // No wildcard: the pattern is a name, and comparing strings says so more plainly than a regular
-  // expression that could only ever be an equality test.
+  // No wildcard: compare strings directly, since a regular expression could only ever test equality
+  // here.
   if (literals.length === 1) return pattern === text;
 
-  // `[\s\S]*` rather than `.*`, which stops at a newline — a name holding one is pathological, but a
-  // matcher that quietly disagrees with "any run of characters" on one character is worse.
+  // `[\s\S]*` rather than `.*`, which stops at a newline. A name holding one is pathological, but
+  // the matcher should still honor "any run of characters" consistently.
   const source = `^${literals.map(escapeLiteral).join("[\\s\\S]*")}$`;
   return new RegExp(source).test(text);
 }
@@ -196,8 +172,8 @@ export function entryAddress(entry: PatternEntry): string {
  * How an entry is written where only a string will do — `pack:company/engineering`,
  * `skill:company/core.*`.
  *
- * The same `<kind>:<name>` shape `ambit why` takes as its subject, and deliberately so: an entry and
- * an item are named by the same grammar, one carrying a pattern where the other carries a name.
+ * The same `<kind>:<name>` shape `ambit why` takes as its subject: an entry and an item are named by
+ * the same grammar, one carrying a pattern where the other carries a name.
  */
 export function formatEntry(entry: PatternEntry): string {
   return `${entry.kind}${KIND_SEPARATOR}${entryAddress(entry)}`;
@@ -207,7 +183,7 @@ export function formatEntry(entry: PatternEntry): string {
  * How an entry is written in a document, for a message telling someone to write one.
  *
  * A one-key mapping fits block style on one line, so this is the entry exactly as it belongs in a
- * `requires` list. The pattern is quoted unconditionally: a pattern is exactly the kind of string
+ * `requires` list. The pattern is quoted unconditionally, since it is exactly the kind of string
  * YAML would otherwise read as something else.
  */
 export function entryYaml(entry: PatternEntry): string {
@@ -218,9 +194,8 @@ export function entryYaml(entry: PatternEntry): string {
  * Whether two entries say literally the same thing: the same namespace and the same address.
  *
  * Exact only. `skill: core.*` does **not** absorb `skill: core.a`, even though everything the second
- * selects the first selects too. Subsumption normalizing is a rabbit hole — the honest version has to
- * reason about one pattern's matches being a subset of another's — and nobody has asked for it, so
- * two entries one of which is redundant simply stay two entries.
+ * selects the first selects too. Subsumption is not implemented, so two entries where one is
+ * redundant simply stay two entries.
  */
 export function sameEntry(a: PatternEntry, b: PatternEntry): boolean {
   return a.kind === b.kind && a.pattern === b.pattern && a.catalog === b.catalog;
@@ -231,9 +206,8 @@ export function sameEntry(a: PatternEntry, b: PatternEntry): boolean {
  * list was written in.
  *
  * Order-preserving rather than sorted, because this reads a list rather than rewriting one: sorting
- * a document's own entries is the reformatting an author did not ask for. The result is a function
- * of the list alone — the same input always yields the same output — so anything downstream that
- * needs a total order can take one over {@link formatEntry}.
+ * a document's own entries would be reformatting the author did not ask for. Anything downstream
+ * needing a total order can sort over {@link formatEntry}.
  */
 export function uniqueEntries(entries: readonly PatternEntry[]): readonly PatternEntry[] {
   const kept: PatternEntry[] = [];
@@ -262,8 +236,7 @@ const KIND_LIST = ITEM_KINDS.map((kind) => `\`${kind}\``).join(", ");
 /**
  * Stands in for a catalog alias a refusal has no way to know.
  *
- * Literal rather than guessed: the alias is the reader's to pick, it appears in their own
- * `catalogs:`, and proposing a particular one would be a guess dressed as advice.
+ * Literal rather than guessed: the alias is the reader's to pick, from their own `catalogs:`.
  */
 const ALIAS_PLACEHOLDER = "<catalog>";
 
@@ -288,9 +261,8 @@ function example(kind: ItemKind, address: string, addressing: Addressing): strin
 /**
  * The error for an entry written as a bare string — the shape a plain list of patterns has.
  *
- * Names what a bare pattern fails to say rather than guessing it, because the namespace is the whole
- * of what this grammar declares and a shorthand that filled it in is the spelling it deliberately
- * does not have.
+ * Names what a bare pattern fails to say rather than guessing it, since the namespace is the whole
+ * of what this grammar declares and there is no shorthand for it.
  */
 function bareEntry(
   mapping: YamlMapping,
@@ -429,8 +401,8 @@ function splitAddress(
 /**
  * Parses one `requires` entry: a one-key mapping naming a namespace and carrying a pattern.
  *
- * Unknown keys are refused first, so a leftover `tag:` or `capabilities:` reads as the key it is —
- * one this grammar does not have — rather than as an entry that names no namespace.
+ * Unknown keys are rejected first, so a leftover `tag:` or `capabilities:` reads as an unknown key
+ * rather than as an entry naming no namespace.
  */
 function parseEntry(entry: YamlMapping, addressing: Addressing): PatternEntry {
   entry.rejectUnknownKeys(ITEM_KINDS);
@@ -449,8 +421,8 @@ function parseEntry(entry: YamlMapping, addressing: Addressing): PatternEntry {
  * Parses a `requires` list: a sequence of one-key mappings, each naming a namespace and the pattern
  * to match names in it.
  *
- * The list is returned in the order it was written, duplicates included — deduplication is
- * {@link uniqueEntries}, and it is a separate step because a caller merging several lists wants to
+ * Returned in the order it was written, duplicates included. Deduplication is
+ * {@link uniqueEntries}, kept as a separate step because a caller merging several lists wants to
  * dedupe the union rather than each part.
  *
  * @param mapping the block the key sits in — a project's config root, a pack's document, a skill's
@@ -467,8 +439,8 @@ export function parseEntries(
   if (items === undefined) return [];
 
   return items.map((item) => {
-    // A `PositionedString` is a bare pattern, the one shape with a spelling worth describing;
-    // everything else the sequence could hold was already refused by `optionalEntryList`.
+    // A `PositionedString` is a bare pattern; everything else the sequence could hold was already
+    // refused by `optionalEntryList`.
     if (!(item instanceof YamlMapping)) throw bareEntry(mapping, item, addressing);
     return parseEntry(item, addressing);
   });

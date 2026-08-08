@@ -1,15 +1,13 @@
 /**
  * `ambit doctor` — env vars, drift, ownership.
  *
- * Three sections, because the report answers two different questions. The `checks` table says what was
- * examined and how each one came out, so a healthy project says so explicitly rather than printing an
- * empty list — the same reason `validate` counts back what it checked. Failures and warnings are then
- * separated rather than tagged, because the split *is* the exit code: everything under `failures` is
- * why this run returned 6, and everything under `warnings` is why it did not.
+ * Three sections, answering two questions. The `checks` table says what was examined and how each one
+ * came out, so a healthy project says so explicitly rather than printing an empty list. Failures and
+ * warnings are separated because the split is the exit code: everything under `failures` is why this
+ * run returned 6, everything under `warnings` is why it did not.
  *
- * The findings themselves are printed the way `validate` prints a problem — summary indented like a
- * row, detail lines indented under it as an error's own `format()` indents them. They are the same
- * thing, listed instead of raised.
+ * Findings print the way `validate` prints a problem: summary indented like a row, detail lines
+ * indented under it as an error's own `format()` does.
  */
 import type { CommandHandler } from "../commands.js";
 import { jsonRequested, offlineRequested, projectDirOf } from "../commands.js";

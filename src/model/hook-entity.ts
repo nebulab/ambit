@@ -12,9 +12,8 @@ import type { YamlMapping } from "./yaml.js";
 /**
  * The events with a real mapping in two or more harnesses, in the order reports list them.
  *
- * Claude's PascalCase spellings are the neutral vocabulary rather than a Claude detail: Codex and
- * VS Code use them verbatim, so only Cursor needs a map, and inventing a fourth spelling would
- * leave every harness needing one.
+ * These use Claude's PascalCase spellings as the neutral vocabulary. Codex and VS Code use them
+ * verbatim, so only Cursor needs a mapping; a new, fourth spelling would mean every harness needs one.
  */
 export const HOOK_EVENTS = [
   "SessionStart",
@@ -35,11 +34,9 @@ export const MATCHABLE_EVENTS = ["PreToolUse", "PostToolUse"] as const;
 /**
  * What a hook's `command` is, which decides whether ambit rewrites it and ships bytes beside it.
  *
- * Declared rather than derived. The two kinds are not distinguishable by looking: `guard.sh` is a
- * script a hook ships and `prettier` is a program on the `PATH`, and nothing about either string says
- * which. Asking the author is the only way to know, and the alternative — guessing from whether the
- * first token carries a `/` or a `.` — got `python3.11` wrong in one direction and `node hook.js` in
- * the other, the second one silently.
+ * Declared rather than derived. `guard.sh` (a shipped script) and `prettier` (a program on `PATH`)
+ * are not distinguishable by looking, so the author must say which. Guessing from whether the first
+ * token carries a `/` or a `.` was tried and got `python3.11` and `node hook.js` wrong.
  */
 export const HOOK_TYPES = ["command", "script"] as const;
 
@@ -60,9 +57,9 @@ export interface HookEntity {
    * by any arguments.
    *
    * `${VAR}` references are left intact, unlike an MCP transport's, where ambit rewrites them into
-   * each harness's own reference syntax. A hook command is executed by a shell the harness spawns,
-   * so `${VAR}` already means the right thing in the one place it can appear, and translating it
-   * would be ambit rewriting a shell fragment it does not parse.
+   * each harness's own reference syntax. A hook command runs in a shell the harness spawns, so
+   * `${VAR}` already expands correctly there, and ambit does not parse the shell fragment to
+   * translate it.
    */
   readonly command: string;
   /** Seconds. Rendered where the harness has a field for it. */
@@ -96,9 +93,9 @@ export function commandProgram(command: string): string {
 /**
  * The file a `script` hook's program names, as its own directory holds it.
  *
- * `./guard.sh` and `guard.sh` name the same file — the `./` is a person being explicit about a path,
- * which under `type: script` they no longer have to be. Dropped here so one spelling reaches disk,
- * which is what lets the existence check look for exactly what the rewrite later writes.
+ * `./guard.sh` and `guard.sh` name the same file; the leading `./` is optional under
+ * `type: script` and stripped here so one spelling reaches disk. That lets the existence check
+ * look for exactly what the rewrite later writes.
  */
 export function scriptReference(program: string): string {
   return program.startsWith("./") ? program.slice(2) : program;
@@ -150,14 +147,14 @@ function parseType(mapping: YamlMapping): HookType {
 /**
  * Rejects a `type: script` whose `command` cannot name a file inside the hook's own directory.
  *
- * Shape only — whether the file is actually there is a question for whoever holds the directory, which
- * is the catalog rather than this parser. What is refused here is a reference that could not be inside
- * it under any contents: an absolute path, and one climbing out through `..`. An empty one cannot reach
- * this at all, because `requireString` has already refused a blank `command`.
+ * Shape only. Whether the file actually exists is checked by the catalog, not this parser. Refused
+ * here: an absolute path, and one climbing out through `..` — neither can be inside the hook's
+ * directory under any contents. An empty `command` cannot reach this check, since `requireString`
+ * already refuses it.
  *
- * Under the old derivation these were silently reclassified as command lines, which is how
- * `command: /usr/bin/guard.sh` on a hook that meant to ship one installed a hook pointing at a file
- * outside the catalog. Now they are refused, and the fix is to say `type: command`.
+ * Under an earlier derivation these were silently reclassified as command lines, so
+ * `command: /usr/bin/guard.sh` on a hook meant to ship a script installed a hook pointing outside
+ * the catalog instead. They are refused now; the fix is `type: command`.
  */
 function assertScriptReference(mapping: YamlMapping, command: string): void {
   const reference = scriptReference(commandProgram(command));

@@ -1,25 +1,21 @@
 /**
  * The array-section driver — `.claude/settings.json`, `.cursor/hooks.json`, `.codex/hooks.json`.
  *
- * Every harness writes hooks as `<Event>: [entries]`, and an array has no identity key: nothing in
+ * Every harness writes hooks as `<Event>: [entries]`. An array has no identity key: nothing in
  * `[{"matcher": "Bash", "hooks": [...]}, ...]` says which entry a tool wrote and which a person did.
- * That is why hooks cannot be merged the way MCP servers are, and why the tool ambit replaces
- * replaces the whole hooks root on every install, destroying anything hand-written in it.
+ * So hooks cannot be merged by key the way MCP servers are.
  *
- * The way out is to make the content the identity: **a managed key is `<Event>@<digest>`**, where the
- * digest is the first {@link DIGEST_LENGTH} hex characters of the SHA-256 of the entry ambit writes.
- * Two consequences carry the whole design:
+ * This driver makes the content the identity: a managed key is `<Event>@<digest>`, where the digest
+ * is the first {@link DIGEST_LENGTH} hex characters of the SHA-256 of the entry ambit writes.
  *
- * - The key is derivable from the file alone, so `sectionKeys` can answer without a name the document
- *   does not carry, and the `DocumentDriver` interface needs no widening — `hooks.PostToolUse@a1b2c3`
- *   is an ordinary `<section>.<key>` pair, which `managedKey` composes and `splitManagedKey` splits.
+ * - The key is derivable from the file alone, so `sectionKeys` needs no name the document does not
+ *   carry, and `hooks.PostToolUse@a1b2c3` is an ordinary `<section>.<key>` pair like any other.
  * - An entry with any other digest is not a key ambit ever plans, so ownership never looks at it,
- *   pruning never names it, and a merge leaves it byte-identical. The issue's headline promise — hooks
- *   managed outside ambit survive installs — falls out of the identity scheme rather than being a rule
- *   somewhere that could be forgotten.
+ *   pruning never names it, and a merge leaves it byte-identical. Hooks added outside ambit survive
+ *   installs as a result of this identity scheme, not as a separate rule.
  *
- * Parsing and serialization are shared with the map-shaped JSON driver (`json.ts`): these are the same
- * files in the same syntax, and only what happens to one section of them differs.
+ * Parsing and serialization are shared with the map-shaped JSON driver (`json.ts`): same files, same
+ * syntax, differing only in what happens to one section of them.
  */
 import { createHash } from "node:crypto";
 
@@ -29,18 +25,18 @@ import { parseJsonDocument, serializeJsonDocument } from "./json.js";
 import { AmbitError, ExitCode, configError } from "../../errors.js";
 
 /**
- * How much of the SHA-256 a key carries.
+ * How much of the SHA-256 a key carries: 48 bits (12 hex chars).
  *
- * 48 bits: a file holds a handful of hooks, so a collision is not a risk worth widening a key that a
- * person reads in `.ambit/state.json` and in every `status` row.
+ * A file holds only a handful of hooks, so collision risk is not worth widening a key that a person
+ * reads in `.ambit/state.json` and in every `status` row.
  */
 export const DIGEST_LENGTH = 12;
 
 /**
  * What separates the event from the digest.
  *
- * Neither half can contain it — an event is a PascalCase name from a closed set, a digest is hex — so
- * the key parses back unambiguously, which is what `removeKeys` needs to act from state alone.
+ * Neither half can contain it: an event is a PascalCase name from a closed set, a digest is hex. So
+ * the key parses back unambiguously, which `removeKeys` needs to act from state alone.
  */
 const DIGEST_SEPARATOR = "@";
 
@@ -50,16 +46,15 @@ const EMPTY: JsonObject = {};
 /**
  * The digest of one entry as ambit would write it.
  *
- * Canonical JSON here means *no whitespace*, with keys in the order they already sit in — the order
- * the profile's renderer built them in, which is what {@link ConfigEntry} already promises. Sorting
- * them would make the digest describe something other than the bytes on disk, and every entry ambit
- * compares against comes back off disk through `JSON.parse`, which preserves that order.
+ * Canonical JSON here means no whitespace, with keys kept in the order {@link ConfigEntry} already
+ * promises (the order the profile's renderer built them in). Sorting keys would make the digest
+ * describe something other than the bytes on disk, since `JSON.parse` preserves original key order.
  *
- * Nothing outside the entry feeds it: no timestamps, no absolute paths, no environment. Two people
- * installing the same bundle get the same digests, which is the property the lock already relies on.
+ * Nothing outside the entry feeds the digest: no timestamps, no absolute paths, no environment. Two
+ * people installing the same bundle get the same digests, which the lock relies on.
  */
 export function entryDigest(value: unknown): string {
-  // `JSON.stringify` is `undefined` for `undefined` alone, which no parsed document can hold.
+  // `JSON.stringify` returns `undefined` only for `undefined` itself, which no parsed document holds.
   return createHash("sha256")
     .update(JSON.stringify(value) ?? "null", "utf8")
     .digest("hex")
@@ -74,9 +69,9 @@ export function arrayEntryKey(event: string, value: unknown): string {
 /**
  * Reads a key back into the event and digest it names.
  *
- * @throws {AmbitError} exit 1 for a key this driver could not have produced. Both callers reach the
- *   file through such a key — one to append, one to remove — so guessing at it would mean writing a
- *   duplicate hook or leaving an entry ambit claims to own in place forever.
+ * @throws {AmbitError} exit 1 for a key this driver could not have produced. Both callers (append and
+ *   remove) reach the file through such a key, so guessing at it would mean writing a duplicate hook
+ *   or leaving an entry ambit claims to own in place forever.
  */
 function splitEntryKey(key: string, file: string): readonly [event: string, digest: string] {
   const at = key.lastIndexOf(DIGEST_SEPARATOR);
@@ -98,10 +93,9 @@ function sectionOf(document: JsonObject, section: string): JsonObject {
 /**
  * Every entry in the section, keyed the way state records it.
  *
- * An event whose value is not an array is skipped rather than refused, for the reason
- * {@link DocumentDriver.sectionKeys} gives: it is not a *collision* with anything ambit would write,
- * and an unusable section is `mergeSection`'s error to raise, since that is the code which cannot
- * proceed with it.
+ * An event whose value is not an array is skipped rather than refused: it is not a collision with
+ * anything ambit would write, and an unusable section is `mergeSection`'s error to raise, since that
+ * is the code which cannot proceed with it.
  */
 function keysOf(text: string | undefined, section: string, file: string): ReadonlySet<string> {
   const keys = new Set<string>();
@@ -124,8 +118,8 @@ function missingDefaults(document: JsonObject, rootDefaults: JsonObject): JsonOb
 /**
  * Builds the driver.
  *
- * @param rootDefaults root keys to seed — Cursor's `version: 1`. Written only where the document does
- *   not already have the key, so ambit adds it when it creates the file and never overwrites a
+ * @param rootDefaults root keys to seed, e.g. Cursor's `version: 1`. Written only where the document
+ *   does not already have the key, so ambit adds it on file creation but never overwrites a
  *   `version: 2` someone else wrote. A removal applies none of them: pruning must not add keys.
  */
 export function arraySectionDriver(rootDefaults: JsonObject = EMPTY): DocumentDriver {
@@ -135,9 +129,8 @@ export function arraySectionDriver(rootDefaults: JsonObject = EMPTY): DocumentDr
     sectionKeys: keysOf,
 
     /**
-     * The digest *is* the value, so presence of the key is the whole question — there is no separate
-     * comparison to make, and an entry a person reformatted has a different digest and is therefore a
-     * different entry.
+     * The digest is the value, so presence of the key is the whole question. An entry a person
+     * reformatted has a different digest and is therefore a different entry.
      */
     entryMatches: (text, section, entry, file) => keysOf(text, section, file).has(entry.key),
 
@@ -168,14 +161,14 @@ export function arraySectionDriver(rootDefaults: JsonObject = EMPTY): DocumentDr
         }
 
         const present: readonly unknown[] = current ?? [];
-        // Already there, by digest. Skipping it is what makes a second install a no-op instead of a
-        // file that grows a duplicate hook every time.
+        // Already there, by digest: skip it, so a second install is a no-op instead of adding a
+        // duplicate hook.
         if (present.some((item) => entryDigest(item) === digest)) continue;
         merged[event] = [...present, entry.value];
       }
 
-      // Defaults first so a file ambit creates reads in the order a person would write it; the
-      // document's own keys then keep their values and their positions.
+      // Defaults first, so a file ambit creates reads in the order a person would write it. The
+      // document's own keys then keep their values and positions.
       return serializeJsonDocument({
         ...missingDefaults(document, rootDefaults),
         ...document,
@@ -184,9 +177,8 @@ export function arraySectionDriver(rootDefaults: JsonObject = EMPTY): DocumentDr
     },
 
     /**
-     * Both the section and an event's array survive emptying out, for the reason the map-shaped
-     * driver leaves `{}` behind: ambit owns entries inside this file and not its containers, and a
-     * person may be about to add a hook of their own to the array it just vacated.
+     * Both the section and an event's array survive emptying out. ambit owns entries inside this file,
+     * not its containers, and a person may add a hook of their own to the array it just vacated.
      */
     removeKeys: (
       text: string | undefined,
@@ -217,9 +209,8 @@ export function arraySectionDriver(rootDefaults: JsonObject = EMPTY): DocumentDr
         removed = true;
       }
 
-      // Nothing matched: the file holds none of these digests, so there is no write to make. That is
-      // what keeps a prune with nothing stale byte-identical, and what stops it from recreating a
-      // file someone deleted by hand.
+      // Nothing matched: no write to make. Keeps a prune with nothing stale byte-identical, and does
+      // not recreate a file someone deleted by hand.
       if (!removed) return undefined;
       return serializeJsonDocument({ ...document, [section]: kept });
     },

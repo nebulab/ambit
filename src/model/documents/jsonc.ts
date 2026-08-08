@@ -4,8 +4,8 @@
  * JSONC is JSON with comments and trailing commas, which makes a parse round-trip lossy: a person's
  * comments would not survive it. So this driver never re-serializes the document. It computes the
  * minimal text edit for each key it owns and applies that to the original bytes, leaving comments,
- * blank lines, indentation and key order everywhere else untouched — which is exactly what
- * `jsonc-parser` exists to do.
+ * blank lines, indentation and key order everywhere else untouched, using `jsonc-parser` for exactly
+ * that purpose.
  */
 import { applyEdits, modify, parse as parseJsonc, type ParseError } from "jsonc-parser";
 
@@ -28,7 +28,7 @@ const FORMATTING = { tabSize: 2, insertSpaces: true } as const;
 
 /**
  * @throws {AmbitError} exit 2 for a document that cannot be parsed even tolerantly, or one whose root
- *   is not an object. Editing past either would mean guessing at what a person wrote.
+ *   is not an object.
  */
 function parse(text: string, file: string): JsonObject {
   const errors: ParseError[] = [];
@@ -91,7 +91,7 @@ export const jsoncDriver: DocumentDriver = {
       ]);
     }
 
-    // One edit per key, each against the text the previous one produced, so offsets stay valid.
+    // One edit per key, applied to the text the previous edit produced, so offsets stay valid.
     for (const entry of entries) current = edit(current, [section, entry.key], entry.value);
     return current;
   },
@@ -110,8 +110,8 @@ export const jsoncDriver: DocumentDriver = {
     if (present.length === 0) return undefined;
 
     let current = text;
-    // `undefined` is how `modify` expresses removal; the section itself is left in place even when
-    // it empties out, for the same reason the JSON driver leaves `{}` behind.
+    // `undefined` is how `modify` expresses removal. The section itself is left in place even when
+    // it empties out, same as the JSON driver leaving `{}` behind.
     for (const key of present) current = edit(current, [section, key], undefined);
     return current;
   },

@@ -1,24 +1,21 @@
 /**
  * `ambit why <kind>:<name>` — explain why one item is in the bundle.
  *
- * The chain is the answer, not the reason on its own: being told a skill arrived through
- * `required-by:acme-brief` only moves the question one level up, and it is the `requires` entry at
- * the far end that a reader can actually change. So this prints every link from the root cause down
- * to the item asked about.
+ * Prints the full chain, not just the immediate reason: being told a skill arrived through
+ * `required-by:acme-brief` only moves the question up one level. The `requires` entry at the far end
+ * is what a reader can actually change.
  *
- * A bundle item is the only subject. An `expects` entry is not one: nothing provides an environment
- * variable, so there is no chain to walk and no selection to explain, and the question of whether the
- * machine satisfies one is `doctor`'s.
+ * A bundle item is the only valid subject. An `expects` entry is not one: nothing provides an
+ * environment variable, so there is no chain to walk. Whether the machine satisfies an expectation is
+ * `doctor`'s question.
  *
- * The subject declares its namespace — `mcp:sentry` — the way a `requires` entry does, and a bare name
- * is refused rather than looked up. Nothing here reads a meaning out of the string, so this command and
- * a `requires` entry cannot end up disagreeing about what `mcp.sentry` names, which is exactly what a
- * prefix convention made them do. The extra keystrokes buy the question always having one answer:
- * `skill:mcp.sentry` and `mcp:sentry` are different things, and both are askable.
+ * The subject must declare its namespace (`mcp:sentry`); a bare name is refused rather than looked up.
+ * This keeps this command and a `requires` entry from disagreeing about what a bare name means:
+ * `skill:mcp.sentry` and `mcp:sentry` stay distinct and both askable.
  *
- * A name that resolves to nothing selected is an error rather than an empty report: "not in the
- * bundle" is a resolution answer a script has to be able to detect, and the two ways of getting
- * there — no catalog provides it, or nothing selects it — call for different fixes.
+ * A name that resolves to nothing selected is an error, not an empty report, since "not in the
+ * bundle" is a resolution answer a script needs to detect. No catalog providing it, versus nothing
+ * selecting it, are different problems with different fixes.
  */
 import type {
   MergedCatalog,
@@ -73,12 +70,12 @@ function subject(item: BundleItem): string {
 }
 
 /**
- * Every merged-catalog entry a candidate names — several, where more than one catalog provides the
+ * Every merged-catalog entry a candidate names. Several, where more than one catalog provides the
  * name.
  *
- * All of them rather than the first, because there is no first: no catalog takes precedence, and an
- * answer naming one copy of a name two catalogs ship would leave a reader editing the wrong catalog.
- * In the merged catalog's order, so the answer is a function of the names alone.
+ * Returns all of them, not the first: no catalog takes precedence, and naming one copy when two
+ * catalogs ship it would leave a reader editing the wrong catalog. Ordered as the merged catalog
+ * orders them.
  */
 function providers(
   merged: MergedCatalog,
@@ -99,9 +96,8 @@ function providers(
 /**
  * The `requires` entry that would select an item, written out for the reader to paste.
  *
- * By exact name and qualified with the catalog that provides it, because that is the one entry
- * guaranteed to select this copy and nothing else: a wildcard would reach whatever else sits under
- * the prefix, and an unqualified address is not a spelling a project config has.
+ * By exact name and qualified with the catalog that provides it: that is the one entry guaranteed to
+ * select this copy and nothing else. A wildcard could reach other items under the same prefix.
  */
 function selectionEntry(item: BundleItem, catalog: string): string {
   return entryYaml({ kind: item.kind, pattern: item.name, catalog });
@@ -113,15 +109,13 @@ function selectionEntry(item: BundleItem, catalog: string): string {
  * Names every catalog it could have come from, so a reader knows the config is otherwise fine, and
  * ends on an entry they can paste.
  *
- * The advice is one entry, on the first providing catalog in merged order. There is only one route
- * into a bundle, so there is no second suggestion to make: a pack, a hook and a server are
- * addressable exactly as a skill is.
+ * The advice is one entry, on the first providing catalog in merged order. There's only one route
+ * into a bundle: a pack, a hook, and a server are addressable exactly as a skill is.
  *
- * The entry it prints names the item directly, which is always *an* answer and is not always the one
- * the catalog intends — an item a pack already covers is more naturally taken by asking for the pack.
- * Naming that pack instead would mean searching every pack's `requires` for one that reaches this
- * item, then choosing between the several that might, so the direct entry is what is offered and
- * `ambit search --capability pack "*"` is where the packs are.
+ * The entry names the item directly. That's always a valid answer, though not always the one the
+ * catalog intends (an item a pack already covers is more naturally taken by requiring the pack).
+ * Finding that pack would mean searching every pack's `requires` for a match, so the direct entry is
+ * offered instead; `ambit search --capability pack "*"` is where to look for packs.
  */
 function notSelected(
   item: BundleItem,
@@ -138,18 +132,11 @@ function notSelected(
   ]);
 }
 
-/**
- * The error for a reference nothing provides at all.
- *
- * The namespace is named rather than hedged over all of them — this message used to open "unknown
- * skill, MCP server or hook" precisely because it did not know which the reader meant, and now it
- * does.
- */
+/** The error for a reference nothing provides at all. Names the specific namespace asked for. */
 function unknownName(item: BundleItem, config: ProjectConfig): AmbitError {
   return resolutionError(`unknown ${subject(item)}`, [
     `nothing configured in ${config.origin.file} provides ${NOUNS[item.kind]} by that name`,
-    // The name that was typed, wrapped in wildcards, because the likeliest cause of this error is a
-    // name remembered slightly wrong — so the next step offered is the one that finds it.
+    // Wrapped in wildcards since the likely cause is a name remembered slightly wrong.
     `run \`ambit search --capability ${item.kind} "*${item.name}*"\` to see what is available`,
   ]);
 }
@@ -158,9 +145,7 @@ function unknownName(item: BundleItem, config: ProjectConfig): AmbitError {
  * The bundle item the subject names.
  *
  * Taken at its word and never looked up: `mcp:sentry` is the server whether or not a skill of that
- * name exists, so naming the wrong namespace is a miss rather than a search that wanders into the
- * right one. That is what makes the ambiguous catalog — a skill `mcp.sentry` beside an entity
- * `sentry` — a pair of ordinary questions rather than a coin toss.
+ * name exists, so naming the wrong namespace is a miss, not a search that wanders into the right one.
  *
  * @throws {AmbitError} exit 2 for a subject naming no namespace; exit 3 for one nothing provides, or
  *   one nothing selects.

@@ -2,30 +2,24 @@
  * Comparing two bundles — what `ambit outdated` and `ambit update` report instead of two commit SHAs.
  *
  * `resolveBundle` is pure over `(config, mergedCatalog)`, so a project's catalogs can be resolved at
- * two different commits in one process and the two bundles compared directly. That is what makes the
- * report about *capabilities*: the useful question on an update is never "which commit" but "what new
- * thing will run in my session", and a SHA cannot answer it while a list of gained skills, changed
- * servers and added hooks can.
+ * two different commits in one process and the two bundles compared directly. The report answers
+ * "what new thing will run in my session", not "which commit", so it lists gained skills, changed
+ * servers, and added hooks rather than a SHA.
  *
- * Three things follow from that framing.
+ * A catalog whose branch advanced past commits that touched nothing this project selects produces an
+ * empty diff. Nothing here reads a commit directly: an item is compared by what it declares and by
+ * the bytes it ships.
  *
- * **A moved commit is not a change.** A catalog whose branch advanced past a hundred commits that
- * touched nothing this project selects produces an empty diff, and that is the correct report. So
- * nothing here reads a commit: an item is compared against its counterpart by what it declares and by
- * the bytes it ships, and a catalog's SHA belongs to the row above.
+ * Fields are compared before content. `description changed` and `requires changed` both also change
+ * a `SKILL.md`'s bytes, but naming the field is more useful than naming the file, so a declared
+ * difference is reported first and "content changed" is reported only when no field moved.
  *
- * **A declared difference outranks a byte difference.** `description changed` and `requires changed`
- * both also change a `SKILL.md`'s bytes, and naming the field is strictly more useful than naming the
- * file — so fields are compared first and content is what is left when none of them moved.
+ * The comparison is of the merged item, not of the catalog's copy: `catalog` and the selection reason
+ * are compared alongside everything an entity declares, since a name moving between catalogs, or a
+ * skill now reached through a pack instead of directly, is a real change to what the project got.
  *
- * **The comparison is of the *merged* item, not of the catalog's copy.** Two bundles can differ
- * because a name moved between catalogs, or because a skill is now reached through a pack rather
- * than through an entry of the project's own; both are real changes to what the project got, so
- * `catalog` and the selection reason are compared alongside everything an entity declares.
- *
- * This is deliberately not what {@link assertLockCurrent} does. `--frozen` compares the lock as bytes
- * and must keep doing so — `src/project/lock.ts` argues that case, and a human-facing diff learning to
- * read structure changes nothing about it.
+ * This is not what {@link assertLockCurrent} does. `--frozen` compares the lock as bytes; see
+ * `src/project/lock.ts`.
  */
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
@@ -40,9 +34,9 @@ import { formatReason, reasonOf } from "../resolution/resolve.js";
 /**
  * What happened to one name between two bundles.
  *
- * Three states rather than the five `status` reports, because this compares two resolutions of the
- * same project rather than a resolution against a disk: there is no ownership to have an opinion
- * about and nothing to be missing.
+ * Three states, not the five `status` reports: this compares two resolutions of the same project
+ * rather than a resolution against disk, so there is no ownership to judge and nothing can be
+ * missing.
  */
 export const BUNDLE_CHANGE_KINDS = ["added", "changed", "removed"] as const;
 
@@ -54,10 +48,10 @@ export interface BundleChange {
   readonly name: string;
   readonly change: BundleChangeKind;
   /**
-   * One line a reader can act on: why it is here now, why it was here, or what about it moved.
+   * One line a reader can act on: why it is here now, why it was here, or what moved.
    *
-   * Never empty. A row saying only that something changed sends the reader to `git log`, which is the
-   * thing this report exists to replace.
+   * Never empty. A row that only says something changed would send the reader to `git log`, which
+   * this report exists to replace.
    */
   readonly detail: string;
 }
@@ -104,12 +98,10 @@ type Comparable = Readonly<Record<string, unknown>>;
 
 /**
  * The transport as the entity's own document writes it, so a difference reads `transport.http.url`
- * rather than `transport.url`.
+ * rather than `transport.url` — the path a reader is given should match the file.
  *
- * A reader who is told a field moved goes and looks at the file, and the path they are given should be
- * the path that file has. The kind key is what carries that, and it is also the discriminator — so a
- * server that changed from stdio to http differs at `transport` itself, which is the right altitude
- * for that answer.
+ * The kind key is also the discriminator, so a server that changed from stdio to http differs at
+ * `transport` itself.
  */
 function transportShape(transport: McpTransport): Comparable {
   return transport.kind === "stdio"
@@ -120,8 +112,8 @@ function transportShape(transport: McpTransport): Comparable {
 /**
  * Whether two values a projection can hold are the same value.
  *
- * Arrays compare whole. An index is not a field name, and `env[1] changed` tells a reader less than
- * `env changed` does while sounding more precise than it is.
+ * Arrays compare whole: an index is not a field name, and `env[1] changed` tells a reader less than
+ * `env changed` while sounding more precise.
  */
 function sameValue(before: unknown, after: unknown): boolean {
   return JSON.stringify(before ?? null) === JSON.stringify(after ?? null);
@@ -140,8 +132,8 @@ function isRecord(value: unknown): value is Comparable {
 /**
  * The dotted path of the first field two projections disagree about, or undefined when they agree.
  *
- * First in sorted key order rather than first in declaration order, so the same pair of items always
- * reports the same field — the determinism rule the whole output surface is held to.
+ * Keys are visited in sorted order, not declaration order, so the same pair of items always reports
+ * the same field.
  */
 function firstFieldDifference(
   before: Comparable,
@@ -154,8 +146,8 @@ function firstFieldDifference(
     if (sameValue(left, right)) continue;
 
     const at = prefix === "" ? key : `${prefix}.${key}`;
-    // Both sides present and both records: the disagreement is somewhere inside, and naming the
-    // innermost field is the whole point. One side absent is a difference at this level.
+    // Both sides present and both records: recurse to name the innermost differing field. One side
+    // absent is a difference at this level.
     if (isRecord(left) && isRecord(right)) return firstFieldDifference(left, right, at);
     return at;
   }
@@ -165,9 +157,8 @@ function firstFieldDifference(
 /**
  * What a pack declares, as one comparable record.
  *
- * `requires` is the whole of what a pack does, so a pack whose membership moved reports
- * `requires changed` — which is the one thing a reader wants to know about an update to a group they
- * take wholesale. What it grew or lost shows up as its own rows in the other three sections.
+ * `requires` is the whole of what a pack does, so a membership change reports as `requires changed`.
+ * What was gained or lost shows up as its own rows in the other three sections.
  */
 function packShape(pack: MergedPack, reason: string): Comparable {
   return {
@@ -215,12 +206,12 @@ function hookShape(hook: MergedHook, reason: string): Comparable {
 }
 
 /**
- * What the three namespaces have in common: a name, and — for the two kinds that can ship bytes —
- * where those bytes are.
+ * What the three namespaces have in common: a name, and — for kinds that can ship bytes — where
+ * those bytes are.
  *
- * The two locating fields are optional here and required on {@link MergedSkill} and {@link MergedHook},
- * which is what lets one comparison serve a skill and a hook — each a directory — and a server, which
- * is a document and nothing else.
+ * The locating fields are optional here, required on {@link MergedSkill} and {@link MergedHook}, so
+ * one comparison serves a skill or hook (each a directory) as well as a server (a document with no
+ * bytes of its own).
  */
 interface BundleEntity {
   readonly name: string;
@@ -231,8 +222,8 @@ interface BundleEntity {
 /**
  * The directory an item's bytes live in, or undefined when it has none.
  *
- * A server is the one kind that has none: it is a handful of config values in a document, and every
- * one of them is already compared as a field.
+ * A server has none: it is config values in a document, and each one is already compared as a
+ * field.
  */
 function bytesDirectory(item: BundleEntity): string | undefined {
   if (item.catalogRoot === undefined || item.path === undefined) return undefined;
@@ -262,9 +253,8 @@ async function fileList(dir: string): Promise<readonly string[] | undefined> {
 /**
  * Whether two directories hold the same files with the same bytes.
  *
- * A tree that cannot be read counts as differing rather than as an error, exactly as `status` treats
- * an unreadable file: "this is no longer what the catalog shipped" is true either way, and a report of
- * what an update would bring is not the place to fail over a permission problem.
+ * A tree that cannot be read counts as differing, not as an error, the same way `status` treats an
+ * unreadable file: a report of what an update would bring should not fail over a permission problem.
  */
 async function sameTree(before: string, after: string): Promise<boolean> {
   if (before === after) return true;
@@ -292,10 +282,8 @@ async function sameTree(before: string, after: string): Promise<boolean> {
 /**
  * How a hook reads in a report: the event it fires on, what filters it, and what it will run.
  *
- * The command as a *harness* will receive it, so a hook shipping a script names the installed path
- * rather than the catalog-relative filename the author wrote — the whole question a reader has about a
- * hook arriving in their project is what is about to execute in their session, and the answer is the
- * string that lands in the harness's config file.
+ * Uses the command as the harness will receive it, so a hook shipping a script names the installed
+ * path, not the catalog-relative filename the author wrote — the string that will actually execute.
  */
 export function hookSummary(hook: MergedHook): string {
   const matched = hook.matcher === undefined ? "" : ` ${hook.matcher}`;
@@ -316,8 +304,8 @@ interface Namespace<T extends BundleEntity> {
 /**
  * One namespace compared.
  *
- * The three lists are built from the union of both sides' names, sorted, so the report is a function
- * of the two bundles rather than of the order either was assembled in.
+ * Built from the union of both sides' names, sorted, so the report is a function of the two bundles,
+ * not of assembly order.
  */
 async function diffNamespace<T extends BundleEntity>(
   namespace: Namespace<T>,
@@ -347,8 +335,8 @@ async function diffNamespace<T extends BundleEntity>(
         kind: namespace.kind,
         name,
         change: "removed",
-        // Why it *was* there. The row's own marker carries the tense, and the reason is the thing a
-        // reader has to check against their config to decide whether losing it was intended.
+        // Why it was there; a reader checks this against their config to decide whether losing it
+        // was intended.
         detail: `was ${formatReason(reasonOf(before, item))}`,
       });
       continue;
@@ -371,8 +359,8 @@ async function diffNamespace<T extends BundleEntity>(
         kind: namespace.kind,
         name,
         change: "changed",
-        // Named for what the item *is*: a skill is a directory of instructions, a hook that ships
-        // bytes is a script, and a reader going to look at one is going somewhere different.
+        // Named for what the item is: a skill is a directory of instructions, a hook that ships
+        // bytes is a script.
         detail: namespace.kind === "hook" ? "script changed" : "content changed",
       });
     }
@@ -413,8 +401,8 @@ export async function diffBundles(before: Bundle, after: Bundle): Promise<Bundle
         before: before.hooks,
         after: after.hooks,
         shape: hookShape,
-        // The exception to "an arriving item names its reason": a hook is the one kind whose arrival
-        // means something starts executing, so it says what.
+        // A hook's arrival means something starts executing, so unlike other kinds it says what,
+        // instead of just naming the reason it was selected.
         arrival: hookSummary,
       },
       before,

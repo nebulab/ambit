@@ -1,48 +1,37 @@
 /**
  * `ambit init` — scaffold a project, which is also a catalog.
  *
- * Every ambit project is technically a catalog: a project that ships a skill, a server or a hook of
- * its own puts it in `skills/`, `mcps/` or `hooks/` and lists itself under `catalogs:`, because that
- * is the only way to declare one. So this command scaffolds both halves — `ambit.yml`, the three item
- * directories, and a live `catalogs:` entry naming the project itself — and there is no second
- * command to run afterwards. What used to be `ambit catalog init` is these three `.gitkeep` files.
+ * Every ambit project is technically a catalog: a project that ships a skill, a server, or a hook of
+ * its own puts it in `skills/`, `mcps/`, or `hooks/` and lists itself under `catalogs:`, since that's
+ * the only way to declare one. This command scaffolds both halves at once: `ambit.yml`, the three item
+ * directories, and a live `catalogs:` entry naming the project itself. What used to be
+ * `ambit catalog init` is now just the three `.gitkeep` files.
  *
- * Four decisions a reader would otherwise have to reverse-engineer:
+ * Notes on a few decisions:
  *
- * - **The item directories are always created**, in every project, not behind a flag. It is four
- *   empty files, and it is what makes the scaffolded `local` entry true rather than aspirational —
- *   a `catalogs:` entry whose directories a person has to create first is a config that does not yet
- *   describe the project it sits in. They are created *by* writing `.gitkeep` files inside them,
- *   which is also what makes them survive the first commit: git tracks no empty directory, and a
- *   project that loses them all on the way into a repo is not a scaffolded project.
- * - **`local` is scaffolded live; the `requires` entry selecting it is commented.** These collide
- *   otherwise. An entry matching nothing is exit 3, and a fresh project's `local` catalog is empty —
- *   so a scaffolded `local/*` requirement would fail `ambit validate` on the
- *   project it was just written into. The catalog entry costs nothing while it is empty; the
- *   requirement does, so it waits, commented, until there is something to select.
- * - **No CI workflow is scaffolded**, unlike the catalog scaffold this absorbed. That command could
- *   assume a fresh repo; a project is routinely an existing application, and writing into its
- *   `.github/workflows/` is presumptuous in a way writing `ambit.yml` is not. The workflow is a
- *   paste-able block in the README instead, running `ambit validate`.
- * - **An existing `ambit.yml` is refused; an existing `.gitkeep` is reported as `kept`.** Each half's
- *   own stance, and they do not conflict once stated that way: the config is the file that makes the
- *   directory a project, so overwriting one would discard a config someone wrote, whereas a
- *   `.gitkeep` carries no bytes to lose and is exactly what a second run should find.
+ * - The item directories are always created, in every project, not behind a flag, so the scaffolded
+ *   `local` entry is true rather than aspirational. They're created by writing `.gitkeep` files inside
+ *   them, which also makes them survive the first commit (git tracks no empty directory).
+ * - `local` is scaffolded live, but the `requires` entry selecting it is commented out. An entry
+ *   matching nothing is exit 3, and a fresh project's `local` catalog is empty, so an active
+ *   `local/*` requirement would fail `ambit validate` immediately.
+ * - No CI workflow is scaffolded, unlike the catalog scaffold this absorbed: a project is routinely an
+ *   existing application, and writing into its `.github/workflows/` would be presumptuous. The
+ *   workflow is a paste-able block in the README instead, running `ambit validate`.
+ * - An existing `ambit.yml` is refused; an existing `.gitkeep` is reported as `kept`. The config is
+ *   what makes the directory a project, so overwriting it would discard someone's work; a `.gitkeep`
+ *   carries no bytes to lose.
  *
- * The scaffold is documentation as much as configuration. It is the one place a person meets the
- * entry grammar at the moment it matters — while writing the `requires` list — so the comments say
- * outright what an entry's one key means and that a pattern is matched literally. Getting
- * that wrong yields a bundle quietly missing what the config asked for, or a refusal whose cause is
- * a character.
+ * The scaffold's comments double as documentation of the entry grammar, since this is where a person
+ * meets it while writing the `requires` list.
  *
- * The bytes are *emitted*, not templated: the file is a list of {@link ScaffoldBlock}s rendered by
- * {@link renderScaffold}, so stripping the comments from the scaffold leaves exactly what ambit would
- * emit from the same values. `test/project/init.test.ts` pins that equivalence rather than a
- * golden copy of the prose, which is free to be reworded.
+ * The bytes are emitted, not templated: the file is a list of {@link ScaffoldBlock}s rendered by
+ * {@link renderScaffold}, so stripping the comments leaves exactly what ambit would emit from the same
+ * values. `test/project/init.test.ts` pins that equivalence rather than a golden copy of the prose.
  *
- * The commented-out `requires` example is emitted the same way and then prefixed, so the one part of
- * the file a person is expected to uncomment cannot be malformed YAML — and it quotes the alias the
- * live `catalogs:` block declares, so uncommenting it leaves a config that agrees with itself.
+ * The commented-out `requires` example is emitted the same way and then prefixed, so it can't be
+ * malformed YAML, and it quotes the alias the live `catalogs:` block declares, so uncommenting it
+ * leaves a config that agrees with itself.
  */
 import { mkdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -85,8 +74,8 @@ const ITEM_DIRNAMES: readonly string[] = [
  * The scaffold, block by block.
  *
  * Every block that carries a key sits in sorted-key order, and the commented `requires` example sits
- * where its key would go — so uncommenting it leaves the file sorted, and the whole scaffold matches
- * what `emitYaml` produces from its values.
+ * where its key would go, so uncommenting it leaves the file sorted and matching what `emitYaml`
+ * produces from its values.
  */
 const BLOCKS: readonly ScaffoldBlock[] = [
   {
@@ -209,11 +198,8 @@ export interface InitResult {
   /** Scaffold files that were already there, left byte-identical, in path order. */
   readonly kept: readonly string[];
   /**
-   * False under `--dry-run`, and true otherwise.
-   *
-   * There is no third case: an existing `ambit.yml` is refused rather than kept, so a run that gets
-   * this far always has at least the config to write. It is carried anyway because it is what
-   * distinguishes the preview from the real thing in `--json`, where there is no heading to say so.
+   * False under `--dry-run`, true otherwise. Carried explicitly because it's what distinguishes the
+   * preview from the real thing in `--json`, where there's no heading to say so.
    */
   readonly written: boolean;
 }
@@ -238,9 +224,9 @@ async function isDirectory(target: string): Promise<boolean> {
 /**
  * Writes one scaffolded file, creating the directory that holds it.
  *
- * `mkdir` is what creates the item directories — there is no separate step that makes a
- * directory, so a `.gitkeep` and the directory it keeps arrive together or not at all. It is not
- * what creates the project root: {@link initProject} refuses a missing one before reaching here.
+ * `mkdir` is what creates the item directories: a `.gitkeep` and the directory it keeps arrive
+ * together or not at all. It does not create the project root; {@link initProject} refuses a missing
+ * one before reaching here.
  *
  * @throws {AmbitError} exit 2 if the write fails, naming the file.
  */
@@ -282,9 +268,8 @@ export async function initProject(
     ]);
   }
 
-  // A missing root is refused rather than created, even though the scaffold creates directories
-  // inside it: `--project` naming the wrong path should not leave a project in a directory nobody
-  // meant, and three item directories under it make that mistake more expensive rather than less.
+  // A missing root is refused rather than created: `--project` naming the wrong path shouldn't leave
+  // a project scaffolded in a directory nobody meant.
   if (!(await isDirectory(projectDir))) {
     throw configError(`cannot initialize ${projectDir}`, [
       "it is not a directory, and `init` creates no project root",

@@ -1,33 +1,26 @@
 /**
- * Pruning — removing what the last install owned and this one does not.
+ * Pruning — removes what the last install owned and this one does not.
  *
- * Without it install is purely additive, so narrowing `requires` in `ambit.yml` changes nothing on
- * disk and the harness keeps loading a skill the project no longer selects. That is not a tidiness
- * problem: an agent acting on withdrawn instructions is the failure a selection list exists to
- * prevent.
+ * Without it, install would be purely additive: narrowing `requires` in `ambit.yml` would change
+ * nothing on disk, and the harness would keep loading a skill the project no longer selects.
  *
- * The input is `.ambit/state.json`, never the filesystem. Nothing here walks `.claude/skills`
- * looking for strangers to clean up — ambit deletes only what it recorded creating (rule 1), so a
- * hand-written skill beside ambit's is invisible to this module by construction rather than by a
- * check that could be forgotten. It also means dropping a harness from `harnesses` prunes that
- * adapter's artifacts for free: they are simply absent from the plan.
+ * The input is `.ambit/state.json`, never the filesystem. Ambit deletes only what it recorded
+ * creating, so a hand-written skill beside ambit's is never touched, and dropping a harness from
+ * `harnesses` prunes that adapter's artifacts automatically (they are simply absent from the plan).
  *
- * Granularity follows the artifact kind, exactly as ownership does. A skill directory goes whole; a
- * harness config file loses only ambit's stale keys and stays where it is, because `.mcp.json` is
- * co-owned and emptying it out is not the same as it being ambit's to delete. The
- * directories that held pruned skills stay too — `.claude/skills` and `.claude` belong to the
- * harness.
+ * Granularity follows the artifact kind, same as ownership: a skill directory goes whole; a harness
+ * config file loses only ambit's stale keys and stays where it is, because files like `.mcp.json`
+ * are co-owned. The directories that held pruned skills stay too — `.claude/skills` and `.claude`
+ * belong to the harness.
  *
- * Pruning runs after materialization and before state is rewritten, which makes a failure here
- * retryable rather than destructive: state still owns everything, so the next install prunes the
- * same set again. Ordering it last also means a failed `apply` leaves the previous install intact
- * instead of half-dismantled.
+ * Pruning runs after materialization and before state is rewritten, so a failure here is retryable
+ * rather than destructive: state still owns everything, and the next install prunes the same set
+ * again. A failed `apply` leaves the previous install intact instead of half-dismantled.
  *
- * Deciding what to remove is split from removing it (`planPrune` and `pruneArtifacts`), because three
+ * Deciding what to remove (`planPrune`) is split from removing it (`pruneArtifacts`) because three
  * commands need the same answer for different reasons: `install` acts on it, `--dry-run` prints it,
- * and `ambit prune` acts on it without materializing anything first. One decision function
- * is what keeps the three from disagreeing about what is stale — and `clean` is the same decision
- * against an empty plan, which is why nothing here has a notion of "remove everything" of its own.
+ * and `ambit prune` acts on it without materializing anything first. `clean` is the same decision
+ * against an empty plan, which is why nothing here has its own notion of "remove everything".
  */
 import { lstat, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -42,7 +35,7 @@ import { STATE_DIRNAME, STATE_FILENAME } from "../model/state.js";
 /** The empty key set a config file the plan does not mention stands in with. */
 const NO_KEYS: ReadonlySet<string> = new Set<string>();
 
-/** One thing pruning removed — the mirror of the state entry that authorized removing it. */
+/** One artifact pruning removed, mirroring the state entry that authorized the removal. */
 export interface PrunedArtifact {
   /** Project-relative, `/`-separated. */
   readonly path: string;
@@ -59,9 +52,9 @@ export interface PrunedArtifact {
   /**
    * For `harness-config`: how the managed section is laid out, carried over from the state entry.
    *
-   * Travels for the same reason `format` does, and it is not implied by it: a `.claude/settings.json`
-   * and a `.mcp.json` are both JSON, and reading the first with the map driver would look for a
-   * `<Event>@<digest>` key among the event names, find none, and prune nothing at all.
+   * Not implied by `format`: a `.claude/settings.json` and a `.mcp.json` are both JSON, but reading
+   * the first with the map driver would look for a `<Event>@<digest>` key among the event names,
+   * find none, and prune nothing at all.
    */
   readonly shape?: DocumentShape;
 }
@@ -73,11 +66,9 @@ function compare(a: string, b: string): number {
 /**
  * The paths the new plan writes whole; a prior one absent from this set is stale.
  *
- * Every kind owned as a path has to be listed, not only the ones that were here first. A kind left out
- * is a path the plan *does* write that this set says it does not — so pruning deletes it after `apply`
- * created it, and the next install recreates it, forever. Which is a directory-shaped hole in the
- * idempotence claim rather than a tidiness bug: for a hook it would leave the harness config naming a
- * script that is not there.
+ * Every kind owned as a path must be listed, not only the ones that were here first. A kind left
+ * out is a path the plan does write that this set would claim it doesn't, so pruning would delete
+ * it right after `apply` created it, and the next install would recreate it forever.
  */
 function plannedPaths(plan: readonly PlannedArtifact[]): ReadonlySet<string> {
   return new Set(
@@ -89,8 +80,8 @@ function plannedPaths(plan: readonly PlannedArtifact[]): ReadonlySet<string> {
  * The managed keys the new plan writes, by config file.
  *
  * A file the plan does not mention at all maps to nothing rather than being missing from the map,
- * so the caller has one code path: a bundle that selects no servers plans no `.mcp.json` artifact
- * (see the Claude adapter), and every key prior state claims there is therefore stale.
+ * so the caller has one code path: a bundle that selects no servers plans no `.mcp.json` artifact,
+ * and every key prior state claims there is therefore stale.
  */
 function plannedKeys(plan: readonly PlannedArtifact[]): ReadonlyMap<string, ReadonlySet<string>> {
   const byFile = new Map<string, Set<string>>();
@@ -106,12 +97,11 @@ function plannedKeys(plan: readonly PlannedArtifact[]): ReadonlyMap<string, Read
 /**
  * Splits a state entry's dotted key back into the section and the key within it.
  *
- * Split at the *first* dot: a section is a name ambit chose and never contains one, whereas the key
+ * Split at the first dot: a section is a name ambit chose and never contains one, whereas the key
  * is an entity name that can — `mcpServers.acme.internal` is one server called `acme.internal`, not
  * a nested object.
  *
  * @throws {AmbitError} exit 2 for a key naming no section, which this build cannot have written.
- *   The alternative is silently leaving an artifact ambit claims to own on disk forever.
  */
 function splitManagedKey(key: string, file: string): readonly [section: string, name: string] {
   const dot = key.indexOf(".");
@@ -127,12 +117,12 @@ function splitManagedKey(key: string, file: string): readonly [section: string, 
 /**
  * What pruning a plan against prior state would remove, without touching disk.
  *
- * The whole question is answerable from state and the plan (rule 1), which is what lets `--dry-run`
- * and `ambit prune` report the same set install would act on rather than a second opinion about it.
+ * Answerable from state and the plan alone, which is what lets `--dry-run` and `ambit prune` report
+ * the same set install would act on.
  *
- * Managed keys are validated here, before anything is deleted, so a state entry this build could not
- * have written is exit 2 with the project untouched instead of after the first skill directory is
- * already gone.
+ * Managed keys are validated here, before anything is deleted, so a state entry this build could
+ * not have written is exit 2 with the project untouched, rather than failing after the first skill
+ * directory is already gone.
  *
  * @param plan every artifact the run writes; empty means "keep nothing", which is `clean`.
  * @param prior the state from the last install — the only thing that authorizes a removal.
@@ -175,9 +165,9 @@ export function planPrune(
 /**
  * What state records once `pruned` is gone — the entries that survive, in their prior order.
  *
- * Install has no need for this: it writes the artifacts it just applied. A standalone `prune` has to
- * subtract instead, and it subtracts the *planned* removals rather than the writes that happened, so
- * a key state claimed in a file someone had already emptied by hand stops being claimed too.
+ * Install has no need for this: it writes the artifacts it just applied. A standalone `prune` has
+ * to subtract instead, and it subtracts the planned removals rather than the writes that happened,
+ * so a key state claimed in a file someone had already emptied by hand stops being claimed too.
  */
 export function remainingArtifacts(
   prior: State,
@@ -207,18 +197,18 @@ export function remainingArtifacts(
  * Takes `stale` out of one co-owned config file.
  *
  * The document is re-read here rather than carried over from planning, because `apply` has already
- * merged this run's own keys into it and writing a pre-`apply` snapshot back would undo them.
+ * merged this run's own keys into it, and writing a pre-`apply` snapshot back would undo them.
  *
  * A key already gone — the file deleted by hand, the server removed by hand — is not an error and
- * not a write: an install that prunes nothing must leave the file byte-identical (the idempotence claim), and recreating a file someone deleted would be worse than leaving it absent.
+ * not a write: an install that prunes nothing must leave the file byte-identical, and recreating a
+ * file someone deleted would be worse than leaving it absent.
  *
- * @param format how the file is written, as prior state recorded it. Pruning runs from state alone, so
- *   the format has to come from there too — re-resolving the project to find out which harness wanted
- *   the file is exactly what `prune` and `clean` are built not to need.
+ * @param format how the file is written, as prior state recorded it. Pruning runs from state alone,
+ *   so the format must come from there rather than from re-resolving the project.
  * @param shape how the managed section is laid out, from state for the same reason. Absent reads as
  *   `map`, which is what every artifact written before the field existed was.
- * @throws {AmbitError} exit 2 if the file exists but cannot be parsed, or for a managed key that names
- *   no section.
+ * @throws {AmbitError} exit 2 if the file exists but cannot be parsed, or for a managed key that
+ *   names no section.
  */
 async function pruneConfigKeys(
   projectDir: string,
@@ -248,16 +238,16 @@ async function pruneConfigKeys(
 /**
  * Whether a stale path still names the thing ambit recorded creating.
  *
- * The migration to the shared skills directory is what this exists for. An install from before it
- * owned `.claude/skills/<name>` directories; afterwards `.claude/skills` is a *link* to
- * `.agents/skills`, so those old paths resolve straight through it into the shared directory — where
- * the skills this very run just installed are. Deleting them would delete the new install.
+ * Exists for the migration to the shared skills directory. An install from before it owned
+ * `.claude/skills/<name>` directories; afterwards `.claude/skills` is a symlink to
+ * `.agents/skills`, so those old paths resolve straight through it into the shared directory —
+ * where the skills this run just installed now live. Deleting them would delete the new install.
  *
  * A symlinked ancestor means the directory ambit owned no longer exists as a directory, so there is
  * nothing at that path left to remove: whatever is reachable through it now belongs to whatever the
- * link points at. Reported as pruned regardless, because state should stop claiming it either way.
+ * link points at. It is still reported as pruned, because state should stop claiming it either way.
  *
- * Only ancestors are inspected. The artifact itself is very often a symlink — that is one of the two
+ * Only ancestors are inspected. The artifact itself is often a symlink — one of the two
  * materialization modes — and `rm` unlinks it without following it.
  */
 async function ownedPathIntact(projectDir: string, relative: string): Promise<boolean> {
@@ -267,8 +257,8 @@ async function ownedPathIntact(projectDir: string, relative: string): Promise<bo
     try {
       if ((await lstat(current)).isSymbolicLink()) return false;
     } catch {
-      // An ancestor that is not there at all means the artifact is not either, and `rm --force` on it
-      // would be a no-op — so there is no reason to treat it as the link case.
+      // An ancestor that is not there at all means the artifact is not either, and `rm --force` on
+      // it would be a no-op, so there is no reason to treat it as the link case.
       return true;
     }
   }
@@ -278,9 +268,9 @@ async function ownedPathIntact(projectDir: string, relative: string): Promise<bo
 /**
  * Removes every owned artifact the new plan no longer writes.
  *
- * Call it once with every adapter's plan flattened together, for the same reason `authorizePlan`
- * takes the whole plan: an artifact one adapter now writes may be one prior state recorded under
- * another, and pruning per adapter would delete it and then rewrite it.
+ * Call it once with every adapter's plan flattened together: an artifact one adapter now writes may
+ * be one prior state recorded under another, and pruning per adapter would delete it and then
+ * rewrite it.
  *
  * @param projectDir the project root, absolute.
  * @param plan every artifact this run writes.

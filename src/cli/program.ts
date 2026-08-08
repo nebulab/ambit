@@ -20,13 +20,12 @@ import { VERSION } from "../version.js";
 export type Io = Pick<CommandContext, "cwd" | "stdout" | "stderr">;
 
 /**
- * Handlers, keyed by the words a user types. Every command the surface declares now has one; a command
- * added without an entry here reports itself unimplemented (exit 1) rather than silently succeeding.
+ * Handlers, keyed by the words a user types. Every command the surface declares has one here; a
+ * command added without an entry reports itself unimplemented (exit 1) rather than silently
+ * succeeding.
  *
- * Twelve entries, and no key with a space in it: the surface is flat, `catalog validate` having been
- * absorbed into `validate` when a catalog stopped being a subject of its own. A group, were one
- * declared again, would still be absent from here — it holds commands and runs none itself, so bare
- * `ambit <group>` prints usage rather than dispatching to whichever child was picked as its default.
+ * Twelve entries, none with a space: the surface is flat. A group, were one declared, would still
+ * have no entry here, since it holds commands and runs none itself.
  */
 export const HANDLERS: CommandHandlers = {
   clean: cleanHandler,
@@ -44,22 +43,16 @@ export const HANDLERS: CommandHandlers = {
 };
 
 /**
- * Flag rules, keyed by the same words {@link HANDLERS} is: what each command refuses about the flags it
- * was given, before it is dispatched (`buildCommand` hangs each one off its command as a `preAction`
- * hook).
+ * Flag rules, keyed by the same words {@link HANDLERS} is: what each command refuses about the
+ * flags it was given, before dispatch (`buildCommand` hangs each one off its command as a
+ * `preAction` hook).
  *
- * Two commands need one. The four rules that used to sit beside them belonged to the commands that
- * wrote into a catalog — one about a label needing a description, one about a server needing exactly
- * one transport, one about an annotation contradicting itself — and went when those commands did.
- * What is left is here rather than on a Commander primitive for the usual reason:
- * `.makeOptionMandatory()` and `.conflicts()` produce a message that names no file and gives no next
- * step, which every error a user can reach has to give. `install`'s `--copy`/`--link` is the
- * counter-example that stayed on `.conflicts()` — Commander's wording for two flags that cannot
- * appear together is already the whole of what there is to say.
- *
- * The two are the same rule twice, which is the point: `outdated` and `update` both exist to ask
- * a remote where a ref points now, so `--offline` is a flag neither can honour, and one refusal keeps
- * them saying so identically.
+ * Only two commands need one, and it is the same rule for both: `outdated` and `update` exist to
+ * ask a remote where a ref points now, so `--offline` is a flag neither can honor. A shared rule
+ * keeps their refusal identical. Rules exist instead of Commander primitives like
+ * `.makeOptionMandatory()` because those produce a message that names no file and gives no next
+ * step. `install`'s `--copy`/`--link` still uses `.conflicts()` directly, since Commander's
+ * wording for two flags that cannot appear together already says everything needed.
  */
 export const RULES: CommandRules = {
   outdated: refusesOfflineRule,
@@ -69,20 +62,17 @@ export const RULES: CommandRules = {
 /**
  * Copies the program's settings down the whole command tree.
  *
- * `Command.addCommand` — unlike `.command()`, which ambit cannot use because every command is built
- * from a spec — copies nothing from its parent, so a subcommand keeps Commander's own defaults for
- * both of the settings that decide how a usage error leaves the process: it writes to the real
- * `process.stderr` and then calls `process.exit`. That bypasses the exit-code contract on every
- * subcommand (and takes the test worker with it). Copying `configureOutput` and `exitOverride` down
- * is what makes an unknown flag on `ambit status` print through ambit's own output and travel out of
- * {@link run} as a code.
+ * `Command.addCommand` — unlike `.command()`, which ambit cannot use because every command is
+ * built from a spec — copies nothing from its parent, so a subcommand keeps Commander's own
+ * defaults for how a usage error leaves the process: writing to the real `process.stderr` and
+ * calling `process.exit` directly, bypassing the exit-code contract (and taking the test worker
+ * with it). Copying `configureOutput` and `exitOverride` down is what makes an unknown flag on
+ * `ambit status` print through ambit's own output and travel out of {@link run} as a code.
  *
- * It recurses, and the surface is flat: with no group declared, the walk is one level deep and the
- * recursion is there for the day one is. Runs after the tree is assembled, and top-down, so a group
- * and its children would end up with the same settings. It copies wholesale, and the program's value
- * wins: the three settings `buildCommand` also
- * touches — `--help`, positional options, and the disabled implicit `help` command — already say the
- * same thing there, but a per-command setting added later has to be applied *after* this or it is lost.
+ * Recurses because a group could nest further, though with no group declared today the walk is
+ * one level deep. Runs top-down after the tree is assembled, so a group and its children end up
+ * with the same settings. Any per-command setting added later must be applied after this call, or
+ * this overwrites it.
  */
 function inheritSettings(parent: Command): void {
   for (const child of parent.commands) {
@@ -104,9 +94,8 @@ export function buildProgram(
     .helpOption("--help", "show usage")
     .addHelpCommand(false)
     .showHelpAfterError("(run `ambit --help` for usage)")
-    // Every flag belongs to the command it follows. Without this, Commander gives an option to
-    // whichever command up the chain declares it, so `ambit <group> <command> --json` would leave
-    // `--json` with the group and the command believing it was never asked for.
+    // Every flag belongs to the command it follows; without this, `ambit <group> <command> --json`
+    // would let the group claim `--json` before the command ever sees it.
     .enablePositionalOptions()
     .configureOutput({
       writeOut: (str) => io.stdout(str.replace(/\n$/, "")),
@@ -142,7 +131,7 @@ export async function run(
     rules,
   );
 
-  // Bare `ambit` is a request for usage, not a mistake: print it and succeed.
+  // Bare `ambit` is a request for usage, not a mistake.
   if (argv.length === 0) {
     io.stdout(program.helpInformation().replace(/\n$/, ""));
     return ExitCode.Success;
@@ -153,7 +142,7 @@ export async function run(
     return code;
   } catch (error) {
     if (error instanceof CommanderError) {
-      // Commander has already written help or its own message via configureOutput.
+      // Commander already wrote help or its own message via configureOutput.
       return error.exitCode === 0 ? ExitCode.Success : ExitCode.Config;
     }
     if (error instanceof AmbitError) {

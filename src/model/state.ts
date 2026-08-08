@@ -1,14 +1,12 @@
 /**
  * `.ambit/state.json` — the record of what ambit actually put on disk.
  *
- * This file is the whole safety story: ambit deletes or overwrites only paths listed here, so a
- * hand-written skill sitting at a target path can never be eaten. That is why it is JSON rather
- * than YAML — nothing reads it by hand, and a crash-safety record wants one unambiguous
- * serialization.
+ * Ambit deletes or overwrites only paths listed here, so a hand-written skill sitting at a target
+ * path can never be touched. It is JSON rather than YAML because nothing reads it by hand, and a
+ * crash-safety record wants one unambiguous serialization.
  *
- * Emission is sorted and byte-stable for the same reason the lock is: a state file
- * that reshuffles between identical runs shows up as noise in every diff and hides the one
- * change that matters.
+ * Emission is sorted and byte-stable, same as the lock, so a state file does not reshuffle between
+ * identical runs and hide the one change that matters in diff noise.
  */
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";

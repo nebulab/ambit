@@ -1,27 +1,22 @@
 /**
  * `ambit status` — what is installed, against what resolution now produces.
  *
- * Install is idempotent: run it twice on an unchanged project and not a byte moves. This is the
- * command that makes that claim inspectable without testing it destructively. It plans exactly as
- * install does and then compares the plan against the project, so every row answers one question —
- * would `ambit install` change this? — and `--check` turns the answer into exit 5, which is the form
- * a CI job can act on.
+ * Install is idempotent: running it twice on an unchanged project moves no bytes. This command
+ * checks that without touching anything: it plans exactly as install does, then compares the plan
+ * against the project, so every row answers "would `ambit install` change this?" `--check` turns the
+ * answer into exit 5 for CI.
  *
- * Nothing here writes, and nothing here throws for drift. Drift is the report: a project whose
- * skills were edited by hand is in a state a person needs described, not refused. The errors that do
- * escape are the ones resolution itself raises — a malformed config, an unreachable catalog — because
- * a status that cannot resolve has nothing to compare against.
+ * Nothing here writes, and nothing throws for drift; a project edited by hand is a state to describe,
+ * not refuse. The errors that do escape are the ones resolution itself raises (a malformed config, an
+ * unreachable catalog), since status cannot compare against a project it cannot resolve.
  *
- * Comparison follows the artifact kind, the same split ownership and pruning make. A copied skill
- * directory is the source's bytes and nothing else, so it is compared as a tree; a symlinked one has
- * no bytes of its own, so the only thing to check is where it points — editing through the link is
- * editing the source, which is what linking is for and never drift. A harness config file is compared
- * key by key: it is co-owned, so a hand-added server beside ambit's is not drift, and
- * only the keys ambit wrote are ambit's to have an opinion about.
+ * Comparison follows the artifact kind, matching the split ownership and pruning make: a copied skill
+ * directory is compared as a tree of bytes; a symlink has none of its own, so only where it points is
+ * checked (editing through the link edits the source, and is never drift); a harness config file is
+ * co-owned, so it is compared key by key and only the keys ambit wrote are ambit's to judge.
  *
- * Ownership is part of the comparison rather than a separate audit. A target that exists but that
- * state does not claim is exactly what install would refuse, and reporting it as
- * `unowned` here is what lets someone find that out before the install that stops.
+ * Ownership is part of the comparison, not a separate audit: a target that exists but that state does
+ * not claim is exactly what install would refuse, reported here as `unowned`.
  */
 import { lstat, readFile, readdir, readlink } from "node:fs/promises";
 import path from "node:path";
@@ -109,8 +104,8 @@ function isMissing(error: unknown): boolean {
 
 /**
  * @throws {AmbitError} exit 2 when a target cannot be inspected. "I could not look" is not a
- *   comparison result: reporting it as drift would send someone editing files over a permission
- *   problem.
+ *   comparison result, and reporting it as drift would send someone editing files over a permission
+ *   problem instead.
  */
 function unreadable(file: string, target: string, error: unknown): never {
   throw configError(`cannot inspect ${file}`, [
@@ -122,9 +117,9 @@ function unreadable(file: string, target: string, error: unknown): never {
 /**
  * What sits at a target: nothing, a symlink, a directory, or something else.
  *
- * `lstat`, not `stat`: a symlink is a legitimate install mode of its own, so following it
- * here would compare a linked skill as though it were a copy — and would report a dangling link as
- * absent, when it is very much there.
+ * Uses `lstat`, not `stat`: a symlink is a legitimate install mode of its own. Following it would
+ * compare a linked skill as though it were a copy, and would report a dangling link as absent when
+ * it is actually there.
  *
  * @throws {AmbitError} exit 2 when the path cannot be inspected.
  */
@@ -145,8 +140,8 @@ async function shapeOf(
 /**
  * Every file under `dir`, relative, `/`-separated and sorted.
  *
- * Directories are not listed in their own right: an empty one is not a difference worth a row, and
- * every difference that matters carries a file with it.
+ * Directories are not listed on their own: an empty directory is not a difference worth a row, and
+ * every difference that matters involves a file.
  *
  * @param label how the tree is named in errors.
  * @throws {AmbitError} exit 2 when it cannot be listed.
@@ -189,9 +184,9 @@ async function sameBytes(source: string, target: string): Promise<boolean> {
  * The first difference between a materialized directory's source and what is installed, or undefined
  * when the two agree.
  *
- * One difference rather than all of them, and the first in sorted order rather than the first found,
- * so two identical projects report identically. A whole diff belongs to a diff tool; what a status
- * row needs is one concrete thing to go and look at.
+ * Reports one difference, not all of them, and the first in sorted order rather than the first found,
+ * so two identical projects report identically. A status row needs one concrete thing to look at; a
+ * full diff belongs to a diff tool.
  *
  * @throws {AmbitError} exit 2 when either tree cannot be listed.
  */
@@ -220,8 +215,8 @@ async function firstDifference(artifact: PlannedCatalogDir): Promise<string | un
  * Compares one installed symlink against the source it should name.
  *
  * The link is read rather than followed, and reported as written: a relative link is what `apply`
- * creates and what someone sees in `ls -l`, so it is what a detail line should say — and reporting
- * the resolved absolute path would put a machine-specific string into `status --json`.
+ * creates and what someone sees in `ls -l`, so that is what a detail line should say. Reporting the
+ * resolved absolute path would put a machine-specific string into `status --json`.
  *
  * @throws {AmbitError} exit 2 when the link cannot be read.
  */
@@ -233,9 +228,9 @@ async function linkVerdict(artifact: PlannedPathArtifact): Promise<Verdict> {
     unreadable(artifact.path, artifact.target, error);
   }
 
-  // Resolved against the link's own directory, so a relative link and an absolute one that name the
-  // same directory compare equal. Deliberately not `realpath`: this is about where the link points,
-  // not about what symlinks anywhere above it resolve to.
+  // Resolved against the link's own directory, so a relative link and an absolute one naming the
+  // same directory compare equal. Deliberately not `realpath`: this checks where the link points,
+  // not what symlinks above it resolve to.
   const points = path.resolve(path.dirname(artifact.target), written);
   if (points === artifact.source) return OK;
   return { state: "modified", detail: `it points at ${written}, not at its source` };
@@ -244,7 +239,7 @@ async function linkVerdict(artifact: PlannedPathArtifact): Promise<Verdict> {
 /**
  * The skills link: present, ambit's, and pointing where the plan says.
  *
- * A directory here is the pre-shared-layout install, which `install` migrates by replacing it — so it
+ * A directory here is the pre-shared-layout install, which `install` migrates by replacing it, so it
  * reads as modified rather than as something in the way.
  */
 async function skillsLinkVerdict(
@@ -263,20 +258,16 @@ async function skillsLinkVerdict(
 /**
  * Compares one planned directory — a skill's, or a hook's shipped script — against the project.
  *
- * Existence, then ownership, then contents: something ambit did not create is `unowned` whatever it
- * holds, because install would refuse it rather than compare it.
+ * Checks existence, then ownership, then contents: something ambit did not create is `unowned`
+ * whatever it holds, since install would refuse it rather than compare it.
  *
- * What is on disk decides *how* the comparison is made, not the plan's `mode`. A link is checked for
- * pointing at its source; a directory is compared byte for byte. So a project installed with `--copy`
- * whose copies are intact reads as clean even though a plain `install` would relink it: the mode is a
- * per-run choice, both modes put the same bytes in front of the harness, and the
- * alternative would leave anyone who uses the flag with a `status --check` that can never pass.
- * Reporting mode divergence belongs to `doctor` (A24), which is the command for "this is not how it
- * would be set up today".
+ * What is on disk decides how the comparison is made, not the plan's `mode`: a link is checked for
+ * pointing at its source, a directory compared byte for byte. Both modes put the same bytes in front
+ * of the harness, so a `--copy` install with intact copies reads as clean even though a plain
+ * `install` would relink it. Mode divergence is reported by `doctor` (A24) instead.
  *
- * One function for both kinds because the comparison is about the directory rather than its contents —
- * the argument {@link PlannedCatalogDir} makes. A hook directory handed to {@link configVerdict}
- * instead would be read as a document, which is the failure this branch exists to prevent.
+ * One function handles both kinds; the {@link PlannedCatalogDir} argument type keeps a hook directory
+ * from being handed to {@link configVerdict} and misread as a document.
  *
  * @throws {AmbitError} exit 2 when the target cannot be inspected.
  */
@@ -299,24 +290,18 @@ async function catalogDirVerdict(
 /**
  * Compares the managed keys of one co-owned config file against what is in it.
  *
- * The first problem in plan order decides the row, exactly as ownership enforcement refuses on the
- * first conflict: a file with three drifted servers needs one concrete key to go and look at, and
- * which one is reported must be a function of the bundle rather than of the file's layout. Stale
- * keys come last because they are the only ones that describe the *previous* install.
+ * The first problem in plan order decides the row, matching how ownership enforcement refuses on the
+ * first conflict, so which key is reported depends on the bundle, not the file's layout. Stale keys
+ * come last since they describe the previous install, not the current one.
  *
- * Drift is decided by asking the driver to merge one entry and seeing whether that changes the file's
- * bytes — not by comparing parsed values. Two of the three formats cannot be parsed without losing
- * what a person wrote, and "would install rewrite this?" is the question `status` exists to answer, so
- * putting it to the code that would do the writing is both cheaper and harder to get wrong than a
- * second, parallel notion of equality.
+ * Drift is decided by asking the driver to merge one entry and checking whether that changes the
+ * file's bytes, not by comparing parsed values: two of the three formats cannot be parsed without
+ * losing what a person wrote.
  *
- * In an array section the digest *is* the key, so the two verdicts divide differently there than they
- * do for a server: a hook entry someone edited is not a changed value but an absent key, and the row
- * reads `missing`. Which is the whole reason this comparison matters for hooks — an install would
- * append ambit's entry beside the edited one, so a person needs the row before the run rather than a
- * second hook on the event afterwards. A *declaration* someone edited reads the same way, and there
- * the digest state claims is one the plan no longer writes, so the next install prunes it and writes
- * the current one.
+ * In an array section the digest is the key, so an edited hook entry is not a changed value but an
+ * absent key, and the row reads `missing`. This matters because install would append ambit's entry
+ * beside the edited one, so the row must appear before that run, not as a second hook afterwards. An
+ * edited declaration reads the same way, and prunes on the next install.
  *
  * @param stale the keys prior state claims here that the plan no longer writes, sorted.
  * @throws {AmbitError} exit 2 if the file exists but cannot be parsed.
@@ -375,15 +360,14 @@ function plannedKeys(artifacts: readonly PlannedHarnessConfig[]): ReadonlySet<st
 /**
  * Compares a plan and the previous install's state against what is on disk.
  *
- * Sorted by path so two identical projects report identically, and so a reader can find a row: the
- * order the adapters planned in is an implementation detail, whereas a path is what they came to
- * look up.
+ * Sorted by path so two identical projects report identically and a reader can find a row: the
+ * order the adapters planned in is an implementation detail, but a path is what they came to look up.
  *
- * Needs no project root of its own: a planned artifact carries its absolute target, and a
- * stale one is only reported here rather than removed.
+ * Needs no project root of its own: a planned artifact carries its absolute target, and a stale one
+ * is only reported here, not removed.
  *
  * @throws {AmbitError} exit 2 for a target that cannot be inspected or a config file that cannot be
- *   parsed. Neither is drift — both mean the comparison could not be made.
+ *   parsed. Neither is drift; both mean the comparison could not be made.
  */
 async function compareArtifacts(
   plan: readonly PlannedArtifact[],
@@ -395,7 +379,7 @@ async function compareArtifacts(
 
   for (const [file, group] of groups) {
     const [first] = group;
-    // A group is built from the plan, so it always has a member and every member shares a kind: two
+    // A group is built from the plan, so it always has a member and every member shares a kind. Two
     // artifacts of different kinds at one path would be an adapter bug, not a project's problem.
     if (first === undefined) continue;
 
@@ -440,11 +424,11 @@ async function compareArtifacts(
 }
 
 /**
- * Compares an already-planned install against the project — the comparison without the resolution.
+ * Compares an already-planned install against the project: the comparison without the resolution.
  *
- * Exported for `doctor`, which needs both this verdict and the rest of `planInstall`'s
- * output and must not resolve the project twice to get them. Taking the plan as an argument is what
- * keeps the two commands from being able to disagree: there is one comparison, and `status` is it.
+ * Exported for `doctor`, which needs both this verdict and the rest of `planInstall`'s output and
+ * must not resolve the project twice to get them. Taking the plan as an argument keeps the two
+ * commands from disagreeing: there is one comparison, and `status` is it.
  *
  * @param plan every adapter's planned artifacts, flattened.
  * @param prior what the last install recorded owning.
@@ -461,9 +445,9 @@ export async function statusOfPlan(
 /**
  * Compares a project against what resolution now produces.
  *
- * Plans through the adapters rather than reasoning about state alone, because the question is what
- * install *would* do: an adapter's plan is pure, so asking it costs nothing and the two
- * commands cannot disagree about where an artifact belongs.
+ * Plans through the adapters rather than reasoning about state alone, since the question is what
+ * install would do: an adapter's plan is pure, so asking it costs nothing and the two commands
+ * cannot disagree about where an artifact belongs.
  *
  * @param projectDir the project root, absolute.
  * @param options `--offline`.
@@ -485,11 +469,11 @@ export async function projectStatus(
   };
   const bundle = resolveBundle(config, mergeCatalogs(await loadCatalogs(config, context)));
 
-  // No environment involved on either side: install writes a reference rather than a value, so what
-  // a plan says is the same on every machine and a set variable can never read as drift.
+  // No environment involved on either side: install writes a reference rather than a value, so a
+  // plan reads the same on every machine and a set variable can never read as drift.
   const project: ProjectPaths = { root: projectDir };
-  // Through `planFor`, so status sees the artifacts install would write — one entry per shared
-  // skills target rather than one per harness reading it.
+  // Through `planFor`, so status sees the artifacts install would write: one entry per shared
+  // skills target, not one per harness reading it.
   const plan = planFor(adapters, bundle, project).flatMap(({ plan: planned }) => planned);
 
   return statusOfPlan(plan, await readState(projectDir));

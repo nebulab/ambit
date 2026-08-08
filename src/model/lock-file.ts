@@ -1,20 +1,18 @@
 /**
- * `ambit.lock` as a file ambit *reads*: where it lives, and the pins inside it.
+ * `ambit.lock` as a file ambit reads: where it lives, and the pins inside it.
  *
- * The writing half is `src/project/lock.ts`, which builds the document and renders its bytes. The split
- * is the layer each half belongs to. Rendering a lock needs a resolved bundle and its reasons, which is
- * project-level knowledge; reading a pin back out is something catalog loading has to do, so it lives
- * beside the loader that needs it and the lock's name and version live with it.
+ * The writing half is `src/project/lock.ts`, which builds the document and renders its bytes.
+ * Rendering a lock needs a resolved bundle and its reasons (project-level knowledge); reading a
+ * pin back out is something catalog loading has to do, so it lives beside the loader that needs it.
  *
- * **Why a lock is read at all.** A moving `ref:` used to be answered from the machine-wide git cache,
- * which refetches only when it cannot resolve a ref — so the commit a project got was whatever the
- * shared clone happened to hold: months old on a warm machine, current on a cold one, and moved under it
- * by any other project on the machine that ran `ambit update`. The lock recorded that faithfully and
- * could not prevent it, which made `--frozen` unsatisfiable for a project using `ref: main` at all: a
- * cold CI clone resolves `main` to today's commit and fails against a lock written last week.
+ * Why a lock is read at all: a moving `ref:` used to be resolved from the machine-wide git cache,
+ * which refetches only when it cannot resolve a ref, so the commit a project got was whatever the
+ * shared clone happened to hold — and could be moved under it by any other project on the machine.
+ * That made `--frozen` unsatisfiable for a project using `ref: main`: a cold CI clone resolves
+ * `main` to today's commit and fails against a lock written last week.
  *
- * So the `catalogs` section is an input. Every other section stays a record, compared as bytes rather
- * than consumed — see `src/project/lock.ts`.
+ * So the `catalogs` section is an input, resolved against rather than just recorded. Every other
+ * section stays a record, compared as bytes rather than consumed — see `src/project/lock.ts`.
  */
 import { readFile } from "node:fs/promises";
 import path from "node:path";
@@ -46,7 +44,7 @@ function isMissing(error: unknown): boolean {
 /**
  * Reads a project's lock as text, returning undefined when there is none.
  *
- * Text, because that is what `--frozen` compares: a lock that would be rewritten *is* out of date,
+ * Text, because that is what `--frozen` compares: a lock that would be rewritten is out of date,
  * whatever the two documents mean.
  *
  * @throws {AmbitError} exit 2 for a lock that exists but cannot be read — reported rather than
@@ -87,13 +85,13 @@ function unsupportedVersion(found: number): never {
 /**
  * Reads the `catalogs` section back.
  *
- * Failures are fatal. A lock is an input now, so a version this build does not know and a document that
- * does not parse both mean "ambit cannot tell what this project is pinned to" — and answering that by
- * resolving as though there were no lock would reintroduce the silent drift the pins exist to remove.
+ * Failures are fatal. A lock is an input now, so a version this build does not know and a document
+ * that does not parse both mean ambit cannot tell what this project is pinned to. Resolving as
+ * though there were no lock would reintroduce the silent drift the pins exist to remove.
  *
- * Unknown keys are deliberately *not* rejected, unlike everywhere else ambit parses YAML: only these
- * three are read, and a lock written by a later ambit that records a fourth should still pin correctly
- * rather than refuse to be read at all.
+ * Unknown keys are deliberately not rejected, unlike everywhere else ambit parses YAML: only these
+ * three are read, and a lock written by a later ambit that records a fourth should still pin
+ * correctly rather than refuse to be read at all.
  *
  * @throws {AmbitError} exit 2 for an unreadable lock, a version this build cannot read, a malformed
  *   document, or a `commit` that is not a full SHA.
@@ -137,19 +135,19 @@ async function readRecordedCatalogs(
 }
 
 /**
- * What a `source`/`ref` pair *means*, as one comparable string — or nothing, if it means nothing here.
+ * What a `source`/`ref` pair means, as one comparable string, or nothing if it means nothing here.
  *
- * Parsed rather than compared as written, because the question a pin's validity turns on is "is this
- * still the same repository at the same revision", and one repository has several spellings:
- * `acme/skills` and `https://github.com/acme/skills.git` are one source, as are a URL and its `git:`
- * form, and `acme/skills@v1` says what a separate `ref: v1` says. Comparing the strings would void a
- * good pin over a rewrite that changed nothing, sending the run to the network to rediscover the commit
- * it already had.
+ * Parsed rather than compared as written, because the question a pin's validity turns on is
+ * whether this is still the same repository at the same revision, and one repository has several
+ * spellings: `acme/skills` and `https://github.com/acme/skills.git` are one source, as are a URL
+ * and its `git:` form, and `acme/skills@v1` says what a separate `ref: v1` says. Comparing the
+ * strings would void a good pin over a rewrite that changed nothing, sending the run to the
+ * network to rediscover a commit it already had.
  *
- * A source that does not parse is not comparable, so its pin is void rather than honoured — as is a
- * `path:` source, which has no revision to pin in the first place. Nothing is thrown: the config's own
- * source is about to be parsed properly by the load that follows, which is where a bad one should be
- * reported, and a bad one in the *lock* is a pin to ignore rather than a project to stop.
+ * A source that does not parse is not comparable, so its pin is void rather than honoured, as is a
+ * `path:` source, which has no revision to pin in the first place. Nothing is thrown here: the
+ * config's own source is about to be parsed properly by the load that follows, and a bad source in
+ * the lock is a pin to ignore rather than a project to stop.
  */
 function gitIdentity(source: string, ref: string | undefined): string | undefined {
   try {
@@ -168,19 +166,18 @@ function gitIdentity(source: string, ref: string | undefined): string | undefine
 /**
  * The commit each configured catalog is pinned to, keyed by catalog name.
  *
- * Empty for a project with no lock, which is the case that has nothing to reproduce: every catalog then
- * resolves against its remote, since inheriting a shared clone's idea of `main` is not an answer this
- * project ever asked for.
+ * Empty for a project with no lock, since a project with nothing to reproduce should resolve
+ * against its remote rather than inherit a shared clone's idea of `main`.
  *
- * An entry survives only when the lock's `source` and `ref` still name the same repository and revision
- * `ambit.yml` does ({@link gitIdentity}), and only when it has a commit at all. The three ways it does
- * not:
+ * An entry survives only when the lock's `source` and `ref` still name the same repository and
+ * revision `ambit.yml` does ({@link gitIdentity}), and only when it has a commit at all. Three
+ * cases drop it:
  *
- * - **the config moved** — `ref:` was edited, or `source:` repointed. The recorded commit answers a
+ * - The config moved — `ref:` was edited, or `source:` repointed. The recorded commit answers a
  *   question the project has stopped asking, so it is dropped and the new `ref` is resolved.
- * - **the catalog is new** — added since the lock was written, so there is nothing to reproduce and it
- *   resolves against its remote exactly as a first install's catalogs do.
- * - **`path:`** — no revision, so nothing to pin.
+ * - The catalog is new — added since the lock was written, so it resolves against its remote
+ *   exactly as a first install's catalogs do.
+ * - `path:` — no revision, so nothing to pin.
  *
  * @throws {AmbitError} exit 2 for a lock that exists and cannot be read — see
  *   {@link readRecordedCatalogs}.

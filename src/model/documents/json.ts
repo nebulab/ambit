@@ -1,10 +1,10 @@
 /**
  * The JSON driver — `.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`.
  *
- * JSON has no comments, so a parse round-trip loses nothing a person wrote and the driver can work
- * on parsed objects internally. Key *order* it does have, and that is preserved: spreading the
- * document keeps every foreign key in place and keeps the managed section where it already was,
- * rather than moving it to the end on the first install.
+ * JSON has no comments, so a parse round-trip loses nothing a person wrote and the driver can work on
+ * parsed objects internally. Key order is preserved: spreading the document keeps every foreign key
+ * in place and keeps the managed section where it already was, instead of moving it to the end on the
+ * first install.
  */
 import type { ConfigEntry, DocumentDriver, JsonObject } from "./format.js";
 import { isRecord, structurallyEqual } from "./format.js";
@@ -17,12 +17,12 @@ const EMPTY: JsonObject = {};
  * Parses a JSON document, treating an absent file as an empty one.
  *
  * Exported because the array-section driver (`json-array.ts`) reads the same files in the same
- * syntax and differs only in what it does with one section of them — so the two share this and
- * {@link serializeJsonDocument} rather than each having its own idea of what a JSON document is,
- * which is what keeps their refusals worded identically.
+ * syntax and differs only in what it does with one section of them, so the two share this and
+ * {@link serializeJsonDocument} instead of each having its own idea of what a JSON document is. That
+ * keeps their refusals worded identically.
  *
- * @throws {AmbitError} exit 2 for malformed JSON or a non-object root. Overwriting either would
- *   destroy content ambit does not own, which is exactly what the ownership rules forbid.
+ * @throws {AmbitError} exit 2 for malformed JSON or a non-object root, since overwriting either would
+ *   destroy content ambit does not own.
  */
 export function parseJsonDocument(text: string | undefined, file: string): JsonObject {
   if (text === undefined) return EMPTY;
@@ -89,8 +89,8 @@ export const jsonDriver: DocumentDriver = {
   },
 
   /**
-   * The section survives emptying out: ambit owns keys inside this file and not the file itself, so
-   * removing the last managed server leaves `{}` behind rather than deleting a document a person may
+   * The section survives emptying out. ambit owns keys inside this file, not the file itself, so
+   * removing the last managed server leaves `{}` behind instead of deleting a document a person may
    * also be writing into.
    */
   removeKeys: (

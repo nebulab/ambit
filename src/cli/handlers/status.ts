@@ -3,11 +3,10 @@
  *
  * One table rather than a report of problems: every artifact carries its own verdict, so a clean
  * project says so explicitly instead of printing nothing, and a reader scanning the state column
- * finds the one row that differs. That is also what makes the output a diff between two runs.
+ * finds the one row that differs.
  *
- * `--check` prints the same table and returns exit 5, rather than raising an error. Drift
- * is a finding, not a failure of ambit's — the exit code is the machine-readable half of the report,
- * which is exactly what a command handler returning a code is for.
+ * `--check` prints the same table and returns exit 5 rather than raising an error: drift is a
+ * finding, not a failure of ambit's, and the exit code is the machine-readable half of the report.
  */
 import type { CommandHandler } from "../commands.js";
 import { jsonRequested, offlineRequested, projectDirOf } from "../commands.js";

@@ -1,31 +1,23 @@
 /**
  * `ambit doctor` — preconditions, drift, and ownership.
  *
- * The other two read-only commands each answer one question and deliberately stop there. `validate`
- * asks whether the *catalog* is coherent; `status` asks whether install would change an *artifact*.
- * Neither can answer "is this project going to work when someone runs an agent in it", because the
- * things that break that live between the two: a variable a skill needs and nobody exported, a
- * committed lock that no longer describes what resolution produces, artifacts a crashed install left
- * present but unowned. This is the command for those.
+ * `validate` checks whether the catalog is coherent; `status` checks whether install would change an
+ * artifact. This command covers what neither does: an unset environment variable a skill needs, a
+ * committed lock that no longer matches what resolution produces, and artifacts a crashed install left
+ * present but unowned.
  *
- * Findings, not throws — the shape `validate` uses. Every check runs, the whole list is printed, and
- * the exit code carries the verdict (exit 6). A health command that stopped at the first
- * problem would cost one run per problem, and the person running it is usually trying to find out
- * *everything* that is wrong before touching anything.
+ * Reports findings instead of throwing, like `validate`. Every check runs, the whole list is printed,
+ * and the exit code carries the verdict (exit 6).
  *
- * Two severities, and only failures reach exit 6. Spec §5 is explicit that an uninterpolated `${VAR}`
- * must not fail an install, and the same logic makes a materialization mode a warning here: `--copy`
- * and `--link` are per-run choices, both put identical bytes in front of the harness, and
- * failing on one would leave anyone who uses the flag with a `doctor` that can never pass — the
- * objection `status` already answered by ignoring mode entirely. A limitation of the harness itself
- * goes the same way, for the same reason: ambit wrote everything it owns and cannot write the rest.
- * A variable the environment does not have is a failure, though: install cannot refuse it, which is
- * precisely why this command must.
+ * Two severities; only failures reach exit 6. Per spec §5, an uninterpolated `${VAR}` must not fail an
+ * install, so a missing environment variable is a failure here — install can't refuse it, so this
+ * command must catch it. A materialization mode mismatch (`--copy` vs `--link`) is a warning: both put
+ * identical bytes in front of the harness, and it's a per-run choice with nothing persisting it, so
+ * `status` ignores mode entirely too. A harness limitation ambit can't write around is a warning for the
+ * same reason.
  *
- * One resolution answers everything. `planInstall` produces the bundle, the artifacts, the prior
- * state and the lock bytes, and `statusOfPlan` turns those into the same verdicts `ambit status`
- * prints — so `doctor` and `status` cannot disagree about an artifact, and `doctor` and
- * `install --frozen` cannot disagree about the lock. Nothing here writes.
+ * Runs `planInstall` once and derives everything else from it, so `doctor` can't disagree with `status`
+ * about an artifact or with `install --frozen` about the lock. Nothing here writes.
  */
 import { lstat } from "node:fs/promises";
 
@@ -48,18 +40,13 @@ import type { StatusArtifact } from "./status.js";
 import { statusOfPlan } from "./status.js";
 
 /**
- * The checks, in the order they run and are reported.
+ * The checks, in the order they run and are reported: the world around the project, then the record
+ * of the last install, then what that record and the project disagree about, then the two that are
+ * merely worth knowing (materialization mode, harness limitations).
  *
- * A declared order rather than an alphabetical one, because it is an argument: the world around the
- * project first, then the record of the last install, then what that record and the
- * project disagree about, and last the two that are merely worth knowing — which mode a directory
- * landed in, and what a harness needs that ambit is not allowed to write. A fixed order is all
- * determinism needs.
- *
- * `expects` is one check for every kind of precondition an entity can declare rather than one per
- * kind, because they share a verdict and a fix shape: something about the machine is not as the
- * catalog said it needed to be, and the reader sets it. Today that is `env:` alone; the `bin:` that
- * follows it is a case inside this check, not a seventh entry here.
+ * `expects` covers every kind of precondition an entity can declare, not one check per kind, since they
+ * share a verdict and a fix: something about the machine isn't as the catalog needs, and the reader
+ * sets it. Today that's `env:` alone; `bin:` is a case inside this check, not a separate entry.
  */
 export const DOCTOR_CHECKS = ["expects", "lock", "ownership", "drift", "mode", "harness"] as const;
 
@@ -75,7 +62,7 @@ export const DOCTOR_SEVERITIES = ["fail", "warn"] as const;
 
 export type DoctorSeverity = (typeof DOCTOR_SEVERITIES)[number];
 
-/** One finding, in the shape required of an error, since that is what it would have been. */
+/** One finding, shaped like an error, since that is what it would have been. */
 export interface DoctorFinding {
   readonly check: DoctorCheck;
   readonly severity: DoctorSeverity;
@@ -158,10 +145,9 @@ function demandOf(demands: Map<string, EnvDemand>, variable: string): EnvDemand 
 /**
  * Every string inside a planned config value, in key order.
  *
- * A managed value is arbitrary JSON — the harness's shape, not ambit's — so finding the
- * placeholders in it means walking it rather than knowing where a transport puts headers. Sorted at
- * every object so the order findings are discovered in is a function of the value, not of how it was
- * built.
+ * A managed value is arbitrary JSON in the harness's own shape, not ambit's, so finding placeholders
+ * means walking it rather than knowing where a transport puts headers. Object keys are sorted so the
+ * discovery order depends only on the value, not on how it was built.
  */
 function stringsIn(value: unknown): readonly string[] {
   if (typeof value === "string") return [value];
@@ -175,10 +161,10 @@ function stringsIn(value: unknown): readonly string[] {
 }
 
 /**
- * Every variable one MCP entity's own strings reference — its url and headers, or its arguments.
+ * Every variable one MCP entity's own strings reference: its url and headers, or its arguments.
  *
- * The entity, not the installed server: a catalog writes `${VAR}` and every harness gets its own
- * spelling of it, so this is the one place the answer is the same for all five.
+ * Read off the entity rather than the installed server, because each harness spells a reference in its
+ * own syntax, and the entity is where the answer is the same for all of them.
  */
 function entityReferences(mcp: MergedMcp): readonly string[] {
   const strings =
@@ -191,21 +177,18 @@ function entityReferences(mcp: MergedMcp): readonly string[] {
 /**
  * Who wants each environment variable the bundle needs.
  *
- * Four routes, all of them reported, because they say different things about where the variable is
- * read: a skill's `env:` expectation is something the agent reads at runtime, a server's is something
- * that server reads, a hook's is something the command the harness spawns reads, and a reference in a
- * config file is one the harness expands when it spawns the server. The fix is the same for all four —
- * set the variable — because ambit puts references into these files rather than values, so nothing
- * needs reinstalling once it is set.
+ * Four routes: a skill's `env:` expectation (read by the agent at runtime), a server's `env:`
+ * expectation (read by the server), a hook's `env:` expectation (read by the command the harness
+ * spawns), and a `${VAR}` reference in a config file (expanded by the harness when it spawns the
+ * server). The fix is the same for all four: set the variable. Ambit writes references into these
+ * files, not values, so nothing needs reinstalling once it is set.
  *
- * The fourth route is the one nothing declared, and it is why this check reads more than `expects`: a
- * `${VAR}` an author wrote into a transport's headers is a precondition they stated by using it rather
- * than by writing it down, and the check that can see it is this one.
+ * The fourth route is why this check reads more than `expects`: an author can reference `${VAR}` in a
+ * transport's headers without declaring it, and this is the only check that sees it.
  *
- * A hook contributes through its `expects` alone, and never a config-reference line: a `${VAR}` inside
- * a hook's `command` is left intact for the shell the harness spawns rather than rewritten into a
- * harness's own reference syntax (`HookEntity.command`), so there is no reference in the file for a
- * harness to expand.
+ * A hook contributes through its `expects` alone, never a config-reference line: a `${VAR}` inside a
+ * hook's `command` is left intact for the shell the harness spawns, not rewritten into a harness's own
+ * reference syntax, so there is no reference in the file to find.
  */
 function envDemands(
   bundle: Bundle,
@@ -231,10 +214,9 @@ function envDemands(
     }
   }
 
-  // Read off the *entity* rather than the config file's own bytes. Each harness spells a reference in
-  // its own syntax — `${VAR}`, `${env:VAR}`, `{env:VAR}`, and Codex's bare variable name under
-  // `env_http_headers` — so scanning what was written would answer this question for Claude Code and
-  // silently skip it for the other four. The entity is where the reference is format-independent.
+  // Read off the entity rather than the config file's bytes. Each harness spells a reference in its own
+  // syntax (`${VAR}`, `${env:VAR}`, `{env:VAR}`, Codex's bare variable name under `env_http_headers`),
+  // so scanning the written file would miss it for four of the five harnesses.
   const referenced = new Map(
     bundle.mcps.map((mcp) => [mcp.name, sortedUnique(entityReferences(mcp))]),
   );
@@ -258,12 +240,11 @@ function envDemands(
 /**
  * Every variable something in the bundle expects that the environment does not have.
  *
- * "Does not have" is strictly absent, not empty. An empty value is a decision someone made, and it
- * is what install interpolates — treating it as missing would report a project that is configured
- * exactly as its author meant it to be.
+ * "Does not have" means strictly absent, not empty. An empty value is a decision someone made, and
+ * it's what install interpolates; treating it as missing would flag a project configured exactly as
+ * its author intended.
  *
- * Reported in variable order, so the list is a function of the bundle rather than of which check
- * happened to notice a variable first.
+ * Reported in variable order, so the list depends on the bundle, not on check order.
  */
 function expectFindings(
   bundle: Bundle,
@@ -285,12 +266,11 @@ function expectFindings(
 }
 
 /**
- * Whether the committed lock is what resolution now produces — `--frozen`'s question, asked without
+ * Whether the committed lock is what resolution now produces: `--frozen`'s question, asked without
  * failing an install over it.
  *
- * Compared as bytes, exactly as `--frozen` does: the lock is a record nothing parses, and a file
- * install would rewrite is out of date whatever the two documents mean. Deliberately not
- * `assertLockCurrent`, whose message names `--frozen` and the project's absolute path — neither
+ * Compared as bytes, exactly as `--frozen` does; the lock is a record nothing parses. Deliberately not
+ * `assertLockCurrent`, whose message names `--frozen` and the project's absolute path, neither of which
  * belongs in a report.
  */
 async function lockFindings(
@@ -319,12 +299,10 @@ async function lockFindings(
 }
 
 /**
- * Artifacts that are there and that state does not claim — what install refuses.
+ * Artifacts that are present but that state does not claim: what install refuses.
  *
- * The explanation matters more than the finding, because the usual cause is not carelessness: state
- * is written after the filesystem changes it describes, so an install that crashed
- * leaves its own artifacts present-but-unowned and the next plain install stops on them. Someone who
- * knows that reaches for `--adopt`; someone who does not starts deleting files.
+ * State is written after the filesystem changes it describes, so an install that crashed leaves its
+ * own artifacts present-but-unowned, and the next plain install stops on them. The fix is `--adopt`.
  */
 function ownershipFindings(artifacts: readonly StatusArtifact[]): readonly DoctorFinding[] {
   return artifacts
@@ -346,15 +324,14 @@ function driftStep(state: StatusArtifact["state"]): string {
 }
 
 /**
- * Everything install would change about the project: `status`'s findings, plus the one file `status`
- * has no row for.
+ * Everything install would change about the project: `status`'s findings, plus the managed
+ * `.gitignore` blocks, which `status` has no row for.
  *
- * The managed `.gitignore` blocks are checked here because nothing else checks them at all. They
- * carry no state entry — the markers are the record (`gitignore.ts`) — so neither can be a `status`
- * row, and a block someone edited or deleted is otherwise fixed silently by the next install.
+ * The `.gitignore` blocks carry no state entry (the markers are the record, in `gitignore.ts`), so
+ * they can't be a `status` row, and nothing else checks them.
  *
- * `unowned` is excluded: it is the ownership check's, and reporting it twice would double every
- * finding about a crashed install.
+ * `unowned` is excluded here: it belongs to the ownership check, and reporting it twice would double
+ * every finding about a crashed install.
  */
 async function driftFindings(
   projectDir: string,
@@ -370,9 +347,9 @@ async function driftFindings(
       ]),
     );
 
-  // The same question install's `--dry-run` asks, of the same renderer that writes — and asked per
-  // file, because the two blocks go stale for different reasons: the nested one whenever the bundle
-  // changes, the root one almost never.
+  // Same question install's `--dry-run` asks, of the same renderer that writes. Checked per file
+  // because the two blocks go stale for different reasons: the nested one whenever the bundle changes,
+  // the root one almost never.
   const gitignore = await gitignoreStatus(projectDir, artifacts);
 
   return [
@@ -391,9 +368,9 @@ async function driftFindings(
 /**
  * Which mode a skill is installed in, read off the target rather than off state.
  *
- * `lstat`, so a symlink is seen as itself. An error is treated as "no answer" rather than raised:
- * this only runs on artifacts the comparison already read successfully, and a mode is the one thing
- * here worth less than the run it would abort.
+ * Uses `lstat` so a symlink is seen as itself. Errors are treated as "no answer" rather than raised:
+ * this only runs on artifacts already read successfully, and a mode mismatch isn't worth aborting the
+ * run over.
  */
 async function installedMode(target: string): Promise<ArtifactMode | undefined> {
   try {
@@ -408,14 +385,13 @@ async function installedMode(target: string): Promise<ArtifactMode | undefined> 
 /**
  * Directories installed in a mode a plain `ambit install` would not choose.
  *
- * A warning, and only on artifacts that are otherwise `ok`: `--copy` and `--link` are per-run flags
- * with nothing persisting them, so the divergence is permanent by design and both modes put the same
- * bytes in front of the harness. That is why `status` ignores mode altogether — but it is still worth
- * saying, because the next plain install will silently swap every one of these over.
+ * A warning, only on artifacts that are otherwise `ok`. `--copy` and `--link` are per-run flags with
+ * nothing persisting them, so the divergence is permanent by design and both modes put the same bytes
+ * in front of the harness; that's why `status` ignores mode entirely. Still worth reporting, since the
+ * next plain install will silently swap these over.
  *
- * Both directory kinds, because both have a mode to diverge in. A hook's shipped script left out here
- * would be the one artifact whose materialization mode nothing reports at all — and `status` is
- * deliberately silent about mode, so this is the only place that could.
+ * Covers both directory kinds (skill and hook), since `status` is deliberately silent about mode and
+ * this is the only check that reports it.
  */
 async function modeFindings(
   artifacts: readonly PlannedArtifact[],
@@ -451,15 +427,12 @@ async function modeFindings(
 /**
  * What a configured harness needs that ambit is not allowed to write.
  *
- * One finding today, and it is Codex's: hooks there are experimental and only read when a user's own
- * `config.toml` carries `[features] codex_hooks = true`. That file is user-level rather than the
- * project's, so ambit writes `.codex/hooks.json` correctly and the hooks still never fire — the one
- * failure mode nothing else in this command can see, since every artifact is exactly as planned.
+ * One finding today, Codex's: hooks there are experimental and only read when a user's own
+ * `config.toml` carries `[features] codex_hooks = true`. That file is user-level, not the project's, so
+ * ambit writes `.codex/hooks.json` correctly and the hooks still never fire.
  *
- * A warning rather than a failure, for the reason the module comment gives: the flag is a legitimate
- * thing to have set, ambit cannot tell whether it is, and a failure would leave anyone on Codex with a
- * `doctor` that can never pass. Only raised when the project actually selects a hook — a Codex project
- * with no hooks is not waiting on anything.
+ * A warning, not a failure: ambit cannot tell whether the flag is set, and failing would leave anyone
+ * on Codex with a `doctor` that can never pass. Only raised when the project selects a hook.
  */
 function harnessFindings(bundle: Bundle, harnesses: readonly string[]): readonly DoctorFinding[] {
   const layout = codex.hooks;
@@ -487,9 +460,8 @@ function checkResults(findings: readonly DoctorFinding[]): readonly CheckResult[
 /**
  * Runs every check against a project.
  *
- * Reads `process.env` directly, the way `projectStatus` does: the environment is the subject of the
- * first check, and the same one `planInstall` interpolates from, so a variable passed in separately
- * could contradict what install would actually write.
+ * Reads `process.env` directly, like `projectStatus` does: it's the same environment `planInstall`
+ * interpolates from, so a variable passed in separately could contradict what install would write.
  *
  * @param projectDir the project root, absolute.
  * @param options `--offline`.

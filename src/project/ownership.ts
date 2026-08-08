@@ -2,19 +2,17 @@
  * Ownership enforcement — the safety core.
  *
  * ambit overwrites only what `.ambit/state.json` says it created. Anything else at a target path
- * belongs to someone: a hand-written skill, a server added to `.mcp.json` long before ambit ran, a
- * directory another tool maintains. Refusing those is not politeness — being safe to point at a
- * project that already has content is the entire reason a state file exists.
+ * belongs to someone else: a hand-written skill, a server added to `.mcp.json` before ambit ran, a
+ * directory another tool maintains. This lets ambit be pointed at a project that already has content.
  *
- * The check runs over the **whole** plan before any adapter writes anything, so a refusal leaves the
- * project exactly as it was rather than half-installed. `--adopt` is the explicit override, and it is
- * expressed by handing `apply` a state that already owns the adopted target: the target is then
- * replaced the way an owned one is, instead of being copied on top of and left carrying files the
- * catalog no longer ships.
+ * The check runs over the whole plan before any adapter writes anything, so a refusal leaves the
+ * project exactly as it was rather than half-installed. `--adopt` is expressed by handing `apply` a
+ * state that already owns the adopted target, so the target is replaced the way an owned one is,
+ * instead of copied on top of and left carrying files the catalog no longer ships.
  *
- * Granularity follows the artifact. A skill directory is owned as a path; a harness config file is
- * co-owned and only ambit's keys inside it are ambit's, so a `.mcp.json` full of
- * hand-added servers is a normal input and only a *colliding* server name is a conflict.
+ * Granularity follows the artifact. A skill directory is owned as a path. A harness config file is
+ * co-owned: only ambit's keys inside it are ambit's, so a `.mcp.json` full of hand-added servers is a
+ * normal input, and only a colliding server name is a conflict.
  */
 import { lstat, stat } from "node:fs/promises";
 import path from "node:path";
@@ -70,11 +68,10 @@ async function exists(target: string, file: string): Promise<boolean> {
  * The first directory an artifact needs that something other than a directory occupies.
  *
  * `mkdir -p` cannot create a path whose ancestor is a dangling symlink (`ENOENT`) or a file
- * (`ENOTDIR`), and neither error means what it says here: something ambit did not create is in the
- * way, which is precisely the case this module exists to refuse. Deep inside `apply` they surface as
- * "unexpected internal error … this is a bug in ambit", so they are caught here instead — before
- * anything is written, and naming the ancestor rather than the artifact, since the ancestor is what
- * has to move.
+ * (`ENOTDIR`). Both mean something ambit did not create is in the way. Left to surface inside
+ * `apply`, they'd show as "unexpected internal error … this is a bug in ambit", so they are caught
+ * here, before anything is written, naming the ancestor (which is what has to move) rather than the
+ * artifact.
  *
  * @returns the offending ancestor, project-relative, or `undefined` when the path is clear. A missing
  *   ancestor is clear: `mkdir -p` creates it.
@@ -83,9 +80,8 @@ async function exists(target: string, file: string): Promise<boolean> {
 async function blockingAncestor(artifact: PlannedPathArtifact): Promise<string | undefined> {
   const segments = artifact.path.split("/");
 
-  // The ancestors as absolute paths, outermost first, walked up from the target rather than down from
-  // a project root: the plan already carries both forms of the same location, and re-joining them
-  // would be re-deriving one of them.
+  // Ancestors as absolute paths, outermost first, walked up from the target rather than down from a
+  // project root: the plan already carries both forms of this location.
   const ancestors: string[] = [];
   let absolute = artifact.target;
   for (let depth = segments.length - 1; depth > 0; depth -= 1) {
@@ -99,7 +95,7 @@ async function blockingAncestor(artifact: PlannedPathArtifact): Promise<string |
 
     try {
       // `stat`, following links: an ancestor that is a symlink to a real directory is a directory as
-      // far as writing into it goes, and ambit has no reason to object to it.
+      // far as writing into it goes.
       if (!(await stat(absolute)).isDirectory()) return walked;
     } catch (error) {
       if (!isMissing(error)) {
@@ -108,8 +104,8 @@ async function blockingAncestor(artifact: PlannedPathArtifact): Promise<string |
           `make ${absolute} readable, so ambit can tell whether it can write beneath it`,
         ]);
       }
-      // Nothing resolves there. Either the path is genuinely absent — fine — or a link is pointing at
-      // something that is not there, which only `lstat` can tell apart.
+      // Nothing resolves there: either the path is genuinely absent, or a link points at something
+      // that is not there. Only `lstat` can tell those apart.
       try {
         await lstat(absolute);
       } catch {
@@ -191,8 +187,8 @@ async function checkConfigKeys(
   if (present.size === 0 || options.adopt === true) return;
 
   const owned = ownedKeys(prior, artifact.path);
-  // Driven by the plan's entries, which arrive sorted, so which collision is reported first is a
-  // function of the bundle and not of the order keys happen to sit in the file.
+  // Driven by the plan's entries, which arrive sorted, so which collision is reported first depends
+  // on the bundle, not on the order keys happen to sit in the file.
   for (const entry of artifact.entries) {
     const key = managedKey(artifact.section, entry.key);
     if (present.has(entry.key) && !owned.has(key)) refuseKey(artifact, key);
@@ -227,8 +223,8 @@ export async function authorizePlan(
       continue;
     }
 
-    // Checked whatever state says, and before the ownership question: an artifact ambit owns is no
-    // more writable than a new one when the directory it lives in has been replaced by a dangling
+    // Checked before the ownership question, regardless of what state says: an artifact ambit owns is
+    // no more writable than a new one when the directory it lives in has been replaced by a dangling
     // link.
     const blocking = await blockingAncestor(artifact);
     if (blocking !== undefined) refuseAncestor(artifact, blocking);
@@ -237,9 +233,9 @@ export async function authorizePlan(
     if (!(await exists(artifact.target, artifact.path))) continue;
 
     // The one case adoption is implicit: a skills directory holding nothing but skills ambit itself
-    // installed. That is what an install from before the shared layout leaves behind, and replacing it
-    // with a link to the shared directory loses nothing, because ambit wrote everything in it. One
-    // hand-written skill in there and this is false, so the refusal below stands.
+    // installed. This is what a pre-shared-layout install leaves behind, and replacing it with a link
+    // to the shared directory loses nothing, since ambit wrote everything in it. One hand-written
+    // skill in there and this is false, so the refusal below stands.
     const migrating =
       artifact.kind === "skills-link" &&
       (await holdsOnlyOwned(artifact.target, artifact.path, owned));

@@ -1,11 +1,9 @@
 /**
  * How the mutating commands render an artifact.
  *
- * `install`, `prune` and `clean` all report the same two things — artifacts written and artifacts
- * removed — and a reader moving between them should not have to work out whether two tools are
- * describing one project. So the projections live here once: the same columns in the same order, the
- * same JSON keys, and a path that is always project-relative so nothing machine-specific reaches
- * either output.
+ * `install`, `prune` and `clean` all report the same two things (artifacts written and artifacts
+ * removed), so the projections live here once: the same columns in the same order, the same JSON
+ * keys, and a path that is always project-relative so nothing machine-specific reaches either output.
  */
 import type { OwnedArtifact } from "../../model/state.js";
 
@@ -15,9 +13,8 @@ export const NO_DETAIL = "-";
 /**
  * One artifact as a JSON record, with the keys in a fixed order.
  *
- * Takes the owned shape rather than the planned or pruned one, because all three carry it and it is
- * the only part of them a report should show: a `target` is absolute and an `entries` list is the
- * harness's business.
+ * Takes the owned shape rather than the planned or pruned one: all three carry it, and it's the only
+ * part a report should show. A `target` is absolute and an `entries` list is the harness's business.
  */
 export function artifactJson(artifact: OwnedArtifact): Readonly<Record<string, unknown>> {
   return {
@@ -36,9 +33,8 @@ export function artifactRows(artifacts: readonly OwnedArtifact[]): readonly (rea
 /**
  * One row per artifact removed: path, kind, and the keys taken out of a co-owned config file.
  *
- * The third column carries keys rather than a mode, which is the difference between the two
- * directions: what a removal has to say is *how much* of a co-owned file went, since a config file
- * loses keys and stays where it is, whereas a skill directory goes whole.
+ * The third column carries keys rather than a mode: a removal needs to say how much of a co-owned
+ * file went, since a config file loses keys and stays where it is, while a skill directory goes whole.
  */
 export function removalRows(artifacts: readonly OwnedArtifact[]): readonly (readonly string[])[] {
   return artifacts.map((artifact) => [

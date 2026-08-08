@@ -1,18 +1,16 @@
 /**
  * `ambit resolve` — compute the bundle and print it.
  *
- * `--json` is the golden-file surface, so it carries no absolute paths and every key is
- * emitted in sorted order. The shape mirrors `ambit.lock` minus the parts only a
- * fetched catalog can supply, so the lock later becomes a serialization of this rather than a
- * second, differently-shaped view.
+ * `--json` is the golden-file surface: no absolute paths, every key emitted in sorted order. The
+ * shape mirrors `ambit.lock` minus the parts only a fetched catalog can supply, so the lock is later
+ * a serialization of this rather than a second, differently-shaped view.
  *
- * `--explain` adds one column and one key rather than a different report: the annotated bundle is
- * the same bundle, and a reader comparing the two should not have to re-find their bearings. The
- * reason is deliberately the short form — `ambit why` is where a whole chain belongs.
+ * `--explain` adds one column and one key rather than a different report, so a reader comparing the
+ * two doesn't need to re-find their bearings. The reason is the short form; `ambit why` prints the
+ * whole chain.
  *
- * There is nothing to annotate about *whose* copy an item is. Every row already names its catalog,
- * and a bundle holds one item per name — a selection reaching two catalogs' copies of one name is
- * refused at resolve rather than reported here, since both would be installed at one path.
+ * A bundle holds one item per name; a selection reaching two catalogs' copies of the same name is
+ * refused at resolve, not reported here, since both would be installed at one path.
  */
 import { loadCatalogs, mergeCatalogs } from "../../model/catalog.js";
 import type { CommandHandler } from "../commands.js";
@@ -37,8 +35,6 @@ function toJson(bundle: Bundle, explain: boolean): Readonly<Record<string, unkno
       (hook) => hook.name,
       (hook) => {
         const why = reason(bundle, { kind: "hook", name: hook.name }, explain);
-        // The event beside the catalog, not instead of it: the catalog says where to change the hook,
-        // and the event is what a reader scanning the list is looking for.
         return {
           catalog: hook.catalog,
           event: hook.event,
@@ -57,8 +53,8 @@ function toJson(bundle: Bundle, explain: boolean): Readonly<Record<string, unkno
         };
       },
     ),
-    // A pack materializes nothing, so this record carries no path and no bytes — what it says is that
-    // the project asked for it, which is what every `required-by:pack:…` reason below points back to.
+    // A pack materializes nothing, so this record carries no path and no bytes: it only says the
+    // project asked for it.
     packs: keyed(
       bundle.packs,
       (pack) => pack.name,
@@ -92,8 +88,8 @@ function row(cells: readonly string[], why: string | undefined): readonly string
 
 function toText(bundle: Bundle, explain: boolean): readonly string[] {
   return [
-    // Packs first: they are what a project usually wrote down, and the three sections below are what
-    // they expanded to.
+    // Packs first: they are what a project usually wrote down; the sections below are what they
+    // expanded to.
     ...section(
       "packs",
       bundle.packs.map((pack) =>
@@ -124,9 +120,8 @@ function toText(bundle: Bundle, explain: boolean): readonly string[] {
         ),
       ),
     ),
-    // One row per precondition, its kind in its own column: the kind is what says how the thing is
-    // checked, so a reader scanning the section can see `env` and the `bin` beside it for what they are
-    // rather than having to read the names.
+    // One row per precondition, kind in its own column, so `env` and `bin` entries are distinguishable
+    // at a glance.
     ...section(
       "expects",
       EXPECTATION_KINDS.flatMap((kind) => (bundle.expects[kind] ?? []).map((name) => [kind, name])),

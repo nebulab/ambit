@@ -1,11 +1,9 @@
 /**
  * `ambit prune` — remove owned artifacts not in the current bundle.
  *
- * The report is what was removed, not what survived: someone who narrows `ambit.yml` runs this to
- * find out that the skill they dropped is gone, and a list of everything still installed is what
- * `ambit status` is for. A run with nothing to remove says so explicitly — `(none)` under a counted
- * heading — rather than printing nothing, so a quiet prune is distinguishable from a prune that did
- * not run.
+ * The report is what was removed, not what survived: `ambit status` is where to see everything still
+ * installed. A run with nothing to remove says so explicitly (`(none)` under a counted heading)
+ * rather than printing nothing, so a quiet prune is distinguishable from a prune that did not run.
  */
 import type { PruneResult } from "../../project/clean.js";
 import { pruneProject } from "../../project/clean.js";

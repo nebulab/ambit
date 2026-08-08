@@ -1,26 +1,24 @@
 /**
  * `ambit outdated` and `ambit update` — moving a pin, and finding out what moving it would cost.
  *
- * The lock records the commit each catalog resolved to and every other command resolves *to* that commit
- * (`readCatalogPins`), so these two are the only way a pin moves. Editing `ref:` by hand and reinstalling
- * also works — a pin is void once the config it was resolved from changes — but it tells you nothing
- * about what changed until you read the lock diff afterwards.
+ * The lock records the commit each catalog resolved to, and every other command resolves to that
+ * commit (`readCatalogPins`), so these two are the only way a pin moves. Editing `ref:` by hand and
+ * reinstalling also works, but it tells you nothing about what changed until you read the lock diff
+ * afterwards.
  *
- * Both commands are one shape with one switch. Resolve the project twice — once from the cache as it
- * stands, once with the named catalogs' refs resolved against the remote — and hand the two bundles to
- * {@link diffBundles}. What differs is the *refresh mode*: `outdated` probes, so the cache's own refs
- * are untouched and nothing a later command does changes; `update` advances, so the cache moves and
- * the install that follows writes the new commits into the lock. That is the whole of the difference
- * between reporting and doing, and it lives in one field.
+ * Both commands share one shape with one switch: resolve the project twice (once from the cache as it
+ * stands, once with the named catalogs' refs resolved against the remote) and hand the two bundles to
+ * {@link diffBundles}. The *refresh mode* is what differs: `outdated` probes, leaving the cache's refs
+ * untouched; `update` advances them, so the install that follows writes the new commits into the lock.
  *
- * `update` installs by calling `installProject`, which resolves a third time. That is deliberate:
+ * `update` installs by calling `installProject`, which resolves a third time. This is deliberate:
  * install is the only thing that knows how to install, and by the time it runs the cache already holds
- * the advanced refs, so it resolves to exactly what this module just reported and reaches the network
- * not at all. A seam for handing it a pre-resolved bundle would buy one catalog parse and cost the
- * guarantee that `ambit update` and `ambit install` install the same way.
+ * the advanced refs, so it resolves to exactly what this module just reported without touching the
+ * network again. A seam for handing it a pre-resolved bundle would save one catalog parse at the cost
+ * of the guarantee that `ambit update` and `ambit install` install the same way.
  *
- * Every source a project has is a catalog — an item cannot be declared anywhere else — so `update`
- * naming catalogs is the whole of what there is to move, and no `ref:` is left outside its reach.
+ * Every source a project has is a catalog, so naming catalogs to `update` covers everything there is
+ * to move; no `ref:` is left outside its reach.
  */
 import type { Catalog, CatalogLoadOptions } from "../model/catalog.js";
 import { loadCatalogs, mergeCatalogs } from "../model/catalog.js";
@@ -46,10 +44,10 @@ import type { SourceContext } from "../model/sources.js";
  * - `pinned` — the `ref` is a commit, so there is nothing for it to name differently.
  * - `unversioned` — a `path:` source, which has no revision at all.
  *
- * `unversioned` is a separate word rather than `current` because the two are not the same claim. A
- * directory's contents can change between two runs exactly as a branch's can; what it has no way to
- * do is be *behind*, since there is no other revision for it to be behind of. `ambit status` is the
- * command that answers whether a `path:` catalog's bundle still matches what is installed.
+ * `unversioned` is a separate word from `current` because the two are not the same claim: a
+ * directory's contents can change between runs exactly as a branch's can, but it has no way to be
+ * *behind*, since there's no other revision to be behind of. `ambit status` is the command that
+ * answers whether a `path:` catalog's bundle still matches what is installed.
  */
 export const CATALOG_FRESHNESS = ["outdated", "current", "pinned", "unversioned"] as const;
 
@@ -124,11 +122,10 @@ function unknownCatalog(name: string, config: ProjectConfig): never {
 /**
  * How each catalog may consult its remote: `mode` for the named ones, nothing for the rest.
  *
- * One case this cannot narrow, and it is a property of the cache rather than of the plan: two
- * catalogs can be two refs of *one* repository, and a clone is shared. Advancing either advances the
- * clone, so `ambit update company` moves a sibling pointed at the same repository too. The report
- * still tells the truth — the sibling's row reads `outdated` and its change appears in the diff — so
- * the run does more than it was asked rather than more than it says.
+ * One case this can't narrow: two catalogs can be two refs of one repository, sharing a clone.
+ * Advancing either advances the clone, so `ambit update company` moves a sibling pointed at the same
+ * repository too. The report still tells the truth: the sibling's row reads `outdated` and its change
+ * appears in the diff.
  *
  * @throws {AmbitError} exit 2 for a name no catalog carries.
  */
@@ -159,9 +156,9 @@ interface Resolution {
 /**
  * The report, plus which catalogs this run refreshed.
  *
- * The second is not part of the report — nobody reading `ambit outdated` needs it — but it is exactly what
- * the install at the end of `ambit update` has to be told: those catalogs' lock pins are the commits the
- * update is replacing, so an install that honoured them would undo it. Kept internal for that reason.
+ * The second field isn't part of the report — nobody reading `ambit outdated` needs it — but it's what
+ * the install at the end of `ambit update` must be told: those catalogs' lock pins are the commits the
+ * update is replacing, and an install that honored them would undo it. Kept internal for that reason.
  */
 interface PlannedUpdate {
   readonly plan: UpdatePlan;
@@ -180,14 +177,14 @@ async function resolveWith(
 }
 
 /**
- * Both passes are given the lock's pins, and the refresh is what overrides them.
+ * Both passes are given the lock's pins; the refresh is what overrides them.
  *
- * The `before` pass has to be the commit the project resolves to *today*, which for a pinned catalog is
- * the locked commit rather than whatever the shared clone's `refs/heads/main` happens to hold — otherwise
- * the report's `commit` column would name a commit the project would not install. The `after` pass gets
- * the same pins and the refresh plan on top, and a refresh wins per catalog (`fetchGitSource` ignores a
- * pin unless it is resolving from the cache), so a named catalog is answered by the remote and an unnamed
- * one stays exactly where it was pinned. That is what makes `ambit update company` a claim about
+ * The `before` pass must be the commit the project resolves to today, which for a pinned catalog is the
+ * locked commit, not whatever the shared clone's `refs/heads/main` happens to hold. Otherwise the
+ * report's `commit` column would name a commit the project would not install. The `after` pass gets the
+ * same pins plus the refresh plan on top; a refresh wins per catalog (`fetchGitSource` ignores a pin
+ * unless it is resolving from the cache), so a named catalog is answered by the remote and an unnamed
+ * one stays exactly where it was pinned. That's what makes `ambit update company` a claim about
  * `company` alone.
  */
 function loadOptions(
@@ -198,19 +195,18 @@ function loadOptions(
 }
 
 /**
- * The `before` pass, with a cache it cannot resolve reported as *nothing* rather than thrown.
+ * The `before` pass, with a cache it cannot resolve reported as nothing rather than thrown.
  *
- * The one pass that must not be fatal, because of what it is asked about. A catalog moves on, and the
- * commit sitting in the cache stops resolving — a skill now requiring a hook the older commit did not
- * ship yet, a name the catalog has since corrected. The project is fine and the remote is fine; the
- * only broken thing is the stale copy, and `ambit update` is precisely the command that replaces it.
- * Failing here would make the one command that can fix that state the second casualty of it, leaving
- * a hand-deleted cache directory as the only way out.
+ * This pass must not be fatal. A catalog can move on and leave the commit sitting in the cache
+ * unresolvable (a skill now requiring a hook the older commit didn't ship, a name since corrected).
+ * The project and the remote are both fine; only the stale copy is broken, and `ambit update` is the
+ * command that replaces it. Failing here would make the fix for that state a casualty of it too,
+ * leaving a hand-deleted cache directory as the only way out.
  *
- * So a config, catalog, or resolution failure means "there is no previous bundle" and the run reports
- * against an empty one: every item reads as added, which is the truth of it — nothing resolved before.
- * A *network* failure is re-thrown, because that one is not about the cache being stale and the
- * refreshing pass is about to hit it too, with a better message.
+ * So a config, catalog, or resolution failure means "there is no previous bundle," and the run reports
+ * against an empty one: every item reads as added, which is true, since nothing resolved before. A
+ * network failure is re-thrown: it isn't about the cache being stale, and the refreshing pass is about
+ * to hit the same network with a better error message.
  */
 async function resolveBefore(
   config: ProjectConfig,
@@ -238,8 +234,8 @@ const NOTHING: Bundle = {
 /**
  * Where one catalog's pin stands, from the two resolutions of it.
  *
- * `moving` decides `pinned` rather than the shape of the `ref` string: a hex-looking branch name is a
- * legitimate thing, and the refresh already asked git which kind of ref answered.
+ * `moving` decides `pinned`, not the shape of the `ref` string: a hex-looking branch name is legitimate,
+ * and the refresh already asked git which kind of ref answered.
  */
 function pinOf(before: Catalog, after: Catalog | undefined): CatalogPin {
   const base = {
@@ -248,8 +244,7 @@ function pinOf(before: Catalog, after: Catalog | undefined): CatalogPin {
     ...(before.ref !== undefined && { ref: before.ref }),
   };
 
-  // No commit on either side is a `path:` source: there is no revision, so there is nothing to be
-  // behind of.
+  // No commit on either side means a `path:` source: there is no revision, so nothing to be behind of.
   if (before.commit === undefined || after?.commit === undefined) {
     return { ...base, freshness: "unversioned" };
   }
@@ -266,10 +261,9 @@ function pinOf(before: Catalog, after: Catalog | undefined): CatalogPin {
 /**
  * Where one catalog's pin stands when the cache it stood on did not resolve at all.
  *
- * Read off the refreshing pass alone, since it is the only one there is. `outdated` rather than
- * `current` for anything that can move: what the cache held is unusable and what the remote holds is
- * not, so the pin has somewhere to go even in the case where the two commits turn out to be equal —
- * which they cannot be here, since one of them resolves and the other does not.
+ * Read off the refreshing pass alone, the only one there is. `outdated` rather than `current` for
+ * anything that can move: what the cache held is unusable and what the remote holds is not, and the
+ * two commits can't be equal here since one of them resolves and the other doesn't.
  */
 function unresolvedPinOf(after: Catalog): CatalogPin {
   const base = {
@@ -279,8 +273,8 @@ function unresolvedPinOf(after: Catalog): CatalogPin {
   };
 
   if (after.commit === undefined) return { ...base, freshness: "unversioned" };
-  // No `commit`: the project resolves to nothing right now, and naming the commit it failed at as
-  // the one it "resolves to" would be the one thing this row must not claim.
+  // No `commit`: the project resolves to nothing right now, so this row must not claim the commit it
+  // failed at as the one it "resolves to".
   if (after.moving === false) return { ...base, latest: after.commit, freshness: "pinned" };
   return { ...base, latest: after.commit, freshness: "outdated" };
 }
@@ -288,11 +282,11 @@ function unresolvedPinOf(after: Catalog): CatalogPin {
 /**
  * Resolves the project twice and compares the two bundles.
  *
- * The unrefreshed pass runs first, and that ordering is load-bearing under `advance`: once the cache's
- * refs have moved, the question "what does this project resolve to *now*" has no answer left.
+ * The unrefreshed pass runs first; that ordering is load-bearing under `advance`, since once the
+ * cache's refs have moved, the question "what does this project resolve to now" has no answer left.
  *
- * It is also allowed to come back empty-handed — see {@link resolveBefore} — in which case the report
- * is against a project that resolved to nothing, rather than a report that never happened.
+ * It's also allowed to come back empty-handed (see {@link resolveBefore}), in which case the report is
+ * against a project that resolved to nothing rather than a report that never happened.
  *
  * @param mode `"probe"` for a report that must change nothing, `"advance"` to move the cache forward.
  * @throws {AmbitError} exit 2 for a malformed config, a catalog name the project does not configure,
@@ -330,11 +324,11 @@ async function planUpdate(
  * `ambit outdated` — where every pin stands, and what moving it would bring.
  *
  * Probes rather than fetches, so running it changes nothing about what a later `ambit install` does.
- * That is not a nicety: the cache is what makes a moving `ref:` deterministic between runs, and a
- * read-only command that quietly advanced it would move a pin nobody asked to move.
+ * The cache is what makes a moving `ref:` deterministic between runs, so a read-only command that
+ * quietly advanced it would move a pin nobody asked to move.
  *
  * @param projectDir the project root, absolute.
- * @throws {AmbitError} everything {@link planUpdate} throws. Being outdated is never one of them: it
+ * @throws {AmbitError} everything {@link planUpdate} throws. Being outdated is never one of them; it
  *   is the report.
  */
 export async function checkOutdated(
@@ -347,12 +341,11 @@ export async function checkOutdated(
 /**
  * `ambit update --dry-run` — the same report, restricted to the catalogs the run named.
  *
- * Literally {@link checkOutdated} with the options passed through, and that is the answer to whether a
- * dry-run update is its own thing: it is not. A preview cannot go on to preview the *install*, because
- * the install it would preview is the one against the pins as they stand — the run has deliberately
- * not moved them — so a plan of artifacts here would describe the wrong resolution. What a dry run
- * owes a reader is which pins would move and what the bundle would gain and lose, and that is exactly
- * the report `outdated` is.
+ * Literally {@link checkOutdated} with the options passed through. It can't go on to preview the
+ * install, because the install it would preview runs against the pins as they stand (this run has
+ * deliberately not moved them), so a plan of artifacts here would describe the wrong resolution. What
+ * a dry run owes a reader is which pins would move and what the bundle would gain and lose, which is
+ * exactly the report `outdated` produces.
  */
 export async function previewUpdate(
   projectDir: string,
@@ -364,11 +357,10 @@ export async function previewUpdate(
 /**
  * `ambit update` — move the pins, then install.
  *
- * The install is `installProject` and installs by exactly one code path, told one thing this module knows
- * and it does not: which catalogs' lock pins this run is replacing. Without that it would reproduce the
- * commits still written in the lock and quietly undo the update. With it, those catalogs resolve from the
- * cache — whose refs this run just advanced — so the install writes the commits that were reported and
- * reaches the network not at all.
+ * Installs via `installProject`, told one thing it doesn't otherwise know: which catalogs' lock pins
+ * this run is replacing. Without that, it would reproduce the commits still written in the lock and
+ * quietly undo the update. With it, those catalogs resolve from the cache whose refs this run just
+ * advanced, so the install writes the commits that were reported without touching the network.
  *
  * @param projectDir the project root, absolute.
  * @param options which catalogs to move.

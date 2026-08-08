@@ -1,19 +1,16 @@
 /**
- * Source resolution: a `source` string, plus an optional `ref`, to a directory a
- * parser can read.
+ * Source resolution: a `source` string, plus an optional `ref`, to a directory a parser can read.
  *
- * Catalogs and `skills` entries carrying their own source share one grammar, so they share this
- * module: the formats are the ones people already type into other tools — `acme/skills`, a GitHub
- * URL, an ssh remote — plus two explicit prefixes for what shorthand cannot express. `path:` names a
- * directory; `git:` says "hand the rest to git verbatim", which is the escape hatch for any URL shape
- * ambit would otherwise have to guess about.
+ * Catalogs and `skills` entries carrying their own source share this module and its grammar. Formats
+ * are the ones people already type into other tools (`acme/skills`, a GitHub URL, an ssh remote) plus
+ * two explicit prefixes for what shorthand cannot express: `path:` names a directory, `git:` hands the
+ * rest to git verbatim as an escape hatch for any URL shape ambit would otherwise have to guess about.
  *
- * A shorthand with no host means GitHub, because that is where catalogs live and `owner/repo` reads
- * as nothing else. Everything else is taken literally — ambit rewrites no URLs, so what a project
- * writes is what git is asked for.
+ * A shorthand with no host means GitHub, since that is where catalogs live. Everything else is taken
+ * literally; ambit rewrites no URLs, so what a project writes is what git is asked for.
  *
- * Fetching goes through the shared cache rather than into the project, so two projects on
- * one catalog fetch it once and neither owns it.
+ * Fetching goes through the shared cache rather than into the project, so two projects on one catalog
+ * fetch it once and neither owns it.
  */
 import { stat } from "node:fs/promises";
 import path from "node:path";
@@ -64,21 +61,21 @@ export interface SourceRequest {
   /** The `(file line N)` suffix its config entry sits at. */
   readonly where: string;
   /**
-   * How much of the remote resolving *this* source may consult. Absent means `"none"`, which is
-   * every command but `ambit outdated` and `ambit update`.
+   * How much of the remote resolving this source may consult. Absent means `"none"`, which applies to
+   * every command except `ambit outdated` and `ambit update`.
    *
-   * Per request rather than on the {@link SourceContext} because `ambit update company` refreshes one
-   * catalog and leaves the rest exactly where they were: a run-wide setting could not say that, and a
-   * catalog whose pin moved because a sibling was named is a pin nobody asked to move.
+   * Set per request rather than on {@link SourceContext} because `ambit update company` refreshes one
+   * catalog and leaves the rest where they were; a run-wide setting could not express that, and a
+   * catalog whose pin moved because a sibling was named would be a pin nobody asked to move.
    */
   readonly refresh?: RefreshMode;
   /**
-   * The commit an earlier resolution of this source recorded — `ambit.lock`'s.
+   * The commit an earlier resolution of this source recorded, from `ambit.lock`.
    *
-   * Resolves to that commit instead of asking what `ref` names now, which is how a committed lock
-   * reproduces an install on a machine whose shared cache holds something else. Ignored alongside a
-   * `refresh`, which is a request for a newer answer than a pin can give, and meaningless for a `path:`
-   * source, which has no revision to pin.
+   * Resolving to that commit instead of asking what `ref` names now is how a committed lock reproduces
+   * an install on a machine whose shared cache holds something else. Ignored alongside a `refresh`,
+   * which asks for a newer answer than a pin can give, and meaningless for a `path:` source, which has
+   * no revision to pin.
    */
   readonly pin?: string;
 }
@@ -97,9 +94,8 @@ export interface SourceContext {
   /**
    * `--offline`: resolve from the cache alone, and fail with exit 4 rather than fetch.
    *
-   * Absent means fetching is allowed, so a caller that forgets it gets the default behaviour rather
-   * than a type error — which is why the two places a context is built (`sourceContextOf`, and
-   * `installProject`) are the only ones that should exist.
+   * Absent means fetching is allowed, so a caller that forgets it gets default behaviour rather than a
+   * type error. Only `sourceContextOf` and `installProject` should build a context.
    */
   readonly offline?: boolean;
 }
@@ -114,8 +110,8 @@ export interface ResolvedSource {
    * Whether the `ref` this resolved through can move: a branch, a tag, or the repository's default
    * branch, as against a `ref` naming a commit, which is already a pin.
    *
-   * Absent for a `path:` source, which has no ref at all, and absent without a refresh, which is not
-   * a question that path asks.
+   * Absent for a `path:` source, which has no ref, and absent without a refresh, since that question
+   * only arises when one was requested.
    */
   readonly moving?: boolean;
 }
@@ -148,8 +144,8 @@ function gitSource(url: string, ref: string | undefined): GitSource {
  * Pure, and the only place the grammar lives: `ambit catalog`, `resolve`, and `install` all reach a
  * source through here, so a format works everywhere or nowhere.
  *
- * @throws {AmbitError} exit 2 for a source matching no format, an empty `path:`, an empty `git:`, or
- *   a `@ref` shorthand contradicting the entry's own `ref`.
+ * @throws {AmbitError} exit 2 for a source matching no format, an empty `path:`, an empty `git:`, or a
+ *   `@ref` shorthand contradicting the entry's own `ref`.
  */
 export function parseSource(request: SourceRequest): Source {
   const source = request.source;
@@ -208,8 +204,7 @@ async function resolvePathRoot(
   try {
     if ((await stat(root)).isDirectory()) return root;
   } catch {
-    // Reported below, together with the not-a-directory case: from the config's point of view they
-    // are one mistake, and the fix is the same.
+    // Reported below alongside the not-a-directory case: same mistake, same fix.
   }
 
   throw configError(`${request.subject} is not a directory ${request.where}`, [
@@ -221,15 +216,12 @@ async function resolvePathRoot(
 /**
  * Resolves a source to a directory on disk, fetching it if it is a git source.
  *
- * A `path:` source is read in place, so `--offline` has nothing to say about it: there is no cache
- * between the project and the directory it names. A `refresh` has nothing to say about it either, and
- * for the same reason — the directory is whatever it currently holds, with no remote to ask and no
- * revision to have moved. Nor does a `pin`, which is the same fact from the other end: there is no
- * revision to have been recorded.
+ * A `path:` source is read in place, so `--offline`, `refresh`, and `pin` have nothing to say about
+ * it: there is no cache between the project and the directory it names, no remote to ask, and no
+ * revision to have moved or been recorded.
  *
- * @throws {AmbitError} exit 2 for a source ambit cannot read, a missing directory, or an unknown
- *   ref; exit 4 if git is missing, a fetch fails, or `--offline` was given and the cache cannot
- *   answer.
+ * @throws {AmbitError} exit 2 for a source ambit cannot read, a missing directory, or an unknown ref;
+ *   exit 4 if git is missing, a fetch fails, or `--offline` was given and the cache cannot answer.
  */
 export async function resolveSource(
   request: SourceRequest,
