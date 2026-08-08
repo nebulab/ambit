@@ -426,7 +426,8 @@ scope over as a tag on the items that declared it.
 1. **Load and validate config.** Malformed → exit 2 naming the field.
 2. **Fetch catalogs**, each into the local cache, at its `ref`, resolved to a commit SHA. A cached
    clone is refetched only when it cannot answer the `ref`, so a moving one keeps meaning what it
-   meant — see [Staying up to date](#staying-up-to-date).
+   meant — except on a first install, which has no `ambit.lock` and therefore nothing to reproduce.
+   See [Staying up to date](#staying-up-to-date).
 3. **Parse each catalog:** every `skills/**/SKILL.md`, every `mcps/*.yml`, every `hooks/**/hook.yml`.
    A skill or hook whose declared `name` disagrees with its directory path is an error. A leftover
    `scopes.yml` → exit 2 naming the rewrite.
@@ -503,8 +504,14 @@ back to the entry at the end of it.
 
 A catalog is fetched into a local cache, and the cache is refetched only when it cannot answer the
 `ref` it was asked for. So `ref: main` keeps meaning whichever commit it meant the first time, and
-`ambit install` run twice a week apart installs the same bytes. Moving forward is a decision, and
-these are the two commands that make it:
+`ambit install` run twice a week apart installs the same bytes.
+
+The exception is the _first_ time — a project with no `ambit.lock`. There is no earlier run for it to
+agree with, and the cache is shared with every other project on the machine, so a first install
+resolves its moving refs against the remote rather than inheriting a commit some unrelated project
+last fetched. Every install after that leaves the cache alone. `--offline` opts out.
+
+Moving forward after that is a decision, and these are the two commands that make it:
 
 ```
 $ ambit outdated

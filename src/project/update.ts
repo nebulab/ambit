@@ -26,7 +26,8 @@ import type { Catalog, CatalogLoadOptions } from "../model/catalog.js";
 import { loadCatalogs, mergeCatalogs } from "../model/catalog.js";
 import type { ProjectConfig } from "../model/config.js";
 import { loadProjectConfig } from "../model/config.js";
-import { at, configError } from "../errors.js";
+import { AmbitError, ExitCode, at, configError } from "../errors.js";
+import { unionExpectations } from "../model/expectation.js";
 import type { BundleDiff } from "./bundle-diff.js";
 import { diffBundles } from "./bundle-diff.js";
 import type { RefreshMode } from "../model/git.js";
@@ -148,15 +149,57 @@ function refreshPlan(
   return plan;
 }
 
+/** One pass of the two below: what the catalogs were, and what they resolved to. */
+interface Resolution {
+  readonly catalogs: readonly Catalog[];
+  readonly bundle: Bundle;
+}
+
 /** Resolves the project through one load, so the two passes below cannot differ in anything else. */
 async function resolveWith(
   config: ProjectConfig,
   context: SourceContext,
   options: CatalogLoadOptions,
-): Promise<{ readonly catalogs: readonly Catalog[]; readonly bundle: Bundle }> {
+): Promise<Resolution> {
   const catalogs = await loadCatalogs(config, context, options);
   return { catalogs, bundle: resolveBundle(config, mergeCatalogs(catalogs)) };
 }
+
+/**
+ * The `before` pass, with a cache it cannot resolve reported as *nothing* rather than thrown.
+ *
+ * The one pass that must not be fatal, because of what it is asked about. A catalog moves on, and the
+ * commit sitting in the cache stops resolving — a skill now requiring a hook the older commit did not
+ * ship yet, a name the catalog has since corrected. The project is fine and the remote is fine; the
+ * only broken thing is the stale copy, and `ambit update` is precisely the command that replaces it.
+ * Failing here would make the one command that can fix that state the second casualty of it, leaving
+ * a hand-deleted cache directory as the only way out.
+ *
+ * So a config, catalog, or resolution failure means "there is no previous bundle" and the run reports
+ * against an empty one: every item reads as added, which is the truth of it — nothing resolved before.
+ * A *network* failure is re-thrown, because that one is not about the cache being stale and the
+ * refreshing pass is about to hit it too, with a better message.
+ */
+async function resolveBefore(
+  config: ProjectConfig,
+  context: SourceContext,
+): Promise<Resolution | undefined> {
+  try {
+    return await resolveWith(config, context, {});
+  } catch (error) {
+    if (error instanceof AmbitError && error.code !== ExitCode.Network) return undefined;
+    throw error;
+  }
+}
+
+/** The bundle a project that does not resolve is compared against: nothing selected, nothing expected. */
+const NOTHING: Bundle = {
+  skills: [],
+  mcps: [],
+  hooks: [],
+  expects: unionExpectations([]),
+  reasons: { skills: new Map(), mcps: new Map(), hooks: new Map() },
+};
 
 /**
  * Where one catalog's pin stands, from the two resolutions of it.
@@ -187,15 +230,41 @@ function pinOf(before: Catalog, after: Catalog | undefined): CatalogPin {
 }
 
 /**
+ * Where one catalog's pin stands when the cache it stood on did not resolve at all.
+ *
+ * Read off the refreshing pass alone, since it is the only one there is. `outdated` rather than
+ * `current` for anything that can move: what the cache held is unusable and what the remote holds is
+ * not, so the pin has somewhere to go even in the case where the two commits turn out to be equal —
+ * which they cannot be here, since one of them resolves and the other does not.
+ */
+function unresolvedPinOf(after: Catalog): CatalogPin {
+  const base = {
+    name: after.name,
+    source: after.source,
+    ...(after.ref !== undefined && { ref: after.ref }),
+  };
+
+  if (after.commit === undefined) return { ...base, freshness: "unversioned" };
+  // No `commit`: the project resolves to nothing right now, and naming the commit it failed at as
+  // the one it "resolves to" would be the one thing this row must not claim.
+  if (after.moving === false) return { ...base, latest: after.commit, freshness: "pinned" };
+  return { ...base, latest: after.commit, freshness: "outdated" };
+}
+
+/**
  * Resolves the project twice and compares the two bundles.
  *
  * The unrefreshed pass runs first, and that ordering is load-bearing under `advance`: once the cache's
  * refs have moved, the question "what does this project resolve to *now*" has no answer left.
  *
+ * It is also allowed to come back empty-handed — see {@link resolveBefore} — in which case the report
+ * is against a project that resolved to nothing, rather than a report that never happened.
+ *
  * @param mode `"probe"` for a report that must change nothing, `"advance"` to move the cache forward.
  * @throws {AmbitError} exit 2 for a malformed config, a catalog name the project does not configure,
  *   or an unreadable catalog; exit 3 for a resolution error; exit 4 if a fetch fails, or under
- *   `--offline`, which forbids reaching a remote at all.
+ *   `--offline`, which forbids reaching a remote at all. All of them from the refreshing pass: the
+ *   unrefreshed one throws only what it cannot answer by refreshing.
  */
 async function planUpdate(
   projectDir: string,
@@ -206,13 +275,16 @@ async function planUpdate(
   const refresh = refreshPlan(config, options.catalogs, mode);
   const context: SourceContext = { projectDir, env: process.env };
 
-  const before = await resolveWith(config, context, {});
+  const before = await resolveBefore(config, context);
   const after = await resolveWith(config, context, { refresh });
 
   const latest = new Map(after.catalogs.map((catalog) => [catalog.name, catalog]));
   return {
-    catalogs: before.catalogs.map((catalog) => pinOf(catalog, latest.get(catalog.name))),
-    diff: await diffBundles(before.bundle, after.bundle),
+    catalogs:
+      before === undefined
+        ? after.catalogs.map(unresolvedPinOf)
+        : before.catalogs.map((catalog) => pinOf(catalog, latest.get(catalog.name))),
+    diff: await diffBundles(before?.bundle ?? NOTHING, after.bundle),
   };
 }
 
