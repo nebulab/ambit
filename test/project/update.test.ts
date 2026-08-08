@@ -541,3 +541,102 @@ describe("--offline", () => {
     });
   }
 });
+
+/**
+ * A `requires` entry naming a hook the catalog does not ship — the shape a catalog takes when a
+ * commit is read by a build that has moved on past it. The one this was written for was a manifest
+ * filename that changed: the skill's `requires` was right and the hook was there, and the older
+ * commit spelled its manifest the way only the older build looked for it.
+ */
+const UNRESOLVABLE_SKILL = `---
+name: deploy-runbook
+description: How Acme deploys.
+ambit:
+  tags: [function.engineering]
+  requires:
+    - name: no-such-hook
+      capabilities: [hooks]
+---
+
+# Deploy runbook
+`;
+
+describe("a first install, which has no earlier resolution to reproduce", () => {
+  it("takes the commit the ref names now, not the one the shared cache happens to hold", async () => {
+    // Some other project on this machine warmed the clone, and the branch moved afterwards.
+    const warmed = path.join(root, "warmed");
+    await writeProject(warmed, fixture.url, fixture.branch);
+    expect((await cli(warmed, "install")).code).toBe(ExitCode.Success);
+    const moved = await commitFixtureGitRevision(fixture, {
+      "skills/deploy-runbook/SKILL.md": NEW_SKILL,
+    });
+
+    const fresh = path.join(root, "fresh");
+    await writeProject(fresh, fixture.url, fixture.branch);
+    const install = await cli(fresh, "install");
+
+    expect(install.code, install.stderr).toBe(ExitCode.Success);
+    expect(await lockedCommit(fresh)).toBe(moved);
+    expect(await resolvedSkills(fresh)).toContain("deploy-runbook");
+  });
+
+  it("leaves the cache alone once a lock exists, which is what makes a reinstall reproducible", async () => {
+    expect((await cli(project, "install")).code).toBe(ExitCode.Success);
+    await commitFixtureGitRevision(fixture, { "skills/deploy-runbook/SKILL.md": NEW_SKILL });
+
+    const second = await cli(project, "install");
+
+    expect(second.code, second.stderr).toBe(ExitCode.Success);
+    expect(await lockedCommit(project)).toBe(fixture.commit);
+    expect(await resolvedSkills(project)).not.toContain("deploy-runbook");
+  });
+
+  it("does not reach the remote under `--offline`, which outranks it", async () => {
+    await rm(fixture.repo, { recursive: true, force: true });
+
+    const install = await cli(project, "install", "--offline");
+
+    expect(install.code).toBe(ExitCode.Network);
+    expect(await readdir(project)).not.toContain(LOCK_FILENAME);
+  });
+});
+
+describe("ambit update, when the cached commit is one the project cannot resolve", () => {
+  /** Leaves the clone's branch on a commit that does not resolve, and the remote on one that does. */
+  async function breakTheCache(): Promise<string> {
+    await commitFixtureGitRevision(fixture, {
+      "skills/deploy-runbook/SKILL.md": UNRESOLVABLE_SKILL,
+    });
+    const broken = await cli(project, "install");
+    expect(broken.code).toBe(ExitCode.Resolution);
+
+    return commitFixtureGitRevision(fixture, { "skills/deploy-runbook/SKILL.md": NEW_SKILL });
+  }
+
+  it("replaces it instead of dying on it, which is the whole reason to run update", async () => {
+    const fixed = await breakTheCache();
+
+    const update = await cli(project, "update");
+
+    expect(update.code, update.stderr).toBe(ExitCode.Success);
+    expect(await lockedCommit(project)).toBe(fixed);
+    expect(await resolvedSkills(project)).toContain("deploy-runbook");
+  });
+
+  it("reports the pin as outdated, with no commit it claims to resolve to", async () => {
+    const fixed = await breakTheCache();
+
+    const report = await json(project, "outdated");
+    const catalogs = report.catalogs as Record<string, Record<string, unknown>>;
+
+    expect(report.outdated).toBe(true);
+    // No `commit`: a project that resolves to nothing has no commit it resolves to, and naming the
+    // one it failed at would read as a working pin.
+    expect(catalogs[CATALOG_NAME]).toEqual({
+      freshness: "outdated",
+      latest: fixed,
+      ref: fixture.branch,
+      source: fixture.url,
+    });
+  });
+});

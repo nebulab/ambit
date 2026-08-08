@@ -10,6 +10,11 @@
  * lock, not the network. So the cache grows when it is asked something it does not know, and the way
  * to move a project forward is to change what it asks for.
  *
+ * That is a claim about a *second* run, and it is the caller's job to notice when there has not been
+ * a first: a project with no `ambit.lock` has no earlier resolution to agree with, so `install` asks
+ * the remote rather than inheriting whatever commit some unrelated project last left in the shared
+ * cache. See `unlockedRefresh` in `src/project/install.ts`.
+ *
  * **A checkout is keyed by commit, never by ref.** Two projects pinned to different refs of one
  * repository share the clone without racing over a working tree, and a checkout that is already
  * there is byte-for-byte the one an earlier run produced.

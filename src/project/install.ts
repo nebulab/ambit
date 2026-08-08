@@ -40,8 +40,10 @@ import type {
 import { PROFILES } from "../harness/definitions.js";
 import { adapterFor } from "../harness/profile.js";
 import { loadCatalogs, mergeCatalogs } from "../model/catalog.js";
+import type { ProjectConfig } from "../model/config.js";
 import { loadProjectConfig } from "../model/config.js";
 import { configError } from "../errors.js";
+import type { RefreshMode } from "../model/git.js";
 import type { GitignoreStatus } from "./gitignore.js";
 import { gitignoreStatus, writeGitignoreBlocks } from "./gitignore.js";
 import type { Lock } from "./lock.js";
@@ -231,6 +233,44 @@ export function planFor(
 }
 
 /**
+ * How a *first* install may consult its catalogs' remotes: `mode` for every one of them, or nothing.
+ *
+ * A moving `ref:` is answered from the cache, which refetches only when it cannot resolve the ref
+ * (`src/model/git.ts`). That is what keeps `ref: main` meaning one commit between two runs — but it
+ * only reads as determinism once a project has resolved *once*. Before that there is no earlier run
+ * to agree with, and the cache is shared across every project on the machine, so a first install
+ * would inherit whatever commit some unrelated project last fetched: months old on a warm machine,
+ * current on a cold one, and neither of them anything this project asked for. The failure that is is
+ * silent — an old catalog installs fine — until the day it is not, and then it is a resolution error
+ * about a catalog that has been correct upstream for weeks.
+ *
+ * So the presence of `ambit.lock` is what decides. With a lock there is a previous resolution to
+ * reproduce and the cache is left alone, exactly as before; without one there is nothing to
+ * reproduce, and the only defensible meaning of `ref: main` is the commit main names now. Every
+ * later install is unchanged, and moving a pin forward is still `ambit update`'s job alone.
+ *
+ * `--offline` opts out, because it is a promise not to reach the remote and outranks this. `doctor`,
+ * `clean` and `prune` plan without a mode at all: they report on or dismantle what is installed, and
+ * neither is an install asking what its catalogs say today.
+ *
+ * `"advance"` rather than `"probe"`, and for the same reason `ambit update` advances: a clone is
+ * shared, so a probe would resolve this install against a commit the *next* run — reading the clone's
+ * own refs, and now holding a lock — would not agree with, which is the drift this is here to remove
+ * rather than a milder form of it. The cost is the one `refreshPlan` in `update.ts` already names:
+ * another project pointed at the same repository sees the moved clone too.
+ */
+async function unlockedRefresh(
+  projectDir: string,
+  config: ProjectConfig,
+  options: InstallOptions,
+  mode: RefreshMode | undefined,
+): Promise<ReadonlyMap<string, RefreshMode> | undefined> {
+  if (mode === undefined || options.offline === true) return undefined;
+  if ((await readLockText(projectDir)) !== undefined) return undefined;
+  return new Map(config.catalogs.map((entry) => [entry.name, mode]));
+}
+
+/**
  * Resolves the project and plans every adapter's writes, touching nothing.
  *
  * Everything up to the first write lives here so that `install`, `install --dry-run` and
@@ -240,6 +280,9 @@ export function planFor(
  *
  * @param projectDir the project root, absolute.
  * @param options `--offline` and `--copy`/`--link`, which are the two that change a plan.
+ * @param unlocked how a project with no `ambit.lock` may consult its remotes — see
+ *   {@link unlockedRefresh}. A positional rather than an `InstallOptions` field because it is not a
+ *   flag: `InstallOptions` is what the CLI parsed, and this is which command is doing the planning.
  * @throws {AmbitError} exit 2 for a malformed config or catalog, an unknown harness, or an unreadable
  *   state file; exit 3 for a resolution error; exit 4 if a fetch fails, or under `--offline` when the
  *   cache cannot answer.
@@ -247,6 +290,7 @@ export function planFor(
 export async function planInstall(
   projectDir: string,
   options: InstallOptions = {},
+  unlocked?: RefreshMode,
 ): Promise<PlannedInstall> {
   const config = await loadProjectConfig(projectDir);
   const harnesses = [...new Set(config.harnesses)].sort(compare);
@@ -261,7 +305,10 @@ export async function planInstall(
     offline: options.offline === true,
   };
 
-  const loaded = await loadCatalogs(config, context);
+  const refresh = await unlockedRefresh(projectDir, config, options, unlocked);
+  const loaded = await loadCatalogs(config, context, {
+    ...(refresh !== undefined && { refresh }),
+  });
   const bundle = resolveBundle(config, mergeCatalogs(loaded));
 
   // Serialized up front so `--frozen` compares the same bytes the run would go on to write, rather
@@ -312,7 +359,10 @@ export async function previewInstall(
   projectDir: string,
   options: InstallOptions = {},
 ): Promise<InstallPreview> {
-  const planned = await planInstall(projectDir, options);
+  // `"probe"` rather than `"advance"`: a first install resolves against what the remote says now
+  // (see {@link unlockedRefresh}), and a dry run has to report that same commit without leaving the
+  // cache's own refs moved — the run is a preview, and the install it previews is what moves them.
+  const planned = await planInstall(projectDir, options, "probe");
   if (options.frozen === true) await assertLockCurrent(projectDir, planned.lockText);
   await authorizePlan(planned.artifacts, planned.prior, { adopt: options.adopt === true });
 
@@ -347,7 +397,7 @@ export async function installProject(
   projectDir: string,
   options: InstallOptions = {},
 ): Promise<InstallResult> {
-  const planned = await planInstall(projectDir, options);
+  const planned = await planInstall(projectDir, options, "advance");
   const { bundle, harnesses, plans, prior, lock, lockText, skipped } = planned;
   if (options.frozen === true) await assertLockCurrent(projectDir, lockText);
 
