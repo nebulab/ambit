@@ -95,7 +95,9 @@ interface ChildResult {
  * assertion naming the command's own output rather than a stack trace.
  *
  * The cache and user-level install directories are redirected into a temporary tree, because dotagents
- * defaults them under `$HOME` and a test that writes there is a test that changed the machine.
+ * defaults them under `$HOME` and a test that writes there is a test that changed the machine. That
+ * redirect covers every invocation, since the global scope is the one dotagents acts on unless a
+ * command is given `--project`.
  */
 async function dotagents(args: readonly string[], cwd: string): Promise<ChildResult> {
   const env: Record<string, string | undefined> = {
@@ -168,7 +170,9 @@ async function expectInstallable(): Promise<void> {
   const catalog = await parseCatalogDirectory("subject", `path:${catalogDir}`, catalogDir);
   expect(catalog.skills.length).toBeGreaterThan(0);
 
-  const result = await dotagents(["install"], project);
+  // `--project`, because dotagents operates on the global scope by default: a bare `install` writes
+  // `~/.agents/agents.toml` and reports success, leaving the project it was run in untouched.
+  const result = await dotagents(["--project", "install"], project);
   expect(result.code, `${result.stdout}\n${result.stderr}`).toBe(0);
 
   const installed = (await readdir(path.join(project, INSTALLED_DIR))).sort();
