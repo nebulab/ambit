@@ -21,13 +21,18 @@
  * retryable (state still owns what it was about to remove) and a failed `apply` leaves the previous
  * install standing.
  *
- * Nothing here reads the environment. A `${VAR}` in an MCP entity becomes a reference in the target
- * harness's own syntax rather than a resolved value, so an adapter's `plan` is a pure function of the
- * bundle and the project; the environment is `doctor`'s concern, not install's.
+ * No value from the environment reaches an artifact. A `${VAR}` in an MCP entity becomes a reference in
+ * the target harness's own syntax rather than a resolved value, so an adapter's `plan` is a pure
+ * function of the bundle and the project; the environment is `doctor`'s concern, not install's. The one
+ * thing read here is `HOME`, and only to decide {@link installScope}.
  */
+import { homedir } from "node:os";
+import path from "node:path";
+
 import type {
   AppliedArtifact,
   HarnessAdapter,
+  InstallScope,
   PlannedArtifact,
   ProjectPaths,
   SkippedHook,
@@ -143,6 +148,29 @@ export interface InstallResult {
 
 function compare(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
+}
+
+/**
+ * Which config the harnesses will read this install as: `user` at the home directory, `project`
+ * anywhere else.
+ *
+ * Every harness ambit writes for keeps its user-level config under the home directory, so installing
+ * there is how a person gets one set of skills and hooks in every project at once. That changes what
+ * a hook's `command` may say (see `hookRoot`, `harness/definitions.ts`), and nothing else: the same
+ * files, in the same places.
+ *
+ * Detected from the root rather than declared in `ambit.yml`: a user-level install that did not say so
+ * writes hooks resolving into whatever project is open, which fails silently and is exploitable, so
+ * there is nothing here to opt into.
+ *
+ * `HOME` is honoured over the platform's own answer, as `cacheRoot` (`model/git.ts`) does, so a test
+ * can point a home directory somewhere disposable.
+ *
+ * @param root the project root, absolute.
+ */
+export function installScope(root: string, env: NodeJS.ProcessEnv): InstallScope {
+  const home = env.HOME ?? homedir();
+  return path.resolve(root) === path.resolve(home) ? "user" : "project";
 }
 
 /**
@@ -331,8 +359,9 @@ export async function planInstall(
   const harnesses = [...new Set(config.harnesses)].sort(compare);
   const adapters = adaptersFor(harnesses);
 
-  // `process.env` is read once, here, only for source resolution (where the cache lives, what a
-  // `git:` source authenticates with). Nothing deeper reaches for ambient state of its own.
+  // `process.env` is read once, here: for source resolution (where the cache lives, what a `git:`
+  // source authenticates with) and for `HOME`, which says whether this root is the user's own.
+  // Nothing deeper reaches for ambient state of its own.
   const context: SourceContext = {
     projectDir,
     env: process.env,
@@ -351,6 +380,7 @@ export async function planInstall(
   const lock = buildLock(loaded, bundle);
   const project: ProjectPaths = {
     root: projectDir,
+    scope: installScope(projectDir, process.env),
     ...(options.mode !== undefined && { mode: options.mode }),
   };
 

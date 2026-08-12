@@ -20,15 +20,35 @@ import type { Bundle } from "../resolution/resolve.js";
 import type { ArtifactMode, OwnedArtifact, State } from "../model/state.js";
 
 /**
+ * Which config a harness reads the installed files as.
+ *
+ * - `project` — one project's own config, read only while that project is open.
+ * - `user` — the machine-wide config every project sees, which is what a harness reads its own
+ *   files under the home directory as.
+ *
+ * The distinction reaches the plan because a user-level file cannot name a path relative to a
+ * project: there is no one project for it to be relative to (`harness/definitions.ts`).
+ */
+export type InstallScope = "project" | "user";
+
+/**
  * Where, and how, a bundle is being materialized.
  *
- * Nothing about the environment appears here: ambit writes a harness-native reference for every
- * `${VAR}` rather than a value, so a plan is a function of the bundle and the project alone. Two
- * people installing the same bundle get byte-identical files whatever their shells hold.
+ * Nothing about the environment appears here beyond {@link ProjectPaths.scope}: ambit writes a
+ * harness-native reference for every `${VAR}` rather than a value, so a plan is a function of the
+ * bundle and the project alone. Two people installing the same bundle at a project get
+ * byte-identical files whatever their shells hold.
  */
 export interface ProjectPaths {
   /** The project root, absolute. Every artifact path is relative to it. */
   readonly root: string;
+  /**
+   * Which config the harnesses will read this install as. Absent reads as `project`.
+   *
+   * Decided from `root` alone, by `installScope` (`project/install.ts`), so it is a property of
+   * where the install is happening rather than a flag anyone types.
+   */
+  readonly scope?: InstallScope;
   /**
    * `--copy` / `--link`: force every skill's materialization mode for this run.
    *

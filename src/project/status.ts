@@ -34,7 +34,7 @@ import { loadProjectConfig } from "../model/config.js";
 import { configError } from "../errors.js";
 import { driverFor, managedKey, readDocumentText } from "../model/documents/index.js";
 import { SHARED_SKILLS_DIR } from "../harness/profile.js";
-import { adaptersFor, planFor } from "./install.js";
+import { adaptersFor, installScope, planFor } from "./install.js";
 import { ownedKeys } from "./ownership.js";
 import { resolveBundle } from "../resolution/resolve.js";
 import type { SourceContext } from "../model/sources.js";
@@ -469,9 +469,13 @@ export async function projectStatus(
   };
   const bundle = resolveBundle(config, mergeCatalogs(await loadCatalogs(config, context)));
 
-  // No environment involved on either side: install writes a reference rather than a value, so a
-  // plan reads the same on every machine and a set variable can never read as drift.
-  const project: ProjectPaths = { root: projectDir };
+  // No environment involved on either side beyond the scope install decided from the same root:
+  // install writes a reference rather than a value, so a plan reads the same on every machine and a
+  // set variable can never read as drift.
+  const project: ProjectPaths = {
+    root: projectDir,
+    scope: installScope(projectDir, process.env),
+  };
   // Through `planFor`, so status sees the artifacts install would write: one entry per shared
   // skills target, not one per harness reading it.
   const plan = planFor(adapters, bundle, project).flatMap(({ plan: planned }) => planned);

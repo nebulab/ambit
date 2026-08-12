@@ -1248,4 +1248,90 @@ ${requiresEntry("core", "company")}
     expect(await pathExists(HOOK_DIR)).toBe(false);
     expect(await stateArtifacts()).toEqual([]);
   });
+
+  /**
+   * The same install with the home directory as its root — how a person gets one set of hooks in every
+   * project at once.
+   *
+   * `~/.claude/settings.json` is not a project's settings file: Claude Code reads it as the user's own,
+   * and applies it to every project on the machine. Cursor and Codex read their files under `~` the
+   * same way. So the paths the cases above assert are all wrong here, and wrong twice over: a hook
+   * naming `${CLAUDE_PROJECT_DIR}/.agents/hooks/…` or `.agents/hooks/…` resolves inside whichever
+   * project happens to be open, which silently finds nothing in most of them and finds *that project's*
+   * script in one that ships the same path.
+   *
+   * Nothing declares the scope. `installScope` (`project/install.ts`) reads it off the root, so a home
+   * install cannot forget to ask for the safe spelling.
+   */
+  describe("with the home directory as the project root", () => {
+    let priorHome: string | undefined;
+
+    beforeEach(() => {
+      priorHome = process.env.HOME;
+      process.env.HOME = projectDir;
+    });
+
+    afterEach(() => {
+      if (priorHome === undefined) delete process.env.HOME;
+      else process.env.HOME = priorHome;
+    });
+
+    it("writes every harness the expanded install root", async () => {
+      await writeCatalog(["claude", "cursor"]);
+
+      const result = await cli("install");
+      expect(result.code, result.stderr).toBe(ExitCode.Success);
+
+      // The one path that reaches the script from every project, since it depends on none of them.
+      const absolute = `${projectDir}/${HOOK_DIR}/${SCRIPT}`;
+      expect(await settings()).toEqual({
+        hooks: {
+          PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: absolute }] }],
+          // The command-line hook beside it, which has no script to address and so is untouched.
+          Stop: [ANNOUNCE_ENTRY],
+        },
+      });
+      expect(JSON.parse(await fileText(".cursor/hooks.json"))).toEqual({
+        version: 1,
+        hooks: { preToolUse: [{ command: absolute }], stop: [{ command: "npx --yes say done" }] },
+      });
+      expect(await settingsText()).not.toContain("CLAUDE_PROJECT_DIR");
+    });
+
+    it("replaces a project-relative entry an earlier install left, rather than leaving both", async () => {
+      await writeCatalog();
+      // The same root installed as a project, which is what a home install used to write: `root` is
+      // the parent here, so nothing about this run is user-level.
+      process.env.HOME = root;
+      expect((await cli("install")).code).toBe(ExitCode.Success);
+      expect(await settingsText()).toContain("CLAUDE_PROJECT_DIR");
+
+      process.env.HOME = projectDir;
+      const result = await cli("install");
+      expect(result.code, result.stderr).toBe(ExitCode.Success);
+
+      // One entry, not two. The old key is state's, so pruning takes it out: leaving it would keep a
+      // hook pointed into whatever project is open, which is the entry that had to go.
+      expect(await settings()).toEqual({
+        hooks: {
+          PreToolUse: [
+            {
+              matcher: "Bash",
+              hooks: [{ type: "command", command: `${projectDir}/${HOOK_DIR}/${SCRIPT}` }],
+            },
+          ],
+          Stop: [ANNOUNCE_ENTRY],
+        },
+      });
+    });
+
+    it("agrees with status, which reads the scope off the same root", async () => {
+      await writeCatalog(["claude", "cursor"]);
+      expect((await cli("install")).code).toBe(ExitCode.Success);
+
+      // Both commands plan through the adapters, so a scope only install knew about would make every
+      // status report drift on a project nobody touched, and every install rewrite the entry.
+      expect((await cli("status", "--check")).code).toBe(ExitCode.Success);
+    });
+  });
 });

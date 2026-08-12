@@ -17,7 +17,7 @@ import {
   stat,
   writeFile,
 } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -35,7 +35,7 @@ import {
   GITIGNORE_FILENAME,
   SHARED_GITIGNORE_FILE,
 } from "../../src/project/gitignore.js";
-import { installProject } from "../../src/project/install.js";
+import { installProject, installScope } from "../../src/project/install.js";
 import { LOCK_FILENAME } from "../../src/project/lock.js";
 import { run } from "../../src/cli/program.js";
 import type { Bundle } from "../../src/resolution/resolve.js";
@@ -282,6 +282,36 @@ async function bundleFor(): Promise<Bundle> {
   const config = await loadProjectConfig(projectDir);
   return resolveBundle(config, mergeCatalogs(await loadCatalogs(config, context)));
 }
+
+/**
+ * The rule that decides which config a harness will read an install as.
+ *
+ * The only input is the root, and the only consequence is how a hook's shipped script is addressed
+ * (`hookRoot`, `harness/definitions.ts`). Kept as a rule about a path rather than a key in `ambit.yml`
+ * because the failure it prevents is silent: a user-level hook that names a project-relative path runs
+ * whatever the open project has at that path, or nothing at all.
+ */
+describe("installScope", () => {
+  const HOME = "/home/jane";
+
+  it("reads the home directory as the user's own config, and anything else as a project's", () => {
+    expect(installScope(HOME, { HOME })).toBe("user");
+    expect(installScope(`${HOME}/work/acme`, { HOME })).toBe("project");
+    // Not a prefix test: a sibling whose name starts with the home directory's is a project.
+    expect(installScope(`${HOME}-backup`, { HOME })).toBe("project");
+  });
+
+  it("compares resolved paths, so spelling the same directory differently cannot change the answer", () => {
+    expect(installScope(`${HOME}/`, { HOME })).toBe("user");
+    expect(installScope(`${HOME}/work/..`, { HOME })).toBe("user");
+    expect(installScope(HOME, { HOME: `${HOME}/` })).toBe("user");
+  });
+
+  it("falls back to the platform's own home directory when HOME is unset", () => {
+    expect(installScope(homedir(), {})).toBe("user");
+    expect(installScope(path.join(homedir(), "work"), {})).toBe("project");
+  });
+});
 
 describe("the Claude adapter's plan", () => {
   it("targets one directory per bundle skill and one config file, and touches nothing", async () => {
