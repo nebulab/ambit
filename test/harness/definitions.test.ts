@@ -10,6 +10,8 @@
  * The layouts come from dotagents 1.19.0's own target definitions rather than from memory, with one
  * deliberate deviation for VS Code that is called out where it is asserted.
  */
+import path from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -482,8 +484,12 @@ describe("the hook each profile emits", () => {
     };
 
     /** The command out of one profile's rendering, whichever shape it wrote. */
-    function commandOf(profile: HarnessProfile, hook: MergedHook): string {
-      const emitted = profile.hookConfig?.(hook, PROJECT) as {
+    function commandOf(
+      profile: HarnessProfile,
+      hook: MergedHook,
+      project: ProjectPaths = PROJECT,
+    ): string {
+      const emitted = profile.hookConfig?.(hook, project) as {
         command?: string;
         hooks?: readonly { command: string }[];
       };
@@ -548,6 +554,54 @@ describe("the hook each profile emits", () => {
       // the answer, and it was declared. Rewriting on the spelling alone would point at a file the
       // hook's directory never held.
       expect(commandOf(claude, HOOK)).toBe("./bin/block-rm");
+    });
+
+    /**
+     * The same script at a user-level install, where every project-relative spelling is wrong.
+     *
+     * A file under the home directory is the machine's config, read in every project. So the two
+     * spellings above stop being a way to say "the install root" and become a way to say "whatever
+     * project is open": in most of them nothing is there and the hook silently never fires, and in one
+     * shipping `.agents/hooks/<name>/<name>.sh` of its own the harness runs *that* file. Cloning a
+     * repository must not be enough to get code run, so the path is absolute here.
+     */
+    describe("at a user-level install", () => {
+      const HOME: ProjectPaths = { root: "/home/jane", scope: "user" };
+
+      it("names the install root outright, for every harness that expresses hooks", () => {
+        for (const profile of [claude, codex, cursor, vscode]) {
+          expect(commandOf(profile, SCRIPT, HOME), profile.name).toBe(
+            "/home/jane/.agents/hooks/block-rm/hook.sh",
+          );
+        }
+      });
+
+      it("leaves nothing for a harness or a project to resolve", () => {
+        for (const profile of [claude, codex, cursor, vscode]) {
+          const command = commandOf(profile, SCRIPT, HOME);
+          // No placeholder, since `${CLAUDE_PROJECT_DIR}` is the project's root and not this one, and
+          // nothing relative, which would resolve against the open project's tree.
+          expect(command, profile.name).not.toContain("${");
+          expect(path.posix.isAbsolute(command), profile.name).toBe(true);
+        }
+      });
+
+      it("still rewrites only the program, keeping every argument", () => {
+        const withArgs: MergedHook = { ...SCRIPT, command: "./hook.sh --strict bin/other" };
+
+        expect(commandOf(claude, withArgs, HOME)).toBe(
+          "/home/jane/.agents/hooks/block-rm/hook.sh --strict bin/other",
+        );
+      });
+
+      it("leaves a hook that ships nothing exactly as declared", () => {
+        // Scope decides where a shipped script is, and a command line has no script to find.
+        const inline: MergedHook = { ...HOOK, command: "npx --yes prettier --check" };
+
+        for (const profile of [claude, codex, cursor, vscode]) {
+          expect(commandOf(profile, inline, HOME), profile.name).toBe("npx --yes prettier --check");
+        }
+      });
     });
   });
 

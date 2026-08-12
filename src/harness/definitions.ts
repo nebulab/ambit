@@ -11,7 +11,12 @@
  * shares the renderer but not the file (its entries live in `.codex/hooks.json`). Cursor shares
  * neither: its own file, its own event names, its own entry shape. opencode has no declarative hooks;
  * a hook selected for it is reported as skipped (`skippedHooks`, `profile.ts`).
+ *
+ * How a hook's script is addressed is the one thing no profile decides on its own: every harness reads
+ * the file it is handed as user config when it sits under the home directory, and a user-level file has
+ * no project to be relative to. See {@link hookRoot}.
  */
+import type { ProjectPaths } from "./adapter.js";
 import type { HarnessProfile, HookLayout } from "./profile.js";
 import { SHARED_HOOKS_DIR } from "./profile.js";
 import type { EnvRefStyle } from "./env.js";
@@ -46,7 +51,7 @@ const CLAUDE_HOOKS: HookLayout = {
 };
 
 /**
- * Where Claude Code resolves a materialized hook script from.
+ * Where Claude Code resolves a materialized hook script from, in a project install.
  *
  * `${CLAUDE_PROJECT_DIR}` is Claude's own documented placeholder for referencing hook scripts relative
  * to the project root, regardless of the session's working directory. A relative path cannot promise
@@ -58,8 +63,8 @@ const CLAUDE_HOOKS: HookLayout = {
 const CLAUDE_HOOK_ROOT = `\${CLAUDE_PROJECT_DIR}/${SHARED_HOOKS_DIR}`;
 
 /**
- * Where harnesses with no placeholder resolve a hook script from: the path as written,
- * project-relative.
+ * Where harnesses with no placeholder resolve a hook script from in a project install: the path as
+ * written, project-relative.
  *
  * Cursor and Codex interpolate nothing in a `command`. Cursor documents project hooks as running from
  * the project root, with `./hooks/script.sh` resolving to `<project>/hooks/script.sh`; nothing confines
@@ -70,6 +75,27 @@ const CLAUDE_HOOK_ROOT = `\${CLAUDE_PROJECT_DIR}/${SHARED_HOOKS_DIR}`;
  * the harness's own limitation, the same one a person writing the hook by hand would hit.
  */
 const RELATIVE_HOOK_ROOT = SHARED_HOOKS_DIR;
+
+/**
+ * Where a hook script is resolved from: `projectScoped` for a project install, the expanded install
+ * root for a user-level one.
+ *
+ * A user-level file is read in every project on the machine, so nothing project-relative can reach the
+ * scripts ambit installed. `${CLAUDE_PROJECT_DIR}` and a bare relative path both resolve inside
+ * whatever project is open: in one that has no such file the hook silently never runs, and in one that
+ * happens to ship `.agents/hooks/<name>/<name>.sh` the harness runs *that* project's script with the
+ * user's settings behind it, which would make cloning a repository enough to get code run.
+ *
+ * Expanded rather than `$HOME/…`: Cursor and Codex interpolate nothing in a `command`, and ambit does
+ * not assume a POSIX shell expands one (see {@link RELATIVE_HOOK_ROOT}). The path is therefore
+ * machine-specific, which is what a user-level config file is anyway.
+ *
+ * `/` rather than `path.join`, since this is joined to a `/`-separated artifact path either way, and
+ * every shell and harness accepts a forward slash on the platforms ambit runs on.
+ */
+function hookRoot(project: ProjectPaths, projectScoped: string): string {
+  return project.scope === "user" ? `${project.root}/${SHARED_HOOKS_DIR}` : projectScoped;
+}
 
 /**
  * One hook, Claude-shaped: an entry in `hooks.<Event>` pairing an optional tool `matcher` with the
@@ -157,13 +183,14 @@ const CURSOR_HOOKS: HookLayout = {
  * than not at all, which is the surprising outcome.
  *
  * A shipped script is named project-relative, because Cursor interpolates nothing in a `command`; see
- * {@link RELATIVE_HOOK_ROOT}.
+ * {@link RELATIVE_HOOK_ROOT}. `root` is a parameter for the same reason it is one on
+ * {@link claudeHook}: a user-level install cannot name a path relative to a project.
  *
  * Key order here is the digest's input, so it is fixed in this one place only.
  */
-function cursorHook(hook: MergedHook): unknown {
+function cursorHook(hook: MergedHook, root: string): unknown {
   return {
-    command: hookCommand(hook, RELATIVE_HOOK_ROOT),
+    command: hookCommand(hook, root),
     ...(hook.timeout !== undefined && { timeout: hook.timeout }),
   };
 }
@@ -237,7 +264,7 @@ export const claude: HarnessProfile = {
     };
   },
   hooks: CLAUDE_HOOKS,
-  hookConfig: (hook) => claudeHook(hook, CLAUDE_HOOK_ROOT),
+  hookConfig: (hook, project) => claudeHook(hook, hookRoot(project, CLAUDE_HOOK_ROOT)),
 };
 
 /**
@@ -258,7 +285,7 @@ export const cursor: HarnessProfile = {
     return { url: url(remote, namespacedRef), ...(headers !== undefined && { headers }) };
   },
   hooks: CURSOR_HOOKS,
-  hookConfig: cursorHook,
+  hookConfig: (hook, project) => cursorHook(hook, hookRoot(project, RELATIVE_HOOK_ROOT)),
 };
 
 /**
@@ -294,7 +321,7 @@ export const vscode: HarnessProfile = {
     };
   },
   hooks: CLAUDE_HOOKS,
-  hookConfig: (hook) => claudeHook(hook, CLAUDE_HOOK_ROOT),
+  hookConfig: (hook, project) => claudeHook(hook, hookRoot(project, CLAUDE_HOOK_ROOT)),
 };
 
 /**
@@ -333,7 +360,7 @@ export const codex: HarnessProfile = {
     };
   },
   hooks: CODEX_HOOKS,
-  hookConfig: (hook) => claudeHook(hook, RELATIVE_HOOK_ROOT),
+  hookConfig: (hook, project) => claudeHook(hook, hookRoot(project, RELATIVE_HOOK_ROOT)),
 };
 
 /**

@@ -145,6 +145,32 @@ requires:
 `https://github.com/owner/repo`, `git@host:owner/repo.git`, `git:<any-git-url>`,
 `path:./relative/dir`.
 
+### One install for every project
+
+Your home directory can be the project. `ambit init` and `ambit install` work there like anywhere
+else: `~/ambit.yml` says what you want, and it lands in `~/.agents/` and the harness files under `~`,
+which is where a harness keeps the config it applies to every project on the machine.
+
+ambit reads that off the root. Your home directory is a user-level install, any other directory is a
+project. The one thing it changes is how a hook that ships a script is addressed. A project install
+names the script relative to the project root:
+
+```json
+"command": "${CLAUDE_PROJECT_DIR}/.agents/hooks/guard-secrets/guard.sh"
+```
+
+A user-level install names it outright, since there is no single project to be relative to. A
+relative path there would resolve inside whichever project you happen to have open:
+
+```json
+"command": "/Users/jane/.agents/hooks/guard-secrets/guard.sh"
+```
+
+Which files under `~` a harness actually reads as your own config is the harness's own rule, and it
+differs between them. Claude Code reads `~/.claude/settings.json` and `~/.claude/skills` this way, so
+hooks and skills installed at home reach every project. Check your harness before relying on a home
+install for MCP servers.
+
 ## Authoring a catalog
 
 A catalog is a plain git repo with some of `packs/`, `skills/`, `mcps/`, and `hooks/` in it. There is
