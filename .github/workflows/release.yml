@@ -1,6 +1,6 @@
 # Publishes a release when a version tag is pushed: one binary per platform attached to a GitHub
-# Release, and the npm package beside them. Wired and never fired: cutting the first release is an edit to
-# `package.json`'s version plus `git tag vX.Y.Z && git push --tags`.
+# Release, and the npm package beside them. Cutting a release is an edit to `package.json`'s version
+# plus `git tag vX.Y.Z && git push --tags`.
 #
 # Five decisions worth knowing:
 #
@@ -16,11 +16,14 @@
 #     produces the macOS binary too.
 #   - **`checksums.txt` is attached and `install.sh` verifies against it.** That script is run
 #     through a pipe from the network, so the bytes it installs have to be checkable.
-#   - **`--provenance` with `id-token: write`** attests, to the public transparency log, which
-#     workflow in which commit built the tarball. This is a public package that runs on other
-#     people's machines through `npx`, so the attestation is worth the permission. It requires
-#     `repository` in `package.json`, which is why that field is there. **`--access public`** is
-#     needed because `@teamnebulab/ambit` is scoped, and npm defaults a scoped package to restricted.
+#   - **npm authenticates through OIDC, not a token.** `@teamnebulab/ambit` names this workflow as a
+#     trusted publisher, so `id-token: write` is the whole credential and there is no npm secret in
+#     the repository to leak or rotate. Renaming this file, or moving the publish step into another
+#     workflow, breaks publishing until the trusted publisher on npm is pointed at the new name.
+#     Provenance is attested automatically on that path, which is why no `--provenance` flag appears
+#     below; it requires `repository` in `package.json`, which is why that field is there.
+#     **`--access public`** is needed because the package is scoped, and npm defaults a scoped
+#     package to restricted.
 name: release
 
 on:
@@ -45,9 +48,14 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v7
         with:
-          node-version: "22"
-          # Writes the .npmrc that makes NODE_AUTH_TOKEN below the credential for this registry.
+          node-version: "24"
           registry-url: https://registry.npmjs.org
+
+      # Trusted publishing needs npm 11.5.1 or later, which is newer than the npm bundled with some
+      # Node releases. Installing the latest keeps that floor met without tracking which Node ships
+      # what.
+      - name: Update npm
+        run: npm install -g npm@latest
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -97,6 +105,4 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish to npm
-        run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public
