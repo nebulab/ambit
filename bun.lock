@@ -3,7 +3,7 @@
   "configVersion": 0,
   "workspaces": {
     "": {
-      "name": "@nebulab/ambit",
+      "name": "@teamnebulab/ambit",
       "dependencies": {
         "commander": "^15.0.0",
         "gray-matter": "^4.0.3",

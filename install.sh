@@ -4,8 +4,8 @@
 # Two things worth knowing:
 #
 #   - Windows is served only through a POSIX shell, which on that platform means Git Bash, MSYS or
-#     Cygwin. A machine without one of those runs `npx @nebulab/ambit` instead, since the npm package
-#     is Node and runs wherever Node does.
+#     Cygwin. A machine without one of those runs `npx @teamnebulab/ambit` instead, since the npm
+#     package is Node and runs wherever Node does.
 #   - The checksum is verified, and a machine with neither `sha256sum` nor `shasum` fails rather
 #     than skipping the check. This script is run through a pipe from the network; the one thing it
 #     must not do is install bytes it did not check.
@@ -31,19 +31,19 @@ case "$os" in
 Darwin) os="darwin" ;;
 Linux) os="linux" ;;
 MINGW* | MSYS* | CYGWIN* | Windows_NT) os="windows" ;;
-*) fail "no binary for $os. Use \`npx @nebulab/ambit\` instead." ;;
+*) fail "no binary for $os. Use \`npx @teamnebulab/ambit\` instead." ;;
 esac
 
 case "$arch" in
 arm64 | aarch64) arch="arm64" ;;
 x86_64 | amd64) arch="x64" ;;
-*) fail "no binary for $arch. Use \`npx @nebulab/ambit\` instead." ;;
+*) fail "no binary for $arch. Use \`npx @teamnebulab/ambit\` instead." ;;
 esac
 
 # Only the two Unixes ship both architectures. A Windows machine on ARM runs the x64 binary under
 # emulation, which is also what `uname -m` reports there.
 if [ "$os" = "windows" ] && [ "$arch" != "x64" ]; then
-  fail "no binary for Windows on $arch. Use \`npx @nebulab/ambit\` instead."
+  fail "no binary for Windows on $arch. Use \`npx @teamnebulab/ambit\` instead."
 fi
 
 if [ "$os" = "windows" ]; then

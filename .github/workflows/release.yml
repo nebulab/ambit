@@ -20,7 +20,7 @@
 #     workflow in which commit built the tarball. This is a public package that runs on other
 #     people's machines through `npx`, so the attestation is worth the permission. It requires
 #     `repository` in `package.json`, which is why that field is there. **`--access public`** is
-#     needed because `@nebulab/ambit` is scoped, and npm defaults a scoped package to restricted.
+#     needed because `@teamnebulab/ambit` is scoped, and npm defaults a scoped package to restricted.
 name: release
 
 on:

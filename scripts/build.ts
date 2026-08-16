@@ -2,9 +2,9 @@
  * ambit's build: two entry points, three kinds of artifact.
  *
  * - `dist/cli.js` and `dist/index.js`, bundled for **Node**. The npm package is still how `npx
- *   @nebulab/ambit` works and how the library export is consumed, and `npx` runs Node. That is the
- *   constraint keeping `src/` on `node:` APIs with no Bun global in it: everything here would still
- *   build, and then fail at runtime on the one platform ambit does not ship a binary for.
+ *   @teamnebulab/ambit` works and how the library export is consumed, and `npx` runs Node. That is
+ *   the constraint keeping `src/` on `node:` APIs with no Bun global in it: everything here would
+ *   still build, and then fail at runtime on the one platform ambit does not ship a binary for.
  * - `dist/types/`, from `tsc`. Bun does not emit declarations.
  * - `release/ambit-<os>-<arch>`, standalone executables — Bun's runtime with the bundle inside it,
  *   so a user needs neither Node nor Bun. Cross-compiled, so one machine builds all of them and the

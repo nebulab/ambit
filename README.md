@@ -45,7 +45,7 @@ On Windows the install script needs a POSIX shell, so run it from Git Bash. Anyw
 from npm. That needs Node 22.12+:
 
 ```
-npx @nebulab/ambit --help
+npx @teamnebulab/ambit --help
 ```
 
 ## Quick start
@@ -436,9 +436,9 @@ bun run build:binaries  # release/, one executable per platform
 
 There is no build step between an edit and a run: `bun run src/cli.ts <args>` is the CLI.
 
-The npm package is bundled for **Node**, because `npx @nebulab/ambit` runs under Node. That is why
-`src/` uses `node:` APIs and no Bun globals, and why `bun run scripts/smoke.ts` exists: it installs a
-fixture project with `node dist/cli.js`, which is the one thing `bun test` cannot check.
+The npm package is bundled for **Node**, because `npx @teamnebulab/ambit` runs under Node. That is
+why `src/` uses `node:` APIs and no Bun globals, and why `bun run scripts/smoke.ts` exists: it
+installs a fixture project with `node dist/cli.js`, which is the one thing `bun test` cannot check.
 
 `test/golden/` holds recorded program output and is exempt from Prettier. Regenerate it with
 `UPDATE_GOLDEN=1 bun test` and read the diff.
