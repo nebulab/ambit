@@ -1190,15 +1190,19 @@ describe("the command surface", () => {
     }
   });
 
-  it("gives every command the same three global flags, and none of them a `--catalog` directory", async () => {
+  it("gives every command the same global flags, and none of them a `--catalog` directory", async () => {
     // One subject, one directory flag. `--offline` is uniform for the same reason: the rule that
     // withheld it existed for the catalog commands, and there are none. `ambit search --catalog
     // <name>` is not that flag returning — it names a catalog to search rather than a directory to
     // read a catalog out of — so what is asserted is the spelling that would mean the old thing.
+    //
+    // `self-update` is the one command without `--project`, because its subject is the binary and
+    // not a project. It keeps `--offline`, which it refuses with a message of its own.
     for (const name of COMMANDS) {
       const help = await usage(name);
 
-      expect(help, name).toContain("--project <dir>");
+      if (name === "self-update") expect(help, name).not.toContain("--project");
+      else expect(help, name).toContain("--project <dir>");
       expect(help, name).toContain("--json");
       expect(help, name).toContain("--offline");
       expect(help, name).not.toContain("--catalog <dir>");
@@ -1364,11 +1368,13 @@ describe("the flag rules Commander enforces before a handler runs", () => {
     };
   }
 
-  it("declares a rule only for the two commands that refuse `--offline`", () => {
-    expect(Object.keys(RULES).sort()).toEqual(["outdated", "update"]);
+  it("declares a rule only for the three commands that refuse `--offline`", () => {
+    expect(Object.keys(RULES).sort()).toEqual(["outdated", "self-update", "update"]);
     // One rule twice, not two rules that agree today: `outdated` and `update` ask a remote the same
-    // question, so their refusal cannot drift apart.
+    // question, so their refusal cannot drift apart. `self-update` refuses for a different reason —
+    // no cache holds a binary it has not downloaded — and so carries its own.
     expect(RULES.outdated).toBe(RULES.update);
+    expect(RULES["self-update"]).not.toBe(RULES.outdated);
   });
 
   it("refuses before the handler, in ambit's own message shape", async () => {

@@ -21,10 +21,17 @@ import type { SourceContext } from "../model/sources.js";
  * `--quiet` and `--no-color` are deliberately absent: ambit has no progress chatter to suppress
  * and no color to disable, so both flags used to parse and do nothing. Re-add either only
  * alongside the output it would control.
+ *
+ * The same rule is why `--project` is conditional. `self-update`'s subject is the binary, not a
+ * project, so the flag would parse and do nothing there; {@link CommandSpec.readsProject} is how a
+ * command opts out. `--offline` stays on it, because a user who habitually passes the flag is
+ * better served by a refusal that explains itself than by `unknown option`.
  */
-function globalOptions(): Option[] {
+function globalOptions(readsProject: boolean): Option[] {
   return [
-    new Option("--project <dir>", "project directory").default(undefined, "cwd"),
+    ...(readsProject
+      ? [new Option("--project <dir>", "project directory").default(undefined, "cwd")]
+      : []),
     new Option("--json", "machine-readable output"),
     new Option("--offline", "use only cached catalogs"),
   ];
@@ -68,6 +75,13 @@ export interface CommandSpec {
   /** Whether this command mutates its subject, and so takes `--dry-run`. */
   readonly mutating?: boolean;
   /**
+   * Whether this command acts on a project, and so takes `--project`. Default true.
+   *
+   * Only `self-update` sets it false: its subject is the ambit binary, and a directory flag it
+   * ignored would be a flag that parses and does nothing.
+   */
+  readonly readsProject?: boolean;
+  /**
    * Nested commands, for a name that is a group rather than a command.
    *
    * A group has no action of its own: bare `ambit <group>` prints its usage, the way bare `ambit`
@@ -86,9 +100,10 @@ export interface CommandSpec {
  * Commands are wired to behavior as the build reaches them; until then they report themselves
  * unimplemented rather than pretending to work.
  *
- * Twelve commands, flat: one subject, one directory flag, no group. Nothing writes into a
- * catalog — a catalog is Markdown and YAML in a git repo, edited directly — and nothing reads a
- * catalog directory instead of an `ambit.yml`, because a catalog repo lists itself.
+ * Thirteen commands, flat: no group. Twelve act on a project, and `self-update` acts on ambit
+ * itself. Nothing writes into a catalog — a catalog is Markdown and YAML in a git repo, edited
+ * directly — and nothing reads a catalog directory instead of an `ambit.yml`, because a catalog
+ * repo lists itself.
  */
 export const COMMAND_SPECS: readonly CommandSpec[] = [
   { name: "init", summary: "scaffold ambit.yml, skills/, mcps/, hooks/", mutating: true },
@@ -153,6 +168,16 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
   // `requires` entries. A catalog repo runs this too, since it lists itself as a catalog.
   { name: "validate", summary: "validate everything this project configures, for CI" },
   { name: "doctor", summary: "check preconditions, drift, ownership" },
+  // The only command whose subject is ambit rather than a project. The version is a positional
+  // because `--version` is already how the program prints its own, and a command where the two
+  // spellings meant different things would be a trap.
+  {
+    name: "self-update",
+    summary: "replace this ambit binary with a released one",
+    args: [["[version]", "release to install, like `v0.3.1`; the latest release when omitted"]],
+    mutating: true,
+    readsProject: false,
+  },
 ];
 
 export type CommandOptions = Readonly<Record<string, unknown>>;
@@ -308,7 +333,9 @@ export function buildCommand(
   if (spec.mutating) command.addOption(dryRunOption());
   // A group takes no flags of its own: there is nothing for `--json` to shape when the answer is a
   // usage message, and a group sharing a flag with its children would silently claim it first.
-  if (acts) for (const option of globalOptions()) command.addOption(option);
+  if (acts) {
+    for (const option of globalOptions(spec.readsProject !== false)) command.addOption(option);
+  }
 
   if (spec.subcommands) {
     // Stop the group's own option parsing at the subcommand name; otherwise Commander claims a

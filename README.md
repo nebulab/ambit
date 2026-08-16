@@ -48,6 +48,9 @@ from npm. That needs Node 22.12+:
 npx @nebulab/ambit --help
 ```
 
+To upgrade a binary later, run `ambit self-update`. See
+[Updating ambit itself](#updating-ambit-itself).
+
 ## Quick start
 
 Start a project:
@@ -366,6 +369,46 @@ without touching anything you selected reports a moved commit and an empty diff.
 `ambit update` is the command that moves the pins forward and then installs. `ambit update
 --dry-run` is `ambit outdated` limited to the catalogs you named.
 
+### Updating ambit itself
+
+`ambit self-update` replaces the binary you are running with the newest release:
+
+```
+$ ambit self-update
+current  0.2.0
+target   v0.3.1
+asset    ambit-darwin-arm64
+binary   /Users/you/.local/bin/ambit
+
+installed ambit v0.3.1
+```
+
+The download is checked against the release's `checksums.txt` before it is installed, the same file
+`install.sh` checks against. A mismatch leaves the binary you already have alone, and there is no
+flag to skip the check.
+
+Name a release to install that one instead, which is also how you go back after a bad release:
+
+```
+ambit self-update v0.2.0
+```
+
+`--dry-run` prints the same report and installs nothing.
+
+This command replaces a binary, so it only works on one. Run ambit from npm and it says so and
+names the command that does work: `npm i -g @nebulab/ambit@latest`, or nothing at all for `npx`,
+which fetches the newest version every time it runs.
+
+Once a day, other commands check whether a newer release exists and print one line to stderr when
+there is:
+
+```
+ambit v0.3.1 is available; you are on 0.2.0. To upgrade, run `ambit self-update`.
+```
+
+The check is skipped when stderr is not a terminal, under CI, with `--json`, with `--offline`, and
+when `AMBIT_NO_UPDATE_CHECK` is set to anything. It never delays or fails the command it follows.
+
 ## CLI reference
 
 ### Commands
@@ -384,17 +427,18 @@ without touching anything you selected reports a moved commit and an empty diff.
 | `ambit clean`                                                       | Remove everything ambit installed.                                                                                                                   |
 | `ambit validate`                                                    | Validate the config and every catalog the project lists. A catalog repo runs this too, since it lists itself.                                        |
 | `ambit doctor`                                                      | Check preconditions, the lock, ownership, drift, and harness limits.                                                                                 |
+| `ambit self-update [<version>]`                                     | Replace this ambit binary with a released one, checksum verified. The newest release when no version is named.                                       |
 
 ### Global flags
 
-| Flag              | Notes                                                                   |
-| ----------------- | ----------------------------------------------------------------------- |
-| `--project <dir>` | The project to act on. Default: the current directory.                  |
-| `--json`          | Machine-readable output. Every command supports it.                     |
-| `--offline`       | Resolve from the local cache alone. Refused by `outdated` and `update`. |
-| `--dry-run`       | On mutating commands: report what would happen and touch nothing.       |
-| `--help`          | Usage for the program or for any command.                               |
-| `--version`       | Print the ambit version.                                                |
+| Flag              | Notes                                                                                                  |
+| ----------------- | ------------------------------------------------------------------------------------------------------ |
+| `--project <dir>` | The project to act on. Default: the current directory. Not on `self-update`, which acts on the binary. |
+| `--json`          | Machine-readable output. Every command supports it.                                                    |
+| `--offline`       | Resolve from the local cache alone. Refused by `outdated`, `update`, and `self-update`.                |
+| `--dry-run`       | On mutating commands: report what would happen and touch nothing.                                      |
+| `--help`          | Usage for the program or for any command.                                                              |
+| `--version`       | Print the ambit version.                                                                               |
 
 ### Exit codes
 
