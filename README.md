@@ -39,7 +39,7 @@ the binary for your machine straight from the
 | `ambit-linux-x64`    | Linux, Intel and AMD |
 | `ambit-linux-arm64`  | Linux, ARM           |
 
-On anything else, Intel macOS or Windows, run it from npm. That needs Node 20+:
+On anything else, Intel macOS or Windows, run it from npm. That needs Node 22.12+:
 
 ```
 npx @nebulab/ambit --help
