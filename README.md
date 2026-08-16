@@ -1,6 +1,6 @@
 # ambit
 
-**ambit is a dependency manager for AI coding agents.**
+**ambit is a dependency manager for AI agents.**
 
 Every agent harness (Claude Code, Codex, Cursor, opencode, VS Code) loads skills, hooks, and MCP
 servers. Today you copy those files between projects by hand, and they drift. ambit lets you keep
