@@ -16,7 +16,6 @@ export { VERSION } from "./version.js";
 export {
   AMBIT_FRONTMATTER_KEY,
   ANNOTATION_KEYS,
-  CATALOG_SEPARATOR,
   HOOKS_DIRNAME,
   HOOK_FILENAME,
   MCPS_DIRNAME,
@@ -134,7 +133,12 @@ export {
 } from "./model/yaml.js";
 export type { FrontmatterSplit, PositionedString } from "./model/yaml.js";
 export type { Reference } from "./model/reference.js";
-export { ITEM_KINDS, KIND_SEPARATOR, parseItemSubject } from "./model/requirement.js";
+export {
+  CATALOG_SEPARATOR,
+  ITEM_KINDS,
+  KIND_SEPARATOR,
+  parseItemSubject,
+} from "./model/requirement.js";
 export type { ItemKind } from "./model/requirement.js";
 export {
   REQUIRES_KEY,

@@ -9,10 +9,10 @@ import { stat } from "node:fs/promises";
 import path from "node:path";
 
 import { at, configError } from "../errors.js";
-import { CATALOG_SEPARATOR } from "./catalog.js";
 import type { PatternEntry } from "./pattern.js";
 import { REQUIRES_KEY, entryYaml, parseEntries, uniqueEntries } from "./pattern.js";
 import type { ItemKind } from "./requirement.js";
+import { CATALOG_SEPARATOR } from "./requirement.js";
 import { YamlMapping, parseYamlMapping, readYamlMapping } from "./yaml.js";
 
 /** The only config version this build understands. */

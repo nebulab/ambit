@@ -37,6 +37,7 @@ import type { Expectation } from "./expectation.js";
 import { parseExpectations } from "./expectation.js";
 import type { PatternEntry } from "./pattern.js";
 import { parseEntries } from "./pattern.js";
+import { CATALOG_SEPARATOR } from "./requirement.js";
 import type { ResolvedSource, SourceContext } from "./sources.js";
 import { resolveSource } from "./sources.js";
 import type { YamlMapping } from "./yaml.js";
@@ -302,14 +303,6 @@ export interface MergedCatalog {
   readonly mcps: readonly MergedMcp[];
   readonly hooks: readonly MergedHook[];
 }
-
-/**
- * What separates a catalog from a name in the address of a merged item.
- *
- * `/` rather than `.`, so an address introduces no phantom level into the dotted namespace a
- * catalog already has — `company/core.a` is the item `core.a` in the catalog `company`.
- */
-export const CATALOG_SEPARATOR = "/";
 
 /**
  * The address of one item in the merged catalog: `<catalog>/<name>`.

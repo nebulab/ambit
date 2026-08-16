@@ -36,9 +36,8 @@
  */
 import { at, configError } from "../errors.js";
 import type { AmbitError } from "../errors.js";
-import { CATALOG_SEPARATOR } from "./catalog.js";
 import type { ItemKind } from "./requirement.js";
-import { ITEM_KINDS } from "./requirement.js";
+import { CATALOG_SEPARATOR, ITEM_KINDS } from "./requirement.js";
 import { YamlMapping } from "./yaml.js";
 import type { PositionedString } from "./yaml.js";
 
