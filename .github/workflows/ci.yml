@@ -73,7 +73,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: ["20", "22"]
+        node: ["22", "24"]
     steps:
       - name: Check out the repository
         uses: actions/checkout@v7
