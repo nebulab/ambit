@@ -13,8 +13,8 @@
 #     whatever Bun built them.
 #   - The `node` job is the one thing `bun test` cannot check. The suite runs `src/` under Bun; the
 #     npm package is `dist/` under Node, where dependencies resolve by Node's rules, and that is a
-#     separate thing that can break. It runs on 20 and 22: 20 is the `engines` floor and 22 is what
-#     the scaffolded catalog workflow pins, so both numbers ambit puts its name to are exercised.
+#     separate thing that can break. It runs on 22 and 24: 22 is the `engines` floor and 24 is the
+#     current release, so both ends of the supported range are exercised.
 name: ci
 
 on:
