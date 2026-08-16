@@ -11,8 +11,9 @@
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
+import { restoreEnv, stubEnv } from "../support/env.js";
 import { buildFixtureCatalog } from "../../scripts/fixture-catalog.js";
 import { ExitCode } from "../../src/errors.js";
 import { run } from "../../src/cli/program.js";
@@ -147,11 +148,11 @@ beforeEach(async () => {
   // `tagged` http server, which declares that same tag.
   await writeProfile(["core", "function.engineering", "function.engineering.*"]);
   // The tagged server interpolates this into a header, so what is on disk depends on it.
-  vi.stubEnv(PACKED_KEY_VAR, undefined);
+  stubEnv(PACKED_KEY_VAR, undefined);
 });
 
 afterEach(async () => {
-  vi.unstubAllEnvs();
+  restoreEnv();
   await rm(root, { recursive: true, force: true });
 });
 

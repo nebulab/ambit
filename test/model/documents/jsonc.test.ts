@@ -7,7 +7,7 @@
  * be parsed losslessly enough to compare values, so a reformatted entry is not a change.
  */
 import { parse as parseJsonc } from "jsonc-parser";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "bun:test";
 
 import { AmbitError, ExitCode } from "../../../src/errors.js";
 import { jsoncDriver } from "../../../src/model/documents/jsonc.js";

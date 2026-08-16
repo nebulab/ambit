@@ -10,7 +10,7 @@
  * The refusals are asserted just as hard. Working lexically means some legal TOML has no span to
  * replace, and for those the promised behavior is exit 2 with the file untouched, never a guess.
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "bun:test";
 
 import { ExitCode } from "../../../src/errors.js";
 import { AmbitError } from "../../../src/errors.js";

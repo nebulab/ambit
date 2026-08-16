@@ -4,7 +4,9 @@
     "lib": ["ES2022"],
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "types": ["node"],
+    // `@types/bun` carries `bun:test` and Bun's globals, and re-exports `@types/node` — which `src/`
+    // is what needs, since it is bundled for Node as well as compiled into a Bun executable.
+    "types": ["bun"],
 
     "strict": true,
     "noUncheckedIndexedAccess": true,

@@ -6,7 +6,7 @@
  * code the CLI turns into an exit status (exit 2 for every grammar problem) and that the message names
  * the key and the line, which is the whole contract every refusal above it inherits.
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "bun:test";
 
 import { AmbitError, ExitCode } from "../../src/errors.js";
 import type { Addressing, PatternEntry, PatternItem } from "../../src/model/pattern.js";

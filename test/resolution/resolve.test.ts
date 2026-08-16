@@ -13,13 +13,13 @@
  *
  * The `resolve --json` shape is pinned by golden files under `test/golden/resolve/`, one per
  * profile, so a change in what a `requires` list selects shows up as a reviewable diff rather than
- * a rewritten assertion. Regenerate them with `UPDATE_GOLDEN=1 npm test` and read the diff.
+ * a rewritten assertion. Regenerate them with `UPDATE_GOLDEN=1 bun test` and read the diff.
  */
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
 import { buildFixtureCatalog } from "../../scripts/fixture-catalog.js";
 import { loadCatalogs, mergeCatalogs, skillNameFromPath } from "../../src/model/catalog.js";
@@ -364,9 +364,9 @@ async function expectGolden(name: string, actual: string): Promise<void> {
   try {
     expected = await readFile(file, "utf8");
   } catch {
-    throw new Error(`missing golden file ${file}; regenerate with UPDATE_GOLDEN=1 npm test`);
+    throw new Error(`missing golden file ${file}; regenerate with UPDATE_GOLDEN=1 bun test`);
   }
-  expect(actual, `golden mismatch for ${name}; UPDATE_GOLDEN=1 npm test to accept`).toBe(
+  expect(actual, `golden mismatch for ${name}; UPDATE_GOLDEN=1 bun test to accept`).toBe(
     expected.replace(/\n$/, ""),
   );
 }

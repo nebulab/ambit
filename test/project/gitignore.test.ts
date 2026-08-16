@@ -8,7 +8,7 @@
  *
  * The install-time behaviour is in `test/install.test.ts`; this is the part that needs no filesystem.
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "bun:test";
 
 import { AmbitError, ExitCode } from "../../src/errors.js";
 import {

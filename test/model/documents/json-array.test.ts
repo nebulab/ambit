@@ -8,7 +8,7 @@
  * ambit writes into — the case a merge keyed on anything but content gets wrong — and the assertions
  * are on bytes wherever bytes are the promise.
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "bun:test";
 
 import { AmbitError, ExitCode } from "../../../src/errors.js";
 import type { ConfigEntry } from "../../../src/model/documents/format.js";

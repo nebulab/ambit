@@ -15,8 +15,9 @@
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
+import { restoreEnv, stubEnv } from "../support/env.js";
 import { buildFixtureCatalog } from "../../scripts/fixture-catalog.js";
 import { diagnoseProject, doctorFailures, isHealthy } from "../../src/project/doctor.js";
 import { ExitCode } from "../../src/errors.js";
@@ -216,14 +217,14 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  vi.unstubAllEnvs();
+  restoreEnv();
   await rm(root, { recursive: true, force: true });
 });
 
 describe("ambit doctor on a healthy project", () => {
   beforeEach(async () => {
-    vi.stubEnv(FIGMA_VAR, "figma-token");
-    vi.stubEnv(TAGGED_VAR, "tagged-key");
+    stubEnv(FIGMA_VAR, "figma-token");
+    stubEnv(TAGGED_VAR, "tagged-key");
     expect((await cli("install")).code).toBe(ExitCode.Success);
   });
 
@@ -238,7 +239,7 @@ describe("ambit doctor on a healthy project", () => {
     const before = await snapshot();
 
     expect((await cli("doctor")).code).toBe(ExitCode.Success);
-    vi.stubEnv(TAGGED_VAR, undefined);
+    stubEnv(TAGGED_VAR, undefined);
     await rm(path.join(projectDir, LOCK_FILE));
     expect((await cli("doctor")).code).toBe(ExitCode.Doctor);
 
@@ -275,8 +276,8 @@ describe("ambit doctor on an incomplete environment", () => {
   beforeEach(async () => {
     // Installed with neither variable set, so `.mcp.json` holds the placeholder and matches the plan:
     // the only thing wrong with this project is its environment.
-    vi.stubEnv(FIGMA_VAR, undefined);
-    vi.stubEnv(TAGGED_VAR, undefined);
+    stubEnv(FIGMA_VAR, undefined);
+    stubEnv(TAGGED_VAR, undefined);
     expect((await cli("install")).code).toBe(ExitCode.Success);
   });
 
@@ -317,14 +318,14 @@ describe("ambit doctor on an incomplete environment", () => {
   });
 
   it("says nothing about a variable set to the empty string, which is a decision someone made", async () => {
-    vi.stubEnv(FIGMA_VAR, "");
+    stubEnv(FIGMA_VAR, "");
 
     expect(await findings()).toEqual([`expects/fail: unset environment variable "${TAGGED_VAR}"`]);
   });
 
   it("goes quiet once the variables are set and install has interpolated them", async () => {
-    vi.stubEnv(FIGMA_VAR, "figma-token");
-    vi.stubEnv(TAGGED_VAR, "tagged-key");
+    stubEnv(FIGMA_VAR, "figma-token");
+    stubEnv(TAGGED_VAR, "tagged-key");
     expect((await cli("install")).code).toBe(ExitCode.Success);
 
     expect(isHealthy(await diagnoseProject(projectDir))).toBe(true);
@@ -334,8 +335,8 @@ describe("ambit doctor on an incomplete environment", () => {
 /** The lock is a record of a resolution, and `status` never reads it. */
 describe("ambit doctor against the lock", () => {
   beforeEach(async () => {
-    vi.stubEnv(FIGMA_VAR, "figma-token");
-    vi.stubEnv(TAGGED_VAR, "tagged-key");
+    stubEnv(FIGMA_VAR, "figma-token");
+    stubEnv(TAGGED_VAR, "tagged-key");
     expect((await cli("install")).code).toBe(ExitCode.Success);
   });
 
@@ -378,8 +379,8 @@ describe("ambit doctor against the lock", () => {
  */
 describe("ambit doctor on an ownership anomaly", () => {
   beforeEach(async () => {
-    vi.stubEnv(FIGMA_VAR, "figma-token");
-    vi.stubEnv(TAGGED_VAR, "tagged-key");
+    stubEnv(FIGMA_VAR, "figma-token");
+    stubEnv(TAGGED_VAR, "tagged-key");
     expect((await cli("install")).code).toBe(ExitCode.Success);
   });
 
@@ -421,8 +422,8 @@ describe("ambit doctor on an ownership anomaly", () => {
 
 describe("ambit doctor against the project", () => {
   beforeEach(async () => {
-    vi.stubEnv(FIGMA_VAR, "figma-token");
-    vi.stubEnv(TAGGED_VAR, "tagged-key");
+    stubEnv(FIGMA_VAR, "figma-token");
+    stubEnv(TAGGED_VAR, "tagged-key");
     expect((await cli("install")).code).toBe(ExitCode.Success);
   });
 
@@ -446,7 +447,7 @@ describe("ambit doctor against the project", () => {
   });
 
   it("reports every failure at once rather than stopping at the first", async () => {
-    vi.stubEnv(TAGGED_VAR, undefined);
+    stubEnv(TAGGED_VAR, undefined);
     await rm(path.join(projectDir, CORE_TARGET));
     await rm(path.join(projectDir, LOCK_FILE));
 
@@ -465,8 +466,8 @@ describe("ambit doctor against the project", () => {
 /** A20 left this to `doctor`: a mode is a per-run choice, so divergence is worth saying, not failing. */
 describe("ambit doctor on a project installed with `--copy`", () => {
   beforeEach(async () => {
-    vi.stubEnv(FIGMA_VAR, "figma-token");
-    vi.stubEnv(TAGGED_VAR, "tagged-key");
+    stubEnv(FIGMA_VAR, "figma-token");
+    stubEnv(TAGGED_VAR, "tagged-key");
     expect((await cli("install", "--copy")).code).toBe(ExitCode.Success);
   });
 
@@ -520,7 +521,7 @@ describe("ambit doctor on a project installed with `--copy`", () => {
 describe("ambit doctor on a hook's `expects`", () => {
   beforeEach(async () => {
     await writeHookProfile(["claude"], [...HOOK_LINES, `expects: [{ env: ${HOOK_VAR} }]`]);
-    vi.stubEnv(HOOK_VAR, undefined);
+    stubEnv(HOOK_VAR, undefined);
     expect((await cli("install")).code).toBe(ExitCode.Success);
   });
 
@@ -534,7 +535,7 @@ describe("ambit doctor on a hook's `expects`", () => {
   });
 
   it("goes quiet once it is set, without a reinstall", async () => {
-    vi.stubEnv(HOOK_VAR, "https://hooks.example/notify");
+    stubEnv(HOOK_VAR, "https://hooks.example/notify");
 
     expect(isHealthy(await diagnoseProject(projectDir))).toBe(true);
   });
@@ -598,8 +599,8 @@ describe("ambit doctor on a project configuring codex", () => {
 
 describe("ambit doctor before an install", () => {
   it("reports the missing lock and every missing artifact, and exits 6", async () => {
-    vi.stubEnv(FIGMA_VAR, "figma-token");
-    vi.stubEnv(TAGGED_VAR, "tagged-key");
+    stubEnv(FIGMA_VAR, "figma-token");
+    stubEnv(TAGGED_VAR, "tagged-key");
 
     const result = await cli("doctor");
 

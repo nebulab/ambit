@@ -19,8 +19,9 @@ import {
 } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
+import { restoreEnv, stubEnv } from "../support/env.js";
 import { buildFixtureCatalog } from "../../scripts/fixture-catalog.js";
 import type { PlannedSkillDir } from "../../src/harness/adapter.js";
 import { claude } from "../../src/harness/definitions.js";
@@ -268,11 +269,11 @@ beforeEach(async () => {
   await writeProfile(["core", "function.engineering", "function.engineering.*"]);
   // What lands in `.mcp.json` depends on the environment, so every test pins it rather
   // than inheriting whatever the developer's shell exports.
-  vi.stubEnv(PACKED_KEY_VAR, undefined);
+  stubEnv(PACKED_KEY_VAR, undefined);
 });
 
 afterEach(async () => {
-  vi.unstubAllEnvs();
+  restoreEnv();
   await rm(root, { recursive: true, force: true });
 });
 
@@ -688,7 +689,7 @@ describe(".mcp.json", () => {
   });
 
   it("writes a `${VAR}` reference rather than the value, even with the variable set", async () => {
-    vi.stubEnv(PACKED_KEY_VAR, "s3cret");
+    stubEnv(PACKED_KEY_VAR, "s3cret");
 
     await cli("install");
 
@@ -702,7 +703,7 @@ describe(".mcp.json", () => {
     await cli("install");
     const unset = await readMcpFile();
 
-    vi.stubEnv(PACKED_KEY_VAR, "s3cret");
+    stubEnv(PACKED_KEY_VAR, "s3cret");
     await cli("install");
 
     expect(await readMcpFile()).toBe(unset);
@@ -916,7 +917,7 @@ describe(".gitignore", () => {
     await cli("install");
 
     for (const [index, file] of [GITIGNORE_FILENAME, SHARED_GITIGNORE_FILE].entries()) {
-      expect(await readFile(path.join(projectDir, file), "utf8"), file).toBe(before[index]);
+      expect(await readFile(path.join(projectDir, file), "utf8"), file).toBe(before[index]!);
     }
   });
 

@@ -1,5 +1,6 @@
 # Build output and caches — generated, and reformatting them would only churn.
 dist/
+release/
 coverage/
 *.tsbuildinfo
 
@@ -11,8 +12,8 @@ test/tmp/
 # written. They are regenerated with UPDATE_GOLDEN=1, never by hand.
 test/golden/
 
-# npm owns this file's formatting; `npm ci` rewrites it on its own terms.
-package-lock.json
+# Bun owns this file's formatting; `bun install` rewrites it on its own terms.
+bun.lock
 
 # Agent-harness state, not source.
 .claude/

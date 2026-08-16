@@ -28,7 +28,6 @@
  * nothing but the entry sort protecting them. Read the two together: the table says the surfaces are
  * stable, and that describe says the mechanism keeping them stable is still there.
  */
-import type * as FsPromises from "node:fs/promises";
 import {
   lstat,
   mkdir,
@@ -41,8 +40,9 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, mock } from "bun:test";
 
+import { restoreEnv, stubEnv } from "./support/env.js";
 import { buildFixtureCatalog } from "../scripts/fixture-catalog.js";
 import { ExitCode } from "../src/errors.js";
 import { run } from "../src/cli/program.js";
@@ -51,28 +51,37 @@ import { run } from "../src/cli/program.js";
 type ReadOrder = "natural" | "reversed" | "rotated";
 
 /**
- * The wrapper's state, shared with the module mock below — which is hoisted above every import, so
- * it cannot close over anything declared normally.
+ * The wrapper's state.
  *
  * `seen` records the directories the wrapper was asked for, which is how the guard case proves the
  * mock is in force inside `src/` rather than only inside this file.
  */
-const readOrder = vi.hoisted(() => ({
+const readOrder = {
   current: "natural" as ReadOrder,
   seen: [] as string[],
-}));
+};
 
-vi.mock("node:fs/promises", async (importOriginal) => {
-  const actual = await importOriginal<typeof FsPromises>();
-  // `readdir` is overloaded across its options and its element type; the wrapper cares about none of
-  // that, so it forwards its arguments untouched and permutes whatever array comes back.
-  const forward = actual.readdir as unknown as (...args: readonly unknown[]) => Promise<unknown[]>;
+/**
+ * The real module, copied before the mock replaces it.
+ *
+ * A copy rather than the namespace object: `mock.module` rebinds the live exports, so reading
+ * `readdir` off the namespace inside the wrapper would find the wrapper and recurse forever.
+ */
+const fsPromises = { ...(await import("node:fs/promises")) };
+
+// `readdir` is overloaded across its options and its element type; the wrapper cares about none of
+// that, so it forwards its arguments untouched and permutes whatever array comes back.
+const forwardReaddir = fsPromises.readdir as unknown as (
+  ...args: readonly unknown[]
+) => Promise<unknown[]>;
+
+mock.module("node:fs/promises", () => {
   const wrapped = async (...args: readonly unknown[]): Promise<unknown[]> => {
     readOrder.seen.push(String(args[0]));
-    return permute(await forward(...args), readOrder.current);
+    return permute(await forwardReaddir(...args), readOrder.current);
   };
-  const readdir = wrapped as unknown as typeof actual.readdir;
-  return { ...actual, readdir, default: { ...actual, readdir } };
+  const readdir = wrapped as unknown as typeof fsPromises.readdir;
+  return { ...fsPromises, readdir, default: { ...fsPromises, readdir } };
 });
 
 /**
@@ -80,8 +89,8 @@ vi.mock("node:fs/promises", async (importOriginal) => {
  *
  * Two permutations, both fixed rather than random: reversal disturbs a two-entry directory (the
  * fixture's `mcps/`), rotation disturbs a longer one differently, and a seeded shuffle would make a
- * failure depend on which run produced it. Declared as a function so the hoisted mock factory above
- * can call it.
+ * failure depend on which run produced it. Declared as a function so the wrapper above, which is
+ * installed before this line is reached, can call it.
  */
 function permute<T>(entries: readonly T[], order: ReadOrder): T[] {
   switch (order) {
@@ -339,7 +348,7 @@ async function snapshot(dir: string): Promise<Record<string, string>> {
 }
 
 beforeAll(async () => {
-  for (const [name, value] of Object.entries(ENV_STUBS)) vi.stubEnv(name, value);
+  for (const [name, value] of Object.entries(ENV_STUBS)) stubEnv(name, value);
 
   root = await mkdtemp(path.join(tmpdir(), "ambit-determinism-"));
   catalogDir = path.join(root, "catalog");
@@ -358,7 +367,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  vi.unstubAllEnvs();
+  restoreEnv();
   await rm(root, { recursive: true, force: true });
 });
 

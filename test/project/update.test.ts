@@ -21,8 +21,9 @@
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
+import { restoreEnv, stubEnv } from "../support/env.js";
 import type { FixtureGitCatalog } from "../../scripts/fixture-catalog.js";
 import { buildFixtureCatalog, buildFixtureGitCatalog } from "../../scripts/fixture-catalog.js";
 import { commitFixtureGitRevision } from "../../scripts/fixture-catalog.js";
@@ -186,8 +187,8 @@ async function resolvedSkills(dir: string): Promise<readonly string[]> {
 beforeEach(async () => {
   root = await mkdtemp(path.join(tmpdir(), "ambit-update-"));
   // The cache is machine-wide, so every test points it somewhere disposable.
-  vi.stubEnv("XDG_CACHE_HOME", path.join(root, "cache"));
-  for (const [name, value] of Object.entries(ENV_STUBS)) vi.stubEnv(name, value);
+  stubEnv("XDG_CACHE_HOME", path.join(root, "cache"));
+  for (const [name, value] of Object.entries(ENV_STUBS)) stubEnv(name, value);
 
   fixture = await buildFixtureGitCatalog(path.join(root, "remote"));
   project = path.join(root, "project");
@@ -195,7 +196,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  vi.unstubAllEnvs();
+  restoreEnv();
   await rm(root, { recursive: true, force: true });
 });
 
@@ -320,18 +321,19 @@ describe("what ambit outdated reports about a pin", () => {
 });
 
 describe("the bundle diff, which is what makes the report about capabilities", () => {
+  /** One row of a bundle diff, keyed by namespace, as `outdated --json` prints it. */
+  type DiffReport = Readonly<
+    Record<string, { changes: { change: string; detail: string; name: string }[] }>
+  >;
+
   /** Installs, commits `files` on the branch, and returns what `outdated --json` says changed. */
-  async function changesAfter(
-    files: Readonly<Record<string, string | null>>,
-  ): Promise<Readonly<Record<string, { changes: { name: string; detail: string }[] }>>> {
+  async function changesAfter(files: Readonly<Record<string, string | null>>): Promise<DiffReport> {
     const install = await cli(project, "install");
     expect(install.code, install.stderr).toBe(ExitCode.Success);
     await commitFixtureGitRevision(fixture, files);
 
     const report = await json(project, "outdated");
-    return report as unknown as Readonly<
-      Record<string, { changes: { name: string; detail: string }[] }>
-    >;
+    return report as unknown as DiffReport;
   }
 
   it("reports a moved commit that changes nothing this project selects as no change at all", async () => {

@@ -23,7 +23,23 @@ You write a few lines of config. ambit fetches, resolves, and writes the files.
 
 ## Install
 
-Nothing to install. You need Node 20+ and `git` on your `PATH`.
+ambit is a single binary with nothing under it. You need `git` on your `PATH` and nothing else.
+
+```
+curl -fsSL https://raw.githubusercontent.com/nebulab/ambit/main/install.sh | sh
+```
+
+That puts `ambit` in `~/.local/bin`. Set `AMBIT_INSTALL_DIR` to put it somewhere else, or download
+the binary for your machine straight from the
+[releases page](https://github.com/nebulab/ambit/releases).
+
+| Binary               | For                  |
+| -------------------- | -------------------- |
+| `ambit-darwin-arm64` | macOS, Apple silicon |
+| `ambit-linux-x64`    | Linux, Intel and AMD |
+| `ambit-linux-arm64`  | Linux, ARM           |
+
+On anything else, Intel macOS or Windows, run it from npm. That needs Node 20+:
 
 ```
 npx @nebulab/ambit --help
@@ -403,19 +419,28 @@ error: refusing to overwrite unowned path
 
 ## Development
 
+ambit is built with [Bun](https://bun.com). You need Bun 1.3 or newer, and `git`.
+
 ```
-npm install
-npm test          # vitest, offline apart from the one compatibility test
-npm run typecheck
-npm run lint
-npm run format    # prettier --write; `format:check` is the CI variant
-npm run build
+bun install
+bun test                # offline apart from the one compatibility test
+bun run typecheck
+bun run lint
+bun run format          # prettier --write; `format:check` is the CI variant
+bun run build           # dist/, the npm package, bundled for Node
+bun run build:binaries  # release/, one executable per platform
 ```
+
+There is no build step between an edit and a run: `bun run src/cli.ts <args>` is the CLI.
+
+The npm package is bundled for **Node**, because `npx @nebulab/ambit` runs under Node. That is why
+`src/` uses `node:` APIs and no Bun globals, and why `bun run scripts/smoke.ts` exists: it installs a
+fixture project with `node dist/cli.js`, which is the one thing `bun test` cannot check.
 
 `test/golden/` holds recorded program output and is exempt from Prettier. Regenerate it with
-`UPDATE_GOLDEN=1 npm test` and read the diff.
+`UPDATE_GOLDEN=1 bun test` and read the diff.
 
-`npm run fixture` builds the fixture catalog the suite resolves against.
+`bun run fixture` builds the fixture catalog the suite resolves against.
 
 `AMBIT_SKIP_NETWORK_TESTS=1` skips the dotagents compatibility test.
 

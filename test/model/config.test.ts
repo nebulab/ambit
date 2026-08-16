@@ -7,7 +7,7 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
 import {
   DEFAULT_HARNESSES,
@@ -26,7 +26,7 @@ const ONE_ENTRY_PARSED = {
   kind: "skill",
   pattern: "core",
   catalog: "c",
-};
+} as const;
 
 /** Parses `text`, asserting it was rejected as a config error (exit 2). */
 function rejection(text: string): AmbitError {
