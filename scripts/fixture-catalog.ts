@@ -16,9 +16,8 @@
  * tests stay offline: a `file://` URL is a git URL like any other, so nothing in ambit needs a test
  * mode to be exercised against one.
  *
- * Tests call `buildFixtureCatalog()`. To eyeball the fixture, `npm run fixture -- <dir>` runs
- * it directly — that path needs a Node with type stripping (22.18+ or 24+), unlike the
- * published CLI.
+ * Tests call `buildFixtureCatalog()`. To eyeball the fixture, `bun run fixture <dir>` runs it
+ * directly.
  */
 import { execFile } from "node:child_process";
 import { chmod, mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";

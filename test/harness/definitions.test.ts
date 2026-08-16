@@ -12,7 +12,7 @@
  */
 import path from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "bun:test";
 
 import {
   claude,
@@ -353,7 +353,7 @@ describe("the hook each profile emits", () => {
       section: "hooks",
       format: "json",
       shape: "array",
-    };
+    } as const;
 
     expect(claude.hooks).toEqual(layout);
     // The same file, so a project configuring both writes it once.

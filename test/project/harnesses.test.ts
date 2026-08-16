@@ -23,7 +23,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
 import { buildFixtureCatalog } from "../../scripts/fixture-catalog.js";
 import { ExitCode } from "../../src/errors.js";
@@ -116,7 +116,7 @@ async function read(relative: string): Promise<string> {
   return readFile(path.join(projectDir, relative), "utf8");
 }
 
-async function stateArtifacts(): Promise<readonly { path: string; kind: string }[]> {
+async function stateArtifacts() {
   return parseState(await read(`${STATE_DIRNAME}/${STATE_FILENAME}`), STATE_FILENAME).artifacts;
 }
 

@@ -8,7 +8,7 @@ import { cp, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { Command } from "commander";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
 import { buildFixtureCatalog } from "../../scripts/fixture-catalog.js";
 import type { MergedCatalog } from "../../src/model/catalog.js";

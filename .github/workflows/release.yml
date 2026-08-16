@@ -1,7 +1,8 @@
-# Publishes to npm when a version tag is pushed. Wired and never fired: cutting the first release is
-# `npm version <x.y.z>` (or an edit to `package.json`) plus `git tag vX.Y.Z && git push --tags`.
+# Publishes a release when a version tag is pushed: three binaries attached to a GitHub Release, and
+# the npm package beside them. Wired and never fired: cutting the first release is an edit to
+# `package.json`'s version plus `git tag vX.Y.Z && git push --tags`.
 #
-# Four decisions worth knowing:
+# Five decisions worth knowing:
 #
 #   - **The tag is checked against `package.json`, and a disagreement fails before anything is
 #     published.** A tag is the only thing this workflow is given, and `--version` reads
@@ -9,16 +10,17 @@
 #     version and install another.
 #   - **The five checks run again here** even though `ci.yml` already ran them on `main`. A tag can
 #     point at any commit, and publishing bytes nothing verified is the one failure mode that cannot
-#     be taken back — npm does not allow republishing a version.
+#     be taken back — npm does not allow republishing a version, and a downloaded binary is gone.
+#   - **One runner builds every binary.** `bun build --compile` cross-compiles, so the matrix a
+#     release job would otherwise need is a `--target` flag instead. The runner is Linux and it
+#     produces the macOS binary too.
+#   - **`checksums.txt` is attached and `install.sh` verifies against it.** That script is run
+#     through a pipe from the network, so the bytes it installs have to be checkable.
 #   - **`--provenance` with `id-token: write`** attests, to the public transparency log, which
 #     workflow in which commit built the tarball. This is a public package that runs on other
 #     people's machines through `npx`, so the attestation is worth the permission. It requires
-#     `repository` in `package.json`, which is why that field is there.
-#   - **`--access public`** is needed because `@nebulab/ambit` is scoped, and npm defaults a scoped
-#     package to restricted. Harmless on later releases.
-#
-# `prepublishOnly` (`npm run build`) means npm builds `dist/` itself as part of `npm publish`; the
-# explicit build step above it is the check, not the thing being packed.
+#     `repository` in `package.json`, which is why that field is there. **`--access public`** is
+#     needed because `@nebulab/ambit` is scoped, and npm defaults a scoped package to restricted.
 name: release
 
 on:
@@ -29,26 +31,26 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       id-token: write
     steps:
       - name: Check out the tag
         uses: actions/checkout@v7
 
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+
       - name: Set up Node
         uses: actions/setup-node@v7
         with:
           node-version: "22"
-          cache: npm
           # Writes the .npmrc that makes NODE_AUTH_TOKEN below the credential for this registry.
-          # That .npmrc refers to the variable, which is only in scope on the publish step, so the
-          # `npm ci` below runs against an unresolved `${NODE_AUTH_TOKEN}`. npm treats that as empty
-          # and fetches public packages anyway. setup-node used to paper over it by exporting a dummy
-          # token; v7 stopped, which is why this is written down rather than assumed.
           registry-url: https://registry.npmjs.org
 
       - name: Install dependencies
-        run: npm ci
+        run: bun install --frozen-lockfile
 
       - name: Check the tag against package.json
         run: |
@@ -61,19 +63,36 @@ jobs:
           fi
 
       - name: Lint
-        run: npm run lint
+        run: bun run lint
 
       - name: Format
-        run: npm run format:check
+        run: bun run format:check
 
       - name: Typecheck
-        run: npm run typecheck
+        run: bun run typecheck
 
       - name: Test
-        run: npm test
+        run: bun test
 
       - name: Build
-        run: npm run build
+        run: bun run build:binaries
+
+      - name: Smoke-test the bundle under Node
+        run: bun run scripts/smoke.ts
+
+      - name: Check every binary starts
+        run: |
+          chmod +x release/*
+          ./release/ambit-linux-x64 --version
+
+      - name: Record the checksums
+        working-directory: release
+        run: sha256sum ambit-* > checksums.txt
+
+      - name: Attach the binaries to a GitHub Release
+        run: gh release create "$GITHUB_REF_NAME" release/* --generate-notes --verify-tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish to npm
         run: npm publish --provenance --access public

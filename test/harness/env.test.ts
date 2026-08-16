@@ -6,7 +6,7 @@
  * assertions are about *which spelling* comes out, and about the two properties that make the choice
  * safe — a value is never consumed, and nothing outside the `${...}` shape is rewritten.
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "bun:test";
 
 import {
   bracedRef,

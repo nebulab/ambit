@@ -31,7 +31,7 @@ import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it } from "bun:test";
 
 import { buildFixtureCatalog } from "../scripts/fixture-catalog.js";
 import { SKILL_FILENAME, parseCatalogDirectory } from "../src/model/catalog.js";
@@ -80,9 +80,6 @@ const execFileAsync = promisify(execFile);
 let root: string;
 let project: string;
 let dotagentsHome: string | undefined;
-
-/** Why the suite cannot run, or `undefined` when it can. */
-let unavailable: string | undefined;
 
 interface ChildResult {
   readonly code: number | null;
@@ -191,27 +188,39 @@ async function expectInstallable(): Promise<void> {
   await expect(stat(path.join(project, CLAUDE_LINK))).resolves.toBeDefined();
 }
 
+/** Whether `npx @sentry/dotagents` runs at all, and why not when it does not. */
+async function probe(): Promise<string | undefined> {
+  if ((process.env[SKIP_VAR] ?? "") !== "") return `${SKIP_VAR} is set`;
+
+  dotagentsHome = await mkdtemp(path.join(tmpdir(), "ambit-dotagents-home-"));
+
+  // Doubles as the warm-up: every later invocation resolves from the npx cache this one fills.
+  const result = await dotagents(["--version"], tmpdir());
+  if (result.code === 0) return undefined;
+
+  return (
+    `cannot run \`npx ${DOTAGENTS_PACKAGE}\` (exit ${String(result.code)}), so the ` +
+    `compatibility promise is unverified. This is the one test that needs network ` +
+    `access; set ${SKIP_VAR}=1 to skip it deliberately.\n${firstLines(result.stderr)}`
+  );
+}
+
+/**
+ * Why the suite cannot run, or `undefined` when it can.
+ *
+ * Probed here rather than in `beforeAll` because `bun:test` decides what to skip as the suite is
+ * declared, and a case cannot skip itself from inside one.
+ */
+const unavailable = await probe();
+
+// Loud either way, for opposite reasons: offline, a developer needs to know the promise went
+// unchecked; in CI, a promise that quietly passed by never running is worse than no test at all.
+if (unavailable !== undefined) {
+  if (REQUIRE_NETWORK) throw new Error(unavailable);
+  console.warn(`skipping the dotagents compatibility test: ${unavailable}`);
+}
+
 describe("dotagents compatibility", () => {
-  beforeAll(async () => {
-    if ((process.env[SKIP_VAR] ?? "") !== "") {
-      unavailable = `${SKIP_VAR} is set`;
-      return;
-    }
-
-    dotagentsHome = await mkdtemp(path.join(tmpdir(), "ambit-dotagents-home-"));
-
-    // Doubles as the warm-up: every later invocation resolves from the npx cache this one fills.
-    const probe = await dotagents(["--version"], tmpdir());
-    if (probe.code === 0) return;
-
-    unavailable =
-      `cannot run \`npx ${DOTAGENTS_PACKAGE}\` (exit ${String(probe.code)}), so the ` +
-      `compatibility promise is unverified. This is the one test that needs network ` +
-      `access; set ${SKIP_VAR}=1 to skip it deliberately.\n${firstLines(probe.stderr)}`;
-    if (REQUIRE_NETWORK) throw new Error(unavailable);
-    console.warn(`skipping the dotagents compatibility test: ${unavailable}`);
-  }, CASE_TIMEOUT_MS);
-
   afterAll(async () => {
     if (dotagentsHome !== undefined) await rm(dotagentsHome, { recursive: true, force: true });
   });
@@ -226,11 +235,9 @@ describe("dotagents compatibility", () => {
     await rm(root, { recursive: true, force: true });
   });
 
-  it(
+  it.skipIf(unavailable !== undefined)(
     "installs every skill in the hand-written fixture catalog, ignoring ambit's additions",
-    async (ctx) => {
-      if (unavailable !== undefined) return ctx.skip();
-
+    async () => {
       await buildFixtureCatalog(path.join(project, CATALOG_DIRNAME));
       await expectInstallable();
     },

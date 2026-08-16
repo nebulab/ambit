@@ -21,8 +21,9 @@
 import { lstat, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
+import { restoreEnv, stubEnv } from "../support/env.js";
 import type { FixtureGitCatalog } from "../../scripts/fixture-catalog.js";
 import { buildFixtureCatalog, buildFixtureGitCatalog } from "../../scripts/fixture-catalog.js";
 import { loadCatalogs } from "../../src/model/catalog.js";
@@ -162,8 +163,8 @@ beforeEach(async () => {
   cacheDir = path.join(root, "cache");
   // The cache is machine-wide, so every test points it somewhere disposable rather than
   // writing into the developer's real one.
-  vi.stubEnv("XDG_CACHE_HOME", cacheDir);
-  vi.stubEnv(PACKED_KEY_VAR, undefined);
+  stubEnv("XDG_CACHE_HOME", cacheDir);
+  stubEnv(PACKED_KEY_VAR, undefined);
 
   catalogDir = path.join(root, "catalog");
   await buildFixtureCatalog(catalogDir);
@@ -176,7 +177,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  vi.unstubAllEnvs();
+  restoreEnv();
   await rm(root, { recursive: true, force: true });
 });
 

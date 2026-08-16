@@ -28,6 +28,21 @@ import type { Reference } from "./reference.js";
 export const KIND_SEPARATOR = ":";
 
 /**
+ * What separates a catalog from a name in the address of a merged item.
+ *
+ * `/` rather than `.`, so an address introduces no phantom level into the dotted namespace a
+ * catalog already has — `company/core.a` is the item `core.a` in the catalog `company`.
+ *
+ * Here rather than in `catalog.ts` beside `qualifiedName`, which is what spells an address with it.
+ * `pattern.ts` needs the separator to parse one, and `catalog.ts` needs `pattern.ts` to parse a
+ * document's `requires`, so a separator held in `catalog.ts` closes those two into an evaluation
+ * cycle. A cycle around a top-level `const` is a `ReferenceError` in whichever module the loader
+ * enters it from second. This module is the vocabulary of naming and imports nothing that could
+ * reach back.
+ */
+export const CATALOG_SEPARATOR = "/";
+
+/**
  * The namespaces a bundle item can be in, in the order every report lists them.
  *
  * Exported as a list because several surfaces enumerate it: the refusal for a `why` subject naming

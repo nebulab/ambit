@@ -7,7 +7,7 @@
  * refetch, or worse, hands one repository's contents back for another's URL.
  */
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "bun:test";
 
 import { AmbitError, ExitCode } from "../../src/errors.js";
 import { CACHE_DIRNAME, cacheRoot, gitCacheKey } from "../../src/model/git.js";

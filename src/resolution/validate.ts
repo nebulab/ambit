@@ -20,13 +20,14 @@
  * what the skill is called (see {@link CatalogParseOptions}).
  */
 import type { CatalogParseOptions, MergedCatalog } from "../model/catalog.js";
-import { CATALOG_SEPARATOR, loadCatalogs, mergeCatalogs, qualifiedName } from "../model/catalog.js";
+import { loadCatalogs, mergeCatalogs, qualifiedName } from "../model/catalog.js";
 import type { ProjectConfig } from "../model/config.js";
 import { loadProjectConfig } from "../model/config.js";
 import type { AmbitError } from "../errors.js";
 import { at, resolutionError } from "../errors.js";
 import type { PatternEntry } from "../model/pattern.js";
 import { REQUIRES_KEY } from "../model/pattern.js";
+import { CATALOG_SEPARATOR } from "../model/requirement.js";
 import type { Requirer } from "./resolve.js";
 import {
   cycleError,

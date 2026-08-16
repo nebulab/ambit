@@ -4,7 +4,7 @@
  * Nothing reads a hook yet, so the malformed cases assert the {@link AmbitError} code the CLI
  * turns into an exit status — exit 2 for every config problem.
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "bun:test";
 
 import { AmbitError, ExitCode } from "../../src/errors.js";
 import { HOOK_EVENTS, MATCHABLE_EVENTS, parseHookEntity } from "../../src/model/hook-entity.js";
