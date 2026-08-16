@@ -33,13 +33,16 @@ That puts `ambit` in `~/.local/bin`. Set `AMBIT_INSTALL_DIR` to put it somewhere
 the binary for your machine straight from the
 [releases page](https://github.com/nebulab/ambit/releases).
 
-| Binary               | For                  |
-| -------------------- | -------------------- |
-| `ambit-darwin-arm64` | macOS, Apple silicon |
-| `ambit-linux-x64`    | Linux, Intel and AMD |
-| `ambit-linux-arm64`  | Linux, ARM           |
+| Binary                  | For                    |
+| ----------------------- | ---------------------- |
+| `ambit-darwin-arm64`    | macOS, Apple silicon   |
+| `ambit-darwin-x64`      | macOS, Intel           |
+| `ambit-linux-x64`       | Linux, Intel and AMD   |
+| `ambit-linux-arm64`     | Linux, ARM             |
+| `ambit-windows-x64.exe` | Windows, Intel and AMD |
 
-On anything else, Intel macOS or Windows, run it from npm. That needs Node 22.12+:
+On Windows the install script needs a POSIX shell, so run it from Git Bash. Anywhere else, run ambit
+from npm. That needs Node 22.12+:
 
 ```
 npx @nebulab/ambit --help

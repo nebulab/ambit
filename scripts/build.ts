@@ -9,7 +9,7 @@
  * - `release/ambit-<os>-<arch>`, standalone executables — Bun's runtime with the bundle inside it,
  *   so a user needs neither Node nor Bun. Cross-compiled, so one machine builds all of them and the
  *   release job needs no matrix. Beside `dist/` rather than inside it, because `dist/` is what the
- *   npm package ships and 240 MB of executables are not part of a tarball.
+ *   npm package ships and hundreds of megabytes of executables are not part of a tarball.
  *
  * The executables are built only when asked for (`--binaries`), because each is ~60 MB and the first
  * build for a target downloads that target's Bun runtime. That is a release cost, not a cost to pay
@@ -26,13 +26,15 @@ const BINARY_DIR = "release";
  * The platforms a release ships a binary for, and the name each one gets.
  *
  * The names are `<os>-<arch>` as `install.sh` spells them from `uname`, so the two files have to
- * agree. Windows is deliberately absent: it is served by the npm package, which is Node and runs
- * anywhere Node does.
+ * agree. The Windows one carries `.exe` because Bun appends it to a `bun-windows-*` output whether
+ * or not the name asks for it, and a checksum line has to match the filename that ships.
  */
 const BINARIES: readonly { readonly target: string; readonly name: string }[] = [
   { target: "bun-darwin-arm64", name: "ambit-darwin-arm64" },
+  { target: "bun-darwin-x64", name: "ambit-darwin-x64" },
   { target: "bun-linux-x64", name: "ambit-linux-x64" },
   { target: "bun-linux-arm64", name: "ambit-linux-arm64" },
+  { target: "bun-windows-x64", name: "ambit-windows-x64.exe" },
 ];
 
 /**

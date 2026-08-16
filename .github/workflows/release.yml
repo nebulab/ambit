@@ -1,5 +1,5 @@
-# Publishes a release when a version tag is pushed: three binaries attached to a GitHub Release, and
-# the npm package beside them. Wired and never fired: cutting the first release is an edit to
+# Publishes a release when a version tag is pushed: one binary per platform attached to a GitHub
+# Release, and the npm package beside them. Wired and never fired: cutting the first release is an edit to
 # `package.json`'s version plus `git tag vX.Y.Z && git push --tags`.
 #
 # Five decisions worth knowing:
@@ -80,7 +80,9 @@ jobs:
       - name: Smoke-test the bundle under Node
         run: bun run scripts/smoke.ts
 
-      - name: Check every binary starts
+      # Only the runner's own platform can be started here. The rest are checked by having been
+      # produced at all: `bun build --compile` fails rather than emitting a broken executable.
+      - name: Check the binary for this runner starts
         run: |
           chmod +x release/*
           ./release/ambit-linux-x64 --version
