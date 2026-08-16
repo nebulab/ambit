@@ -11,6 +11,7 @@ import { outdatedHandler, refusesOfflineRule } from "./handlers/outdated.js";
 import { pruneHandler } from "./handlers/prune.js";
 import { resolveHandler } from "./handlers/resolve.js";
 import { searchHandler } from "./handlers/search.js";
+import { refusesOfflineSelfUpdateRule, selfUpdateHandler } from "./handlers/self-update.js";
 import { statusHandler } from "./handlers/status.js";
 import { updateHandler } from "./handlers/update.js";
 import { validateHandler } from "./handlers/validate.js";
@@ -24,8 +25,8 @@ export type Io = Pick<CommandContext, "cwd" | "stdout" | "stderr">;
  * command added without an entry reports itself unimplemented (exit 1) rather than silently
  * succeeding.
  *
- * Twelve entries, none with a space: the surface is flat. A group, were one declared, would still
- * have no entry here, since it holds commands and runs none itself.
+ * Thirteen entries, none with a space: the surface is flat. A group, were one declared, would
+ * still have no entry here, since it holds commands and runs none itself.
  */
 export const HANDLERS: CommandHandlers = {
   clean: cleanHandler,
@@ -36,6 +37,7 @@ export const HANDLERS: CommandHandlers = {
   prune: pruneHandler,
   resolve: resolveHandler,
   search: searchHandler,
+  "self-update": selfUpdateHandler,
   status: statusHandler,
   update: updateHandler,
   validate: validateHandler,
@@ -47,15 +49,17 @@ export const HANDLERS: CommandHandlers = {
  * flags it was given, before dispatch (`buildCommand` hangs each one off its command as a
  * `preAction` hook).
  *
- * Only two commands need one, and it is the same rule for both: `outdated` and `update` exist to
- * ask a remote where a ref points now, so `--offline` is a flag neither can honor. A shared rule
- * keeps their refusal identical. Rules exist instead of Commander primitives like
- * `.makeOptionMandatory()` because those produce a message that names no file and gives no next
- * step. `install`'s `--copy`/`--link` still uses `.conflicts()` directly, since Commander's
- * wording for two flags that cannot appear together already says everything needed.
+ * Three commands need one, and all three refuse `--offline`. `outdated` and `update` share a rule,
+ * since both refuse for the same reason: only a remote knows where a ref points now. `self-update`
+ * refuses for a different reason — no cache holds a binary it has not downloaded — so it carries
+ * its own wording. Rules exist instead of Commander primitives like `.makeOptionMandatory()`
+ * because those produce a message that names no file and gives no next step. `install`'s
+ * `--copy`/`--link` still uses `.conflicts()` directly, since Commander's wording for two flags
+ * that cannot appear together already says everything needed.
  */
 export const RULES: CommandRules = {
   outdated: refusesOfflineRule,
+  "self-update": refusesOfflineSelfUpdateRule,
   update: refusesOfflineRule,
 };
 
