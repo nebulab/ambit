@@ -134,7 +134,7 @@ describe("planSelfUpdate", () => {
   });
 
   it("refuses under npx, which has nothing on disk to replace", async () => {
-    const main = "/Users/x/.npm/_npx/8fa1b2/node_modules/@nebulab/ambit/dist/cli.js";
+    const main = "/Users/x/.npm/_npx/8fa1b2/node_modules/@teamnebulab/ambit/dist/cli.js";
     const error = await refusalOf(() =>
       planSelfUpdate(contextOf({ moduleUrl: `file://${main}`, mainPath: main })),
     );
@@ -144,13 +144,13 @@ describe("planSelfUpdate", () => {
   });
 
   it("refuses under a global npm install, and names the command that does work", async () => {
-    const main = "/usr/local/lib/node_modules/@nebulab/ambit/dist/cli.js";
+    const main = "/usr/local/lib/node_modules/@teamnebulab/ambit/dist/cli.js";
     const error = await refusalOf(() =>
       planSelfUpdate(contextOf({ moduleUrl: `file://${main}`, mainPath: main })),
     );
 
     expect(error.code).toBe(ExitCode.Config);
-    expect(error.detail.join(" ")).toContain("npm i -g @nebulab/ambit@latest");
+    expect(error.detail.join(" ")).toContain("npm i -g @teamnebulab/ambit@latest");
   });
 
   it("refuses a platform no release ships a binary for", async () => {

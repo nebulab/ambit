@@ -135,7 +135,7 @@ export async function updateNotice(context: NoticeContext): Promise<string | und
   const how =
     installKind(context.moduleUrl, context.mainPath) === "binary"
       ? "run `ambit self-update`"
-      : "run `npm i -g @nebulab/ambit@latest`";
+      : "run `npm i -g @teamnebulab/ambit@latest`";
 
   return `ambit ${latest} is available; you are on ${VERSION}. To upgrade, ${how}.`;
 }

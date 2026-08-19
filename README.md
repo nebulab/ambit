@@ -396,7 +396,7 @@ ambit self-update v0.2.0
 `--dry-run` prints the same report and installs nothing.
 
 This command replaces a binary, so it only works on one. Run ambit from npm and it says so and
-names the command that does work: `npm i -g @nebulab/ambit@latest`, or nothing at all for `npx`,
+names the command that does work: `npm i -g @teamnebulab/ambit@latest`, or nothing at all for `npx`,
 which fetches the newest version every time it runs.
 
 Once a day, other commands check whether a newer release exists and print one line to stderr when

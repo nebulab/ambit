@@ -33,7 +33,7 @@ describe("ambit self-update", () => {
 
     expect(result.code).toBe(ExitCode.Config);
     expect(result.stderr).toContain("installed from npm");
-    expect(result.stderr).toContain("npm i -g @nebulab/ambit@latest");
+    expect(result.stderr).toContain("npm i -g @teamnebulab/ambit@latest");
     expect(result.stdout).toBe("");
   });
 

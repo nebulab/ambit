@@ -79,7 +79,7 @@ const DISPLACED_SUFFIX = ".old";
  */
 function refuseKind(kind: "npx" | "node"): never {
   if (kind === "npx") {
-    throw configError("`npx @nebulab/ambit` has nothing to update", [
+    throw configError("`npx @teamnebulab/ambit` has nothing to update", [
       "npx downloads the latest published version every time it runs",
       "to keep a copy on disk instead, install the binary: see https://github.com/nebulab/ambit#install",
     ]);
@@ -87,7 +87,7 @@ function refuseKind(kind: "npx" | "node"): never {
 
   throw configError("this ambit was installed from npm, so npm is what updates it", [
     "`ambit self-update` replaces a standalone binary, and there is none here",
-    "run `npm i -g @nebulab/ambit@latest`",
+    "run `npm i -g @teamnebulab/ambit@latest`",
   ]);
 }
 
@@ -114,7 +114,7 @@ export async function planSelfUpdate(
   if (asset === undefined) {
     throw configError(`no ambit binary is published for ${context.platform}-${context.arch}`, [
       "this build cannot replace itself with one that does not exist",
-      "run ambit from npm instead: `npx @nebulab/ambit`",
+      "run ambit from npm instead: `npx @teamnebulab/ambit`",
     ]);
   }
 
