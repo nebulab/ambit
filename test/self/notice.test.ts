@@ -26,7 +26,7 @@ const NOW = 1_760_000_000_000;
 
 /** A compiled binary's own module URL, and a global npm install's. */
 const BINARY_URL = "file:///$bunfs/root/cli.js";
-const NPM_MAIN = "/usr/local/lib/node_modules/@nebulab/ambit/dist/cli.js";
+const NPM_MAIN = "/usr/local/lib/node_modules/@teamnebulab/ambit/dist/cli.js";
 
 let cacheHome: string;
 let calls: number;
@@ -96,7 +96,7 @@ describe("updateNotice", () => {
       contextOf({ moduleUrl: `file://${NPM_MAIN}`, mainPath: NPM_MAIN }),
     );
 
-    expect(notice).toContain("npm i -g @nebulab/ambit@latest");
+    expect(notice).toContain("npm i -g @teamnebulab/ambit@latest");
   });
 
   it("says nothing when the latest release is the one running", async () => {
@@ -148,7 +148,7 @@ describe("updateNotice guards", () => {
   });
 
   it("says nothing under npx, which is already on the latest version", async () => {
-    const main = "/Users/x/.npm/_npx/8fa1b2/node_modules/@nebulab/ambit/dist/cli.js";
+    const main = "/Users/x/.npm/_npx/8fa1b2/node_modules/@teamnebulab/ambit/dist/cli.js";
 
     expect(
       await updateNotice(contextOf({ moduleUrl: `file://${main}`, mainPath: main })),
