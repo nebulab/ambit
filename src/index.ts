@@ -232,11 +232,11 @@ export {
 export type { HarnessProfile, HookLayout, McpLayout } from "./harness/profile.js";
 export {
   bracedRef,
-  envPassthrough,
   namespacedRef,
   referencedNames,
   shellRef,
   soleReference,
+  stdioEnv,
   translateRefs,
 } from "./harness/env.js";
 export type { EnvRefStyle } from "./harness/env.js";

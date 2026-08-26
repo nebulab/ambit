@@ -53,13 +53,17 @@ function httpAt(at: string): MergedMcp {
 }
 
 /** A stdio server whose arguments carry a credential, which is the case translation exists for. */
-function stdio(args: readonly string[] = [], env: readonly string[] = []): MergedMcp {
+function stdio(
+  args: readonly string[] = [],
+  env: readonly string[] = [],
+  declared: Readonly<Record<string, string>> = {},
+): MergedMcp {
   return {
     name: "fixture",
     expects: env.map((name) => ({ kind: "env", name }) as const),
     catalog: "company",
     file: "mcps/fixture.yml",
-    transport: { kind: "stdio", command: "npx", args },
+    transport: { kind: "stdio", command: "npx", args, env: declared },
   };
 }
 
@@ -284,6 +288,42 @@ describe("a reference in an http server's url", () => {
     expect(tenant(cursor)).toBe("https://${env:TENANT}.mcp.invalid/fixture");
     expect(tenant(vscode)).toBe("https://${env:TENANT}.mcp.invalid/fixture");
     expect(tenant(opencode)).toBe("https://{env:TENANT}.mcp.invalid/fixture");
+  });
+});
+
+/**
+ * The env map an entity declares, per harness: the key is the name the spawned process reads, and the
+ * value is translated like any other reference. The two harnesses that spell a reference differently
+ * are what makes this worth asserting across the table rather than once.
+ */
+describe("a stdio server whose env map renames a variable", () => {
+  const DECLARED = { PLANNER_TOKEN: "${ACME_PLANNER_TOKEN}" } as const;
+
+  const envOf = (profile: HarnessProfile): unknown => {
+    const emitted = profile.serverConfig(stdio([], ["ACME_PLANNER_TOKEN"], DECLARED)) as {
+      env?: unknown;
+      environment?: unknown;
+    };
+    return emitted.env ?? emitted.environment;
+  };
+
+  it("writes the declared name against the variable that supplies it, in every spelling", () => {
+    expect(envOf(claude)).toEqual({ PLANNER_TOKEN: "${ACME_PLANNER_TOKEN}" });
+    expect(envOf(codex)).toEqual({ PLANNER_TOKEN: "${ACME_PLANNER_TOKEN}" });
+    expect(envOf(cursor)).toEqual({ PLANNER_TOKEN: "${ACME_PLANNER_TOKEN}" });
+    expect(envOf(opencode)).toEqual({ PLANNER_TOKEN: "${ACME_PLANNER_TOKEN}" });
+    expect(envOf(vscode)).toEqual({ PLANNER_TOKEN: "${env:ACME_PLANNER_TOKEN}" });
+  });
+
+  it("passes an expected variable no entry references through beside it", () => {
+    const emitted = claude.serverConfig(
+      stdio([], ["ACME_PLANNER_TOKEN", "PLANNER_WORKSPACE"], DECLARED),
+    ) as { env: Record<string, string> };
+
+    expect(emitted.env).toEqual({
+      PLANNER_TOKEN: "${ACME_PLANNER_TOKEN}",
+      PLANNER_WORKSPACE: "${PLANNER_WORKSPACE}",
+    });
   });
 });
 

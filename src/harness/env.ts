@@ -1,11 +1,11 @@
 /**
  * Environment variables in harness configs.
  *
- * A catalog writes `${VAR}` in an MCP entity's headers, and lists in `env` the variables a server
- * needs. ambit does not resolve either into the config file it writes. It translates them into the
- * reference syntax the target harness expands at spawn time (`${VAR}` for Claude Code and Codex,
- * `${env:VAR}` for Cursor and VS Code, `{env:VAR}` for opencode) and leaves the value in the
- * environment.
+ * A catalog writes `${VAR}` in an MCP entity's headers, arguments and env map, and names in
+ * `expects` the variables a server needs. ambit resolves neither into the config file it writes. It
+ * translates them into the reference syntax the target harness expands at spawn time (`${VAR}` for
+ * Claude Code and Codex, `${env:VAR}` for Cursor and VS Code, `{env:VAR}` for opencode) and leaves
+ * the value in the environment.
  *
  * Writing the resolved value would put a live credential into `.mcp.json`, a file ambit does not
  * gitignore because teams legitimately commit it. Writing a reference instead keeps the installed
@@ -66,15 +66,29 @@ export function soleReference(value: string): string | undefined {
 /**
  * The env map a stdio server is given, so the harness passes the variables through to the process.
  *
- * Every name the entity declared in `env`, mapped to a reference the harness expands. Returns
- * `undefined` for an empty list so a caller can leave the key out entirely.
+ * Two sources. Every name in `expected` is passed under its own name, which is the whole of it for a
+ * server whose variables are called what the machine calls them. An entry in `declared` names the
+ * variable the process reads and supplies its value, so a server can be given a name nothing in the
+ * environment has.
+ *
+ * A variable a `declared` value references is not also passed under its own name: the entry says
+ * where that variable goes, and passing it through as well would hand the process a second name its
+ * author did not ask for. `declared` also wins on a key collision, for the same reason.
+ *
+ * Sorted by name, so the installed file does not churn when a catalog reorders its own keys. Returns
+ * `undefined` when both sources are empty, so a caller can leave the key out entirely.
  */
-export function envPassthrough(
-  names: readonly string[],
+export function stdioEnv(
+  expected: readonly string[],
+  declared: Readonly<Record<string, string>>,
   style: EnvRefStyle,
 ): Readonly<Record<string, string>> | undefined {
-  if (names.length === 0) return undefined;
-  const env: Record<string, string> = {};
-  for (const name of [...names].sort()) env[name] = style(name);
-  return env;
+  const supplies = new Set(Object.values(declared).flatMap((value) => referencedNames(value)));
+  const env = new Map<string, string>();
+
+  for (const name of expected) if (!supplies.has(name)) env.set(name, style(name));
+  for (const [name, value] of Object.entries(declared)) env.set(name, translateRefs(value, style));
+  if (env.size === 0) return undefined;
+
+  return Object.fromEntries([...env].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
 }

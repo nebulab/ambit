@@ -22,10 +22,10 @@ import { SHARED_HOOKS_DIR } from "./profile.js";
 import type { EnvRefStyle } from "./env.js";
 import {
   bracedRef,
-  envPassthrough,
   namespacedRef,
   shellRef,
   soleReference,
+  stdioEnv,
   translateRefs,
 } from "./env.js";
 import type { MergedHook, MergedMcp } from "../model/catalog.js";
@@ -232,7 +232,7 @@ function stdio(
   style: EnvRefStyle,
   envKey = "env",
 ): Record<string, unknown> {
-  const env = envPassthrough(expectedEnv(mcp.expects), style);
+  const env = stdioEnv(expectedEnv(mcp.expects), mcp.transport.env, style);
   return {
     command: mcp.transport.command,
     ...(mcp.transport.args.length > 0 && {
@@ -377,7 +377,7 @@ export const opencode: HarnessProfile = {
   mcp: { file: ".opencode/opencode.jsonc", section: "mcp", format: "jsonc" },
   serverConfig: (mcp) => {
     if (mcp.transport.kind === "stdio") {
-      const env = envPassthrough(expectedEnv(mcp.expects), shellRef);
+      const env = stdioEnv(expectedEnv(mcp.expects), mcp.transport.env, shellRef);
       return {
         type: "local",
         command: [

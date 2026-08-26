@@ -332,6 +332,60 @@ describe("ambit doctor on an incomplete environment", () => {
   });
 });
 
+/**
+ * A server whose env map renames a variable: the name the process reads is written in the catalog, and
+ * the value comes from a variable of the machine's. Nothing expects that variable, so the reference
+ * install left in the file is the only thing that can ask for it.
+ */
+describe("ambit doctor on a server that renames a variable", () => {
+  const SERVER = "planner";
+  const SOURCE_VAR = "ACME_PLANNER_TOKEN";
+
+  beforeEach(async () => {
+    await writeFile(
+      path.join(catalogDir, "mcps", `${SERVER}.yml`),
+      [
+        `name: ${SERVER}`,
+        "",
+        "transport:",
+        "  stdio:",
+        "    command: planner-mcp",
+        "    env:",
+        `      PLANNER_TOKEN: "\${${SOURCE_VAR}}"`,
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+    await writeFile(
+      path.join(projectDir, "ambit.yml"),
+      `version: 1
+catalogs:
+  - name: ${CATALOG_NAME}
+    source: path:../catalog
+requires:
+  - { mcp: "${CATALOG_NAME}/${SERVER}" }
+`,
+      "utf8",
+    );
+    stubEnv(SOURCE_VAR, undefined);
+    expect((await cli("install")).code).toBe(ExitCode.Success);
+  });
+
+  it("asks for the variable the file references, not the name the process reads", async () => {
+    expect(await findings()).toEqual([`expects/fail: unset environment variable "${SOURCE_VAR}"`]);
+    expect(await detailOf(SOURCE_VAR)).toEqual([
+      `"mcpServers.${SERVER}" in ${MCP_FILE} references it, for the harness to expand at spawn`,
+      `set ${SOURCE_VAR} in the environment the agent runs in`,
+    ]);
+  });
+
+  it("goes quiet once that variable is set", async () => {
+    stubEnv(SOURCE_VAR, "planner-token");
+
+    expect(isHealthy(await diagnoseProject(projectDir))).toBe(true);
+  });
+});
+
 /** The lock is a record of a resolution, and `status` never reads it. */
 describe("ambit doctor against the lock", () => {
   beforeEach(async () => {

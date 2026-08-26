@@ -248,9 +248,31 @@ expects:
 | `transport`               | map      | yes           | Exactly one key: `stdio` or `http`.                         |
 | `transport.stdio.command` | string   | yes for stdio | Executable to spawn.                                        |
 | `transport.stdio.args`    | string[] | no            | Arguments, in order.                                        |
+| `transport.stdio.env`     | map      | no            | Variables the process is given. Same `${VAR}` handling.     |
 | `transport.http.url`      | string   | yes for http  | Server endpoint.                                            |
 | `transport.http.headers`  | map      | no            | `${VAR}` becomes a reference in each harness's own syntax.  |
 | `expects`                 | map[]    | no            | Preconditions. Today only `env:`.                           |
+
+A stdio server is given every variable it `expects`, under the name it expects. `transport.stdio.env`
+is for a server whose own variable names are not the ones your machine sets:
+
+```yaml
+name: planner
+
+transport:
+  stdio:
+    command: npx
+    args: ["-y", "@acme/planner-mcp"]
+    env:
+      PLANNER_TOKEN: "${ACME_PLANNER_TOKEN}"
+
+expects:
+  - env: ACME_PLANNER_TOKEN
+```
+
+The process gets `PLANNER_TOKEN`, taking its value from `ACME_PLANNER_TOKEN`. A variable an entry
+references is not also passed under its own name, so two servers that both read `PLANNER_TOKEN` can
+each take it from a variable of their own.
 
 ### Hooks
 

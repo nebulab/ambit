@@ -710,6 +710,43 @@ describe(".mcp.json", () => {
     expect(unset).toContain(`Bearer \${${PACKED_KEY_VAR}}`);
   });
 
+  it("gives a server the variable names it reads, from the ones the machine sets", async () => {
+    // The rename an `expects` entry cannot express on its own: two servers wanting `PLANNER_TOKEN`
+    // read the same name, and each takes it from a variable of its own.
+    await writeCatalogFile(
+      "mcps/planner.yml",
+      [
+        "name: planner",
+        "",
+        "transport:",
+        "  stdio:",
+        "    command: planner-mcp",
+        "    env:",
+        '      PLANNER_TOKEN: "${ACME_PLANNER_TOKEN}"',
+        "      PLANNER_WORKSPACE: acme",
+        "",
+        "expects:",
+        "  - env: ACME_PLANNER_TOKEN",
+        "",
+      ].join("\n"),
+    );
+    await writeProfile([], undefined, [`  - { mcp: "${CATALOG_NAME}/planner" }`]);
+
+    const result = await cli("install");
+    expect(result.code, result.stderr).toBe(ExitCode.Success);
+
+    expect(await readMcpConfig()).toEqual({
+      mcpServers: {
+        planner: {
+          command: "planner-mcp",
+          // The variable the entry names supplies the token, so it is not also passed under its own
+          // name; the literal is written as the catalog wrote it.
+          env: { PLANNER_TOKEN: "${ACME_PLANNER_TOKEN}", PLANNER_WORKSPACE: "acme" },
+        },
+      },
+    });
+  });
+
   it("omits `args` and `headers` a server does not declare", async () => {
     await writeCatalogFile(
       "mcps/plain.yml",

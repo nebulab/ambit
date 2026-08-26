@@ -161,7 +161,8 @@ function stringsIn(value: unknown): readonly string[] {
 }
 
 /**
- * Every variable one MCP entity's own strings reference: its url and headers, or its arguments.
+ * Every variable one MCP entity's own strings reference: its url and headers, or its arguments and
+ * the values its env map supplies.
  *
  * Read off the entity rather than the installed server, because each harness spells a reference in its
  * own syntax, and the entity is where the answer is the same for all of them.
@@ -170,7 +171,7 @@ function entityReferences(mcp: MergedMcp): readonly string[] {
   const strings =
     mcp.transport.kind === "http"
       ? [mcp.transport.url, ...stringsIn(mcp.transport.headers)]
-      : mcp.transport.args;
+      : [...mcp.transport.args, ...stringsIn(mcp.transport.env)];
   return strings.flatMap(referencedNames);
 }
 
@@ -184,7 +185,8 @@ function entityReferences(mcp: MergedMcp): readonly string[] {
  * files, not values, so nothing needs reinstalling once it is set.
  *
  * The fourth route is why this check reads more than `expects`: an author can reference `${VAR}` in a
- * transport's headers without declaring it, and this is the only check that sees it.
+ * transport's headers or in the value an entry of its env map supplies without declaring it, and this
+ * is the only check that sees it.
  *
  * A hook contributes through its `expects` alone, never a config-reference line: a `${VAR}` inside a
  * hook's `command` is left intact for the shell the harness spawns, not rewritten into a harness's own
