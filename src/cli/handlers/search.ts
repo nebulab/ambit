@@ -66,7 +66,12 @@ function packJson(pack: MergedPack): Readonly<Record<string, unknown>> {
 function transportJson(transport: McpTransport): Readonly<Record<string, unknown>> {
   switch (transport.kind) {
     case "stdio":
-      return { args: transport.args, command: transport.command, kind: transport.kind };
+      return {
+        args: transport.args,
+        command: transport.command,
+        env: transport.env,
+        kind: transport.kind,
+      };
     case "http":
       return { headers: transport.headers, kind: transport.kind, url: transport.url };
   }

@@ -275,6 +275,7 @@ describe("catalog parsing", () => {
       kind: "stdio",
       command: "npx",
       args: ["-y", "@acme/fixture-mcp"],
+      env: {},
     });
     expect(catalog.mcps.find((mcp) => mcp.name === "linter")?.transport).toEqual({
       kind: "http",
@@ -433,6 +434,16 @@ transport:
       "gives a stdio transport no command",
       "transport:\n  stdio: {}\n",
       'missing required key "transport.stdio.command"',
+    ],
+    [
+      "spells a stdio transport's env map some other way",
+      "transport:\n  stdio:\n    command: npx\n    environment:\n      TOKEN: x\n",
+      'unknown key "transport.stdio.environment"',
+    ],
+    [
+      "gives an env entry something other than a string",
+      "transport:\n  stdio:\n    command: npx\n    env:\n      TOKEN: [x]\n",
+      '"transport.stdio.env.TOKEN" must be a string',
     ],
   ];
 
@@ -633,7 +644,7 @@ describe("ambit search", () => {
         [`${CATALOG_NAME}/fixture`]: {
           catalog: CATALOG_NAME,
           expects: [{ kind: "env", name: "FIXTURE_API_KEY" }],
-          transport: { kind: "stdio", command: "npx", args: ["-y", "@acme/fixture-mcp"] },
+          transport: { kind: "stdio", command: "npx", args: ["-y", "@acme/fixture-mcp"], env: {} },
         },
         [`${CATALOG_NAME}/linter`]: {
           catalog: CATALOG_NAME,

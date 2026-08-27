@@ -14,6 +14,15 @@ export interface StdioTransport {
   readonly kind: "stdio";
   readonly command: string;
   readonly args: readonly string[];
+  /**
+   * Variables the spawned process is given, each name mapped to what supplies it.
+   *
+   * A server reads the names its own author chose, which are not always the names a machine sets. An
+   * entry joins the two, so two servers reading one variable name can be given different values.
+   * `${VAR}` is treated as in {@link HttpTransport.headers}, and an `expects` entry a value
+   * references is not also passed under its own name.
+   */
+  readonly env: Readonly<Record<string, string>>;
 }
 
 /** A server reached over HTTP. */
@@ -66,11 +75,12 @@ function parseTransport(mapping: YamlMapping): McpTransport {
   switch (kind) {
     case "stdio": {
       const stdio = transport.requireMapping("stdio");
-      stdio.rejectUnknownKeys(["args", "command"]);
+      stdio.rejectUnknownKeys(["args", "command", "env"]);
       return {
         kind: "stdio",
         command: stdio.requireString("command"),
         args: stdio.optionalStringList("args") ?? [],
+        env: stdio.optionalMapping("env")?.stringEntries() ?? {},
       };
     }
     case "http": {

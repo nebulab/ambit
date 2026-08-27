@@ -10,11 +10,11 @@ import { describe, expect, it } from "bun:test";
 
 import {
   bracedRef,
-  envPassthrough,
   namespacedRef,
   referencedNames,
   shellRef,
   soleReference,
+  stdioEnv,
   translateRefs,
 } from "../../src/harness/env.js";
 
@@ -101,15 +101,15 @@ describe("a value that is entirely one reference", () => {
 });
 
 describe("the env map a stdio server carries", () => {
-  it("maps every declared name to a reference the harness expands", () => {
-    expect(envPassthrough(["TOKEN", "API_KEY"], shellRef)).toEqual({
+  it("maps every expected name to a reference the harness expands", () => {
+    expect(stdioEnv(["TOKEN", "API_KEY"], {}, shellRef)).toEqual({
       API_KEY: "${API_KEY}",
       TOKEN: "${TOKEN}",
     });
   });
 
   it("sorts by name, so the file does not churn when the catalog reorders its list", () => {
-    expect(Object.keys(envPassthrough(["TOKEN", "API_KEY", "BASE_URL"], shellRef) ?? {})).toEqual([
+    expect(Object.keys(stdioEnv(["TOKEN", "API_KEY", "BASE_URL"], {}, shellRef) ?? {})).toEqual([
       "API_KEY",
       "BASE_URL",
       "TOKEN",
@@ -117,20 +117,73 @@ describe("the env map a stdio server carries", () => {
   });
 
   it("does not mutate the list it was handed", () => {
-    const declared = ["TOKEN", "API_KEY"];
+    const expected = ["TOKEN", "API_KEY"];
 
-    envPassthrough(declared, shellRef);
+    stdioEnv(expected, {}, shellRef);
 
-    expect(declared).toEqual(["TOKEN", "API_KEY"]);
+    expect(expected).toEqual(["TOKEN", "API_KEY"]);
   });
 
   it("returns nothing for an empty list, so the caller can omit the key entirely", () => {
     // A server that declares no variables gets no `env` at all, rather than one carrying nothing.
-    expect(envPassthrough([], shellRef)).toBeUndefined();
+    expect(stdioEnv([], {}, shellRef)).toBeUndefined();
   });
 
   it("uses the harness's own spelling", () => {
-    expect(envPassthrough(["TOKEN"], namespacedRef)).toEqual({ TOKEN: "${env:TOKEN}" });
-    expect(envPassthrough(["TOKEN"], bracedRef)).toEqual({ TOKEN: "{env:TOKEN}" });
+    expect(stdioEnv(["TOKEN"], {}, namespacedRef)).toEqual({ TOKEN: "${env:TOKEN}" });
+    expect(stdioEnv(["TOKEN"], {}, bracedRef)).toEqual({ TOKEN: "{env:TOKEN}" });
+  });
+});
+
+/**
+ * A declared entry is the one place a name can differ on the two sides of the map: the key is what the
+ * process reads, and the value says which variable supplies it. Everything else about the map — the
+ * spelling, the sorting, the value never being resolved — is the same as for a passed-through name.
+ */
+describe("an env map that renames a variable", () => {
+  it("gives the process the name it reads, from the variable that supplies it", () => {
+    expect(
+      stdioEnv(["ACME_PLANNER_TOKEN"], { PLANNER_TOKEN: "${ACME_PLANNER_TOKEN}" }, shellRef),
+    ).toEqual({ PLANNER_TOKEN: "${ACME_PLANNER_TOKEN}" });
+  });
+
+  it("still passes through an expected variable no entry references", () => {
+    expect(
+      stdioEnv(
+        ["ACME_PLANNER_TOKEN", "PLANNER_WORKSPACE"],
+        { PLANNER_TOKEN: "${ACME_PLANNER_TOKEN}" },
+        shellRef,
+      ),
+    ).toEqual({
+      PLANNER_TOKEN: "${ACME_PLANNER_TOKEN}",
+      PLANNER_WORKSPACE: "${PLANNER_WORKSPACE}",
+    });
+  });
+
+  it("lets an entry override the reference an expected name would have got", () => {
+    expect(stdioEnv(["TOKEN"], { TOKEN: "${ACME_TOKEN}" }, shellRef)).toEqual({
+      TOKEN: "${ACME_TOKEN}",
+    });
+  });
+
+  it("translates the value like any other, embedded reference and all", () => {
+    expect(stdioEnv([], { PLANNER_AUTH: "Bearer ${ACME_PLANNER_TOKEN}" }, namespacedRef)).toEqual({
+      PLANNER_AUTH: "Bearer ${env:ACME_PLANNER_TOKEN}",
+    });
+    expect(stdioEnv([], { PLANNER_URL: "https://planner.invalid" }, bracedRef)).toEqual({
+      PLANNER_URL: "https://planner.invalid",
+    });
+  });
+
+  it("sorts the two sources together, so a renamed key is not written last", () => {
+    expect(
+      Object.keys(
+        stdioEnv(
+          ["PLANNER_WORKSPACE", "ACME_TOKEN"],
+          { PLANNER_TOKEN: "${ACME_TOKEN}" },
+          shellRef,
+        ) ?? {},
+      ),
+    ).toEqual(["PLANNER_TOKEN", "PLANNER_WORKSPACE"]);
   });
 });
