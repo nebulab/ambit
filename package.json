@@ -1,6 +1,6 @@
 {
   "name": "@teamnebulab/ambit",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "A deterministic dependency manager for AI-agent capabilities: skills, MCP servers and hooks, selected by name or tag.",
   "license": "MIT",
   "repository": {
