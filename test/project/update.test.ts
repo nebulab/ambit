@@ -415,8 +415,7 @@ An entirely rewritten body, with no frontmatter moved.
 transport:
   http:
     url: https://mcp.invalid/moved
-    headers:
-      Authorization: "Bearer \${LINTER_API_KEY}"
+    bearer_token_env_var: LINTER_API_KEY
 
 expects:
   - env: LINTER_API_KEY

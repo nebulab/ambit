@@ -35,21 +35,27 @@ const CLAUDE_SKILLS_LINK = ".claude/skills";
 const URL = "https://mcp.invalid/fixture";
 
 /** An http server carrying both header shapes: one embedded reference and one bare one. */
-function http(headers: Readonly<Record<string, string>> = {}): MergedMcp {
+function http(
+  headers: Readonly<Record<string, string>> = {},
+  bearerTokenEnvVar?: string,
+): MergedMcp {
   return {
     name: "fixture",
     expects: [],
     catalog: "company",
     file: "mcps/fixture.yml",
-    transport: { kind: "http", url: URL, headers },
+    transport: { kind: "http", url: URL, bearerTokenEnvVar, headers },
   };
 }
 
-const HEADERS = { "X-Api-Key": "${API_KEY}", Authorization: "Bearer ${TOKEN}" } as const;
+const HEADERS = { "X-Api-Key": "${API_KEY}" } as const;
 
 /** The same server at some other url, for the claims about the url itself. */
 function httpAt(at: string): MergedMcp {
-  return { ...http(), transport: { kind: "http", url: at, headers: {} } };
+  return {
+    ...http(),
+    transport: { kind: "http", url: at, bearerTokenEnvVar: undefined, headers: {} },
+  };
 }
 
 /** A stdio server whose arguments carry a credential, which is the case translation exists for. */
@@ -193,12 +199,10 @@ describe("the server each profile emits", () => {
         env: { FIXTURE_API_KEY: "${FIXTURE_API_KEY}", TOKEN: "${TOKEN}" },
       },
       bareStdio: { command: "npx" },
-      // The one harness with a first-class way to keep a credential out of the file: a header that is
-      // nothing but a reference names its variable in `env_http_headers`, and one with a reference
-      // embedded in a larger string has to stay in `http_headers`.
+      // Codex has first-class fields for bearer tokens and environment-backed header values.
       http: {
         url: URL,
-        http_headers: { Authorization: "Bearer ${TOKEN}" },
+        bearer_token_env_var: "TOKEN",
         env_http_headers: { "X-Api-Key": "API_KEY" },
       },
       bareHttp: { url: URL },
@@ -237,7 +241,7 @@ describe("the server each profile emits", () => {
       });
 
       it("writes an http server with its headers", () => {
-        const emitted = profile.serverConfig(http(HEADERS));
+        const emitted = profile.serverConfig(http(HEADERS, "TOKEN"));
 
         expect(emitted).toEqual(expected.http);
         expect(Object.keys(emitted as object)).toEqual(Object.keys(expected.http as object));
@@ -248,8 +252,10 @@ describe("the server each profile emits", () => {
       });
 
       it("sorts the headers it writes, so the file does not churn on the catalog's key order", () => {
-        const emitted = profile.serverConfig(http(HEADERS)) as Record<string, unknown>;
-        const written = (emitted.headers ?? emitted.http_headers) as Record<string, unknown>;
+        const emitted = profile.serverConfig(http(HEADERS, "TOKEN")) as Record<string, unknown>;
+        const written = (emitted.headers ??
+          emitted.http_headers ??
+          emitted.env_http_headers) as Record<string, unknown>;
 
         expect(Object.keys(written).sort()).toEqual(Object.keys(written));
       });
@@ -258,7 +264,7 @@ describe("the server each profile emits", () => {
         process.env.TOKEN = "s3cret";
         try {
           const both = [
-            JSON.stringify(profile.serverConfig(http(HEADERS))),
+            JSON.stringify(profile.serverConfig(http(HEADERS, "TOKEN"))),
             JSON.stringify(profile.serverConfig(stdio(BRIDGE_ARGS, ["TOKEN"]))),
           ].join("");
 

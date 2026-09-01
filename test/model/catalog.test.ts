@@ -280,7 +280,8 @@ describe("catalog parsing", () => {
     expect(catalog.mcps.find((mcp) => mcp.name === "linter")?.transport).toEqual({
       kind: "http",
       url: "https://mcp.invalid/fixture",
-      headers: { Authorization: "Bearer ${LINTER_API_KEY}" },
+      bearerTokenEnvVar: "LINTER_API_KEY",
+      headers: {},
     });
   });
 
@@ -652,7 +653,8 @@ describe("ambit search", () => {
           transport: {
             kind: "http",
             url: "https://mcp.invalid/fixture",
-            headers: { Authorization: "Bearer ${LINTER_API_KEY}" },
+            bearer_token_env_var: "LINTER_API_KEY",
+            headers: {},
           },
         },
       },

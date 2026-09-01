@@ -229,8 +229,7 @@ name: sentry
 transport:
   http:
     url: https://mcp.sentry.dev/mcp
-    headers:
-      Authorization: "Bearer ${SENTRY_TOKEN}"
+    bearer_token_env_var: SENTRY_TOKEN
 
 # or, for a locally-spawned server:
 # transport:
@@ -242,16 +241,17 @@ expects:
   - env: SENTRY_TOKEN
 ```
 
-| Key                       | Type     | Required      | Notes                                                       |
-| ------------------------- | -------- | ------------- | ----------------------------------------------------------- |
-| `name`                    | string   | yes           | Must match the filename stem. `.yml` and `.yaml` both work. |
-| `transport`               | map      | yes           | Exactly one key: `stdio` or `http`.                         |
-| `transport.stdio.command` | string   | yes for stdio | Executable to spawn.                                        |
-| `transport.stdio.args`    | string[] | no            | Arguments, in order.                                        |
-| `transport.stdio.env`     | map      | no            | Variables the process is given. Same `${VAR}` handling.     |
-| `transport.http.url`      | string   | yes for http  | Server endpoint.                                            |
-| `transport.http.headers`  | map      | no            | `${VAR}` becomes a reference in each harness's own syntax.  |
-| `expects`                 | map[]    | no            | Preconditions. Today only `env:`.                           |
+| Key                                   | Type     | Required      | Notes                                                       |
+| ------------------------------------- | -------- | ------------- | ----------------------------------------------------------- |
+| `name`                                | string   | yes           | Must match the filename stem. `.yml` and `.yaml` both work. |
+| `transport`                           | map      | yes           | Exactly one key: `stdio` or `http`.                         |
+| `transport.stdio.command`             | string   | yes for stdio | Executable to spawn.                                        |
+| `transport.stdio.args`                | string[] | no            | Arguments, in order.                                        |
+| `transport.stdio.env`                 | map      | no            | Variables the process is given. Same `${VAR}` handling.     |
+| `transport.http.url`                  | string   | yes for http  | Server endpoint.                                            |
+| `transport.http.bearer_token_env_var` | string   | no            | Environment variable whose value is sent as a bearer token. |
+| `transport.http.headers`              | map      | no            | `${VAR}` becomes a reference in each harness's own syntax.  |
+| `expects`                             | map[]    | no            | Preconditions. Today only `env:`.                           |
 
 A stdio server is given every variable it `expects`, under the name it expects. `transport.stdio.env`
 is for a server whose own variable names are not the ones your machine sets:
