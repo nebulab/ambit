@@ -29,6 +29,8 @@ export interface StdioTransport {
 export interface HttpTransport {
   readonly kind: "http";
   readonly url: string;
+  /** The environment variable whose value is sent as the HTTP bearer token. */
+  readonly bearerTokenEnvVar: string | undefined;
   /**
    * `${VAR}` references are left intact here; at install each harness's profile rewrites them into
    * the reference syntax that harness expands at spawn time. The value itself is never read.
@@ -85,10 +87,11 @@ function parseTransport(mapping: YamlMapping): McpTransport {
     }
     case "http": {
       const http = transport.requireMapping("http");
-      http.rejectUnknownKeys(["headers", "url"]);
+      http.rejectUnknownKeys(["bearer_token_env_var", "headers", "url"]);
       return {
         kind: "http",
         url: http.requireString("url"),
+        bearerTokenEnvVar: http.optionalString("bearer_token_env_var"),
         headers: http.optionalMapping("headers")?.stringEntries() ?? {},
       };
     }

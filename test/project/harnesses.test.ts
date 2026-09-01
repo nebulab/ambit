@@ -247,9 +247,7 @@ describe("two harnesses from different families", () => {
     });
     expect(await read(".codex/config.toml")).toBe(`[mcp_servers.linter]
 url = "https://mcp.invalid/fixture"
-
-[mcp_servers.linter.http_headers]
-Authorization = "Bearer \${${PACKED_KEY_VAR}}"
+bearer_token_env_var = "${PACKED_KEY_VAR}"
 `);
   });
 

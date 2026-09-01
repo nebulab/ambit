@@ -211,9 +211,12 @@ function headersFor(
   mcp: MergedMcp & { transport: { kind: "http" } },
   style: EnvRefStyle,
 ): Readonly<Record<string, string>> | undefined {
-  const declared = Object.entries(mcp.transport.headers).sort(([a], [b]) =>
-    a < b ? -1 : a > b ? 1 : 0,
-  );
+  const declared = Object.entries({
+    ...(mcp.transport.bearerTokenEnvVar !== undefined && {
+      Authorization: `Bearer \${${mcp.transport.bearerTokenEnvVar}}`,
+    }),
+    ...mcp.transport.headers,
+  }).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
   if (declared.length === 0) return undefined;
 
   const headers: Record<string, string> = {};
@@ -327,10 +330,8 @@ export const vscode: HarnessProfile = {
 /**
  * Codex. TOML, and the one harness with a first-class way to keep a credential out of the file.
  *
- * A header whose value is nothing but a `${VAR}` reference becomes `env_http_headers`, naming the
- * variable for Codex to read at spawn time. A header with a variable embedded in a larger string
- * (`Bearer ${TOKEN}`) can't be expressed that way, so it goes in `http_headers` with the reference
- * left for Codex to expand.
+ * The catalog's bearer-token variable becomes `bearer_token_env_var`. A header whose value is
+ * nothing but a `${VAR}` reference becomes `env_http_headers`; other values remain static.
  *
  * Its hooks live in `.codex/hooks.json` using Claude's own entry shape, so this profile reuses
  * Claude's renderer; the file itself is Codex's own.
@@ -355,6 +356,9 @@ export const codex: HarnessProfile = {
 
     return {
       url: url({ ...mcp, transport: mcp.transport }, shellRef),
+      ...(mcp.transport.bearerTokenEnvVar !== undefined && {
+        bearer_token_env_var: mcp.transport.bearerTokenEnvVar,
+      }),
       ...(Object.keys(literal).length > 0 && { http_headers: literal }),
       ...(Object.keys(fromEnv).length > 0 && { env_http_headers: fromEnv }),
     };

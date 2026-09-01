@@ -73,7 +73,14 @@ function transportJson(transport: McpTransport): Readonly<Record<string, unknown
         kind: transport.kind,
       };
     case "http":
-      return { headers: transport.headers, kind: transport.kind, url: transport.url };
+      return {
+        ...(transport.bearerTokenEnvVar !== undefined && {
+          bearer_token_env_var: transport.bearerTokenEnvVar,
+        }),
+        headers: transport.headers,
+        kind: transport.kind,
+        url: transport.url,
+      };
   }
 }
 

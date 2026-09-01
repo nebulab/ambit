@@ -106,7 +106,13 @@ type Comparable = Readonly<Record<string, unknown>>;
 function transportShape(transport: McpTransport): Comparable {
   return transport.kind === "stdio"
     ? { stdio: { args: transport.args, command: transport.command, env: transport.env } }
-    : { http: { headers: transport.headers, url: transport.url } };
+    : {
+        http: {
+          bearer_token_env_var: transport.bearerTokenEnvVar,
+          headers: transport.headers,
+          url: transport.url,
+        },
+      };
 }
 
 /**

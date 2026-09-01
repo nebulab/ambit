@@ -172,7 +172,12 @@ function entityReferences(mcp: MergedMcp): readonly string[] {
     mcp.transport.kind === "http"
       ? [mcp.transport.url, ...stringsIn(mcp.transport.headers)]
       : [...mcp.transport.args, ...stringsIn(mcp.transport.env)];
-  return strings.flatMap(referencedNames);
+  return [
+    ...strings.flatMap(referencedNames),
+    ...(mcp.transport.kind === "http" && mcp.transport.bearerTokenEnvVar !== undefined
+      ? [mcp.transport.bearerTokenEnvVar]
+      : []),
+  ];
 }
 
 /**
