@@ -107,6 +107,34 @@ export interface PlannedHookDir {
 }
 
 /**
+ * A Claude Code plugin's directory to materialize.
+ *
+ * Field for field a {@link PlannedSkillDir}, because it lands the same way: a directory inside a
+ * catalog, put under the shared skills directory in one of two modes, owned as a whole path. Only
+ * `kind` differs, so state, pruning, `status`, and the gitignore blocks can tell one from a skill.
+ *
+ * Planned only by a harness whose profile says it loads one. A project whose harnesses all read
+ * plain skills plans none, and `doctor` says so.
+ */
+export interface PlannedPluginDir {
+  readonly kind: "plugin-dir";
+  /** Project-relative, `/`-separated. */
+  readonly path: string;
+  /** Absolute target. */
+  readonly target: string;
+  /** Absolute source directory within the catalog. */
+  readonly source: string;
+  /**
+   * How the source reaches the target — the same rule a skill follows: copied for a source pinned to
+   * a commit, symlinked for a local directory someone edits, forced for the whole run by
+   * `--copy`/`--link`.
+   */
+  readonly mode: ArtifactMode;
+  /** The plugin's name, so a failure names the plugin and not only a path. */
+  readonly name: string;
+}
+
+/**
  * A directory symlink pointing a harness at the shared skills directory.
  *
  * Separate from a skill directory because it is one artifact regardless of what the bundle holds,
@@ -168,19 +196,34 @@ export interface PlannedHarnessConfig {
 
 /** Everything an adapter can be asked to write. */
 export type PlannedArtifact =
-  PlannedSkillDir | PlannedHookDir | PlannedSkillsLink | PlannedHarnessConfig;
+  PlannedSkillDir | PlannedHookDir | PlannedPluginDir | PlannedSkillsLink | PlannedHarnessConfig;
 
 /** The kinds owned as a whole path, rather than co-owned per key. */
-export type PlannedPathArtifact = PlannedSkillDir | PlannedHookDir | PlannedSkillsLink;
+export type PlannedPathArtifact =
+  PlannedSkillDir | PlannedHookDir | PlannedPluginDir | PlannedSkillsLink;
 
 /**
- * The two artifacts that are a directory copied out of a catalog.
+ * The artifact kinds that are a directory copied out of a catalog.
+ *
+ * Named once, because three places have to recognize one: writing it, comparing it against its
+ * source, and reporting the mode it landed in. Spelling the disjunction out at each of them made a
+ * fourth such kind a four-line change rather than a one-line one.
+ */
+export const CATALOG_DIR_KINDS = ["skill-dir", "hook-dir", "plugin-dir"] as const;
+
+/**
+ * The artifacts that are a directory copied out of a catalog.
  *
  * One type because they are handled identically: writing, comparing against source, and reporting
- * the landed mode are the same operation whether the directory holds a skill or a hook's script. See
- * `applyCatalogDir` (`profile.ts`) and `catalogDirVerdict` (`project/status.ts`).
+ * the landed mode are the same operation whether the directory holds a skill, a hook's script, or a
+ * plugin. See `applyCatalogDir` (`profile.ts`) and `catalogDirVerdict` (`project/status.ts`).
  */
-export type PlannedCatalogDir = PlannedSkillDir | PlannedHookDir;
+export type PlannedCatalogDir = PlannedSkillDir | PlannedHookDir | PlannedPluginDir;
+
+/** Whether a planned artifact is one of those directories — see {@link CATALOG_DIR_KINDS}. */
+export function isCatalogDir(artifact: PlannedArtifact): artifact is PlannedCatalogDir {
+  return (CATALOG_DIR_KINDS as readonly string[]).includes(artifact.kind);
+}
 
 /** What `apply` reports back, and what goes into state verbatim. */
 export type AppliedArtifact = OwnedArtifact;

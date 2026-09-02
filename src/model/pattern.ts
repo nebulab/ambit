@@ -229,7 +229,7 @@ export function matches(entry: PatternEntry, item: PatternItem): boolean {
   return matchesPattern(entry.pattern, item.name);
 }
 
-/** The namespaces as a message lists them: `` `pack`, `skill`, `mcp`, `hook` ``. */
+/** The namespaces as a message lists them, each in backticks — see {@link ITEM_KINDS}. */
 const KIND_LIST = ITEM_KINDS.map((kind) => `\`${kind}\``).join(", ");
 
 /**

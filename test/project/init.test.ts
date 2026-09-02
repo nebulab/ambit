@@ -9,7 +9,7 @@
  * for the commented-out block too, which must be valid config the moment the `# ` comes off.
  *
  * The second is that the two halves agree. The scaffolded `catalogs:` entry is live and names the
- * project itself, so the three item directories have to be there for it to be true; the `requires`
+ * project itself, so the item directories have to be there for it to be true; the `requires`
  * entry selecting that catalog is commented, because an entry matching nothing is exit 3 and a fresh
  * project's own catalog is empty. Both are checked by running `ambit validate` against the result.
  *
@@ -41,6 +41,7 @@ const SCAFFOLD_FILES = [
   "hooks/.gitkeep",
   "mcps/.gitkeep",
   "packs/.gitkeep",
+  "plugins/.gitkeep",
   "skills/.gitkeep",
 ];
 
@@ -176,7 +177,7 @@ describe("ambit init", () => {
 
     const catalog = await parseCatalogDirectory("local", "path:.", projectDir);
 
-    // A `.gitkeep` is invisible to parsing, so the three directories are additive rather than a
+    // A `.gitkeep` is invisible to parsing, so the item directories are additive rather than a
     // catalog declaring something nobody wrote.
     expect(catalog.skills).toEqual([]);
     expect(catalog.mcps).toEqual([]);
@@ -343,7 +344,7 @@ describe("ambit init on a directory that already holds a .gitkeep", () => {
     const result = await cli("init");
 
     expect(result.code, result.stderr).toBe(ExitCode.Success);
-    expect(result.stdout).toContain("created (4)");
+    expect(result.stdout).toContain("created (5)");
     expect(result.stdout).toContain("kept (1)");
     expect(result.stdout).toContain("  skills/.gitkeep");
     expect(await readFile(path.join(projectDir, "skills/.gitkeep"), "utf8")).toBe("# mine\n");
@@ -377,7 +378,7 @@ describe("ambit init --dry-run", () => {
         scaffoldConfig().trimEnd(),
       ].join("\n"),
     );
-    // Not the config, and not one of the three directories the `.gitkeep` files would create.
+    // Not the config, and not one of the item directories the `.gitkeep` files would create.
     expect(await readdir(projectDir)).toEqual([]);
   });
 
@@ -398,7 +399,7 @@ describe("ambit init --dry-run", () => {
 describe("ambit init on a missing directory", () => {
   it("refuses it rather than creating one, and names it", async () => {
     // `ambit init`'s stance, kept through the merge with the catalog scaffold: `--project` naming the
-    // wrong path should not leave a project — now three directories and a config — where nobody meant.
+    // wrong path should not leave a project — now some directories and a config — where nobody meant.
     const missing = path.join(root, "absent");
     const err: string[] = [];
 

@@ -224,11 +224,18 @@ async function resolveBefore(
 /** The bundle a project that does not resolve is compared against: nothing selected, nothing expected. */
 const NOTHING: Bundle = {
   packs: [],
+  plugins: [],
   skills: [],
   mcps: [],
   hooks: [],
   expects: unionExpectations([]),
-  reasons: { packs: new Map(), skills: new Map(), mcps: new Map(), hooks: new Map() },
+  reasons: {
+    packs: new Map(),
+    plugins: new Map(),
+    skills: new Map(),
+    mcps: new Map(),
+    hooks: new Map(),
+  },
 };
 
 /**

@@ -235,7 +235,7 @@ describe("project config", () => {
       // The grammar's own refusals are `pattern.test.ts`'s; this is the claim that a project config
       // reads its `requires` through them rather than through a second, looser parser.
       expect(rejection('version: 1\nrequires: [{ tag: "c/core" }]\n').format()).toContain(
-        "accepted keys: hook, mcp, pack, skill",
+        "accepted keys: hook, mcp, pack, plugin, skill",
       );
     });
 

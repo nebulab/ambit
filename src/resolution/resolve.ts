@@ -18,7 +18,9 @@
  * A **pack** and a **skill** both carry `requires`, and the closure follows both. A pack is a
  * document whose whole content is what asking for it gets you — a catalog's way of offering a named,
  * browsable group of items. A skill's `requires` declares what it cannot work without, so a project
- * that reaches it gets a working bundle rather than a broken one. Servers and hooks are leaves.
+ * that reaches it gets a working bundle rather than a broken one. Servers, hooks and plugins are
+ * leaves; a plugin is self-contained by construction, shipping its own components rather than naming
+ * a catalog's.
  *
  * Two catalogs may provide one name; the merged catalog holds both copies, but a bundle holds at
  * most one — a selection reaching both is refused ({@link assertNoCollisions}), because harness
@@ -31,6 +33,7 @@ import type {
   MergedHook,
   MergedMcp,
   MergedPack,
+  MergedPlugin,
   MergedSkill,
 } from "../model/catalog.js";
 import { SKILL_FILENAME, qualifiedName } from "../model/catalog.js";
@@ -53,6 +56,7 @@ import { AmbitError, ExitCode, at, resolutionError } from "../errors.js";
  */
 export interface Selection {
   readonly packs: readonly MergedPack[];
+  readonly plugins: readonly MergedPlugin[];
   readonly skills: readonly MergedSkill[];
   readonly mcps: readonly MergedMcp[];
   readonly hooks: readonly MergedHook[];
@@ -154,20 +158,21 @@ export interface ReasonedItem extends BundleItem {
  */
 export interface SelectionReasons {
   readonly packs: ReadonlyMap<string, SelectionReason>;
+  readonly plugins: ReadonlyMap<string, SelectionReason>;
   readonly skills: ReadonlyMap<string, SelectionReason>;
   readonly mcps: ReadonlyMap<string, SelectionReason>;
   readonly hooks: ReadonlyMap<string, SelectionReason>;
 }
 
 /**
- * The resolved set of packs, skills, MCP servers and hooks for a project.
+ * The resolved set of packs, plugins, skills, MCP servers and hooks for a project.
  *
  * One item per name within each namespace, guaranteed by {@link assertNoCollisions}. Everything
  * downstream (`install`, the lock, `status`, `doctor`, `why`) relies on that when it keys on a bare
  * name; the merged catalog itself does not, since it holds every catalog's copy.
  *
  * Packs are included even though a pack materializes nothing — everything else in a bundle lands
- * where a harness reads it, while a pack only contributes to the other three lists. It is kept so a
+ * where a harness reads it, while a pack only contributes to the lists below it. It is kept so a
  * bundle can answer *why is this skill installed* with the pack name the project actually wrote.
  *
  * The config's own `requires` list is not echoed back: it is already in the file the reader has
@@ -176,6 +181,15 @@ export interface SelectionReasons {
 export interface Bundle {
   /** Selected packs, sorted by name. Materialized nowhere — see above. */
   readonly packs: readonly MergedPack[];
+  /**
+   * Selected Claude Code plugins, sorted by name.
+   *
+   * Materialized only for a harness that reads them, unlike everything else here: a plugin is
+   * Claude's unit, not a shared one, so a project on codex alone resolves the plugin, records it in
+   * the lock, and installs nothing. `doctor` reports that rather than resolution refusing it, since
+   * the same `ambit.yml` is often installed by people on different tools.
+   */
+  readonly plugins: readonly MergedPlugin[];
   /** Selected skills, sorted by name. */
   readonly skills: readonly MergedSkill[];
   /** Selected MCP servers, sorted by name. */
@@ -228,6 +242,7 @@ export function selectingEntry(
 export function matchesAnything(entry: PatternEntry, merged: MergedCatalog): boolean {
   return (
     merged.packs.some((pack) => matches(entry, patternItem("pack", pack))) ||
+    merged.plugins.some((plugin) => matches(entry, patternItem("plugin", plugin))) ||
     merged.skills.some((skill) => matches(entry, patternItem("skill", skill))) ||
     merged.mcps.some((mcp) => matches(entry, patternItem("mcp", mcp))) ||
     merged.hooks.some((hook) => matches(entry, patternItem("hook", hook)))
@@ -237,6 +252,7 @@ export function matchesAnything(entry: PatternEntry, merged: MergedCatalog): boo
 /** What a namespace is called in a message about one of its members, without an article. */
 const KIND_LABELS: Readonly<Record<ItemKind, string>> = {
   pack: "pack",
+  plugin: "plugin",
   skill: "skill",
   mcp: "MCP server",
   hook: "hook",
@@ -402,6 +418,9 @@ export function requiredItems(
     packs: merged.packs.filter(
       (pack) => own(pack.catalog) && matches(entry, patternItem("pack", pack)),
     ),
+    plugins: merged.plugins.filter(
+      (plugin) => own(plugin.catalog) && matches(entry, patternItem("plugin", plugin)),
+    ),
     skills: merged.skills.filter(
       (skill) => own(skill.catalog) && matches(entry, patternItem("skill", skill)),
     ),
@@ -416,6 +435,7 @@ export function requiredItems(
 function isEmpty(selection: Selection): boolean {
   return (
     selection.packs.length === 0 &&
+    selection.plugins.length === 0 &&
     selection.skills.length === 0 &&
     selection.mcps.length === 0 &&
     selection.hooks.length === 0
@@ -488,8 +508,8 @@ function requirerKey(requirer: Requirer): string {
  * there is no "missing" case — only an entry that matched nothing, reported the same way
  * {@link unmatchedEntryError} reports it for a project's own entries.
  *
- * Packs and skills are the interior of the graph; servers and hooks are leaves and carry no
- * `requires`. Each entry resolves within the requirer's own catalog (see {@link requiredItems}).
+ * Packs and skills are the interior of the graph; servers, hooks and plugins are leaves and carry
+ * no `requires`. Each entry resolves within the requirer's own catalog (see {@link requiredItems}).
  *
  * Accepted cost: a wildcard `requires` means a catalog author adding an item changes what an
  * unrelated pack pulls in silently. Add `skills/core/internal-notes`, and every requirer naming
@@ -506,6 +526,7 @@ function requirerKey(requirer: Requirer): string {
  *   catalog's order.
  * @param mcps MCP entities the project's entries already selected.
  * @param hooks hooks the project's entries already selected.
+ * @param plugins plugins the project's entries already selected.
  * @param merged what requirements resolve against, one catalog of it at a time.
  * @throws {AmbitError} exit 3 for a `requires` entry that matches nothing in its own catalog, or a
  *   cycle.
@@ -514,6 +535,7 @@ export function closeOverRequires(
   roots: readonly Requirer[],
   mcps: readonly MergedMcp[],
   hooks: readonly MergedHook[],
+  plugins: readonly MergedPlugin[],
   merged: MergedCatalog,
 ): Selection {
   // Keyed by address, not bare name: a set of names would treat two catalogs' copies as one item.
@@ -521,6 +543,7 @@ export function closeOverRequires(
   const chosenSkills = new Set<string>();
   const chosenMcps = new Set(mcps.map(qualifiedName));
   const chosenHooks = new Set(hooks.map(qualifiedName));
+  const chosenPlugins = new Set(plugins.map(qualifiedName));
 
   // Keyed the way the walk addresses requirers, so an edge can find its target node directly.
   const requirers = new Map(
@@ -550,10 +573,11 @@ export function closeOverRequires(
         );
       }
 
-      // Leaf namespaces: an MCP or a hook carries no requires, so joining the selection is all
-      // there is to do.
+      // Leaf namespaces: an MCP, a hook or a plugin carries no requires, so joining the selection
+      // is all there is to do.
       for (const mcp of required.mcps) chosenMcps.add(qualifiedName(mcp));
       for (const hook of required.hooks) chosenHooks.add(qualifiedName(hook));
+      for (const plugin of required.plugins) chosenPlugins.add(qualifiedName(plugin));
 
       const next = [
         ...required.packs.map((pack) =>
@@ -589,6 +613,7 @@ export function closeOverRequires(
   // merged catalog's order regardless of discovery order.
   return {
     packs: merged.packs.filter((pack) => chosenPacks.has(qualifiedName(pack))),
+    plugins: merged.plugins.filter((plugin) => chosenPlugins.has(qualifiedName(plugin))),
     skills: merged.skills.filter((skill) => chosenSkills.has(qualifiedName(skill))),
     mcps: merged.mcps.filter((mcp) => chosenMcps.has(qualifiedName(mcp))),
     hooks: merged.hooks.filter((hook) => chosenHooks.has(qualifiedName(hook))),
@@ -635,6 +660,35 @@ function assertOnePerName(
 }
 
 /**
+ * Rejects a selected skill and a selected plugin sharing one name.
+ *
+ * The one collision that crosses namespaces, and it exists because the two share a directory: a
+ * skills-directory plugin is loaded by Claude Code from the same `.agents/skills` a skill is
+ * installed into, so `skills/house-style` and `plugins/house-style` both want
+ * `.agents/skills/house-style`.
+ *
+ * Refused rather than arbitrated, for the same reason {@link collisionError} refuses two catalogs'
+ * copies of one name: neither namespace outranks the other, and whichever lost would be silently
+ * missing from the install.
+ *
+ * @throws {AmbitError} exit 3, naming the two catalogs so a reader knows which documents to edit.
+ */
+function assertSkillsAndPluginsApart(selection: Selection): void {
+  const skills = new Map(selection.skills.map((skill) => [skill.name, skill.catalog]));
+
+  for (const plugin of selection.plugins) {
+    const catalog = skills.get(plugin.name);
+    if (catalog === undefined) continue;
+
+    throw resolutionError(`"${plugin.name}" is selected as both a skill and a plugin`, [
+      `skill from catalog "${catalog}", plugin from catalog "${plugin.catalog}"`,
+      "a plugin is installed into the shared skills directory, where a skill of that name already goes, so both would want one path",
+      `rename one of them, or drop the \`${REQUIRES_KEY}\` entry that reaches the other`,
+    ]);
+  }
+}
+
+/**
  * Rejects a selection holding two catalogs' copies of one name.
  *
  * This is where the collision the merge left unarbitrated gets settled. The conflict is about
@@ -648,9 +702,11 @@ function assertOnePerName(
  */
 export function assertNoCollisions(selection: Selection): void {
   assertOnePerName("pack", selection.packs);
+  assertOnePerName("plugin", selection.plugins);
   assertOnePerName("skill", selection.skills);
   assertOnePerName("mcp", selection.mcps);
   assertOnePerName("hook", selection.hooks);
+  assertSkillsAndPluginsApart(selection);
 }
 
 /** How a reason reads in `--explain`, in the lock, and in `ambit why`. */
@@ -745,6 +801,8 @@ function reasonsOf(bundle: Bundle, kind: ItemKind): ReadonlyMap<string, Selectio
   switch (kind) {
     case "pack":
       return bundle.reasons.packs;
+    case "plugin":
+      return bundle.reasons.plugins;
     case "skill":
       return bundle.reasons.skills;
     case "mcp":
@@ -816,7 +874,7 @@ export function explainSelection(bundle: Bundle, item: BundleItem): readonly Rea
  * of at whichever surface asks first.
  *
  * @param merged every configured catalog. A project that ships items of its own lists itself as a
- *   catalog, so all four namespaces arrive here the same way.
+ *   catalog, so every namespace arrives here the same way.
  * @throws {AmbitError} exit 3 for a `requires` entry that matches nothing, a `requires` cycle, or one
  *   name selected from two catalogs.
  */
@@ -837,22 +895,26 @@ export function resolveBundle(config: ProjectConfig, merged: MergedCatalog): Bun
     ),
     merged.mcps.filter((mcp) => selectingEntry(entries, "mcp", mcp) !== undefined),
     merged.hooks.filter((hook) => selectingEntry(entries, "hook", hook) !== undefined),
+    merged.plugins.filter((plugin) => selectingEntry(entries, "plugin", plugin) !== undefined),
     merged,
   );
 
   // Checked before the bundle exists and before any map below keys on a bare name: this is what
   // makes a name an identity from here on.
   assertNoCollisions(selection);
-  const { packs, skills, mcps, hooks } = selection;
+  const { packs, plugins, skills, mcps, hooks } = selection;
 
   // The requirers that survived the closure, which is what a `required-by` reason may name.
   const selectedRequirers = requirersOf({ ...merged, packs, skills });
 
   return {
     packs,
+    plugins,
     skills,
     mcps,
     hooks,
+    // Plugins contribute none: the manifest is Claude's document and has no key ambit could read a
+    // precondition from, so what a plugin's own servers need is Claude's to prompt for.
     expects: unionExpectations([
       ...skills.map((skill) => skill.expects),
       ...mcps.map((mcp) => mcp.expects),
@@ -860,6 +922,7 @@ export function resolveBundle(config: ProjectConfig, merged: MergedCatalog): Bun
     ]),
     reasons: {
       packs: selectionReasons(packs, "pack", entries, selectedRequirers),
+      plugins: selectionReasons(plugins, "plugin", entries, selectedRequirers),
       skills: selectionReasons(skills, "skill", entries, selectedRequirers),
       mcps: selectionReasons(mcps, "mcp", entries, selectedRequirers),
       hooks: selectionReasons(hooks, "hook", entries, selectedRequirers),

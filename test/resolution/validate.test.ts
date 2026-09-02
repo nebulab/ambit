@@ -30,7 +30,8 @@ import { run } from "../../src/cli/program.js";
 const CATALOG_NAME = "company";
 
 /** The fixture's shape, which a clean report counts back. */
-const FIXTURE_PACKS = 4;
+const FIXTURE_PACKS = 5;
+const FIXTURE_PLUGINS = 1;
 const FIXTURE_SKILLS = 4;
 const FIXTURE_MCPS = 2;
 const FIXTURE_HOOKS = 3;
@@ -40,7 +41,7 @@ const FIRST_ENTRY_LINE = 6;
 
 /** What a clean catalog reports: what was checked, and an explicitly empty problem list. */
 const CLEAN_REPORT = [
-  `checked ${FIXTURE_PACKS} packs, ${FIXTURE_SKILLS} skills, ${FIXTURE_MCPS} mcps, ${FIXTURE_HOOKS} hooks`,
+  `checked ${FIXTURE_PACKS} packs, ${FIXTURE_PLUGINS} plugin, ${FIXTURE_SKILLS} skills, ${FIXTURE_MCPS} mcps, ${FIXTURE_HOOKS} hooks`,
   "",
   "problems (0)",
   "  (none)",
@@ -504,6 +505,7 @@ describe("ambit validate: a name two catalogs provide", () => {
     // Both copies, not both names: each is a document this run read and checked on its own terms.
     expect(found.checked).toEqual({
       packs: FIXTURE_PACKS * 2,
+      plugins: FIXTURE_PLUGINS * 2,
       skills: FIXTURE_SKILLS * 2,
       mcps: FIXTURE_MCPS * 2,
       hooks: FIXTURE_HOOKS * 2,
@@ -606,7 +608,9 @@ describe("ambit validate: the project's own config", () => {
     const result = await cli("validate");
 
     expect(result.code).toBe(ExitCode.Resolution);
-    expect(result.stdout).toContain(`checked ${FIXTURE_PACKS} packs, ${FIXTURE_SKILLS + 1} skills`);
+    expect(result.stdout).toContain(
+      `checked ${FIXTURE_PACKS} packs, ${FIXTURE_PLUGINS} plugin, ${FIXTURE_SKILLS + 1} skills`,
+    );
     expect(result.stdout).toContain(
       '`requires` entry "skill:absent-skill" matches nothing (skills/readwise-cli/SKILL.md)',
     );
@@ -660,7 +664,7 @@ describe("ambit validate: a configured catalog nothing selects from", () => {
         kind: "unselected-catalog",
         message: `catalog "${SECOND}" is configured but nothing selects from it (ambit.yml)`,
         detail: [
-          `it provides ${FIXTURE_PACKS + FIXTURE_SKILLS + FIXTURE_MCPS + FIXTURE_HOOKS} items, and no \`requires\` entry is qualified with "${SECOND}/"`,
+          `it provides ${FIXTURE_PACKS + FIXTURE_PLUGINS + FIXTURE_SKILLS + FIXTURE_MCPS + FIXTURE_HOOKS} items, and no \`requires\` entry is qualified with "${SECOND}/"`,
           "select what this project needs from it, or drop it from `catalogs:`",
         ],
       },
@@ -714,7 +718,9 @@ describe("ambit validate: a configured catalog nothing selects from", () => {
     const result = await cli("validate");
 
     expect(result.code, result.stderr).toBe(ExitCode.Success);
-    expect(result.stdout).toContain(`checked ${FIXTURE_PACKS} packs, ${FIXTURE_SKILLS + 1} skills`);
+    expect(result.stdout).toContain(
+      `checked ${FIXTURE_PACKS} packs, ${FIXTURE_PLUGINS} plugin, ${FIXTURE_SKILLS + 1} skills`,
+    );
   });
 });
 
@@ -730,6 +736,7 @@ describe("ambit validate output", () => {
         hooks: FIXTURE_HOOKS,
         mcps: FIXTURE_MCPS,
         packs: FIXTURE_PACKS,
+        plugins: FIXTURE_PLUGINS,
         skills: FIXTURE_SKILLS + 1,
       },
       problems: [
@@ -754,6 +761,7 @@ describe("ambit validate output", () => {
         hooks: FIXTURE_HOOKS,
         mcps: FIXTURE_MCPS,
         packs: FIXTURE_PACKS,
+        plugins: FIXTURE_PLUGINS,
         skills: FIXTURE_SKILLS,
       },
       problems: [],
@@ -768,12 +776,13 @@ describe("ambit validate output", () => {
 
     expect(result.code, result.stderr).toBe(ExitCode.Success);
     expect(result.stdout).toContain(
-      `checked ${FIXTURE_PACKS} packs, ${FIXTURE_SKILLS} skills, ${FIXTURE_MCPS} mcps, ${FIXTURE_HOOKS + 1} hooks`,
+      `checked ${FIXTURE_PACKS} packs, ${FIXTURE_PLUGINS} plugin, ${FIXTURE_SKILLS} skills, ${FIXTURE_MCPS} mcps, ${FIXTURE_HOOKS + 1} hooks`,
     );
     expect((await report("validate")).checked).toEqual({
       hooks: FIXTURE_HOOKS + 1,
       mcps: FIXTURE_MCPS,
       packs: FIXTURE_PACKS,
+      plugins: FIXTURE_PLUGINS,
       skills: FIXTURE_SKILLS,
     });
   });
@@ -785,7 +794,7 @@ describe("ambit validate output", () => {
 
     expect(result.stdout).toBe(
       [
-        `checked ${FIXTURE_PACKS} packs, ${FIXTURE_SKILLS + 1} skills, ${FIXTURE_MCPS} mcps, ${FIXTURE_HOOKS} hooks`,
+        `checked ${FIXTURE_PACKS} packs, ${FIXTURE_PLUGINS} plugin, ${FIXTURE_SKILLS + 1} skills, ${FIXTURE_MCPS} mcps, ${FIXTURE_HOOKS} hooks`,
         "",
         "problems (1)",
         '  `requires` entry "skill:absent-skill" matches nothing (skills/broken-thing/SKILL.md)',

@@ -57,15 +57,16 @@ Start a project:
 
 ```
 $ ambit init
-created (5)
+created (6)
   ambit.yml
   hooks/.gitkeep
   mcps/.gitkeep
   packs/.gitkeep
+  plugins/.gitkeep
   skills/.gitkeep
 ```
 
-That writes `ambit.yml` plus the four item directories. Point it at a catalog and say what you want
+That writes `ambit.yml` plus the five item directories. Point it at a catalog and say what you want
 from it:
 
 ```yaml
@@ -110,14 +111,15 @@ $ ambit outdated            # has any catalog moved, and would it change anythin
 
 ## What you can select
 
-A **catalog** is a git repo (or a local directory) holding up to four kinds of thing:
+A **catalog** is a git repo (or a local directory) holding up to five kinds of thing:
 
-| Kind      | Lives in                 | What it is                                                                   |
-| --------- | ------------------------ | ---------------------------------------------------------------------------- |
-| **Skill** | `skills/<name>/SKILL.md` | Instructions the agent can load                                              |
-| **MCP**   | `mcps/<name>.yml`        | A server definition                                                          |
-| **Hook**  | `hooks/<name>/hook.yml`  | A command that runs on one harness event                                     |
-| **Pack**  | `packs/<name>.yml`       | A named group of the other three. ambit's own idea, invisible to the harness |
+| Kind       | Lives in                                    | What it is                                                               |
+| ---------- | ------------------------------------------- | ------------------------------------------------------------------------ |
+| **Skill**  | `skills/<name>/SKILL.md`                    | Instructions the agent can load                                          |
+| **MCP**    | `mcps/<name>.yml`                           | A server definition                                                      |
+| **Hook**   | `hooks/<name>/hook.yml`                     | A command that runs on one harness event                                 |
+| **Pack**   | `packs/<name>.yml`                          | A named group of the others. ambit's own idea, invisible to the harness  |
+| **Plugin** | `plugins/<name>/.claude-plugin/plugin.json` | A Claude Code plugin, in Claude's own format. Only Claude Code loads one |
 
 An item's name is its path inside its directory, with `/` read as `.`. So
 `skills/close-crm/SKILL.md` is the skill `close-crm`, and `packs/function/engineering.yml` is the
@@ -154,14 +156,15 @@ requires:
   - skill: "company/core.*"
   - skill: "personal/luma"
   - hook: "company/guards.*"
+  - plugin: "company/git-workflow"
 ```
 
-| Field       | Type         | Required | Notes                                                                                                                              |
-| ----------- | ------------ | -------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `version`   | int          | yes      | Must be `1`.                                                                                                                       |
-| `harnesses` | string[]     | no       | Any of `claude`, `codex`, `cursor`, `opencode`, `vscode`. Default `[claude]`.                                                      |
-| `catalogs`  | list of maps | no       | `name`, `source`, `ref?`. `name` must be unique and hold no `/`, since it is the first half of an address. Dots are fine.          |
-| `requires`  | list of maps | no       | Each entry: exactly one key of `pack`/`skill`/`mcp`/`hook`, carrying `<catalog>/<pattern>`. An entry matching nothing is an error. |
+| Field       | Type         | Required | Notes                                                                                                                                       |
+| ----------- | ------------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `version`   | int          | yes      | Must be `1`.                                                                                                                                |
+| `harnesses` | string[]     | no       | Any of `claude`, `codex`, `cursor`, `opencode`, `vscode`. Default `[claude]`.                                                               |
+| `catalogs`  | list of maps | no       | `name`, `source`, `ref?`. `name` must be unique and hold no `/`, since it is the first half of an address. Dots are fine.                   |
+| `requires`  | list of maps | no       | Each entry: exactly one key of `pack`/`plugin`/`skill`/`mcp`/`hook`, carrying `<catalog>/<pattern>`. An entry matching nothing is an error. |
 
 **Source formats:** `owner/repo`, `owner/repo@ref` (GitHub shorthand),
 `https://github.com/owner/repo`, `git@host:owner/repo.git`, `git:<any-git-url>`,
@@ -317,12 +320,79 @@ Hook support varies by harness:
 | `codex`            | `.codex/hooks.json`     | Experimental: needs `[features] codex_hooks = true` in the user's own config. `doctor` warns. |
 | `opencode`         | —                       | No declarative hooks. A selected hook is skipped with a warning and the install succeeds.     |
 
+### Plugins
+
+A **plugin** is a [Claude Code plugin](https://code.claude.com/docs/en/plugins), authored in Claude's
+own format and put under `plugins/`. ambit reads its manifest and installs the directory whole, so it
+carries whatever component kinds Claude reads: skills, agents, hooks, MCP servers, LSP servers.
+
+```
+plugins/git-workflow/
+├── .claude-plugin/
+│   └── plugin.json
+├── skills/
+│   └── commit-changes/SKILL.md
+├── hooks/
+│   └── hooks.json
+└── .mcp.json
+```
+
+ambit reads three keys off `.claude-plugin/plugin.json` and ignores the rest:
+
+| Key           | Type   | Required | Notes                                                                    |
+| ------------- | ------ | -------- | ------------------------------------------------------------------------ |
+| `name`        | string | yes      | Claude's namespace for the plugin's components: `<name>:<skill>`.        |
+| `description` | string | no       | Shown by `ambit search`.                                                 |
+| `version`     | string | no       | Shown by `ambit search`, and reported when it moves by `ambit outdated`. |
+
+**A plugin has two names, and they need not match.** ambit addresses it by its path under `plugins/`,
+the same convention every other item follows, so `plugins/git-workflow/` is the plugin `git-workflow`
+and that is what a `requires` entry selects. Claude addresses it by the manifest's `name`, which is
+what prefixes its skills. A catalog that publishes through a marketplace usually wants a distinct
+manifest name, so ambit checks neither against the other.
+
+A plugin's own components are not ambit's items. It ships no `requires` and no `expects`, nothing in
+it appears in `ambit resolve`'s other sections, and `ambit doctor` says nothing about the variables
+its servers need. Claude prompts for those when it enables the plugin.
+
+**Only Claude Code loads a plugin.** ambit installs it into `.agents/skills/<name>`, where Claude
+reads any directory holding `.claude-plugin/plugin.json` as a plugin rather than as a skill:
+
+```
+$ ambit install
+harnesses (1)
+  claude
+
+artifacts (2)
+  .agents/skills/git-workflow  plugin-dir   copy
+  .claude/skills               skills-link  link
+```
+
+Nothing goes into `.claude/settings.json`, and there is no marketplace to register. In a project the
+plugin loads once you accept the workspace trust dialog, the same gate the project's own
+`.claude/settings.json` is behind.
+
+Two consequences follow from sharing that directory with skills. A skill and a plugin cannot have the
+same name, since both would want one path, so the selection is refused. And a project whose `harnesses`
+list holds nothing that reads plugins resolves the plugin, records it in `ambit.lock`, and installs
+nothing; `ambit doctor` warns rather than the install failing, since one `ambit.yml` is often
+installed by people on different tools.
+
+A plugin usually composes skills the catalog already ships, by symlinking them rather than holding a
+second copy that can drift:
+
+```
+plugins/git-workflow/skills/commit-changes -> ../../../skills/commit-changes
+```
+
+ambit resolves those links when it copies, so what lands in the project is bytes.
+
 ### Packs
 
-**A pack is ambit's own invention.** Skills, MCP servers, and hooks are things your harness already
-understands. A pack is not: it exists only inside ambit, ships no files, and installs nowhere. No
-harness ever sees one. What it does is give a group of the other three a name, so one `requires`
-entry takes the lot.
+**A pack is ambit's own invention.** Skills, MCP servers, hooks, and plugins are things your harness
+already understands. A pack is not: it exists only inside ambit, ships no files, and installs
+nowhere. No harness ever sees one. What it does is give a group of the others a name, so one
+`requires` entry takes the lot.
 
 ```yaml
 # packs/function/engineering.yml
@@ -335,6 +405,7 @@ requires:
   - skill: guides.*
   - mcp: linter
   - hook: guard-secrets
+  - plugin: git-workflow
 ```
 
 | Key           | Type   | Required | Notes                                                                      |
@@ -437,7 +508,7 @@ when `AMBIT_NO_UPDATE_CHECK` is set to anything. It never delays or fails the co
 
 | Command                                                             | What it does                                                                                                                                         |
 | ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ambit init`                                                        | Scaffold `ambit.yml`, the four item directories, and a `catalogs:` entry naming the project itself. Refuses a directory that already has a config.   |
+| `ambit init`                                                        | Scaffold `ambit.yml`, the five item directories, and a `catalogs:` entry naming the project itself. Refuses a directory that already has a config.   |
 | `ambit search [--catalog <name>…] [--capability <kind>…] <pattern>` | Search every catalog the project lists, whether anything selects the item or not. Same patterns as `requires`. A pattern matching nothing is exit 0. |
 | `ambit resolve [--explain]`                                         | Compute the bundle and print it. `--explain` prints why each item is in it.                                                                          |
 | `ambit why <kind:name>`                                             | Explain why one item is in the bundle, as a chain back to the entry that asked for it.                                                               |

@@ -640,6 +640,23 @@ describe("ambit search", () => {
           description: "The Acme engagement — its brief, and whatever the brief drags in.",
           requires: [{ kind: "skill", pattern: "acme-brief" }],
         },
+        [`${CATALOG_NAME}/workflow.tooling`]: {
+          catalog: CATALOG_NAME,
+          description: "Acme's toolkit, as the plugin Claude Code loads it from.",
+          requires: [{ kind: "plugin", pattern: "acme-tools" }],
+        },
+      },
+      // The fixture's one plugin, under the name its path derives and the namespace its manifest
+      // declares — two different strings on purpose.
+      plugins: {
+        [`${CATALOG_NAME}/acme-tools`]: {
+          catalog: CATALOG_NAME,
+          description:
+            "Acme's own Claude Code plugin: the skills and hooks the toolkit ships as one unit.",
+          namespace: "acme-toolkit",
+          path: "plugins/acme-tools",
+          version: "1.4.0",
+        },
       },
       mcps: {
         [`${CATALOG_NAME}/fixture`]: {
@@ -800,7 +817,14 @@ describe("ambit search, narrowed", () => {
     const result = await cli("search", "*", "--capability", "skill", "--json");
 
     const emitted = JSON.parse(result.stdout) as Record<string, Record<string, unknown>>;
-    expect(Object.keys(emitted)).toEqual(["catalogs", "hooks", "mcps", "packs", "skills"]);
+    expect(Object.keys(emitted)).toEqual([
+      "catalogs",
+      "hooks",
+      "mcps",
+      "packs",
+      "plugins",
+      "skills",
+    ]);
     expect(Object.keys(emitted.skills!).length).toBeGreaterThan(0);
     expect(emitted.packs).toEqual({});
     expect(emitted.mcps).toEqual({});
@@ -881,7 +905,7 @@ describe("ambit search, narrowed", () => {
     const result = await cli("search", "*", "--capability", "tag");
 
     expect(result.code).toBe(ExitCode.Config);
-    expect(result.stderr).toContain("pack, skill, mcp, hook");
+    expect(result.stderr).toContain("pack, plugin, skill, mcp, hook");
   });
 
   it("requires the pattern, so `*` is asked for rather than defaulted to", async () => {
@@ -1612,6 +1636,9 @@ describe("multi-catalog merge", () => {
     expect(result.stdout).toBe(
       [
         "packs (0)",
+        "  (none)",
+        "",
+        "plugins (0)",
         "  (none)",
         "",
         "skills (1)",

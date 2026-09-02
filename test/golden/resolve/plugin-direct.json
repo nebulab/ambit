@@ -1,0 +1,16 @@
+{
+  "expects": {
+    "env": []
+  },
+  "hooks": {},
+  "mcps": {},
+  "packs": {},
+  "plugins": {
+    "acme-tools": {
+      "catalog": "company",
+      "namespace": "acme-toolkit",
+      "path": "plugins/acme-tools"
+    }
+  },
+  "skills": {}
+}

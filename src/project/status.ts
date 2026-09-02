@@ -18,7 +18,7 @@
  * Ownership is part of the comparison, not a separate audit: a target that exists but that state does
  * not claim is exactly what install would refuse, reported here as `unowned`.
  */
-import { lstat, readFile, readdir, readlink } from "node:fs/promises";
+import { lstat, readFile, readlink } from "node:fs/promises";
 import path from "node:path";
 
 import type {
@@ -35,6 +35,8 @@ import { configError } from "../errors.js";
 import { driverFor, managedKey, readDocumentText } from "../model/documents/index.js";
 import { SHARED_SKILLS_DIR } from "../harness/profile.js";
 import { adaptersFor, installScope, planFor } from "./install.js";
+import { fileList } from "./file-tree.js";
+import { isCatalogDir } from "../harness/adapter.js";
 import { ownedKeys } from "./ownership.js";
 import { resolveBundle } from "../resolution/resolve.js";
 import type { SourceContext } from "../model/sources.js";
@@ -138,31 +140,18 @@ async function shapeOf(
 }
 
 /**
- * Every file under `dir`, relative, `/`-separated and sorted.
- *
- * Directories are not listed on their own: an empty directory is not a difference worth a row, and
- * every difference that matters involves a file.
+ * Every file under `dir`, as {@link fileList} lists them, with an unreadable tree reported as the
+ * refusal every other inspection here uses.
  *
  * @param label how the tree is named in errors.
  * @throws {AmbitError} exit 2 when it cannot be listed.
  */
-async function fileList(dir: string, label: string): Promise<readonly string[]> {
-  const found: string[] = [];
-
-  const walk = async (current: string, relative: string): Promise<void> => {
-    for (const entry of await readdir(current, { withFileTypes: true })) {
-      const within = relative === "" ? entry.name : `${relative}/${entry.name}`;
-      if (entry.isDirectory()) await walk(path.join(current, entry.name), within);
-      else found.push(within);
-    }
-  };
-
+async function treeFiles(dir: string, label: string): Promise<readonly string[]> {
   try {
-    await walk(dir, "");
+    return await fileList(dir);
   } catch (error) {
     unreadable(label, dir, error);
   }
-  return found.sort(compare);
 }
 
 /**
@@ -192,8 +181,8 @@ async function sameBytes(source: string, target: string): Promise<boolean> {
  */
 async function firstDifference(artifact: PlannedCatalogDir): Promise<string | undefined> {
   const [expected, actual] = await Promise.all([
-    fileList(artifact.source, `the source of "${artifact.name}"`),
-    fileList(artifact.target, artifact.path),
+    treeFiles(artifact.source, `the source of "${artifact.name}"`),
+    treeFiles(artifact.target, artifact.path),
   ]);
   const installed = new Set(actual);
   const shipped = new Set(expected);
@@ -256,7 +245,8 @@ async function skillsLinkVerdict(
 }
 
 /**
- * Compares one planned directory — a skill's, or a hook's shipped script — against the project.
+ * Compares one planned directory — a skill's, a hook's shipped script, or a plugin's — against the
+ * project.
  *
  * Checks existence, then ownership, then contents: something ambit did not create is `unowned`
  * whatever it holds, since install would refuse it rather than compare it.
@@ -266,7 +256,7 @@ async function skillsLinkVerdict(
  * of the harness, so a `--copy` install with intact copies reads as clean even though a plain
  * `install` would relink it. Mode divergence is reported by `doctor` (A24) instead.
  *
- * One function handles both kinds; the {@link PlannedCatalogDir} argument type keeps a hook directory
+ * One function handles all three; the {@link PlannedCatalogDir} argument type keeps a hook directory
  * from being handed to {@link configVerdict} and misread as a document.
  *
  * @throws {AmbitError} exit 2 when the target cannot be inspected.
@@ -383,7 +373,7 @@ async function compareArtifacts(
     // artifacts of different kinds at one path would be an adapter bug, not a project's problem.
     if (first === undefined) continue;
 
-    if (first.kind === "skill-dir" || first.kind === "hook-dir") {
+    if (isCatalogDir(first)) {
       rows.push({ path: file, kind: first.kind, ...(await catalogDirVerdict(first, owned)) });
       continue;
     }

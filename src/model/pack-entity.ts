@@ -45,7 +45,7 @@ export interface PackEntity {
 /**
  * The keys a pack document may hold.
  *
- * No `expects`, unlike the other three kinds. An expectation is read by something that runs: a
+ * No `expects`, unlike skills, servers and hooks. An expectation is read by something that runs: a
  * skill's instructions, a server's credentials, a hook's command. A pack runs nothing itself; each
  * item it names carries its own `expects` into the union instead.
  */
