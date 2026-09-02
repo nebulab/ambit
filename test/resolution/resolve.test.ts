@@ -68,7 +68,7 @@ const FIRST_ENTRY_LINE = 6;
  * the profile's four-line preamble. The address is qualified with the fixture catalog unless it
  * already carries a qualifier of its own.
  */
-function entry(kind: "pack" | "skill" | "mcp" | "hook", address: string): string {
+function entry(kind: "pack" | "plugin" | "skill" | "mcp" | "hook", address: string): string {
   const qualified = address.includes("/") ? address : `${CATALOG_NAME}/${address}`;
   return `  - { ${kind}: "${qualified}" }`;
 }
@@ -101,6 +101,10 @@ const PROFILES: readonly { readonly name: string; readonly requires: readonly st
   },
   { name: "frontend", requires: [entry("pack", "function.engineering.frontend")] },
   { name: "project", requires: [entry("pack", "project.acme")] },
+  // The plugin twice over: once through the pack that names it, and once named outright, so the
+  // golden shape covers both routes into the one namespace that is a leaf and still ships bytes.
+  { name: "tooling", requires: [entry("pack", "workflow.tooling")] },
+  { name: "plugin-direct", requires: [entry("plugin", "acme-tools")] },
 ];
 
 let root: string;
@@ -556,12 +560,14 @@ describe("selection by pattern", () => {
 
     expect(empty).toEqual({
       packs: [],
+      plugins: [],
       skills: [],
       mcps: [],
       hooks: [],
       expects: { env: [] },
       reasons: {
         packs: new Map(),
+        plugins: new Map(),
         skills: new Map(),
         mcps: new Map(),
         hooks: new Map(),
@@ -872,7 +878,7 @@ describe("`requires` entries that reach nothing", () => {
 
     expect(result.code).toBe(ExitCode.Config);
     expect(result.stderr).toContain('unknown key "ambit.requires[0].skil"');
-    expect(result.stderr).toContain("accepted keys: hook, mcp, pack, skill");
+    expect(result.stderr).toContain("accepted keys: hook, mcp, pack, plugin, skill");
   });
 });
 
@@ -1366,6 +1372,9 @@ describe("ambit resolve --explain", () => {
         `  ${"function.engineering".padEnd(PACK.length)}  ${CATALOG_NAME}  pack:${CATALOG_NAME}/function.engineering`,
         `  ${PACK}  ${CATALOG_NAME}  pack:${CATALOG_NAME}/function.engineering.*`,
         "",
+        "plugins (0)",
+        "  (none)",
+        "",
         "skills (3)",
         `  ${ENGINEERING_SKILL.padEnd(CORE_SKILL.length)}  ${CATALOG_NAME}  required-by:pack:function.engineering`,
         `  ${CORE_SKILL}  ${CATALOG_NAME}  required-by:pack:core`,
@@ -1479,7 +1488,9 @@ describe("ambit why", () => {
     // everywhere a name is taken from a person beats a rule that holds only while a name is unique.
     expect(result.code).toBe(ExitCode.Config);
     expect(result.stderr).toContain(`\`why ${CORE_SKILL}\` does not say what to explain`);
-    expect(result.stderr).toContain(`\`pack:${CORE_SKILL}\`, \`skill:${CORE_SKILL}\``);
+    expect(result.stderr).toContain(
+      `\`pack:${CORE_SKILL}\`, \`plugin:${CORE_SKILL}\`, \`skill:${CORE_SKILL}\``,
+    );
   });
 
   it("names either namespace for a name both hold", async () => {
@@ -1770,6 +1781,9 @@ describe("ambit resolve", () => {
         `  ${"function.engineering".padEnd(FRONTEND_PACK.length)}  ${CATALOG_NAME}`,
         `  ${FRONTEND_PACK}  ${CATALOG_NAME}`,
         "",
+        "plugins (0)",
+        "  (none)",
+        "",
         "skills (3)",
         `  ${ENGINEERING_SKILL.padEnd(CORE_SKILL.length)}  ${CATALOG_NAME}`,
         `  ${CORE_SKILL}  ${CATALOG_NAME}`,
@@ -1797,6 +1811,9 @@ describe("ambit resolve", () => {
     expect(result.stdout).toBe(
       [
         "packs (0)",
+        "  (none)",
+        "",
+        "plugins (0)",
         "  (none)",
         "",
         "skills (0)",

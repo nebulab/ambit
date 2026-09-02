@@ -21,6 +21,7 @@ import type {
   PlannedCatalogDir,
   PlannedHarnessConfig,
   PlannedHookDir,
+  PlannedPluginDir,
   PlannedSkillDir,
   PlannedSkillsLink,
   ProjectPaths,
@@ -32,6 +33,7 @@ import type {
   DocumentShape,
   JsonObject,
 } from "../model/documents/index.js";
+import { isCatalogDir } from "./adapter.js";
 import {
   arrayEntryKey,
   driverFor,
@@ -39,7 +41,7 @@ import {
   readDocumentText,
 } from "../model/documents/index.js";
 import { configError } from "../errors.js";
-import type { MergedHook, MergedMcp, MergedSkill } from "../model/catalog.js";
+import type { MergedHook, MergedMcp, MergedPlugin, MergedSkill } from "../model/catalog.js";
 import type { HookEntity, HookEvent } from "../model/hook-entity.js";
 import type { Bundle } from "../resolution/resolve.js";
 import type { ArtifactMode, State } from "../model/state.js";
@@ -59,6 +61,9 @@ export const SHARED_AGENTS_DIR = ".agents";
  * One location for all of them: three of the five harnesses read it natively, and the other two are
  * pointed at it with a link. A directory per harness would materialize the same skill several times
  * in one project.
+ *
+ * Also where a Claude Code plugin lands, per {@link HarnessProfile.pluginsDir} — which is why a
+ * skill and a plugin cannot share a name (`assertSkillsAndPluginsApart`, `resolution/resolve.ts`).
  */
 export const SHARED_SKILLS_DIR = `${SHARED_AGENTS_DIR}/skills`;
 
@@ -128,6 +133,24 @@ export interface HarnessProfile {
    * Absent means the harness already looks in the shared location and needs nothing.
    */
   readonly skillsLink?: string;
+  /**
+   * Where this harness reads a Claude Code plugin from, project-relative. Absent means it loads none.
+   *
+   * The one decision this feature turns on, stated here once. A harness that names a directory reads
+   * anything in it holding `.claude-plugin/plugin.json` as a plugin rather than as a skill, so a
+   * selected plugin installs by putting the directory there and nothing else: no marketplace to
+   * register, and no entry added to a config file the user also writes.
+   *
+   * Claude Code alone names one today, and it names {@link SHARED_SKILLS_DIR} — its own skills
+   * directory, which `skillsLink` already points there. Cursor reads that same link but implements
+   * none of the plugin format, and the three harnesses reading the shared directory natively read
+   * everything in it as a skill.
+   *
+   * A path rather than a flag, to match every other field here: where a harness reads a thing is the
+   * kind of fact a profile states. Claude moving its lookup, or a second harness reading plugins from
+   * somewhere else, is then a data edit in `definitions.ts` rather than a branch in the planner.
+   */
+  readonly pluginsDir?: string;
   readonly mcp: McpLayout;
   /**
    * One server, in this harness's own shape.
@@ -191,17 +214,43 @@ function planSkill(skill: MergedSkill, project: ProjectPaths): PlannedSkillDir {
 }
 
 /**
+ * One plugin's directory, under the directory the harness reads plugins from.
+ *
+ * Only called for a profile that names one ({@link HarnessProfile.pluginsDir}), so the guard is at the
+ * call site rather than here: it is one answer for the whole bundle, not a question per plugin.
+ */
+function planPlugin(
+  pluginsDir: string,
+  plugin: MergedPlugin,
+  project: ProjectPaths,
+): PlannedPluginDir {
+  const relative = `${pluginsDir}/${plugin.name}`;
+  return {
+    kind: "plugin-dir",
+    path: relative,
+    target: path.join(project.root, relative),
+    source: path.join(plugin.catalogRoot, plugin.path),
+    mode: modeOf(plugin, project),
+    name: plugin.name,
+  };
+}
+
+/**
  * The link, or nothing.
  *
- * Nothing for a harness that reads the shared directory natively, and nothing for an empty bundle: a
- * project that selected no skills should not acquire a skills directory or a link to one.
+ * Nothing for a harness that reads the shared directory natively, and nothing when this harness put
+ * nothing there: a project that selected no skills and no plugins should not acquire a skills
+ * directory or a link to one.
+ *
+ * `landed` is what the plan already decided rather than a second reading of the bundle, so the link
+ * and the directories it points at cannot disagree about whether anything is there.
  */
 function planSkillsLink(
   profile: HarnessProfile,
-  skills: readonly MergedSkill[],
+  landed: readonly PlannedCatalogDir[],
   project: ProjectPaths,
 ): PlannedSkillsLink | undefined {
-  if (profile.skillsLink === undefined || skills.length === 0) return undefined;
+  if (profile.skillsLink === undefined || landed.length === 0) return undefined;
   return {
     kind: "skills-link",
     path: profile.skillsLink,
@@ -379,11 +428,11 @@ async function link(from: string, at: string, label: string, hint: string): Prom
 }
 
 /**
- * Writes one directory out of a catalog — a skill's, or the script a hook ships — in the mode the plan
- * chose.
+ * Writes one directory out of a catalog — a skill's, a hook's shipped script, or a plugin's — in the
+ * mode the plan chose.
  *
- * One function over both kinds, since a hook's directory is materialized under exactly the same
- * rules: everything below is a statement about a directory ambit owns, not about what it holds.
+ * One function over all three, since each is materialized under exactly the same rules: everything
+ * below is a statement about a directory ambit owns, not about what it holds.
  *
  * An owned target is removed before being rewritten, so a skill that lost a file upstream does not
  * keep a stale copy of it, and a directory whose mode changed between runs becomes the other thing
@@ -394,6 +443,17 @@ async function link(from: string, at: string, label: string, hint: string): Prom
  *
  * `cp` preserves each file's mode, so a hook script arrives executable if the catalog ships it that
  * way. A linked directory has no bytes of its own and needs nothing.
+ *
+ * `dereference` resolves symlinks inside the tree into the bytes they point at. Without it Node
+ * copies the link and rewrites its target to an absolute path, which for a catalog fetched into the
+ * machine's cache means the project acquires a link into `~/.cache`: machine-specific, and dangling
+ * the moment the cache is cleared. Catalogs do compose this way — a plugin's `skills/` is often
+ * symlinks into the catalog's own top-level `skills/`, so the same skill has one source — and a copy
+ * of such a directory has to be the bytes.
+ *
+ * @throws {AmbitError} exit 2 when the copy fails. Dereferencing is what makes this reachable: a link
+ *   the catalog ships that points at nothing, or at itself, is a file `cp` can no longer just copy,
+ *   and the catalog is the only place it can be fixed.
  */
 async function applyCatalogDir(
   artifact: PlannedCatalogDir,
@@ -414,7 +474,15 @@ async function applyCatalogDir(
       `move ${artifact.path} aside, or run \`ambit install --copy\` to copy "${artifact.name}" instead`,
     );
   } else {
-    await cp(artifact.source, artifact.target, { recursive: true });
+    try {
+      await cp(artifact.source, artifact.target, { recursive: true, dereference: true });
+    } catch (error) {
+      throw configError(`cannot copy ${artifact.path}`, [
+        error instanceof Error ? error.message : String(error),
+        `"${artifact.name}" is copied with its symlinks resolved, so one pointing at nothing is a file that cannot be read`,
+        "correct the link in the catalog, or remove it",
+      ]);
+    }
   }
 
   return { path: artifact.path, kind: artifact.kind, mode: artifact.mode };
@@ -479,17 +547,29 @@ export function adapterFor(profile: HarnessProfile): HarnessAdapter {
 
     /** Every list on the bundle is already sorted by name, so the plan is too. */
     plan: (bundle: Bundle, project: ProjectPaths): readonly PlannedArtifact[] => {
-      const skillsLink = planSkillsLink(profile, bundle.skills, project);
+      const skills = bundle.skills.map((skill) => planSkill(skill, project));
+      // `flatMap` because most hooks plan none: a hook with no script is just a command line, which
+      // is the config artifact's business.
+      const hookDirs = bundle.hooks.flatMap((hook) => {
+        const dir = planHookDir(profile, hook, project);
+        return dir === undefined ? [] : [dir];
+      });
+      // Gated once for the whole bundle, since whether this harness loads a plugin at all is one
+      // answer, not a question per plugin.
+      const pluginsDir = profile.pluginsDir;
+      const plugins =
+        pluginsDir === undefined
+          ? []
+          : bundle.plugins.map((plugin) => planPlugin(pluginsDir, plugin, project));
+
+      const skillsLink = planSkillsLink(profile, [...skills, ...plugins], project);
       const mcpConfig = planMcpConfig(profile, bundle.mcps, project);
       const hookConfig = planHookConfig(profile, bundle.hooks, project);
       return [
-        ...bundle.skills.map((skill) => planSkill(skill, project)),
-        // Directories before configs. `flatMap` because most hooks plan none: a hook with no script
-        // is just a command line, which is the config artifact's business.
-        ...bundle.hooks.flatMap((hook) => {
-          const dir = planHookDir(profile, hook, project);
-          return dir === undefined ? [] : [dir];
-        }),
+        // Directories before configs.
+        ...skills,
+        ...hookDirs,
+        ...plugins,
         ...(skillsLink === undefined ? [] : [skillsLink]),
         ...(mcpConfig === undefined ? [] : [mcpConfig]),
         ...(hookConfig === undefined ? [] : [hookConfig]),
@@ -508,8 +588,7 @@ export function adapterFor(profile: HarnessProfile): HarnessAdapter {
       for (const artifact of plan) {
         // Both directory kinds are named explicitly rather than left to a trailing `else`: falling
         // through to `applyHarnessConfig` would try to merge a section into a directory.
-        if (artifact.kind === "skill-dir" || artifact.kind === "hook-dir")
-          applied.push(await applyCatalogDir(artifact, owned));
+        if (isCatalogDir(artifact)) applied.push(await applyCatalogDir(artifact, owned));
         else if (artifact.kind === "skills-link")
           applied.push(await applySkillsLink(artifact, owned));
         else applied.push(await applyHarnessConfig(artifact));

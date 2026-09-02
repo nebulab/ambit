@@ -1,11 +1,11 @@
 /**
  * `ambit init` — scaffold a project, which is also a catalog.
  *
- * Every ambit project is technically a catalog: a project that ships a skill, a server, or a hook of
- * its own puts it in `skills/`, `mcps/`, or `hooks/` and lists itself under `catalogs:`, since that's
- * the only way to declare one. This command scaffolds both halves at once: `ambit.yml`, the three item
- * directories, and a live `catalogs:` entry naming the project itself. What used to be
- * `ambit catalog init` is now just the three `.gitkeep` files.
+ * Every ambit project is technically a catalog: a project that ships a skill, a server, a hook or a
+ * plugin of its own puts it in `skills/`, `mcps/`, `hooks/` or `plugins/` and lists itself under
+ * `catalogs:`, since that's the only way to declare one. This command scaffolds both halves at once:
+ * `ambit.yml`, the item directories, and a live `catalogs:` entry naming the project itself. What used
+ * to be `ambit catalog init` is now just the `.gitkeep` files.
  *
  * Notes on a few decisions:
  *
@@ -36,7 +36,13 @@
 import { mkdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { HOOKS_DIRNAME, MCPS_DIRNAME, PACKS_DIRNAME, SKILLS_DIRNAME } from "../model/catalog.js";
+import {
+  HOOKS_DIRNAME,
+  MCPS_DIRNAME,
+  PACKS_DIRNAME,
+  PLUGINS_DIRNAME,
+  SKILLS_DIRNAME,
+} from "../model/catalog.js";
 import {
   CONFIG_FILENAMES,
   CONFIG_VERSION,
@@ -52,7 +58,7 @@ export const INIT_FILENAME = CONFIG_FILENAMES[0];
 
 /**
  * What is written inside each item directory so it exists and survives a commit. Invisible to catalog
- * parsing, which reads only `skills/**`, `mcps/*.yml`, `hooks/**` and `packs/**`.
+ * parsing, which reads only `skills/**`, `mcps/*.yml`, `hooks/**`, `packs/**` and `plugins/**`.
  */
 export const KEEP_FILENAME = ".gitkeep";
 
@@ -67,6 +73,7 @@ const ITEM_DIRNAMES: readonly string[] = [
   HOOKS_DIRNAME,
   MCPS_DIRNAME,
   PACKS_DIRNAME,
+  PLUGINS_DIRNAME,
   SKILLS_DIRNAME,
 ];
 
@@ -85,7 +92,8 @@ const BLOCKS: readonly ScaffoldBlock[] = [
       "",
       "`version` is the only required key. Every definition lives in a file a catalog holds, so this",
       "project lists itself below: a skill of its own goes in `skills/<name>/SKILL.md`, a server in",
-      "`mcps/<name>.yml`, a hook in `hooks/<name>/hook.yml`, a pack in `packs/<name>.yml`.",
+      "`mcps/<name>.yml`, a hook in `hooks/<name>/hook.yml`, a pack in `packs/<name>.yml`, a Claude",
+      "Code plugin in `plugins/<name>/`.",
     ],
   },
   {

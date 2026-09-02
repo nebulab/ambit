@@ -66,6 +66,21 @@ function toJson(bundle: Bundle, explain: boolean): Readonly<Record<string, unkno
         };
       },
     ),
+    plugins: keyed(
+      bundle.plugins,
+      (plugin) => plugin.name,
+      (plugin) => {
+        const why = reason(bundle, { kind: "plugin", name: plugin.name }, explain);
+        // `namespace` and no `version`: the first is the one thing a reader cannot derive from the
+        // name, the second is a declaration `search` and the lock already carry.
+        return {
+          catalog: plugin.catalog,
+          namespace: plugin.namespace,
+          path: plugin.path,
+          ...(why !== undefined && { reason: why }),
+        };
+      },
+    ),
     skills: keyed(
       bundle.skills,
       (skill) => skill.name,
@@ -94,6 +109,15 @@ function toText(bundle: Bundle, explain: boolean): readonly string[] {
       "packs",
       bundle.packs.map((pack) =>
         row([pack.name, pack.catalog], reason(bundle, { kind: "pack", name: pack.name }, explain)),
+      ),
+    ),
+    ...section(
+      "plugins",
+      bundle.plugins.map((plugin) =>
+        row(
+          [plugin.name, plugin.catalog, plugin.namespace],
+          reason(bundle, { kind: "plugin", name: plugin.name }, explain),
+        ),
       ),
     ),
     ...section(

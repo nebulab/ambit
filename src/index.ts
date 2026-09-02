@@ -22,6 +22,7 @@ export {
   MCP_EXTENSIONS,
   PACKS_DIRNAME,
   PACK_EXTENSIONS,
+  PLUGINS_DIRNAME,
   SKILLS_DIRNAME,
   SKILL_FILENAME,
   hookCommand,
@@ -40,11 +41,13 @@ export type {
   CatalogMcp,
   CatalogPack,
   CatalogParseOptions,
+  CatalogPlugin,
   CatalogSkill,
   MergedCatalog,
   MergedHook,
   MergedMcp,
   MergedPack,
+  MergedPlugin,
   MergedSkill,
 } from "./model/catalog.js";
 export {
@@ -96,6 +99,8 @@ export { MCP_TRANSPORT_KINDS, parseMcpEntity } from "./model/mcp-entity.js";
 export type { HttpTransport, McpEntity, McpTransport, StdioTransport } from "./model/mcp-entity.js";
 export { parsePackEntity } from "./model/pack-entity.js";
 export type { PackEntity } from "./model/pack-entity.js";
+export { PLUGIN_MANIFEST_PATH, parsePluginManifest } from "./model/plugin-entity.js";
+export type { PluginEntity } from "./model/plugin-entity.js";
 export { renderScaffold } from "./model/scaffold.js";
 export type { ScaffoldBlock } from "./model/scaffold.js";
 export { parseSource, resolveSource } from "./model/sources.js";
@@ -217,10 +222,12 @@ export type {
   PlannedCatalogDir,
   PlannedHarnessConfig,
   PlannedHookDir,
+  PlannedPluginDir,
   PlannedSkillDir,
   ProjectPaths,
   SkippedHook,
 } from "./harness/adapter.js";
+export { CATALOG_DIR_KINDS, isCatalogDir } from "./harness/adapter.js";
 export { claude, codex, cursor, opencode, PROFILES, vscode } from "./harness/definitions.js";
 export {
   adapterFor,
@@ -326,7 +333,15 @@ export {
   serializeLock,
   writeLockText,
 } from "./project/lock.js";
-export type { Lock, LockCatalog, LockHook, LockMcp, LockPack, LockSkill } from "./project/lock.js";
+export type {
+  Lock,
+  LockCatalog,
+  LockHook,
+  LockMcp,
+  LockPack,
+  LockPlugin,
+  LockSkill,
+} from "./project/lock.js";
 export { authorizePlan, ownedKeys } from "./project/ownership.js";
 export type { OwnershipOptions } from "./project/ownership.js";
 export { planPrune, pruneArtifacts, remainingArtifacts } from "./project/prune.js";

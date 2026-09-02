@@ -22,6 +22,7 @@ import type {
   MergedHook,
   MergedMcp,
   MergedPack,
+  MergedPlugin,
   MergedSkill,
 } from "../../model/catalog.js";
 import { loadCatalogs, mergeCatalogs } from "../../model/catalog.js";
@@ -48,17 +49,19 @@ import {
 import { REQUIRES_KEY, entryYaml } from "../../model/pattern.js";
 import { parseItemSubject } from "../../model/requirement.js";
 
-/** How an item is named in messages, one entry per namespace so a fifth is a type error. */
+/** How an item is named in messages, one entry per namespace so a sixth is a type error. */
 const SUBJECTS: Readonly<Record<ItemKind, string>> = {
   pack: "pack",
+  plugin: "plugin",
   skill: "skill",
   mcp: "MCP server",
   hook: "hook",
 };
 
-/** The same four with an article, for a sentence that needs one. */
+/** The same five with an article, for a sentence that needs one. */
 const NOUNS: Readonly<Record<ItemKind, string>> = {
   pack: "a pack",
+  plugin: "a plugin",
   skill: "a skill",
   mcp: "an MCP server",
   hook: "a hook",
@@ -80,10 +83,12 @@ function subject(item: BundleItem): string {
 function providers(
   merged: MergedCatalog,
   item: BundleItem,
-): readonly (MergedPack | MergedSkill | MergedMcp | MergedHook)[] {
+): readonly (MergedPack | MergedPlugin | MergedSkill | MergedMcp | MergedHook)[] {
   switch (item.kind) {
     case "pack":
       return merged.packs.filter((pack) => pack.name === item.name);
+    case "plugin":
+      return merged.plugins.filter((plugin) => plugin.name === item.name);
     case "skill":
       return merged.skills.filter((skill) => skill.name === item.name);
     case "mcp":
@@ -119,7 +124,7 @@ function selectionEntry(item: BundleItem, catalog: string): string {
  */
 function notSelected(
   item: BundleItem,
-  entries: readonly (MergedPack | MergedSkill | MergedMcp | MergedHook)[],
+  entries: readonly (MergedPack | MergedPlugin | MergedSkill | MergedMcp | MergedHook)[],
   config: ProjectConfig,
 ): AmbitError {
   const names = entries.map((entry) => `"${entry.catalog}"`).join(", ");
@@ -197,7 +202,7 @@ export const whyHandler: CommandHandler = async (ctx) => {
   if (name === undefined) {
     // Commander enforces the argument, so this is unreachable rather than a user-facing path.
     throw new AmbitError(ExitCode.Internal, "`ambit why` was given no name", [
-      "the command takes the name of a pack, a skill, an MCP server, or a hook",
+      "the command takes the name of a pack, a plugin, a skill, an MCP server, or a hook",
       "run `ambit why <kind>:<name>`",
     ]);
   }

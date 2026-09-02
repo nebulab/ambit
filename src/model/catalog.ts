@@ -2,12 +2,13 @@
  * Catalog parsing.
  *
  * A catalog is a plain skills repo: skills at `skills/<name>/SKILL.md`, MCP entities at
- * `mcps/<name>.yml`, hooks at `hooks/<name>/hook.yml`, and packs at `packs/<name>.yml` (which may
- * nest, so `packs/function/engineering.yml` is the pack `function.engineering`). Nothing here is
- * ambit-specific except one extra frontmatter key and these extra directories, both ignored by
- * other tools; that compatibility is a hard requirement.
+ * `mcps/<name>.yml`, hooks at `hooks/<name>/hook.yml`, packs at `packs/<name>.yml` (which may nest,
+ * so `packs/function/engineering.yml` is the pack `function.engineering`), and Claude Code plugins
+ * at `plugins/<name>/.claude-plugin/plugin.json`. Nothing here is ambit-specific except one extra
+ * frontmatter key and these extra directories, both ignored by other tools; that compatibility is a
+ * hard requirement.
  *
- * There is no catalog-side config: parsing scans the four directories and takes what is there. A
+ * There is no catalog-side config: parsing scans the item directories and takes what is there. A
  * project's own config file at the catalog root is ignored rather than refused, because a project
  * that publishes its own items lists itself as `source: path:.` — a directory can be both a
  * catalog and a project at once.
@@ -33,6 +34,8 @@ import type { McpEntity } from "./mcp-entity.js";
 import { parseMcpEntity } from "./mcp-entity.js";
 import type { PackEntity } from "./pack-entity.js";
 import { parsePackEntity } from "./pack-entity.js";
+import type { PluginEntity } from "./plugin-entity.js";
+import { PLUGIN_MANIFEST_PATH, parsePluginManifest } from "./plugin-entity.js";
 import type { Expectation } from "./expectation.js";
 import { parseExpectations } from "./expectation.js";
 import type { PatternEntry } from "./pattern.js";
@@ -41,7 +44,7 @@ import { CATALOG_SEPARATOR } from "./requirement.js";
 import type { ResolvedSource, SourceContext } from "./sources.js";
 import { resolveSource } from "./sources.js";
 import type { YamlMapping } from "./yaml.js";
-import { readFrontmatterMapping, readYamlMapping } from "./yaml.js";
+import { readFrontmatterMapping, readText, readYamlMapping } from "./yaml.js";
 
 /**
  * The registry a catalog used to carry, kept only so its presence can be refused.
@@ -66,6 +69,20 @@ export const MCPS_DIRNAME = "mcps";
 export const PACKS_DIRNAME = "packs";
 
 export const HOOKS_DIRNAME = "hooks";
+
+/**
+ * Where Claude Code plugins live within a catalog.
+ *
+ * A plugin is a directory in Claude Code's own layout, holding
+ * `.claude-plugin/plugin.json` and whatever component directories it ships. Ambit reads the manifest
+ * and materializes the directory whole; what is inside it is Claude's vocabulary, not ambit's.
+ *
+ * `plugins/` rather than somewhere under an ambit-owned directory, because a catalog that offers
+ * plugins usually also publishes them through a `.claude-plugin/marketplace.json` at its root, which
+ * names them by path. Reading the directory the marketplace already points at means one copy of each
+ * plugin rather than two.
+ */
+export const PLUGINS_DIRNAME = "plugins";
 
 /**
  * The file whose presence makes a directory a skill.
@@ -178,6 +195,27 @@ export interface CatalogHook extends HookEntity {
   readonly path: string;
 }
 
+/**
+ * A Claude Code plugin as one catalog declares it.
+ *
+ * Two names, deliberately. {@link name} is ambit's, derived from the path the way every other item's
+ * is, and it is what a `requires` entry selects and what the plugin is installed under.
+ * {@link PluginEntity.namespace} is the manifest's own `name`, which is what Claude prefixes the
+ * plugin's components with. Neither is checked against the other: a catalog that publishes
+ * `plugins/git-workflow/` as `acme-git-workflow` so its marketplace entries are unambiguous is doing
+ * a normal thing, and forcing the two to agree would only make it rename its directories.
+ *
+ * No `requires` and no `expects`. A plugin is self-contained by construction — it ships its own
+ * skills, hooks and servers — so there is nothing for it to pull in, and the manifest has no key
+ * ambit could read a precondition from.
+ */
+export interface CatalogPlugin extends PluginEntity {
+  /** Derived from the path under `plugins/`, `/` read as `.`. */
+  readonly name: string;
+  /** The plugin directory, relative to the catalog root, `/`-separated. */
+  readonly path: string;
+}
+
 /** One parsed catalog. */
 export interface Catalog {
   readonly name: string;
@@ -212,6 +250,8 @@ export interface Catalog {
   readonly mcps: readonly CatalogMcp[];
   /** Hooks, sorted by name. */
   readonly hooks: readonly CatalogHook[];
+  /** Plugins, sorted by name. */
+  readonly plugins: readonly CatalogPlugin[];
 }
 
 /**
@@ -277,6 +317,25 @@ export interface MergedHook extends HookEntity {
 }
 
 /**
+ * A plugin in the merged view, tagged with the catalog it came from.
+ *
+ * Carries what {@link MergedSkill} carries and for the same reasons: a plugin is a directory of bytes
+ * materialized out of a catalog, so materialization needs the root it came from and the commit those
+ * bytes are.
+ */
+export interface MergedPlugin extends CatalogPlugin {
+  readonly catalog: string;
+  /** The commit the plugin's bytes came from, when its catalog has one — see {@link MergedSkill.commit}. */
+  readonly commit?: string;
+  /**
+   * Absolute path to that catalog's root on disk, so materialization can find the directory without
+   * looking the catalog up again. Deliberately absent from every output surface: it is
+   * machine-specific.
+   */
+  readonly catalogRoot: string;
+}
+
+/**
  * Every configured catalog, merged into one namespace per kind — every catalog's copy of every
  * name.
  *
@@ -302,6 +361,7 @@ export interface MergedCatalog {
   readonly skills: readonly MergedSkill[];
   readonly mcps: readonly MergedMcp[];
   readonly hooks: readonly MergedHook[];
+  readonly plugins: readonly MergedPlugin[];
 }
 
 /**
@@ -401,6 +461,11 @@ class CatalogFiles {
   async entries(relative: string): Promise<readonly CatalogEntry[]> {
     if (!(await isDirectory(this.absolute(relative)))) return [];
     return sortedEntries(this.absolute(relative));
+  }
+
+  /** A file's contents, with the read failure reported against the catalog-relative path. */
+  async text(relative: string): Promise<string> {
+    return readText(this.absolute(relative), relative);
   }
 
   /** Parses a YAML file under the §3.0 rules. */
@@ -507,6 +572,33 @@ async function findSkillDirectories(files: CatalogFiles): Promise<readonly strin
 /** Every hook directory under `hooks/`, relative to it and `/`-separated. */
 async function findHookDirectories(files: CatalogFiles): Promise<readonly string[]> {
   return findEntityDirectories(files, HOOKS_DIRNAME, HOOK_FILENAME);
+}
+
+/**
+ * Every plugin directory under `plugins/`, relative to it and `/`-separated.
+ *
+ * Not {@link findEntityDirectories}: the marker is a file one level down
+ * ({@link PLUGIN_MANIFEST_PATH}), and the walk must stop at a plugin rather than descend through it.
+ * A plugin's own `skills/`, `hooks/` and `agents/` are Claude's layout, and walking into them would
+ * read a nested `.claude-plugin/` meant for something else as a second plugin.
+ */
+async function findPluginDirectories(files: CatalogFiles): Promise<readonly string[]> {
+  if (!(await files.isDirectory(PLUGINS_DIRNAME))) return [];
+
+  const found: string[] = [];
+  const walk = async (relative: string): Promise<void> => {
+    const directory = relative === "" ? PLUGINS_DIRNAME : `${PLUGINS_DIRNAME}/${relative}`;
+    if (relative !== "" && (await files.isFile(`${directory}/${PLUGIN_MANIFEST_PATH}`))) {
+      found.push(relative);
+      return;
+    }
+    for (const entry of await files.entries(directory)) {
+      if (entry.directory) await walk(relative === "" ? entry.name : `${relative}/${entry.name}`);
+    }
+  };
+
+  await walk("");
+  return found;
 }
 
 /**
@@ -774,6 +866,24 @@ async function parseHookDirectory(files: CatalogFiles, relative: string): Promis
 }
 
 /**
+ * Parses one plugin directory: its manifest, and nothing else.
+ *
+ * What the directory holds beyond the manifest is Claude Code's business. Ambit does not read a
+ * plugin's `skills/`, `hooks/` or `.mcp.json`, and deliberately does not check them against its own
+ * vocabulary: the plugin is installed as one directory, so a component ambit cannot describe still
+ * works, and a plugin gaining a component kind ambit has never heard of needs no change here.
+ *
+ * @throws {AmbitError} exit 2 for a manifest that is unreadable, malformed, or declares no `name`.
+ */
+async function parsePluginDirectory(files: CatalogFiles, relative: string): Promise<CatalogPlugin> {
+  const directory = `${PLUGINS_DIRNAME}/${relative}`;
+  const file = `${directory}/${PLUGIN_MANIFEST_PATH}`;
+  const entity = parsePluginManifest(await files.text(file), file);
+
+  return { ...entity, name: skillNameFromPath(relative), path: directory };
+}
+
+/**
  * Adds where an error came from, so a message about `skills/a/b/SKILL.md` says which of several
  * sources holds that path. Prepended, keeping the concrete next step last.
  *
@@ -822,7 +932,7 @@ export async function parseCatalogDirectory(
 
   try {
     // The one file at a catalog root ambit still has an opinion about: it must not be there.
-    // Nothing else is read here — a directory holding none of the four subdirectories is a
+    // Nothing else is read here — a directory holding none of the five subdirectories is a
     // catalog with zero items, which the patterns selecting from it report better than a
     // missing-file error here could.
     if (await files.isFile(REMOVED_REGISTRY_FILENAME)) throw removedRegistry();
@@ -847,6 +957,11 @@ export async function parseCatalogDirectory(
       hooks.push(await parseHookDirectory(files, relative));
     }
 
+    const plugins: CatalogPlugin[] = [];
+    for (const relative of await findPluginDirectories(files)) {
+      plugins.push(await parsePluginDirectory(files, relative));
+    }
+
     return {
       name,
       source,
@@ -856,6 +971,7 @@ export async function parseCatalogDirectory(
       skills: byName(skills),
       mcps: byName(mcps),
       hooks: byName(hooks),
+      plugins: byName(plugins),
     };
   } catch (error) {
     throw inSource(`catalog "${name}"`, root, error);
@@ -969,6 +1085,7 @@ export function mergeCatalogs(catalogs: readonly Catalog[]): MergedCatalog {
   const skills: MergedSkill[] = [];
   const mcps: MergedMcp[] = [];
   const hooks: MergedHook[] = [];
+  const plugins: MergedPlugin[] = [];
 
   for (const catalog of catalogs) {
     for (const pack of catalog.packs) {
@@ -1000,6 +1117,17 @@ export function mergeCatalogs(catalogs: readonly Catalog[]): MergedCatalog {
         catalogRoot: catalog.root,
       });
     }
+
+    for (const plugin of catalog.plugins) {
+      // `catalogRoot` for the same reason a skill carries one: a plugin is a directory materialized
+      // out of the catalog it came from.
+      plugins.push({
+        ...plugin,
+        catalog: catalog.name,
+        ...(catalog.commit !== undefined && { commit: catalog.commit }),
+        catalogRoot: catalog.root,
+      });
+    }
   }
 
   return {
@@ -1008,5 +1136,6 @@ export function mergeCatalogs(catalogs: readonly Catalog[]): MergedCatalog {
     skills: byNameThenCatalog(skills),
     mcps: byNameThenCatalog(mcps),
     hooks: byNameThenCatalog(hooks),
+    plugins: byNameThenCatalog(plugins),
   };
 }

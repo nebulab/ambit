@@ -51,7 +51,7 @@ function toJson(plan: UpdatePlan): Readonly<Record<string, unknown>> {
 }
 
 /**
- * The four sections, catalogs first.
+ * The catalogs, then one section per namespace.
  *
  * Every configured catalog is listed, not only the moved ones: "your other three are current" is
  * part of the answer, and a report of only problems couldn't distinguish a clean project from one it

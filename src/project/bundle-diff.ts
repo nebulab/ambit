@@ -21,12 +21,19 @@
  * This is not what {@link assertLockCurrent} does. `--frozen` compares the lock as bytes; see
  * `src/project/lock.ts`.
  */
-import { readFile, readdir } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 
-import type { MergedHook, MergedMcp, MergedPack, MergedSkill } from "../model/catalog.js";
+import type {
+  MergedHook,
+  MergedMcp,
+  MergedPack,
+  MergedPlugin,
+  MergedSkill,
+} from "../model/catalog.js";
 import { hookCommand } from "../model/catalog.js";
 import { SHARED_HOOKS_DIR } from "../harness/profile.js";
+import { fileList } from "./file-tree.js";
 import type { McpTransport } from "../model/mcp-entity.js";
 import type { Bundle, BundleItem, ItemKind } from "../resolution/resolve.js";
 import { formatReason, reasonOf } from "../resolution/resolve.js";
@@ -59,6 +66,7 @@ export interface BundleChange {
 /** Two bundles compared, one list per namespace, each sorted by name. */
 export interface BundleDiff {
   readonly packs: readonly BundleChange[];
+  readonly plugins: readonly BundleChange[];
   readonly skills: readonly BundleChange[];
   readonly mcps: readonly BundleChange[];
   readonly hooks: readonly BundleChange[];
@@ -71,9 +79,9 @@ export interface BundleChangeCounts {
   readonly removed: number;
 }
 
-/** Every change across the four namespaces, in the order a report prints them. */
+/** Every change across the five namespaces, in the order a report prints them. */
 export function allChanges(diff: BundleDiff): readonly BundleChange[] {
-  return [...diff.packs, ...diff.skills, ...diff.mcps, ...diff.hooks];
+  return [...diff.packs, ...diff.plugins, ...diff.skills, ...diff.mcps, ...diff.hooks];
 }
 
 /** Whether the two bundles are the same bundle — the answer a report leads with. */
@@ -175,6 +183,23 @@ function packShape(pack: MergedPack, reason: string): Comparable {
   };
 }
 
+/**
+ * What a plugin declares, as one comparable record.
+ *
+ * `namespace` and `version` are the manifest's own, and both matter to a reader: the first changes
+ * what they type to reach the plugin's skills, the second is what a marketplace consumer would have
+ * pinned. Everything else about a plugin is bytes, compared as a tree.
+ */
+function pluginShape(plugin: MergedPlugin, reason: string): Comparable {
+  return {
+    catalog: plugin.catalog,
+    description: plugin.description ?? null,
+    namespace: plugin.namespace,
+    reason,
+    version: plugin.version ?? null,
+  };
+}
+
 /** What a skill declares, as one comparable record. */
 function skillShape(skill: MergedSkill, reason: string): Comparable {
   return {
@@ -212,12 +237,12 @@ function hookShape(hook: MergedHook, reason: string): Comparable {
 }
 
 /**
- * What the three namespaces have in common: a name, and — for kinds that can ship bytes — where
- * those bytes are.
+ * What every namespace has in common: a name, and — for kinds that can ship bytes — where those
+ * bytes are.
  *
- * The locating fields are optional here, required on {@link MergedSkill} and {@link MergedHook}, so
- * one comparison serves a skill or hook (each a directory) as well as a server (a document with no
- * bytes of its own).
+ * The locating fields are optional here, required on {@link MergedSkill}, {@link MergedHook} and
+ * {@link MergedPlugin}, so one comparison serves a skill, a hook or a plugin (each a directory) as
+ * well as a server (a document with no bytes of its own).
  */
 interface BundleEntity {
   readonly name: string;
@@ -236,24 +261,13 @@ function bytesDirectory(item: BundleEntity): string | undefined {
   return path.join(item.catalogRoot, item.path);
 }
 
-/** Every file under `dir`, relative, `/`-separated and sorted, or undefined when it cannot be read. */
-async function fileList(dir: string): Promise<readonly string[] | undefined> {
-  const found: string[] = [];
-
-  const walk = async (current: string, relative: string): Promise<void> => {
-    for (const entry of await readdir(current, { withFileTypes: true })) {
-      const within = relative === "" ? entry.name : `${relative}/${entry.name}`;
-      if (entry.isDirectory()) await walk(path.join(current, entry.name), within);
-      else found.push(within);
-    }
-  };
-
+/** Every file under `dir`, or undefined when it cannot be read — see {@link fileList}. */
+async function treeFiles(dir: string): Promise<readonly string[] | undefined> {
   try {
-    await walk(dir, "");
+    return await fileList(dir);
   } catch {
     return undefined;
   }
-  return found.sort(compare);
 }
 
 /**
@@ -265,7 +279,7 @@ async function fileList(dir: string): Promise<readonly string[] | undefined> {
 async function sameTree(before: string, after: string): Promise<boolean> {
   if (before === after) return true;
 
-  const [left, right] = await Promise.all([fileList(before), fileList(after)]);
+  const [left, right] = await Promise.all([treeFiles(before), treeFiles(after)]);
   if (left === undefined || right === undefined) return false;
   if (left.length !== right.length || left.some((file, index) => file !== right[index])) {
     return false;
@@ -388,6 +402,11 @@ export async function diffBundles(before: Bundle, after: Bundle): Promise<Bundle
   return {
     packs: await diffNamespace<MergedPack>(
       { kind: "pack", before: before.packs, after: after.packs, shape: packShape },
+      before,
+      after,
+    ),
+    plugins: await diffNamespace<MergedPlugin>(
+      { kind: "plugin", before: before.plugins, after: after.plugins, shape: pluginShape },
       before,
       after,
     ),

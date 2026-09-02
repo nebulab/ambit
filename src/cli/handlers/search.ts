@@ -25,6 +25,7 @@ import type {
   MergedHook,
   MergedMcp,
   MergedPack,
+  MergedPlugin,
   MergedSkill,
 } from "../../model/catalog.js";
 import { loadCatalogs, mergeCatalogs, qualifiedName } from "../../model/catalog.js";
@@ -84,6 +85,22 @@ function transportJson(transport: McpTransport): Readonly<Record<string, unknown
   }
 }
 
+/**
+ * One plugin: what the catalog calls it, and what Claude will.
+ *
+ * No `requires` and no `expects` keys, unlike every other record here: a plugin declares neither,
+ * being self-contained (`CatalogPlugin`, `model/catalog.ts`).
+ */
+function pluginJson(plugin: MergedPlugin): Readonly<Record<string, unknown>> {
+  return {
+    catalog: plugin.catalog,
+    ...(plugin.description !== undefined && { description: plugin.description }),
+    namespace: plugin.namespace,
+    path: plugin.path,
+    ...(plugin.version !== undefined && { version: plugin.version }),
+  };
+}
+
 function skillJson(skill: MergedSkill): Readonly<Record<string, unknown>> {
   return {
     catalog: skill.catalog,
@@ -123,6 +140,7 @@ function toJson(merged: MergedCatalog): Readonly<Record<string, unknown>> {
     hooks: keyed(merged.hooks, qualifiedName, hookJson),
     mcps: keyed(merged.mcps, qualifiedName, mcpJson),
     packs: keyed(merged.packs, qualifiedName, packJson),
+    plugins: keyed(merged.plugins, qualifiedName, pluginJson),
     skills: keyed(merged.skills, qualifiedName, skillJson),
   };
 }
@@ -145,8 +163,8 @@ function commandSummary(hook: MergedHook): string {
  * The three filters, already checked against the project, in the form the walk below wants them.
  *
  * A filter absent from the command line is an empty set rather than a set holding everything; every
- * test is `set.size === 0 || set.has(x)`. Expanding an absent `--capability` into all four kinds would
- * make "asked for nothing" and "asked for all four" indistinguishable.
+ * test is `set.size === 0 || set.has(x)`. Expanding an absent `--capability` into every kind would
+ * make "asked for nothing" and "asked for all of them" indistinguishable.
  */
 interface SearchFilter {
   /** The glob every result's name must match. Always present: the pattern is a required argument. */
@@ -187,7 +205,7 @@ function filterOf(ctx: CommandContext, configured: readonly string[]): SearchFil
   }
 
   // Filtered out of `ITEM_KINDS` rather than built from what was typed, so the set is `ItemKind`
-  // without a cast. The CLI already refuses a value that is not one of the four.
+  // without a cast. The CLI already refuses a value that is not one of them.
   const capabilities = listOf(ctx, "capability");
   return {
     pattern: ctx.args[0] ?? "",
@@ -205,8 +223,8 @@ function wants(filter: SearchFilter, kind: ItemKind): boolean {
  * The items of one namespace that survive the pattern and the `--catalog` filter.
  *
  * `--capability` is not applied here: it decides whether a whole section is printed, not whether an
- * item survives. Applying it per item would still leave `--capability skill` printing three empty
- * sections it was told not to show.
+ * item survives. Applying it per item would still leave `--capability skill` printing the other
+ * sections, empty, when it was told not to show them.
  */
 function matching<T extends { readonly name: string; readonly catalog: string }>(
   items: readonly T[],
@@ -224,8 +242,8 @@ function matching<T extends { readonly name: string; readonly catalog: string }>
  *
  * A namespace `--capability` excluded becomes empty here rather than absent, so both output modes
  * take the same shape from the same value: the text form asks {@link wants} which sections to print,
- * and the JSON form always emits all four keys, so a script reading `.skills` never has to check
- * whether the key exists.
+ * and the JSON form always emits every key, so a script reading `.skills` never has to check whether
+ * the key exists.
  */
 function narrow(merged: MergedCatalog, filter: SearchFilter): MergedCatalog {
   return {
@@ -234,6 +252,7 @@ function narrow(merged: MergedCatalog, filter: SearchFilter): MergedCatalog {
         ? merged.catalogs
         : merged.catalogs.filter((name) => filter.catalogs.has(name)),
     packs: wants(filter, "pack") ? matching(merged.packs, filter) : [],
+    plugins: wants(filter, "plugin") ? matching(merged.plugins, filter) : [],
     skills: wants(filter, "skill") ? matching(merged.skills, filter) : [],
     mcps: wants(filter, "mcp") ? matching(merged.mcps, filter) : [],
     hooks: wants(filter, "hook") ? matching(merged.hooks, filter) : [],
@@ -263,6 +282,19 @@ function toText(
       ? section(
           "packs",
           merged.packs.map((pack) => [pack.name, pack.catalog, pack.description ?? UNDESCRIBED]),
+        )
+      : []),
+    // Beside the packs, and with their descriptions, for the same reason: a plugin is the other thing
+    // a project names to get a group. The namespace column is what Claude will prefix its skills with.
+    ...(wants(filter, "plugin")
+      ? section(
+          "plugins",
+          merged.plugins.map((plugin) => [
+            plugin.name,
+            plugin.catalog,
+            plugin.namespace,
+            plugin.description ?? UNDESCRIBED,
+          ]),
         )
       : []),
     ...(wants(filter, "skill")

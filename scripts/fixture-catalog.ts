@@ -3,9 +3,10 @@
  * testable offline).
  *
  * The catalog is a plain skills repo — skills at `skills/<name>/SKILL.md`, MCP
- * entities at `mcps/<name>.yml`, hooks at `hooks/<name>/hook.yml`, packs at `packs/<name>.yml`, and
- * no config of its own — so it doubles as the subject of the dotagents compatibility test (A26):
- * everything but `skills/` is additive, and a tool that reads only skills must be unbothered by it.
+ * entities at `mcps/<name>.yml`, hooks at `hooks/<name>/hook.yml`, packs at `packs/<name>.yml`, a
+ * Claude Code plugin at `plugins/<name>/`, and no config of its own — so it doubles as the subject of
+ * the dotagents compatibility test (A26): everything but `skills/` is additive, and a tool that reads
+ * only skills must be unbothered by it.
  *
  * The packs are what selection runs through. Nothing in a catalog labels itself any more, so a
  * consumer's entry names either an item outright or a **pack** — a document that names the items —
@@ -20,15 +21,15 @@
  * directly.
  */
 import { execFile } from "node:child_process";
-import { chmod, mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 /**
  * Written at the catalog root so a rebuild knows the directory is ours to delete. Dotfiles
- * are invisible to catalog parsing, which reads only `skills/**`, `mcps/*`, `hooks/**` and
- * `packs/**`.
+ * are invisible to catalog parsing, which reads only `skills/**`, `mcps/*`, `hooks/**`, `packs/**`
+ * and `plugins/**`.
  */
 export const FIXTURE_MARKER = ".ambit-fixture";
 
@@ -151,6 +152,25 @@ type: command
 command: echo "acme session ended"
 `;
 
+const PLUGIN_MANIFEST = `{
+  "name": "acme-toolkit",
+  "description": "Acme's own Claude Code plugin: the skills and hooks the toolkit ships as one unit.",
+  "version": "1.4.0",
+  "author": { "name": "Acme" }
+}
+`;
+
+const PLUGIN_HOOKS = `{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [{ "type": "command", "command": "\${CLAUDE_PLUGIN_ROOT}/bin/greet" }]
+      }
+    ]
+  }
+}
+`;
+
 const CORE_PACK = `name: core
 description: What every Acme session needs, whoever is in it.
 
@@ -179,6 +199,13 @@ requires:
   - skill: design-tokens
 `;
 
+const TOOLING_PACK = `name: workflow.tooling
+description: Acme's toolkit, as the plugin Claude Code loads it from.
+
+requires:
+  - plugin: acme-tools
+`;
+
 const PROJECT_PACK = `name: project.acme
 description: The Acme engagement — its brief, and whatever the brief drags in.
 
@@ -201,6 +228,11 @@ export const FIXTURE_CATALOG_FILES: Readonly<Record<string, string>> = {
   "packs/function/engineering.yml": ENGINEERING_PACK,
   "packs/function/engineering/frontend.yml": FRONTEND_PACK,
   "packs/project/acme.yml": PROJECT_PACK,
+  "packs/workflow/tooling.yml": TOOLING_PACK,
+  // The directory's name and the manifest's differ on purpose: `acme-tools` is what a `requires`
+  // entry selects, `acme-toolkit` is what Claude namespaces the plugin's own skills under.
+  "plugins/acme-tools/.claude-plugin/plugin.json": PLUGIN_MANIFEST,
+  "plugins/acme-tools/hooks/hooks.json": PLUGIN_HOOKS,
   "skills/company-context/SKILL.md": CORE_SKILL,
   "skills/code-review/SKILL.md": ENGINEERING_SKILL,
   "skills/design-tokens/SKILL.md": FRONTEND_SKILL,
@@ -216,6 +248,19 @@ export const FIXTURE_CATALOG_FILES: Readonly<Record<string, string>> = {
  * cannot fire, which is what the manual end-to-end in `plan.md` §Verification found.
  */
 export const FIXTURE_EXECUTABLE_FILES: readonly string[] = ["hooks/guard-secrets/guard.sh"];
+
+/**
+ * The symlinks the fixture writes, each mapping a catalog-relative path to the relative target it
+ * points at.
+ *
+ * One entry, and it is the shape a real catalog composes plugins with: the plugin lists a skill the
+ * catalog already ships rather than holding a second copy that can drift. That makes the fixture the
+ * case for `applyCatalogDir`'s dereference — copying the link instead of the bytes would put an
+ * absolute path into the machine's catalog cache inside the project.
+ */
+export const FIXTURE_SYMLINKS: Readonly<Record<string, string>> = {
+  "plugins/acme-tools/skills/company-context": "../../../skills/company-context",
+};
 
 async function isEmptyDirectory(dir: string): Promise<boolean> {
   return (await readdir(dir)).length === 0;
@@ -268,6 +313,14 @@ export async function buildFixtureCatalog(dir: string): Promise<string> {
     if (FIXTURE_EXECUTABLE_FILES.includes(relative)) {
       await chmod(target, 0o755);
     }
+  }
+
+  // After the files, so every link has something to point at.
+  const links = Object.entries(FIXTURE_SYMLINKS).sort(([a], [b]) => (a < b ? -1 : 1));
+  for (const [relative, points] of links) {
+    const target = path.join(root, relative);
+    await mkdir(path.dirname(target), { recursive: true });
+    await symlink(points, target, "dir");
   }
 
   return root;

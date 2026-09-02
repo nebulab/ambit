@@ -97,6 +97,7 @@ function changeJson(changes: readonly BundleChange[]): Readonly<Record<string, u
 export function diffSections(diff: BundleDiff): readonly string[] {
   return [
     ...section("packs", changeRows(diff.packs)),
+    ...section("plugins", changeRows(diff.plugins)),
     ...section("skills", changeRows(diff.skills)),
     ...section("mcps", changeRows(diff.mcps)),
     ...section("hooks", changeRows(diff.hooks)),
@@ -109,6 +110,7 @@ export function diffJson(diff: BundleDiff): Readonly<Record<string, unknown>> {
     hooks: changeJson(diff.hooks),
     mcps: changeJson(diff.mcps),
     packs: changeJson(diff.packs),
+    plugins: changeJson(diff.plugins),
     skills: changeJson(diff.skills),
   };
 }

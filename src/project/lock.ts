@@ -74,6 +74,28 @@ export interface LockSkill {
 }
 
 /**
+ * One selected Claude Code plugin, pinned and explained.
+ *
+ * Shaped like {@link LockSkill}, since it is the same kind of thing to reproduce: a directory of
+ * bytes out of a catalog at a commit. `namespace` is recorded alongside because it is what Claude
+ * prefixes the plugin's own components with, and it is not derivable from the name the lock keys on.
+ */
+export interface LockPlugin {
+  /** The catalog it came from. */
+  readonly catalog: string;
+  /** Its directory within that source, `/`-separated. */
+  readonly path: string;
+  /** The manifest's own `name`, which Claude namespaces the plugin's components under. */
+  readonly namespace: string;
+  /** The manifest's `version`, when it declares one. */
+  readonly version?: string;
+  /** The commit those bytes came from, when the source has one. */
+  readonly commit?: string;
+  /** Why it is in the bundle, in `--explain`'s short form. */
+  readonly reason: string;
+}
+
+/**
  * One selected MCP server, explained.
  *
  * No `commit`, deliberately: a server is a handful of config values rather than a tree of files, so
@@ -112,7 +134,7 @@ export interface LockHook {
 /**
  * A lock document.
  *
- * The five sections are keyed maps, not lists: a name is the identity of everything in them, and a
+ * The six sections are keyed maps, not lists: a name is the identity of everything in them, and a
  * map makes a diff show one changed entry instead of a reordered list.
  */
 export interface Lock {
@@ -120,6 +142,7 @@ export interface Lock {
   /** Every configured catalog, not only those that contributed to the bundle. */
   readonly catalogs: Readonly<Record<string, LockCatalog>>;
   readonly packs: Readonly<Record<string, LockPack>>;
+  readonly plugins: Readonly<Record<string, LockPlugin>>;
   readonly skills: Readonly<Record<string, LockSkill>>;
   readonly mcps: Readonly<Record<string, LockMcp>>;
   readonly hooks: Readonly<Record<string, LockHook>>;
@@ -172,6 +195,20 @@ export function buildLock(catalogs: readonly Catalog[], bundle: Bundle): Lock {
       (pack) => ({
         catalog: pack.catalog,
         reason: formatReason(reasonOf(bundle, { kind: "pack", name: pack.name })),
+      }),
+    ),
+    // Recorded whether or not a harness in this project could install it: the lock is what
+    // resolution decided, and the same file is installed by people on different harnesses.
+    plugins: byName(
+      bundle.plugins,
+      (plugin) => plugin.name,
+      (plugin) => ({
+        catalog: plugin.catalog,
+        path: plugin.path,
+        namespace: plugin.namespace,
+        ...(plugin.version !== undefined && { version: plugin.version }),
+        ...(plugin.commit !== undefined && { commit: plugin.commit }),
+        reason: formatReason(reasonOf(bundle, { kind: "plugin", name: plugin.name })),
       }),
     ),
     skills: byName(

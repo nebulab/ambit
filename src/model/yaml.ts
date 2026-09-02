@@ -663,7 +663,15 @@ export function parseFrontmatterMapping(text: string, file: string): YamlMapping
   return new YamlMapping(checked.root, checked.source, "");
 }
 
-async function readText(target: string, file: string): Promise<string> {
+/**
+ * Reads a file, naming it in the refusal the way the caller names it rather than by its real path.
+ *
+ * Exported for `CatalogFiles` (`catalog.ts`), which addresses every file it reads catalog-relative
+ * and would otherwise need a fourth copy of this.
+ *
+ * @throws {AmbitError} exit 2 when the file cannot be read.
+ */
+export async function readText(target: string, file: string): Promise<string> {
   try {
     return await readFile(target, "utf8");
   } catch (error) {

@@ -50,10 +50,11 @@ export const CATALOG_SEPARATOR = "/";
  * grammar, where a kind is the entry's key.
  *
  * `pack` leads because a pack is what a project usually names — a capability whose job is to pull in
- * the other three — so a report leading with packs shows what they expanded to, in the order the
- * reader asked for things.
+ * the others — so a report leading with packs shows what they expanded to, in the order the reader
+ * asked for things. `plugin` follows for the same reason: it is the other namespace a project names
+ * to get a group of things rather than one thing.
  */
-export const ITEM_KINDS = ["pack", "skill", "mcp", "hook"] as const;
+export const ITEM_KINDS = ["pack", "plugin", "skill", "mcp", "hook"] as const;
 
 /** Which of the bundle's namespaces a name belongs to. */
 export type ItemKind = (typeof ITEM_KINDS)[number];

@@ -1,7 +1,8 @@
 /**
  * Full-catalog validation for `ambit validate`, which is what CI runs. Covers a project and a catalog
  * repo with one report shape: a catalog repo scaffolded by `ambit init` lists itself via a `catalogs:`
- * entry naming `path:.`, whose `skills/`, `mcps/` and `hooks/` are read as the `local` catalog.
+ * entry naming `path:.`, whose `skills/`, `mcps/`, `hooks/` and `plugins/` are read as the `local`
+ * catalog.
  *
  * Every item in the merged catalog is checked, whether anything selects it or not, including every
  * catalog's own copy of a name (two copies of one name are two documents that can each be broken
@@ -80,6 +81,7 @@ export interface ValidationCounts {
   readonly hooks: number;
   readonly mcps: number;
   readonly packs: number;
+  readonly plugins: number;
   readonly skills: number;
 }
 
@@ -262,12 +264,18 @@ function configProblems(
     );
 }
 
-/** How many items one catalog contributed to the merged view, across all three namespaces. */
+/** How many items one catalog contributed to the merged view, across every namespace. */
 function itemCount(merged: MergedCatalog, catalog: string): number {
   const mine = (items: readonly { readonly catalog: string }[]): number =>
     items.filter((item) => item.catalog === catalog).length;
 
-  return mine(merged.packs) + mine(merged.skills) + mine(merged.mcps) + mine(merged.hooks);
+  return (
+    mine(merged.packs) +
+    mine(merged.plugins) +
+    mine(merged.skills) +
+    mine(merged.mcps) +
+    mine(merged.hooks)
+  );
 }
 
 /**
@@ -275,7 +283,7 @@ function itemCount(merged: MergedCatalog, catalog: string): number {
  * project did not publish itself.
  *
  * This is the check that catches a typo'd `source:`. A catalog is a directory and nothing else, so a
- * misspelled path is no longer a parse failure: it is a directory holding none of the three item
+ * misspelled path is no longer a parse failure: it is a directory holding none of the item
  * directories, i.e. a catalog with zero items. Where some pattern is qualified with that alias,
  * `unmatched-pattern` catches it instead and names the pattern the config wrote; this finding covers
  * what is left over, an alias nothing mentions at all. "Referenced" means qualified with, not matched
@@ -283,7 +291,7 @@ function itemCount(merged: MergedCatalog, catalog: string): number {
  *
  * Two exemptions, both following the same rule: what `ambit init` scaffolds is never a finding.
  *
- * - A catalog with no items. The scaffolded `local` entry is live against three empty directories
+ * - A catalog with no items. The scaffolded `local` entry is live against empty directories
  *   while the `requires` entry that would select it is commented out, so a finding here would fail
  *   `validate` on every freshly initialized project.
  * - The catalog the project is. This exemption stops applying once somebody puts a skill in
@@ -354,6 +362,7 @@ export function validateCatalog(merged: MergedCatalog, options: ValidateOptions)
       hooks: merged.hooks.length,
       mcps: merged.mcps.length,
       packs: merged.packs.length,
+      plugins: merged.plugins.length,
       skills: merged.skills.length,
     },
     problems: [

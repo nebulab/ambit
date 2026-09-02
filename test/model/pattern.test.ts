@@ -276,7 +276,7 @@ describe("refusing a malformed entry", () => {
     expect(error.message).toContain(`"company/core.*"`);
     expect(error.message).toContain("line 2");
     expect(error.format()).toContain("does not say which namespace it selects from");
-    expect(error.format()).toContain("`pack`, `skill`, `mcp`, `hook`");
+    expect(error.format()).toContain("`pack`, `plugin`, `skill`, `mcp`, `hook`");
     expect(error.format()).toContain(`- skill: "company/core.*"`);
   });
 
@@ -285,17 +285,17 @@ describe("refusing a malformed entry", () => {
     expect(error.format()).toContain(`- skill: "<catalog>/core.*"`);
   });
 
-  it("refuses a key this grammar does not have, listing the four that it does", () => {
+  it("refuses a key this grammar does not have, listing every one that it does", () => {
     const error = rejection(`requires:\n  - description: hello\n`, "qualified");
     expect(error.message).toContain(`unknown key "requires[0].description"`);
     expect(error.message).toContain("line 2");
-    expect(error.format()).toContain("accepted keys: hook, mcp, pack, skill");
+    expect(error.format()).toContain("accepted keys: hook, mcp, pack, plugin, skill");
   });
 
   it("refuses an empty entry, which names no namespace at all", () => {
     const error = rejection(`requires:\n  - {}\n`, "qualified");
     expect(error.message).toContain("selects from no namespace");
-    expect(error.format()).toContain("`pack`, `skill`, `mcp`, `hook`");
+    expect(error.format()).toContain("`pack`, `plugin`, `skill`, `mcp`, `hook`");
   });
 
   it("refuses an entry naming two namespaces, rather than picking one", () => {
@@ -313,7 +313,7 @@ describe("refusing a malformed entry", () => {
       "qualified",
     );
     expect(tagged.message).toContain(`unknown key "requires[0].tag"`);
-    expect(tagged.format()).toContain("accepted keys: hook, mcp, pack, skill");
+    expect(tagged.format()).toContain("accepted keys: hook, mcp, pack, plugin, skill");
 
     const capped = rejection(
       `requires:\n  - skill: "c/core"\n    capabilities: [skills]\n`,
@@ -384,6 +384,6 @@ describe("the two spellings of an address", () => {
 
 describe("the vocabulary itself", () => {
   it("lists the namespaces in report order, with packs first", () => {
-    expect(ITEM_KINDS).toEqual(["pack", "skill", "mcp", "hook"]);
+    expect(ITEM_KINDS).toEqual(["pack", "plugin", "skill", "mcp", "hook"]);
   });
 });

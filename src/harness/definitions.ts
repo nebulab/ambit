@@ -7,6 +7,8 @@
  * Skills: Claude Code and Cursor read `.claude/skills`, so both get a link to the shared directory.
  * Codex, VS Code and opencode read `.agents/skills` natively and need no link.
  *
+ * Plugins: Claude Code alone, see {@link HarnessProfile.pluginsDir}.
+ *
  * Hooks: Claude and VS Code share both the file (`.claude/settings.json`) and its renderer. Codex
  * shares the renderer but not the file (its entries live in `.codex/hooks.json`). Cursor shares
  * neither: its own file, its own event names, its own entry shape. opencode has no declarative hooks;
@@ -18,7 +20,7 @@
  */
 import type { ProjectPaths } from "./adapter.js";
 import type { HarnessProfile, HookLayout } from "./profile.js";
-import { SHARED_HOOKS_DIR } from "./profile.js";
+import { SHARED_HOOKS_DIR, SHARED_SKILLS_DIR } from "./profile.js";
 import type { EnvRefStyle } from "./env.js";
 import {
   bracedRef,
@@ -250,10 +252,16 @@ function stdio(
  *
  * `type` is emitted for `http` because the harness treats a server without one as stdio, and omitted
  * for stdio itself, where `command` already says so.
+ *
+ * The one harness that loads plugins ({@link HarnessProfile.pluginsDir}); it reads them out of its
+ * own skills directory, which `skillsLink` already points at the shared one, so there is nothing
+ * further to write. In a project such a plugin loads once the workspace is trusted, the same gate as
+ * the project's own `.claude/settings.json`.
  */
 export const claude: HarnessProfile = {
   name: "claude",
   skillsLink: CLAUDE_SKILLS_LINK,
+  pluginsDir: SHARED_SKILLS_DIR,
   mcp: { file: ".mcp.json", section: "mcpServers", format: "json" },
   serverConfig: (mcp) => {
     if (mcp.transport.kind === "stdio")

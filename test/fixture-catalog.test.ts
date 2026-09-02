@@ -1,5 +1,14 @@
 import { execFile } from "node:child_process";
-import { lstat, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import {
+  lstat,
+  mkdtemp,
+  mkdir,
+  readFile,
+  readdir,
+  readlink,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -28,10 +37,19 @@ async function listFiles(dir: string, prefix = ""): Promise<string[]> {
   return found.sort();
 }
 
+/**
+ * Every leaf's contents, with a symlink recorded as the target it names rather than followed.
+ *
+ * Following one would compare the same bytes twice and miss the link changing, which is exactly what
+ * the fixture's one symlink is there to pin.
+ */
 async function snapshot(dir: string): Promise<Record<string, string>> {
   const contents: Record<string, string> = {};
   for (const relative of await listFiles(dir)) {
-    contents[relative] = await readFile(path.join(dir, relative), "utf8");
+    const target = path.join(dir, relative);
+    contents[relative] = (await lstat(target)).isSymbolicLink()
+      ? `-> ${await readlink(target)}`
+      : await readFile(target, "utf8");
   }
   return contents;
 }
@@ -68,6 +86,11 @@ const EXPECTED_FILES = [
   "packs/function/engineering.yml",
   "packs/function/engineering/frontend.yml",
   "packs/project/acme.yml",
+  "packs/workflow/tooling.yml",
+  "plugins/acme-tools/.claude-plugin/plugin.json",
+  "plugins/acme-tools/hooks/hooks.json",
+  // A symlink, so the walk lists it as a leaf rather than descending into the skill it names.
+  "plugins/acme-tools/skills/company-context",
   "skills/company-context/SKILL.md",
   "skills/design-tokens/SKILL.md",
   "skills/code-review/SKILL.md",
@@ -128,6 +151,7 @@ describe("fixture catalog", () => {
       "function.engineering",
       "function.engineering.frontend",
       "project.acme",
+      "workflow.tooling",
     ]);
   });
 
@@ -186,6 +210,7 @@ describe("fixture catalog", () => {
         { skill: "design-tokens" },
       ],
       "project.acme": [{ skill: "acme-brief" }],
+      "workflow.tooling": [{ plugin: "acme-tools" }],
     });
   });
 
@@ -286,6 +311,29 @@ describe("fixture catalog", () => {
     const mode = (await lstat(path.join(dir, "hooks/guard-secrets/guard.sh"))).mode;
 
     expect(mode & 0o111).toBe(0o111);
+  });
+
+  it("ships a plugin whose manifest name is not its directory name", async () => {
+    // The two names answer different questions: `acme-tools` is the path, which is what a `requires`
+    // entry selects and what the plugin installs under; `acme-toolkit` is Claude's namespace for the
+    // plugin's own components. The fixture keeps them different so nothing can quietly conflate them.
+    const manifest = JSON.parse(
+      await readFile(path.join(dir, "plugins/acme-tools/.claude-plugin/plugin.json"), "utf8"),
+    ) as { name: string; description?: string; version?: string };
+
+    expect(manifest.name).toBe("acme-toolkit");
+    expect(manifest.description).toBeTruthy();
+    expect(manifest.version).toBe("1.4.0");
+  });
+
+  it("composes that plugin out of the catalog's own skills, by symlink", async () => {
+    // How a real catalog avoids a second copy of a skill it already ships — and the case a copy has
+    // to dereference, since the link is relative to the catalog and not to the project.
+    const link = path.join(dir, "plugins/acme-tools/skills/company-context");
+
+    expect((await lstat(link)).isSymbolicLink()).toBe(true);
+    expect(await readlink(link)).toBe("../../../skills/company-context");
+    expect(await readFile(path.join(link, "SKILL.md"), "utf8")).toContain("name: company-context");
   });
 
   it("names each MCP entity after its filename stem", async () => {

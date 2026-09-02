@@ -26,11 +26,13 @@ import type {
   PlannedCatalogDir,
   PlannedHarnessConfig,
 } from "../harness/adapter.js";
-import { codex } from "../harness/definitions.js";
+import { isCatalogDir } from "../harness/adapter.js";
+import { PROFILES, codex } from "../harness/definitions.js";
 import { referencedNames } from "../harness/env.js";
 import { gitignoreStatus } from "./gitignore.js";
 import type { MergedMcp } from "../model/catalog.js";
 import { expectedEnv } from "../model/expectation.js";
+import { REQUIRES_KEY } from "../model/pattern.js";
 import { managedKey } from "../model/documents/index.js";
 import { planInstall } from "./install.js";
 import { LOCK_FILENAME, readLockText } from "./lock.js";
@@ -397,8 +399,8 @@ async function installedMode(target: string): Promise<ArtifactMode | undefined> 
  * in front of the harness; that's why `status` ignores mode entirely. Still worth reporting, since the
  * next plain install will silently swap these over.
  *
- * Covers both directory kinds (skill and hook), since `status` is deliberately silent about mode and
- * this is the only check that reports it.
+ * Covers all three directory kinds (skill, hook and plugin), since `status` is deliberately silent
+ * about mode and this is the only check that reports it.
  */
 async function modeFindings(
   artifacts: readonly PlannedArtifact[],
@@ -409,8 +411,7 @@ async function modeFindings(
   );
   const directories = artifacts.filter(
     (artifact): artifact is PlannedCatalogDir =>
-      (artifact.kind === "skill-dir" || artifact.kind === "hook-dir") &&
-      matching.has(artifact.path),
+      isCatalogDir(artifact) && matching.has(artifact.path),
   );
 
   const findings: DoctorFinding[] = [];
@@ -429,6 +430,45 @@ async function modeFindings(
   }
 
   return findings;
+}
+
+/**
+ * What the project selected that no configured harness can load.
+ *
+ * A plugin is Claude Code's unit and nothing else's, so a project whose `harnesses` list holds none
+ * that reads plugins resolves them, records them in the lock, and materializes nothing. That is not
+ * an error — the same `ambit.yml` is installed by people on different tools, and refusing would make
+ * a shared config unusable for whoever is on Codex — but it is silent, which is what this says out
+ * loud.
+ *
+ * One finding for all of them rather than one per plugin: the cause is the harness list, and it is
+ * the same sentence however many plugins were selected.
+ */
+function pluginFindings(
+  bundle: Bundle,
+  artifacts: readonly PlannedArtifact[],
+  harnesses: readonly string[],
+): readonly DoctorFinding[] {
+  if (bundle.plugins.length === 0) return [];
+  // Asked of the plan rather than of the profile registry: "the bundle holds plugins and nothing
+  // planned one" is the condition, and it stays right however many harnesses grow plugin support.
+  if (artifacts.some((artifact) => artifact.kind === "plugin-dir")) return [];
+
+  // The registry is still what names the remedy, which is a sentence rather than the check.
+  const reading = PROFILES.filter((profile) => profile.pluginsDir !== undefined).map(
+    (profile) => profile.name,
+  );
+  const names = bundle.plugins.map((plugin) => plugin.name).join(", ");
+
+  return [
+    warn("harness", "no configured harness reads plugins", [
+      `this project selects ${bundle.plugins.length === 1 ? "a plugin" : "plugins"}: ${names}`,
+      `\`harnesses\` lists ${harnesses.join(", ")}`,
+      reading.length === 0
+        ? `no harness this build ships reads a plugin, so drop the \`${REQUIRES_KEY}\` entry that selects it`
+        : `add ${reading.join(" or ")} to \`harnesses\`, or drop the \`${REQUIRES_KEY}\` entry that selects the plugin`,
+    ]),
+  ];
 }
 
 /**
@@ -489,6 +529,7 @@ export async function diagnoseProject(
     ...ownershipFindings(status.artifacts),
     ...(await driftFindings(projectDir, planned.artifacts, status.artifacts)),
     ...(await modeFindings(planned.artifacts, status.artifacts)),
+    ...pluginFindings(planned.bundle, planned.artifacts, planned.harnesses),
     ...harnessFindings(planned.bundle, planned.harnesses),
   ];
 
