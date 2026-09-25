@@ -15,6 +15,7 @@ const executable = path.join(
   "Ambit",
 );
 const home = await mkdtemp(path.join(tmpdir(), "ambit-desktop-ui-"));
+const catalog = await mkdtemp(path.join(tmpdir(), "ambit-desktop-catalog-"));
 const port = 20000 + Math.floor(Math.random() * 20000);
 const child = Bun.spawn([executable, `--remote-debugging-port=${port}`], {
   env: { ...process.env, HOME: home, PATH: "/usr/bin:/bin" },
@@ -131,11 +132,13 @@ try {
     assert.deepEqual(await evaluate(socket, "Object.keys(window.ambit).sort()"), [
       "applyEmpty",
       "cancelPendingAction",
+      "chooseLocalCatalog",
       "inspectPersonal",
       "onRequestReview",
       "retryEmpty",
       "revealPersonal",
       "reviewEmpty",
+      "stageLocalCatalog",
       "stageTool",
     ]);
 
@@ -171,13 +174,23 @@ try {
     await waitForText(socket, "No Personal setup yet");
     await evaluate(socket, "document.querySelector('input[value=codex]').click()");
     await clickText(socket, "Continue");
-    await clickText(socket, "Skip catalog");
+    await writeFile(path.join(catalog, "README.md"), "Existing local catalog\n");
+    await evaluate(
+      socket,
+      `(() => { const input = document.querySelector('#catalog-folder'); const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; set.call(input, ${JSON.stringify(catalog)}); input.dispatchEvent(new Event('input', { bubbles: true })); })()`,
+    );
+    await clickText(socket, "Verify catalog");
+    await waitForText(socket, "Loaded 0 skills");
+    assert.deepEqual(await readdir(home), []);
+    await clickText(socket, "Continue");
     await clickText(socket, "Review changes");
-    await waitForText(socket, "Review empty setup");
+    await waitForText(socket, "Review setup");
     assert.deepEqual(await readdir(home), []);
     await clickText(socket, "Apply changes");
     await waitForText(socket, "Configured");
     assert.match(await readFile(path.join(home, "ambit.yml"), "utf8"), /- codex/);
+    assert.match(await readFile(path.join(home, "ambit.yml"), "utf8"), /source:.*path:/);
+    assert.deepEqual(await readdir(catalog), ["README.md"]);
   } finally {
     socket.close();
   }
@@ -210,4 +223,5 @@ try {
   child.kill(9);
   await child.exited;
   await rm(home, { recursive: true, force: true });
+  await rm(catalog, { recursive: true, force: true });
 }

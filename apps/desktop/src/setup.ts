@@ -11,6 +11,7 @@ export type PersonalSetup =
       readonly root: string;
       readonly configPath: string;
       readonly tools: readonly string[];
+      readonly catalogs: readonly { readonly name: string; readonly source: string }[];
     }
   | {
       readonly status: "error";
@@ -32,7 +33,13 @@ export async function inspectPersonalSetup(root: string): Promise<PersonalSetup>
   try {
     const config = await loadProjectConfig(root);
 
-    return { status: "configured", root, configPath, tools: config.harnesses };
+    return {
+      status: "configured",
+      root,
+      configPath,
+      tools: config.harnesses,
+      catalogs: config.catalogs.map(({ name, source }) => ({ name, source })),
+    };
   } catch (error) {
     return {
       status: "error",

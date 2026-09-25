@@ -54,12 +54,16 @@ To upgrade a binary later, run `ambit self-update`. See
 
 ## Desktop app
 
-The macOS app opens your Personal setup in a window. On first use, choose an agent tool, skip
-the catalog and capability steps, review the empty setup, and select **Apply changes**. This
-creates `~/ambit.yml` and installs the setup. **Cancel** leaves your home folder unchanged.
+The macOS app opens your Personal setup in a window. On first use, choose an agent tool. You can
+connect an existing local catalog by choosing its folder, editing the proposed name, and selecting
+**Verify catalog**. Continue to review and select **Apply changes**. You can also skip the catalog
+to create an empty setup. **Cancel** leaves your home folder unchanged. Applying creates
+`~/ambit.yml` and installs the setup without creating files in the catalog folder.
 The app reads the saved setup on its next launch. If an existing configuration is invalid or
 both `~/ambit.yml` and `~/ambit.yaml` exist, it shows the error and lets you reveal the file in
 Finder and retry. Opening the app does not change your setup or check for catalog updates.
+An existing setup with no catalogs or selections can connect a local catalog through **Add local
+catalog**. The app keeps its original configuration filename and unrelated content.
 
 For this early desktop build, build an unsigned app on a Mac:
 
@@ -71,8 +75,8 @@ open release/mac-arm64/Ambit.app
 ```
 
 On an Intel Mac, open `release/mac/Ambit.app` instead. The packaged app runs without a separate
-Node installation. This build creates an empty Personal setup with one agent tool. Catalogs and
-capabilities cannot yet be added in the app.
+Node installation. This build creates a Personal setup with one agent tool and optionally connects
+one local catalog. Capabilities cannot yet be selected in the app.
 
 ## Quick start
 

@@ -33,6 +33,7 @@ describe("Personal setup inspection", () => {
         root: home,
         configPath,
         tools: ["claude", "codex", "cursor", "opencode", "vscode"],
+        catalogs: [],
       });
       expect(await readdir(home)).toEqual([filename]);
       expect(await readFile(configPath, "utf8")).toBe(source);
@@ -50,6 +51,7 @@ describe("Personal setup inspection", () => {
     expect(result.status).toBe("configured");
     if (result.status === "configured") {
       expect(result.tools).toEqual(["vscode"]);
+      expect(result.catalogs).toEqual([{ name: "remote", source: "example.invalid/never-fetch" }]);
     }
 
     expect(await readdir(home)).toEqual(["ambit.yml"]);

@@ -8,14 +8,21 @@ import { inspectPersonalSetup } from "./setup.js";
 import {
   SETUP_TOOLS,
   applyEmptySetup,
+  inspectLocalCatalog,
   previewEmptySetup,
+  previewExistingLocalCatalog,
   retryEmptySetup,
 } from "../../../src/project/empty-setup.js";
-import type { EmptySetupReview, SetupTool } from "../../../src/project/empty-setup.js";
+import type {
+  EmptySetupReview,
+  LocalCatalogDraft,
+  SetupTool,
+} from "../../../src/project/empty-setup.js";
 import { AmbitError } from "../../../src/errors.js";
 
 let mainWindow: BrowserWindow | null = null;
 let draftTool: SetupTool | null = null;
+let draftCatalog: LocalCatalogDraft | null = null;
 let review: { readonly id: string; readonly value: EmptySetupReview } | null = null;
 let retryReview: EmptySetupReview | null = null;
 let pendingAction: "close" | "quit" | null = null;
@@ -72,7 +79,7 @@ function createWindow(): void {
       return;
     }
 
-    if (draftTool === null) {
+    if (draftTool === null && draftCatalog === null) {
       return;
     }
 
@@ -87,6 +94,7 @@ function createWindow(): void {
 
     if (choice === 1) {
       draftTool = null;
+      draftCatalog = null;
       review = null;
       allowClose = true;
       mainWindow?.close();
@@ -125,7 +133,55 @@ ipcMain.handle(DESKTOP_CHANNELS.stageTool, (event, ...args: unknown[]) => {
   }
 
   draftTool = tool as SetupTool | null;
+  if (tool === null) {
+    draftCatalog = null;
+  }
+
   review = null;
+});
+
+ipcMain.handle(DESKTOP_CHANNELS.chooseLocalCatalog, async (event, ...args: unknown[]) => {
+  validateCall(event, args);
+  if (applying || mainWindow === null) {
+    throw new Error("Wait for installation to finish");
+  }
+
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: "Choose a local catalog",
+    properties: ["openDirectory"],
+  });
+
+  return result.canceled ? null : (result.filePaths[0] ?? null);
+});
+
+ipcMain.handle(DESKTOP_CHANNELS.stageLocalCatalog, async (event, ...args: unknown[]) => {
+  validateCall(event, args, 2);
+  if (applying) {
+    throw new Error("Wait for installation to finish");
+  }
+
+  const [folder, name] = args;
+
+  if (
+    (folder !== null && (typeof folder !== "string" || folder.length === 0)) ||
+    typeof name !== "string"
+  ) {
+    throw new Error("Invalid local catalog");
+  }
+
+  if (folder === null) {
+    draftCatalog = null;
+    review = null;
+
+    return null;
+  }
+
+  const loaded = await inspectLocalCatalog(folder, name).catch(desktopError);
+
+  draftCatalog = loaded;
+  review = null;
+
+  return loaded;
 });
 
 ipcMain.handle(DESKTOP_CHANNELS.reviewEmpty, async (event, ...args: unknown[]) => {
@@ -134,15 +190,19 @@ ipcMain.handle(DESKTOP_CHANNELS.reviewEmpty, async (event, ...args: unknown[]) =
     throw new Error("Wait for installation to finish");
   }
 
-  if (draftTool === null) {
-    throw new Error("Choose an agent tool first");
+  if (draftTool === null && draftCatalog === null) {
+    throw new Error("Choose an agent tool or local catalog first");
   }
 
-  const value = await previewEmptySetup(home, draftTool).catch(desktopError);
+  const value = await (
+    draftTool === null
+      ? previewExistingLocalCatalog(home, draftCatalog!)
+      : previewEmptySetup(home, draftTool, draftCatalog ?? undefined)
+  ).catch(desktopError);
 
   review = { id: randomUUID(), value };
 
-  return { id: review.id, tool: value.tool };
+  return { id: review.id, tool: value.tool, catalog: draftCatalog };
 });
 
 ipcMain.handle(DESKTOP_CHANNELS.applyEmpty, async (event, ...args: unknown[]) => {
@@ -159,6 +219,7 @@ ipcMain.handle(DESKTOP_CHANNELS.applyEmpty, async (event, ...args: unknown[]) =>
     const result = await applyEmptySetup(selected).catch(desktopError);
 
     draftTool = null;
+    draftCatalog = null;
     retryReview = result.status === "partial" ? selected : null;
     if (result.status === "installed" && pendingAction !== null) {
       const action = pendingAction;
@@ -209,7 +270,7 @@ app.whenReady().then(() => {
 
 app.on("window-all-closed", () => app.quit());
 app.on("before-quit", (event) => {
-  if (allowClose || draftTool === null || mainWindow === null) {
+  if (allowClose || (draftTool === null && draftCatalog === null) || mainWindow === null) {
     return;
   }
 

@@ -7,6 +7,9 @@ const api: DesktopApi = {
   inspectPersonal: () => ipcRenderer.invoke(DESKTOP_CHANNELS.inspectPersonal),
   revealPersonal: () => ipcRenderer.invoke(DESKTOP_CHANNELS.revealPersonal),
   stageTool: (tool) => ipcRenderer.invoke(DESKTOP_CHANNELS.stageTool, tool),
+  chooseLocalCatalog: () => ipcRenderer.invoke(DESKTOP_CHANNELS.chooseLocalCatalog),
+  stageLocalCatalog: (folder, name) =>
+    ipcRenderer.invoke(DESKTOP_CHANNELS.stageLocalCatalog, folder, name),
   reviewEmpty: () => ipcRenderer.invoke(DESKTOP_CHANNELS.reviewEmpty),
   applyEmpty: (id) => ipcRenderer.invoke(DESKTOP_CHANNELS.applyEmpty, id),
   retryEmpty: () => ipcRenderer.invoke(DESKTOP_CHANNELS.retryEmpty),
