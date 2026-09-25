@@ -12,6 +12,7 @@ You write a few lines of config. ambit fetches, resolves, and writes the files.
 ## Table of contents
 
 - [Install](#install)
+- [Desktop app](#desktop-app)
 - [Quick start](#quick-start)
 - [What you can select](#what-you-can-select)
 - [Configuring your project](#configuring-your-project)
@@ -50,6 +51,39 @@ npx @teamnebulab/ambit --help
 
 To upgrade a binary later, run `ambit self-update`. See
 [Updating ambit itself](#updating-ambit-itself).
+
+## Desktop app
+
+The macOS app opens your Personal setup in a window. On first use, choose an agent tool. You can
+connect an existing local catalog by choosing its folder, editing the proposed name, and selecting
+**Verify catalog**. Continue to review and select **Apply changes**. You can also skip the catalog
+to create an empty setup. **Cancel** leaves your home folder unchanged. Applying creates
+`~/ambit.yml` and installs the setup without creating files in the catalog folder.
+The app reads the saved setup on its next launch. If an existing configuration is invalid or
+both `~/ambit.yml` and `~/ambit.yaml` exist, it shows the error and lets you reveal the file in
+Finder and retry. Opening the app does not change your setup or check for catalog updates.
+An existing setup with no catalogs or selections can connect a local catalog through **Add local
+catalog**. The app keeps its original configuration filename and unrelated content.
+After connecting a local catalog, the Personal setup lists its skills as **Selected** or
+**Not selected**. Choose a skill to read its `SKILL.md` as Markdown in the app. Select a
+dependency-free local skill to review the installation paths, then choose **Apply changes** to
+install it. If an existing skill occupies a path Ambit does not manage, move it aside before
+applying. Web and email
+links open in your default browser or mail app. Refresh to pick up changes to the catalog or
+setup. Remote catalogs are listed by name but are not opened in this view.
+
+For this early desktop build, build an unsigned app on a Mac:
+
+```sh
+bun install
+cd apps/desktop
+bun run package:mac
+open release/mac-arm64/Ambit.app
+```
+
+On an Intel Mac, open `release/mac/Ambit.app` instead. The packaged app runs without a separate
+Node installation. This build creates a Personal setup with one agent tool, optionally connects
+one local catalog, and installs one dependency-free local skill.
 
 ## Quick start
 
@@ -638,6 +672,9 @@ installs a fixture project with `node dist/cli.js`, which is the one thing `bun 
 `bun run fixture` builds the fixture catalog the suite resolves against.
 
 `AMBIT_SKIP_NETWORK_TESTS=1` skips the dotagents compatibility test.
+
+The desktop UI uses selected [Catalyst](https://catalyst.tailwindui.com/) components. Their
+[Tailwind Plus license](apps/desktop/src/catalyst/LICENSE.md) applies to those component files.
 
 ## License
 

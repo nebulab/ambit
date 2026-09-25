@@ -1,5 +1,7 @@
 # Build output and caches — generated, and reformatting them would only churn.
 dist/
+apps/desktop/out/
+apps/desktop/release/
 release/
 coverage/
 *.tsbuildinfo

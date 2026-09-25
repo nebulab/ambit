@@ -36,6 +36,7 @@ import {
   writeGitignoreBlocks,
 } from "./gitignore.js";
 import { planInstall } from "./install.js";
+import { withSetupLock } from "./operation-lock.js";
 import { writeLockText } from "./lock.js";
 import type { PrunedArtifact } from "./prune.js";
 import { planPrune, pruneArtifacts, remainingArtifacts } from "./prune.js";
@@ -132,6 +133,17 @@ export async function pruneProject(
   projectDir: string,
   options: PruneOptions = {},
 ): Promise<PruneResult> {
+  if (options.dryRun !== true) {
+    return withSetupLock(projectDir, () => pruneProjectUnderLock(projectDir, options));
+  }
+
+  return pruneProjectUnderLock(projectDir, options);
+}
+
+async function pruneProjectUnderLock(
+  projectDir: string,
+  options: PruneOptions,
+): Promise<PruneResult> {
   const planned = await planInstall(projectDir, {
     ...(options.offline !== undefined && { offline: options.offline }),
   });
@@ -185,6 +197,17 @@ export async function pruneProject(
 export async function cleanProject(
   projectDir: string,
   options: CleanOptions = {},
+): Promise<CleanResult> {
+  if (options.dryRun !== true) {
+    return withSetupLock(projectDir, () => cleanProjectUnderLock(projectDir, options));
+  }
+
+  return cleanProjectUnderLock(projectDir, options);
+}
+
+async function cleanProjectUnderLock(
+  projectDir: string,
+  options: CleanOptions,
 ): Promise<CleanResult> {
   const prior = await readState(projectDir);
   const stateDir = path.join(projectDir, STATE_DIRNAME);

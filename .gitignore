@@ -1,5 +1,7 @@
 node_modules/
 dist/
+apps/desktop/out/
+apps/desktop/release/
 release/
 coverage/
 test/tmp/

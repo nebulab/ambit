@@ -63,6 +63,7 @@ import { resolveBundle } from "../resolution/resolve.js";
 import type { SourceContext } from "../model/sources.js";
 import type { ArtifactMode, State } from "../model/state.js";
 import { STATE_VERSION, readState, writeState } from "../model/state.js";
+import { withSetupLock } from "./operation-lock.js";
 
 /** Every adapter this build ships, keyed by the name `harnesses` uses. */
 export const ADAPTERS: Readonly<Record<string, HarnessAdapter>> = Object.fromEntries(
@@ -370,7 +371,16 @@ export async function planInstall(
   options: InstallOptions = {},
   plan: PlanContext = {},
 ): Promise<PlannedInstall> {
-  const config = await loadProjectConfig(projectDir);
+  return planInstallFromConfig(projectDir, await loadProjectConfig(projectDir), options, plan);
+}
+
+/** Plans installation from a validated, unsaved configuration. */
+export async function planInstallFromConfig(
+  projectDir: string,
+  config: ProjectConfig,
+  options: InstallOptions = {},
+  plan: PlanContext = {},
+): Promise<PlannedInstall> {
   const harnesses = [...new Set(config.harnesses)].sort(compare);
   const adapters = adaptersFor(harnesses);
 
@@ -482,7 +492,27 @@ export async function installProject(
   options: InstallOptions = {},
   released: readonly string[] = [],
 ): Promise<InstallResult> {
+  return withSetupLock(projectDir, () => installProjectUnderLock(projectDir, options, released));
+}
+
+/** Runs an install while the caller holds the shared setup lock. */
+export async function installProjectUnderLock(
+  projectDir: string,
+  options: InstallOptions = {},
+  released: readonly string[] = [],
+): Promise<InstallResult> {
   const planned = await planInstall(projectDir, options, { refresh: "advance", released });
+
+  return applyPlannedInstallUnderLock(projectDir, planned, options);
+}
+
+/** Applies the plan that was reviewed while the caller holds the setup lock. */
+export async function applyPlannedInstallUnderLock(
+  projectDir: string,
+  planned: PlannedInstall,
+  options: InstallOptions = {},
+  checkpoint = false,
+): Promise<InstallResult> {
   const { bundle, harnesses, plans, prior, lock, lockText, skipped } = planned;
 
   if (options.frozen === true) {
@@ -494,7 +524,21 @@ export async function installProject(
   const artifacts: AppliedArtifact[] = [];
 
   for (const { adapter, plan } of plans) {
-    artifacts.push(...(await adapter.apply(plan, owner)));
+    if (checkpoint) {
+      for (const artifact of plan) {
+        const currentOwner = { ...owner, artifacts: [...owner.artifacts, ...artifacts] };
+
+        artifacts.push(...(await adapter.apply([artifact], currentOwner)));
+        // A failed later artifact remains retryable because each completed target is already owned.
+        await writeState(projectDir, {
+          version: STATE_VERSION,
+          harnesses,
+          artifacts: [...prior.artifacts, ...artifacts],
+        });
+      }
+    } else {
+      artifacts.push(...(await adapter.apply(plan, owner)));
+    }
   }
 
   // Against `prior`, not `owner`: what `--adopt` just took over is already in the plan, so the two
