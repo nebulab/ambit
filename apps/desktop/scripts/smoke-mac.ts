@@ -1,5 +1,5 @@
 import { strict as assert } from "node:assert";
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -131,10 +131,13 @@ try {
     assert.equal(await evaluate(socket, "typeof process"), "undefined");
     assert.deepEqual(await evaluate(socket, "Object.keys(window.ambit).sort()"), [
       "applyEmpty",
+      "browseLocalSkills",
       "cancelPendingAction",
       "chooseLocalCatalog",
       "inspectPersonal",
       "onRequestReview",
+      "openExternal",
+      "readLocalSkill",
       "retryEmpty",
       "revealPersonal",
       "reviewEmpty",
@@ -175,12 +178,17 @@ try {
     await evaluate(socket, "document.querySelector('input[value=codex]').click()");
     await clickText(socket, "Continue");
     await writeFile(path.join(catalog, "README.md"), "Existing local catalog\n");
+    await mkdir(path.join(catalog, "skills", "example"), { recursive: true });
+    await Bun.write(
+      path.join(catalog, "skills", "example", "SKILL.md"),
+      '---\nname: example\ndescription: Example skill\n---\n# Example\n**Bold guidance**\n\n[Official](https://example.com/guide) [Unsafe](javascript:alert(1))\n\n![Tracker](https://example.com/tracker.png)\n\n<script id="injected">alert(1)</script>\n',
+    );
     await evaluate(
       socket,
       `(() => { const input = document.querySelector('#catalog-folder'); const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; set.call(input, ${JSON.stringify(catalog)}); input.dispatchEvent(new Event('input', { bubbles: true })); })()`,
     );
     await clickText(socket, "Verify catalog");
-    await waitForText(socket, "Loaded 0 skills");
+    await waitForText(socket, "Loaded 1 skills");
     assert.deepEqual(await readdir(home), []);
     await clickText(socket, "Continue");
     await clickText(socket, "Review changes");
@@ -190,7 +198,7 @@ try {
     await waitForText(socket, "Configured");
     assert.match(await readFile(path.join(home, "ambit.yml"), "utf8"), /- codex/);
     assert.match(await readFile(path.join(home, "ambit.yml"), "utf8"), /source:.*path:/);
-    assert.deepEqual(await readdir(catalog), ["README.md"]);
+    assert.deepEqual(await readdir(catalog), ["README.md", "skills"]);
   } finally {
     socket.close();
   }
@@ -210,6 +218,38 @@ try {
       const text = await waitForText(socket, "Configured");
 
       assert.match(text, /Codex/);
+      await waitForText(socket, "Not selected");
+      await clickText(socket, "example");
+      await waitForText(socket, "Bold guidance");
+      assert.equal(
+        await evaluate(
+          socket,
+          "document.querySelector('[aria-label=\"Skill file contents\"] strong')?.textContent",
+        ),
+        "Bold guidance",
+      );
+      assert.equal(
+        await evaluate(
+          socket,
+          "document.querySelector('[aria-label=\"Skill file contents\"] a')?.href",
+        ),
+        "https://example.com/guide",
+      );
+      assert.equal(
+        await evaluate(
+          socket,
+          "document.querySelectorAll('[aria-label=\"Skill file contents\"] a').length",
+        ),
+        1,
+      );
+      assert.equal(
+        await evaluate(
+          socket,
+          "document.querySelectorAll('[aria-label=\"Skill file contents\"] img').length",
+        ),
+        0,
+      );
+      assert.equal(await evaluate(socket, "document.querySelector('#injected') === null"), true);
     } finally {
       socket.close();
     }

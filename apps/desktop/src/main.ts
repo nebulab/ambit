@@ -5,6 +5,8 @@ import path from "node:path";
 
 import { DESKTOP_CHANNELS } from "./ipc.js";
 import { inspectPersonalSetup } from "./setup.js";
+import { browseLocalSkills, readLocalSkill } from "./browser.js";
+import { externalLink } from "./external-link.js";
 import {
   SETUP_TOOLS,
   applyEmptySetup,
@@ -111,6 +113,32 @@ ipcMain.handle(DESKTOP_CHANNELS.inspectPersonal, async (event, ...args: unknown[
   validateCall(event, args);
 
   return inspectPersonalSetup(home);
+});
+
+ipcMain.handle(DESKTOP_CHANNELS.browseLocalSkills, async (event, ...args: unknown[]) => {
+  validateCall(event, args);
+
+  return browseLocalSkills(home).catch(desktopError);
+});
+
+ipcMain.handle(DESKTOP_CHANNELS.readLocalSkill, async (event, ...args: unknown[]) => {
+  validateCall(event, args, 2);
+  if (typeof args[0] !== "string" || typeof args[1] !== "string") {
+    throw new Error("Invalid skill request");
+  }
+
+  return readLocalSkill(home, args[0], args[1]).catch(desktopError);
+});
+
+ipcMain.handle(DESKTOP_CHANNELS.openExternal, async (event, ...args: unknown[]) => {
+  validateCall(event, args, 1);
+  const url = typeof args[0] === "string" ? externalLink(args[0]) : null;
+
+  if (url === null) {
+    throw new Error("Invalid external link");
+  }
+
+  await shell.openExternal(url);
 });
 
 ipcMain.handle(DESKTOP_CHANNELS.revealPersonal, async (event, ...args: unknown[]) => {

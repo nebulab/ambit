@@ -5,6 +5,10 @@ import type { DesktopApi } from "./ipc.js";
 
 const api: DesktopApi = {
   inspectPersonal: () => ipcRenderer.invoke(DESKTOP_CHANNELS.inspectPersonal),
+  browseLocalSkills: () => ipcRenderer.invoke(DESKTOP_CHANNELS.browseLocalSkills),
+  readLocalSkill: (catalog, name) =>
+    ipcRenderer.invoke(DESKTOP_CHANNELS.readLocalSkill, catalog, name),
+  openExternal: (url) => ipcRenderer.invoke(DESKTOP_CHANNELS.openExternal, url),
   revealPersonal: () => ipcRenderer.invoke(DESKTOP_CHANNELS.revealPersonal),
   stageTool: (tool) => ipcRenderer.invoke(DESKTOP_CHANNELS.stageTool, tool),
   chooseLocalCatalog: () => ipcRenderer.invoke(DESKTOP_CHANNELS.chooseLocalCatalog),

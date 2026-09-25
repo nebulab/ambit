@@ -64,6 +64,10 @@ both `~/ambit.yml` and `~/ambit.yaml` exist, it shows the error and lets you rev
 Finder and retry. Opening the app does not change your setup or check for catalog updates.
 An existing setup with no catalogs or selections can connect a local catalog through **Add local
 catalog**. The app keeps its original configuration filename and unrelated content.
+After connecting a local catalog, the Personal setup lists its skills as **Selected** or
+**Not selected**. Choose a skill to read its `SKILL.md` as Markdown in the app. Web and email
+links open in your default browser or mail app. Refresh to pick up changes to the catalog or
+setup. Remote catalogs are listed by name but are not opened in this view.
 
 For this early desktop build, build an unsigned app on a Mac:
 

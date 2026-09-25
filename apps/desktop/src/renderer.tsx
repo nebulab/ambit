@@ -9,6 +9,7 @@ import { Button } from "./catalyst/button.js";
 import { Badge } from "./catalyst/badge.js";
 import { Heading } from "./catalyst/heading.js";
 import { Text } from "./catalyst/text.js";
+import { SkillBrowser } from "./skill-browser.js";
 import "./style.css";
 
 declare global {
@@ -29,6 +30,7 @@ const TOOLS: readonly SetupTool[] = ["claude", "codex", "cursor", "opencode", "v
 
 function App() {
   const [setup, setSetup] = useState<PersonalSetup | null>(null);
+  const [setupRevision, setSetupRevision] = useState(0);
   const [requestError, setRequestError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [tool, setTool] = useState<SetupTool | null>(null);
@@ -44,6 +46,7 @@ function App() {
     setRequestError(null);
     try {
       setSetup(await window.ambit.inspectPersonal());
+      setSetupRevision((value) => value + 1);
     } catch (error) {
       setRequestError(String(error));
     } finally {
@@ -465,6 +468,7 @@ function App() {
                 </ul>
               </>
             )}
+            {setup.catalogs.length > 0 && <SkillBrowser revision={String(setupRevision)} />}
             {setup.catalogs.length === 0 && step === "tools" && (
               <div className="mt-5 flex flex-wrap gap-2.5">
                 <Button type="button" onClick={() => setStep("catalogs")}>
