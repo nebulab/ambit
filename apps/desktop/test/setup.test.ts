@@ -25,6 +25,7 @@ describe("Personal setup inspection", () => {
     it(`reads ${filename} and its configured tools without writing`, async () => {
       const source = "version: 1\nharnesses: [claude, codex, cursor, opencode, vscode]\n";
       const configPath = path.join(home, filename);
+
       await writeFile(configPath, source);
 
       expect(await inspectPersonalSetup(home)).toEqual({
@@ -41,25 +42,33 @@ describe("Personal setup inspection", () => {
   it("reads configured tools without resolving a remote catalog", async () => {
     const source =
       "version: 1\nharnesses: [vscode]\ncatalogs:\n  - name: remote\n    source: example.invalid/never-fetch\n";
+
     await writeFile(path.join(home, "ambit.yml"), source);
 
     const result = await inspectPersonalSetup(home);
+
     expect(result.status).toBe("configured");
-    if (result.status === "configured") expect(result.tools).toEqual(["vscode"]);
+    if (result.status === "configured") {
+      expect(result.tools).toEqual(["vscode"]);
+    }
+
     expect(await readdir(home)).toEqual(["ambit.yml"]);
   });
 
   it("shows a malformed configuration with line information and leaves it alone", async () => {
     const configPath = path.join(home, "ambit.yaml");
     const source = "version: 1\nrequires: core\n";
+
     await writeFile(configPath, source);
 
     const result = await inspectPersonalSetup(home);
+
     expect(result.status).toBe("error");
     if (result.status === "error") {
       expect(result.configPath).toBe(configPath);
       expect(result.message).toContain("ambit.yaml line 2");
     }
+
     expect(await readFile(configPath, "utf8")).toBe(source);
     expect(await readdir(home)).toEqual(["ambit.yaml"]);
   });
@@ -69,11 +78,13 @@ describe("Personal setup inspection", () => {
     await writeFile(path.join(home, "ambit.yaml"), "version: 1\n");
 
     const result = await inspectPersonalSetup(home);
+
     expect(result.status).toBe("error");
     if (result.status === "error") {
       expect(result.configPath).toBe(home);
       expect(result.message).toContain("ambit.yml and ambit.yaml both exist");
     }
+
     expect((await readdir(home)).sort()).toEqual(["ambit.yaml", "ambit.yml"]);
   });
 });

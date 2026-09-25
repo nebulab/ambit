@@ -6,7 +6,7 @@
   "main": "out/main.cjs",
   "scripts": {
     "build": "bun run build:main && bun run build:preload && vite build",
-    "build:main": "bun build src/main.ts --target=node --format=cjs --external electron --outfile out/main.cjs",
+    "build:main": "bun build src/main.ts --target=node --format=cjs --external electron --external jsonc-parser --outfile out/main.cjs",
     "build:preload": "bun build src/preload.ts --target=node --format=cjs --external electron --outfile out/preload.cjs",
     "dev": "bun run build && electron .",
     "package:mac": "bun run build && electron-builder --mac dir --publish never",
@@ -14,14 +14,19 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@headlessui/react": "^2.2.10",
+    "clsx": "^2.1.1",
+    "jsonc-parser": "^3.3.1",
     "react": "^19.1.1",
     "react-dom": "^19.1.1"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
     "@types/react": "^19.1.10",
     "@types/react-dom": "^19.1.7",
     "electron": "38.8.6",
     "electron-builder": "^26.0.12",
+    "tailwindcss": "^4.3.3",
     "vite": "^7.1.0"
   },
   "build": {

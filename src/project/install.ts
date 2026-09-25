@@ -63,6 +63,7 @@ import { resolveBundle } from "../resolution/resolve.js";
 import type { SourceContext } from "../model/sources.js";
 import type { ArtifactMode, State } from "../model/state.js";
 import { STATE_VERSION, readState, writeState } from "../model/state.js";
+import { withSetupLock } from "./operation-lock.js";
 
 /** Every adapter this build ships, keyed by the name `harnesses` uses. */
 export const ADAPTERS: Readonly<Record<string, HarnessAdapter>> = Object.fromEntries(
@@ -478,6 +479,15 @@ export async function previewInstall(
  *   `--frozen` when the committed lock is not what resolution produces.
  */
 export async function installProject(
+  projectDir: string,
+  options: InstallOptions = {},
+  released: readonly string[] = [],
+): Promise<InstallResult> {
+  return withSetupLock(projectDir, () => installProjectUnderLock(projectDir, options, released));
+}
+
+/** Runs an install while the caller holds the shared setup lock. */
+export async function installProjectUnderLock(
   projectDir: string,
   options: InstallOptions = {},
   released: readonly string[] = [],

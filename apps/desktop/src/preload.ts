@@ -6,6 +6,18 @@ import type { DesktopApi } from "./ipc.js";
 const api: DesktopApi = {
   inspectPersonal: () => ipcRenderer.invoke(DESKTOP_CHANNELS.inspectPersonal),
   revealPersonal: () => ipcRenderer.invoke(DESKTOP_CHANNELS.revealPersonal),
+  stageTool: (tool) => ipcRenderer.invoke(DESKTOP_CHANNELS.stageTool, tool),
+  reviewEmpty: () => ipcRenderer.invoke(DESKTOP_CHANNELS.reviewEmpty),
+  applyEmpty: (id) => ipcRenderer.invoke(DESKTOP_CHANNELS.applyEmpty, id),
+  retryEmpty: () => ipcRenderer.invoke(DESKTOP_CHANNELS.retryEmpty),
+  cancelPendingAction: () => ipcRenderer.invoke(DESKTOP_CHANNELS.cancelPendingAction),
+  onRequestReview: (callback) => {
+    const listener = () => callback();
+
+    ipcRenderer.on(DESKTOP_CHANNELS.requestReview, listener);
+
+    return () => ipcRenderer.removeListener(DESKTOP_CHANNELS.requestReview, listener);
+  },
 };
 
 contextBridge.exposeInMainWorld("ambit", api);

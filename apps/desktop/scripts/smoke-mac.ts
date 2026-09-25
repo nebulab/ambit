@@ -1,5 +1,5 @@
 import { strict as assert } from "node:assert";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -24,32 +24,40 @@ const child = Bun.spawn([executable, `--remote-debugging-port=${port}`], {
 
 type Page = { readonly webSocketDebuggerUrl: string };
 
-async function page(): Promise<Page> {
+async function page(debugPort = port): Promise<Page> {
   for (let attempt = 0; attempt < 100; attempt++) {
     try {
-      const response = await fetch(`http://127.0.0.1:${port}/json`);
+      const response = await fetch(`http://127.0.0.1:${debugPort}/json`);
       const pages = (await response.json()) as Page[];
-      if (pages[0]) return pages[0];
+
+      if (pages[0]) {
+        return pages[0];
+      }
     } catch {
       // Electron has not opened its debugging socket yet.
     }
+
     await Bun.sleep(100);
   }
+
   throw new Error("Packaged app did not open a renderer");
 }
 
 async function connect(url: string): Promise<WebSocket> {
   const socket = new WebSocket(url);
+
   await new Promise<void>((resolve, reject) => {
     socket.addEventListener("open", () => resolve(), { once: true });
     socket.addEventListener("error", () => reject(new Error("Could not inspect renderer")), {
       once: true,
     });
   });
+
   return socket;
 }
 
 let nextId = 0;
+
 async function evaluate(socket: WebSocket, expression: string): Promise<unknown> {
   const id = ++nextId;
   const result = new Promise<unknown>((resolve, reject) => {
@@ -59,27 +67,42 @@ async function evaluate(socket: WebSocket, expression: string): Promise<unknown>
         result?: { result?: { value?: unknown }; exceptionDetails?: unknown };
         error?: unknown;
       };
-      if (message.id !== id) return;
+
+      if (message.id !== id) {
+        return;
+      }
+
       socket.removeEventListener("message", onMessage);
-      if (message.error || message.result?.exceptionDetails)
+      if (message.error || message.result?.exceptionDetails) {
         reject(new Error(JSON.stringify(message)));
-      else resolve(message.result?.result?.value);
+      } else {
+        resolve(message.result?.result?.value);
+      }
     };
+
     socket.addEventListener("message", onMessage);
   });
+
   socket.send(
     JSON.stringify({ id, method: "Runtime.evaluate", params: { expression, returnByValue: true } }),
   );
+
   return result;
 }
 
 async function waitForText(socket: WebSocket, expected: string): Promise<string> {
-  for (let attempt = 0; attempt < 100; attempt++) {
-    const text = String(await evaluate(socket, "document.body?.innerText ?? ''"));
-    if (text.includes(expected)) return text;
+  let text = "";
+
+  for (let attempt = 0; attempt < 300; attempt++) {
+    text = String(await evaluate(socket, "document.body?.innerText ?? ''"));
+    if (text.includes(expected)) {
+      return text;
+    }
+
     await Bun.sleep(100);
   }
-  throw new Error(`Renderer did not show ${expected}`);
+
+  throw new Error(`Renderer did not show ${expected}. Current text: ${text}`);
 }
 
 async function refresh(socket: WebSocket): Promise<void> {
@@ -89,26 +112,49 @@ async function refresh(socket: WebSocket): Promise<void> {
   );
 }
 
+async function clickText(socket: WebSocket, label: string): Promise<void> {
+  const escaped = JSON.stringify(label);
+
+  await evaluate(
+    socket,
+    `Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.trim() === ${escaped})?.click()`,
+  );
+}
+
 try {
   const socket = await connect((await page()).webSocketDebuggerUrl);
+
   try {
     await waitForText(socket, "No Personal setup yet");
     assert.equal(await evaluate(socket, "typeof require"), "undefined");
     assert.equal(await evaluate(socket, "typeof process"), "undefined");
     assert.deepEqual(await evaluate(socket, "Object.keys(window.ambit).sort()"), [
+      "applyEmpty",
+      "cancelPendingAction",
       "inspectPersonal",
+      "onRequestReview",
+      "retryEmpty",
       "revealPersonal",
+      "reviewEmpty",
+      "stageTool",
     ]);
+
+    await evaluate(socket, "document.querySelector('input[value=codex]').click()");
+    await clickText(socket, "Cancel");
+    assert.deepEqual(await readdir(home), []);
 
     const configPath = path.join(home, "ambit.yaml");
     const valid = "version: 1\nharnesses: [codex, cursor]\n";
+
     await writeFile(configPath, valid);
     await refresh(socket);
     const configured = await waitForText(socket, "Cursor");
+
     assert.match(configured, /Codex/);
     assert.equal(await readFile(configPath, "utf8"), valid);
 
     const invalid = "version: 1\nrequires: core\n";
+
     await writeFile(configPath, invalid);
     await refresh(socket);
     await waitForText(socket, "ambit.yaml line 2");
@@ -118,12 +164,50 @@ try {
     await refresh(socket);
     await waitForText(socket, "ambit.yml and ambit.yaml both exist");
     assert.equal(await readFile(configPath, "utf8"), invalid);
-    console.log("Packaged macOS Personal setup UI: pass");
+
+    await rm(configPath);
+    await rm(path.join(home, "ambit.yml"));
+    await refresh(socket);
+    await waitForText(socket, "No Personal setup yet");
+    await evaluate(socket, "document.querySelector('input[value=codex]').click()");
+    await clickText(socket, "Continue");
+    await clickText(socket, "Skip catalog");
+    await clickText(socket, "Review changes");
+    await waitForText(socket, "Review empty setup");
+    assert.deepEqual(await readdir(home), []);
+    await clickText(socket, "Apply changes");
+    await waitForText(socket, "Configured");
+    assert.match(await readFile(path.join(home, "ambit.yml"), "utf8"), /- codex/);
   } finally {
     socket.close();
   }
+
+  child.kill(9);
+  await child.exited;
+  const reopened = Bun.spawn([executable, `--remote-debugging-port=${port + 1}`], {
+    env: { ...process.env, HOME: home, PATH: "/usr/bin:/bin" },
+    stdout: "ignore",
+    stderr: "pipe",
+  });
+
+  try {
+    const socket = await connect((await page(port + 1)).webSocketDebuggerUrl);
+
+    try {
+      const text = await waitForText(socket, "Configured");
+
+      assert.match(text, /Codex/);
+    } finally {
+      socket.close();
+    }
+  } finally {
+    reopened.kill(9);
+    await reopened.exited;
+  }
+
+  console.log("Packaged macOS Personal setup UI: pass");
 } finally {
-  child.kill();
+  child.kill(9);
   await child.exited;
   await rm(home, { recursive: true, force: true });
 }

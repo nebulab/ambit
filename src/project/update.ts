@@ -30,7 +30,8 @@ import type { BundleDiff } from "./bundle-diff.js";
 import { diffBundles } from "./bundle-diff.js";
 import type { RefreshMode } from "../model/git.js";
 import type { InstallOptions, InstallResult } from "./install.js";
-import { installProject } from "./install.js";
+import { installProjectUnderLock } from "./install.js";
+import { withSetupLock } from "./operation-lock.js";
 import { readCatalogPins } from "./lock.js";
 import type { Bundle } from "../resolution/resolve.js";
 import { resolveBundle } from "../resolution/resolve.js";
@@ -396,7 +397,9 @@ export async function updateProject(
   options: UpdateOptions = {},
   install: UpdateInstallOptions = {},
 ): Promise<UpdateResult> {
-  const { plan, released } = await planUpdate(projectDir, "advance", options);
+  return withSetupLock(projectDir, async () => {
+    const { plan, released } = await planUpdate(projectDir, "advance", options);
 
-  return { ...plan, install: await installProject(projectDir, install, released) };
+    return { ...plan, install: await installProjectUnderLock(projectDir, install, released) };
+  });
 }

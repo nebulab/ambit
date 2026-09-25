@@ -46,6 +46,7 @@ import {
 import { configError } from "../errors.js";
 import type { ScaffoldBlock } from "../model/scaffold.js";
 import { renderScaffold } from "../model/scaffold.js";
+import { withSetupLock } from "./operation-lock.js";
 
 /** The name `init` writes: the first of the two accepted config filenames. */
 export const INIT_FILENAME = CONFIG_FILENAMES[0];
@@ -262,6 +263,14 @@ export async function initProject(
   projectDir: string,
   options: InitOptions = {},
 ): Promise<InitResult> {
+  if (options.dryRun !== true && (await isDirectory(projectDir))) {
+    return withSetupLock(projectDir, () => initProjectUnderLock(projectDir, options));
+  }
+
+  return initProjectUnderLock(projectDir, options);
+}
+
+async function initProjectUnderLock(projectDir: string, options: InitOptions): Promise<InitResult> {
   const present = await existingConfigFiles(projectDir);
 
   if (present.length > 0) {

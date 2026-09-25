@@ -54,10 +54,12 @@ To upgrade a binary later, run `ambit self-update`. See
 
 ## Desktop app
 
-The macOS app opens your Personal setup in a window. It shows whether `~/ambit.yml` or
-`~/ambit.yaml` exists and which agent tools are configured. If the configuration is invalid or
-both files exist, it shows the error and lets you reveal the file in Finder and retry. Opening
-the app does not change your setup or check for catalog updates.
+The macOS app opens your Personal setup in a window. On first use, choose an agent tool, skip
+the catalog and capability steps, review the empty setup, and select **Apply changes**. This
+creates `~/ambit.yml` and installs the setup. **Cancel** leaves your home folder unchanged.
+The app reads the saved setup on its next launch. If an existing configuration is invalid or
+both `~/ambit.yml` and `~/ambit.yaml` exist, it shows the error and lets you reveal the file in
+Finder and retry. Opening the app does not change your setup or check for catalog updates.
 
 For this early desktop build, build an unsigned app on a Mac:
 
@@ -69,7 +71,8 @@ open release/mac-arm64/Ambit.app
 ```
 
 On an Intel Mac, open `release/mac/Ambit.app` instead. The packaged app runs without a separate
-Node installation. Setup creation and editing are not available in this build.
+Node installation. This build creates an empty Personal setup with one agent tool. Catalogs and
+capabilities cannot yet be added in the app.
 
 ## Quick start
 
@@ -658,6 +661,9 @@ installs a fixture project with `node dist/cli.js`, which is the one thing `bun 
 `bun run fixture` builds the fixture catalog the suite resolves against.
 
 `AMBIT_SKIP_NETWORK_TESTS=1` skips the dotagents compatibility test.
+
+The desktop UI uses selected [Catalyst](https://catalyst.tailwindui.com/) components. Their
+[Tailwind Plus license](apps/desktop/src/catalyst/LICENSE.md) applies to those component files.
 
 ## License
 

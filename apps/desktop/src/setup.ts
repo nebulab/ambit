@@ -22,11 +22,16 @@ export type PersonalSetup =
 /** Reads the home setup without fetching catalogs or writing installation state. */
 export async function inspectPersonalSetup(root: string): Promise<PersonalSetup> {
   const files = await existingConfigFiles(root);
-  if (files.length === 0) return { status: "unconfigured", root };
+
+  if (files.length === 0) {
+    return { status: "unconfigured", root };
+  }
 
   const configPath = path.join(root, files[0]!);
+
   try {
     const config = await loadProjectConfig(root);
+
     return { status: "configured", root, configPath, tools: config.harnesses };
   } catch (error) {
     return {

@@ -1,37 +1,14 @@
+@import "tailwindcss";
+@source "./catalyst";
+
 :root {
   color-scheme: light dark;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  font-size: 15px;
-  line-height: 1.5;
-  background: #f6f7f8;
-  color: #20242a;
-}
-
-* {
-  box-sizing: border-box;
+  background: #fafafa;
+  color: #18181b;
 }
 body {
   margin: 0;
-}
-button {
-  font: inherit;
-  cursor: pointer;
-  border: 1px solid #a6adb7;
-  border-radius: 8px;
-  background: #fff;
-  color: inherit;
-  padding: 8px 14px;
-}
-button:hover {
-  background: #e9edf1;
-}
-button:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-:focus-visible {
-  outline: 3px solid #2682d9;
-  outline-offset: 3px;
 }
 .app-shell {
   display: grid;
@@ -39,8 +16,8 @@ button:disabled {
   min-height: 100vh;
 }
 .sidebar {
-  background: #e9edf1;
-  border-right: 1px solid #d7dce2;
+  background: #f4f4f5;
+  border-right: 1px solid #e4e4e7;
   padding: 26px 14px;
 }
 .brand {
@@ -56,8 +33,8 @@ button:disabled {
   font-weight: 600;
 }
 .nav-item.active {
-  background: #d5e6f5;
-  color: #154c7a;
+  background: #dbeafe;
+  color: #1e40af;
 }
 main {
   padding: 44px clamp(24px, 5vw, 68px);
@@ -71,17 +48,8 @@ main {
   gap: 20px;
   margin-bottom: 36px;
 }
-h1 {
-  font-size: 32px;
-  line-height: 1.2;
-  margin: 4px 0 7px;
-}
-h2 {
-  font-size: 21px;
-  margin: 8px 0 12px;
-}
 .eyebrow {
-  color: #576676;
+  color: #71717a;
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.08em;
@@ -90,7 +58,7 @@ h2 {
 }
 .root-path,
 .file-path {
-  color: #576676;
+  color: #71717a;
   overflow-wrap: anywhere;
 }
 .root-path {
@@ -98,24 +66,15 @@ h2 {
 }
 .panel {
   background: #fff;
-  border: 1px solid #d7dce2;
+  border: 1px solid #e4e4e7;
   border-radius: 12px;
   padding: 26px;
-  box-shadow: 0 4px 18px #152f4910;
+  box-shadow: 0 4px 18px #18181b0a;
+  margin-bottom: 16px;
 }
-.badge {
-  display: inline-block;
-  border-radius: 999px;
-  background: #fff0dd;
-  color: #7b4c0c;
-  padding: 3px 10px;
-  font-size: 12px;
-  font-weight: 700;
-  margin: 0;
-}
-.badge.success {
-  background: #e0f3e7;
-  color: #176039;
+.panel h2,
+.panel h3 {
+  margin: 12px 0;
 }
 .tool-list {
   list-style: none;
@@ -126,17 +85,24 @@ h2 {
   margin: 20px 0 0;
 }
 .tool-list li {
-  border: 1px solid #cbd5de;
+  border: 1px solid #d4d4d8;
   border-radius: 8px;
   padding: 7px 11px;
 }
+.tool-choice {
+  display: block;
+  padding: 6px 0;
+}
+.tool-choice input {
+  margin-right: 10px;
+}
 .error {
-  border-color: #dbaaa7;
+  border-color: #fca5a5;
 }
 .error-details {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  background: #fff3f2;
+  background: #fef2f2;
   padding: 14px;
   border-radius: 8px;
   font-size: 12px;
@@ -147,48 +113,40 @@ h2 {
   flex-wrap: wrap;
   margin-top: 18px;
 }
+:focus-visible {
+  outline: 3px solid #3b82f6;
+  outline-offset: 3px;
+}
 @media (prefers-color-scheme: dark) {
   :root {
-    background: #171a1e;
-    color: #edf0f4;
+    background: #18181b;
+    color: #f4f4f5;
   }
   .sidebar {
-    background: #20262c;
-    border-color: #343b43;
+    background: #27272a;
+    border-color: #3f3f46;
   }
   .nav-item.active {
-    background: #244361;
-    color: #d8ecff;
+    background: #1e3a8a;
+    color: #dbeafe;
   }
   .eyebrow,
   .root-path,
   .file-path {
-    color: #a4b0bc;
+    color: #a1a1aa;
   }
-  .panel,
-  button {
-    background: #252a30;
-    border-color: #444d57;
-  }
-  button:hover {
-    background: #343c44;
-  }
-  .badge {
-    background: #503d23;
-    color: #ffdb9d;
-  }
-  .badge.success {
-    background: #214633;
-    color: #abefc2;
+  .panel {
+    background: #27272a;
+    border-color: #3f3f46;
   }
   .tool-list li {
-    border-color: #4a5660;
+    border-color: #52525b;
   }
   .error {
-    border-color: #a65953;
+    border-color: #b91c1c;
   }
   .error-details {
-    background: #402b2b;
+    background: #450a0a;
   }
 }
 @media (max-width: 680px) {
