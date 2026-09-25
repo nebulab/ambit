@@ -1,0 +1,43 @@
+{
+  "name": "@teamnebulab/ambit-desktop",
+  "private": true,
+  "version": "0.4.0",
+  "type": "module",
+  "main": "out/main.cjs",
+  "scripts": {
+    "build": "bun run build:main && bun run build:preload && vite build",
+    "build:main": "bun build src/main.ts --target=node --format=cjs --external electron --outfile out/main.cjs",
+    "build:preload": "bun build src/preload.ts --target=node --format=cjs --external electron --outfile out/preload.cjs",
+    "dev": "bun run build && electron .",
+    "package:mac": "bun run build && electron-builder --mac dir --publish never",
+    "smoke:mac": "bun run scripts/smoke-mac.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.10",
+    "@types/react-dom": "^19.1.7",
+    "electron": "38.8.6",
+    "electron-builder": "^26.0.12",
+    "vite": "^7.1.0"
+  },
+  "build": {
+    "appId": "com.nebulab.ambit",
+    "productName": "Ambit",
+    "asar": true,
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "mac": {
+      "target": "dir",
+      "category": "public.app-category.developer-tools"
+    }
+  }
+}

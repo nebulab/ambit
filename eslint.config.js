@@ -41,7 +41,17 @@ const boundary = ([layer, forbidden]) => ({
 });
 
 export default tseslint.config(
-  { ignores: ["dist/**", "**/dist/**", "coverage/**", "test/**/tmp/**", ".claude/**"] },
+  {
+    ignores: [
+      "dist/**",
+      "**/dist/**",
+      "apps/desktop/out/**",
+      "apps/desktop/release/**",
+      "coverage/**",
+      "test/**/tmp/**",
+      ".claude/**",
+    ],
+  },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {

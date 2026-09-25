@@ -10,6 +10,9 @@
   "homepage": "https://github.com/nebulab/ambit#readme",
   "bugs": "https://github.com/nebulab/ambit/issues",
   "type": "module",
+  "workspaces": [
+    "apps/desktop"
+  ],
   "engines": {
     "node": ">=22.12.0"
   },

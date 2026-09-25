@@ -12,6 +12,7 @@ You write a few lines of config. ambit fetches, resolves, and writes the files.
 ## Table of contents
 
 - [Install](#install)
+- [Desktop app](#desktop-app)
 - [Quick start](#quick-start)
 - [What you can select](#what-you-can-select)
 - [Configuring your project](#configuring-your-project)
@@ -50,6 +51,25 @@ npx @teamnebulab/ambit --help
 
 To upgrade a binary later, run `ambit self-update`. See
 [Updating ambit itself](#updating-ambit-itself).
+
+## Desktop app
+
+The macOS app opens your Personal setup in a window. It shows whether `~/ambit.yml` or
+`~/ambit.yaml` exists and which agent tools are configured. If the configuration is invalid or
+both files exist, it shows the error and lets you reveal the file in Finder and retry. Opening
+the app does not change your setup or check for catalog updates.
+
+For this early desktop build, build an unsigned app on a Mac:
+
+```sh
+bun install
+cd apps/desktop
+bun run package:mac
+open release/mac-arm64/Ambit.app
+```
+
+On an Intel Mac, open `release/mac/Ambit.app` instead. The packaged app runs without a separate
+Node installation. Setup creation and editing are not available in this build.
 
 ## Quick start
 
