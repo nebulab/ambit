@@ -14,8 +14,20 @@ const api: DesktopApi = {
   chooseLocalCatalog: () => ipcRenderer.invoke(DESKTOP_CHANNELS.chooseLocalCatalog),
   stageLocalCatalog: (folder, name) =>
     ipcRenderer.invoke(DESKTOP_CHANNELS.stageLocalCatalog, folder, name),
+  stageSkill: (catalog, name) => ipcRenderer.invoke(DESKTOP_CHANNELS.stageSkill, catalog, name),
   reviewEmpty: () => ipcRenderer.invoke(DESKTOP_CHANNELS.reviewEmpty),
   applyEmpty: (id) => ipcRenderer.invoke(DESKTOP_CHANNELS.applyEmpty, id),
+  cancelApply: () => ipcRenderer.invoke(DESKTOP_CHANNELS.cancelApply),
+  onApplyProgress: (callback) => {
+    const listener = (
+      _event: Electron.IpcRendererEvent,
+      phase: "checking" | "writing" | "installing",
+    ) => callback(phase);
+
+    ipcRenderer.on(DESKTOP_CHANNELS.applyProgress, listener);
+
+    return () => ipcRenderer.removeListener(DESKTOP_CHANNELS.applyProgress, listener);
+  },
   retryEmpty: () => ipcRenderer.invoke(DESKTOP_CHANNELS.retryEmpty),
   cancelPendingAction: () => ipcRenderer.invoke(DESKTOP_CHANNELS.cancelPendingAction),
   onRequestReview: (callback) => {

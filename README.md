@@ -65,7 +65,10 @@ Finder and retry. Opening the app does not change your setup or check for catalo
 An existing setup with no catalogs or selections can connect a local catalog through **Add local
 catalog**. The app keeps its original configuration filename and unrelated content.
 After connecting a local catalog, the Personal setup lists its skills as **Selected** or
-**Not selected**. Choose a skill to read its `SKILL.md` as Markdown in the app. Web and email
+**Not selected**. Choose a skill to read its `SKILL.md` as Markdown in the app. Select a
+dependency-free local skill to review the installation paths, then choose **Apply changes** to
+install it. If an existing skill occupies a path Ambit does not manage, move it aside before
+applying. Web and email
 links open in your default browser or mail app. Refresh to pick up changes to the catalog or
 setup. Remote catalogs are listed by name but are not opened in this view.
 
@@ -79,8 +82,8 @@ open release/mac-arm64/Ambit.app
 ```
 
 On an Intel Mac, open `release/mac/Ambit.app` instead. The packaged app runs without a separate
-Node installation. This build creates a Personal setup with one agent tool and optionally connects
-one local catalog. Capabilities cannot yet be selected in the app.
+Node installation. This build creates a Personal setup with one agent tool, optionally connects
+one local catalog, and installs one dependency-free local skill.
 
 ## Quick start
 

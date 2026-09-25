@@ -24,6 +24,8 @@ import {
 } from "../model/config.js";
 import { mergeCatalogs, parseCatalogDirectory } from "../model/catalog.js";
 import { readState } from "../model/state.js";
+import type { PlannedInstall } from "./install.js";
+import { applyPlannedInstallUnderLock, planInstallFromConfig } from "./install.js";
 import { resolveBundle } from "../resolution/resolve.js";
 import { gitignoreStatus } from "./gitignore.js";
 import { adaptersFor, installProjectUnderLock, installScope, planFor } from "./install.js";
@@ -45,6 +47,9 @@ export interface EmptySetupReview {
     readonly fingerprint: string;
   };
   readonly existing?: { readonly configPath: string; readonly original: string };
+  readonly selectedSkill?: { readonly catalog: string; readonly name: string };
+  readonly paths?: readonly string[];
+  readonly planned?: PlannedInstall;
 }
 
 export interface LocalCatalogDraft {
@@ -56,6 +61,11 @@ export interface LocalCatalogDraft {
     readonly hooks: number;
     readonly packs: number;
   };
+  readonly skills: readonly {
+    readonly name: string;
+    readonly description?: string;
+    readonly dependencyFree: boolean;
+  }[];
 }
 
 /** Validates a local catalog using the same parser as an installation. */
@@ -83,6 +93,74 @@ export async function inspectLocalCatalog(
       hooks: catalog.hooks.length,
       packs: catalog.packs.length,
     },
+    skills: catalog.skills.map(({ name, description, requires }) => ({
+      name,
+      dependencyFree: requires.length === 0,
+      ...(description === undefined ? {} : { description }),
+    })),
+  };
+}
+
+function appendSkill(text: string, file: string, catalog: string, name: string): string {
+  const current = parseProjectConfig(text, file);
+
+  if (current.requires.length > 0) {
+    throw configError("This setup already selects capabilities", [
+      "edit its selections with the CLI until multiple selection is available here",
+    ]);
+  }
+
+  const entry = `\n  - skill: ${JSON.stringify(`${catalog}/${name}`)}`;
+  const node = parseDocument(text).get("requires", true);
+
+  return !isNode(node) || node.range === undefined || node.range === null
+    ? `${text}${text.endsWith("\n") ? "" : "\n"}requires:${entry}\n`
+    : `${text.slice(0, node.range[0])}${entry}${text.slice(node.range[1])}`;
+}
+
+async function reviewInstall(
+  root: string,
+  configText: string,
+  file: string,
+  catalog: { readonly name: string; readonly folder: string },
+  name: string,
+): Promise<Pick<EmptySetupReview, "selectedSkill" | "paths" | "planned">> {
+  const config = parseProjectConfig(configText, file);
+
+  if (config.catalogs.some((entry) => !entry.source.startsWith("path:"))) {
+    throw configError("Select from a setup with local catalogs only");
+  }
+
+  const source = config.catalogs.find((entry) => entry.name === catalog.name);
+
+  if (!source || path.resolve(root, source.source.slice(5)) !== path.resolve(catalog.folder)) {
+    throw configError("Skill catalog changed since selection", ["refresh and select it again"]);
+  }
+
+  const loaded = await parseCatalogDirectory(catalog.name, source.source, catalog.folder);
+  const skill = loaded.skills.find((entry) => entry.name === name);
+
+  if (!skill || skill.requires.length > 0) {
+    throw configError("Choose a dependency-free local skill");
+  }
+
+  const planned = await planInstallFromConfig(root, config, { offline: true });
+
+  if (
+    planned.bundle.skills.length !== 1 ||
+    planned.bundle.mcps.length ||
+    planned.bundle.hooks.length
+  ) {
+    throw configError("This selection brings in additional capabilities");
+  }
+
+  await authorizePlan(planned.artifacts, planned.prior);
+  await gitignoreStatus(root, planned.artifacts);
+
+  return {
+    selectedSkill: { catalog: catalog.name, name },
+    paths: planned.artifacts.map((artifact) => artifact.path),
+    planned,
   };
 }
 
@@ -210,16 +288,26 @@ export async function previewEmptySetup(
   root: string,
   tool: SetupTool,
   catalog?: LocalCatalogDraft,
+  skill?: string,
 ): Promise<EmptySetupReview> {
   if (!SETUP_TOOLS.includes(tool)) {
     throw configError(`unknown agent tool "${tool}"`);
   }
 
   await assertEmpty(root);
-  const configText =
+  let configText =
     catalog === undefined
       ? `version: 1\nharnesses:\n  - ${tool}\ncatalogs: []\nrequires: []\n`
       : `version: 1\nharnesses:\n  - ${tool}\ncatalogs:\n  - name: ${JSON.stringify(catalog.name)}\n    source: ${JSON.stringify(`path:${catalog.folder}`)}\nrequires: []\n`;
+
+  if (skill !== undefined) {
+    if (catalog === undefined) {
+      throw configError("Connect a local catalog before choosing a skill");
+    }
+
+    configText = appendSkill(configText, CONFIG_FILENAMES[0], catalog.name, skill);
+  }
+
   const config = parseProjectConfig(configText, CONFIG_FILENAMES[0]);
   const loaded =
     catalog === undefined
@@ -236,12 +324,17 @@ export async function previewEmptySetup(
     await readState(root),
   );
   await gitignoreStatus(root, []);
+  const selected =
+    skill === undefined
+      ? {}
+      : await reviewInstall(root, configText, CONFIG_FILENAMES[0], catalog!, skill);
 
   return {
     root,
     tool,
     configText,
     diskFingerprint: await fingerprint(root),
+    ...selected,
     ...(catalog === undefined
       ? {}
       : {
@@ -251,6 +344,53 @@ export async function previewEmptySetup(
             fingerprint: await catalogFingerprint(catalog.folder),
           },
         }),
+  };
+}
+
+/** Reviews one skill selection in an existing local setup. */
+export async function previewExistingSkill(
+  root: string,
+  catalogName: string,
+  skillName: string,
+): Promise<EmptySetupReview> {
+  const files = await existingConfigFiles(root);
+
+  if (files.length !== 1) {
+    throw configError("Reload Personal setup before editing");
+  }
+
+  const configPath = path.join(root, files[0]!);
+
+  if (!(await lstat(configPath)).isFile()) {
+    throw configError("Configuration must be a regular file");
+  }
+
+  const original = await readFile(configPath, "utf8");
+  const current = await loadProjectConfig(root);
+  const source = current.catalogs.find((entry) => entry.name === catalogName);
+
+  if (!source?.source.startsWith("path:")) {
+    throw configError("Choose a skill from a connected local catalog");
+  }
+
+  const folder = path.resolve(root, source.source.slice(5));
+  const configText = appendSkill(original, files[0]!, catalogName, skillName);
+  const selected = await reviewInstall(
+    root,
+    configText,
+    files[0]!,
+    { name: catalogName, folder },
+    skillName,
+  );
+
+  return {
+    root,
+    tool: SETUP_TOOLS.find((tool) => current.harnesses.includes(tool)) ?? "claude",
+    configText,
+    diskFingerprint: await fingerprint(root),
+    catalog: { name: catalogName, folder, fingerprint: await catalogFingerprint(folder) },
+    existing: { configPath, original },
+    ...selected,
   };
 }
 
@@ -322,8 +462,13 @@ export async function previewExistingLocalCatalog(
 /** Saves the reviewed config atomically, then installs it through the shared engine. */
 export async function applyEmptySetup(
   review: EmptySetupReview,
+  control: {
+    readonly signal?: AbortSignal;
+    readonly onProgress?: (phase: "checking" | "writing" | "installing") => void;
+  } = {},
 ): Promise<{ readonly status: "installed" | "partial"; readonly message?: string }> {
   return withSetupLock(review.root, async () => {
+    control.onProgress?.("checking");
     if (review.existing === undefined) {
       await assertEmpty(review.root);
     } else if ((await readFile(review.existing.configPath, "utf8")) !== review.existing.original) {
@@ -340,6 +485,17 @@ export async function applyEmptySetup(
         throw configError("Local catalog changed since review", ["review the changes again"]);
       }
     }
+
+    if (review.planned !== undefined) {
+      await authorizePlan(review.planned.artifacts, await readState(review.root));
+      await gitignoreStatus(review.root, review.planned.artifacts);
+    }
+
+    if (control.signal?.aborted) {
+      throw configError("Installation canceled before any changes were saved");
+    }
+
+    control.onProgress?.("writing");
 
     const target = review.existing?.configPath ?? path.join(review.root, CONFIG_FILENAMES[0]);
     const temporary = path.join(review.root, `.ambit-${randomUUID()}.tmp`);
@@ -377,7 +533,12 @@ export async function applyEmptySetup(
     }
 
     try {
-      await installProjectUnderLock(review.root);
+      control.onProgress?.("installing");
+      if (review.planned === undefined) {
+        await installProjectUnderLock(review.root);
+      } else {
+        await applyPlannedInstallUnderLock(review.root, review.planned, { offline: true }, true);
+      }
 
       return { status: "installed" };
     } catch (error) {
@@ -404,6 +565,13 @@ export async function retryEmptySetup(review: EmptySetupReview): Promise<void> {
 
     if (current !== review.configText) {
       throw configError("Personal setup changed since Apply", ["reload before retrying"]);
+    }
+
+    if (
+      review.catalog !== undefined &&
+      (await catalogFingerprint(review.catalog.folder)) !== review.catalog.fingerprint
+    ) {
+      throw configError("Local catalog changed since Apply", ["reload before retrying"]);
     }
 
     await installProjectUnderLock(review.root);

@@ -36,9 +36,27 @@ describe("local skill browser", () => {
 
     expect(await browseLocalSkills(home)).toEqual({
       skills: [
-        { catalog: "local", name: "dependency", description: "dependency skill", selected: true },
-        { catalog: "local", name: "other", description: "other skill", selected: false },
-        { catalog: "local", name: "selected", description: "selected skill", selected: true },
+        {
+          catalog: "local",
+          name: "dependency",
+          description: "dependency skill",
+          selected: true,
+          dependencyFree: true,
+        },
+        {
+          catalog: "local",
+          name: "other",
+          description: "other skill",
+          selected: false,
+          dependencyFree: true,
+        },
+        {
+          catalog: "local",
+          name: "selected",
+          description: "selected skill",
+          selected: true,
+          dependencyFree: false,
+        },
       ],
       remoteCatalogs: ["remote"],
     });

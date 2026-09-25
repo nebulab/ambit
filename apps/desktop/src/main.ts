@@ -13,6 +13,7 @@ import {
   inspectLocalCatalog,
   previewEmptySetup,
   previewExistingLocalCatalog,
+  previewExistingSkill,
   retryEmptySetup,
 } from "../../../src/project/empty-setup.js";
 import type {
@@ -25,10 +26,14 @@ import { AmbitError } from "../../../src/errors.js";
 let mainWindow: BrowserWindow | null = null;
 let draftTool: SetupTool | null = null;
 let draftCatalog: LocalCatalogDraft | null = null;
+let draftSkill: { readonly catalog: string; readonly name: string } | null = null;
 let review: { readonly id: string; readonly value: EmptySetupReview } | null = null;
+let draftRevision = 0;
 let retryReview: EmptySetupReview | null = null;
 let pendingAction: "close" | "quit" | null = null;
 let applying = false;
+let applyAbort: AbortController | null = null;
+let applyPhase: "checking" | "writing" | "installing" | null = null;
 let allowClose = false;
 
 function validateCall(
@@ -81,7 +86,7 @@ function createWindow(): void {
       return;
     }
 
-    if (draftTool === null && draftCatalog === null) {
+    if (draftTool === null && draftCatalog === null && draftSkill === null) {
       return;
     }
 
@@ -97,7 +102,9 @@ function createWindow(): void {
     if (choice === 1) {
       draftTool = null;
       draftCatalog = null;
+      draftSkill = null;
       review = null;
+      draftRevision += 1;
       allowClose = true;
       mainWindow?.close();
     } else if (choice === 0) {
@@ -163,9 +170,11 @@ ipcMain.handle(DESKTOP_CHANNELS.stageTool, (event, ...args: unknown[]) => {
   draftTool = tool as SetupTool | null;
   if (tool === null) {
     draftCatalog = null;
+    draftSkill = null;
   }
 
   review = null;
+  draftRevision += 1;
 });
 
 ipcMain.handle(DESKTOP_CHANNELS.chooseLocalCatalog, async (event, ...args: unknown[]) => {
@@ -199,7 +208,9 @@ ipcMain.handle(DESKTOP_CHANNELS.stageLocalCatalog, async (event, ...args: unknow
 
   if (folder === null) {
     draftCatalog = null;
+    draftSkill = null;
     review = null;
+    draftRevision += 1;
 
     return null;
   }
@@ -207,9 +218,31 @@ ipcMain.handle(DESKTOP_CHANNELS.stageLocalCatalog, async (event, ...args: unknow
   const loaded = await inspectLocalCatalog(folder, name).catch(desktopError);
 
   draftCatalog = loaded;
+  draftSkill = null;
   review = null;
+  draftRevision += 1;
 
   return loaded;
+});
+
+ipcMain.handle(DESKTOP_CHANNELS.stageSkill, (event, ...args: unknown[]) => {
+  validateCall(event, args, 2);
+  if (applying) {
+    throw new Error("Wait for installation to finish");
+  }
+
+  const [catalog, name] = args;
+
+  if (catalog === null && name === null) {
+    draftSkill = null;
+  } else if (typeof catalog === "string" && typeof name === "string" && catalog && name) {
+    draftSkill = { catalog, name };
+  } else {
+    throw new Error("Invalid skill selection");
+  }
+
+  review = null;
+  draftRevision += 1;
 });
 
 ipcMain.handle(DESKTOP_CHANNELS.reviewEmpty, async (event, ...args: unknown[]) => {
@@ -218,19 +251,32 @@ ipcMain.handle(DESKTOP_CHANNELS.reviewEmpty, async (event, ...args: unknown[]) =
     throw new Error("Wait for installation to finish");
   }
 
-  if (draftTool === null && draftCatalog === null) {
+  if (draftTool === null && draftCatalog === null && draftSkill === null) {
     throw new Error("Choose an agent tool or local catalog first");
   }
 
+  const revision = draftRevision;
   const value = await (
-    draftTool === null
-      ? previewExistingLocalCatalog(home, draftCatalog!)
-      : previewEmptySetup(home, draftTool, draftCatalog ?? undefined)
+    draftTool !== null
+      ? previewEmptySetup(home, draftTool, draftCatalog ?? undefined, draftSkill?.name)
+      : draftSkill !== null
+        ? previewExistingSkill(home, draftSkill.catalog, draftSkill.name)
+        : previewExistingLocalCatalog(home, draftCatalog!)
   ).catch(desktopError);
+
+  if (revision !== draftRevision) {
+    throw new Error("Selection changed during review; review it again");
+  }
 
   review = { id: randomUUID(), value };
 
-  return { id: review.id, tool: value.tool, catalog: draftCatalog };
+  return {
+    id: review.id,
+    tool: value.tool,
+    catalog: draftCatalog,
+    skill: value.selectedSkill,
+    paths: value.paths ?? [],
+  };
 });
 
 ipcMain.handle(DESKTOP_CHANNELS.applyEmpty, async (event, ...args: unknown[]) => {
@@ -243,11 +289,19 @@ ipcMain.handle(DESKTOP_CHANNELS.applyEmpty, async (event, ...args: unknown[]) =>
 
   review = null;
   applying = true;
+  applyAbort = new AbortController();
   try {
-    const result = await applyEmptySetup(selected).catch(desktopError);
+    const result = await applyEmptySetup(selected, {
+      signal: applyAbort.signal,
+      onProgress: (phase) => {
+        applyPhase = phase;
+        mainWindow?.webContents.send(DESKTOP_CHANNELS.applyProgress, phase);
+      },
+    }).catch(desktopError);
 
     draftTool = null;
     draftCatalog = null;
+    draftSkill = null;
     retryReview = result.status === "partial" ? selected : null;
     if (result.status === "installed" && pendingAction !== null) {
       const action = pendingAction;
@@ -264,6 +318,15 @@ ipcMain.handle(DESKTOP_CHANNELS.applyEmpty, async (event, ...args: unknown[]) =>
     return result;
   } finally {
     applying = false;
+    applyAbort = null;
+    applyPhase = null;
+  }
+});
+
+ipcMain.handle(DESKTOP_CHANNELS.cancelApply, (event, ...args: unknown[]) => {
+  validateCall(event, args);
+  if (applyPhase === "checking") {
+    applyAbort?.abort();
   }
 });
 
@@ -298,7 +361,11 @@ app.whenReady().then(() => {
 
 app.on("window-all-closed", () => app.quit());
 app.on("before-quit", (event) => {
-  if (allowClose || (draftTool === null && draftCatalog === null) || mainWindow === null) {
+  if (
+    allowClose ||
+    (draftTool === null && draftCatalog === null && draftSkill === null && !applying) ||
+    mainWindow === null
+  ) {
     return;
   }
 

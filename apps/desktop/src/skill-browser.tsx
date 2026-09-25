@@ -9,7 +9,13 @@ import { Heading } from "./catalyst/heading.js";
 import { Text } from "./catalyst/text.js";
 import { externalLink } from "./external-link.js";
 
-export function SkillBrowser({ revision }: { readonly revision: string }) {
+export function SkillBrowser({
+  revision,
+  onSelect,
+}: {
+  readonly revision: string;
+  readonly onSelect: (catalog: string, name: string) => void;
+}) {
   const [listing, setListing] = useState<LocalSkillBrowser | null>(null);
   const [active, setActive] = useState<BrowsedSkill | null>(null);
   const [content, setContent] = useState<string | null>(null);
@@ -103,9 +109,16 @@ export function SkillBrowser({ revision }: { readonly revision: string }) {
                   {skill.description ? ` · ${skill.description}` : ""}
                 </Text>
               </div>
-              <Badge color={skill.selected ? "green" : "zinc"}>
-                {skill.selected ? "Selected" : "Not selected"}
-              </Badge>
+              <div className="flex items-center gap-2">
+                <Badge color={skill.selected ? "green" : "zinc"}>
+                  {skill.selected ? "Selected" : "Not selected"}
+                </Badge>
+                {!skill.selected && skill.dependencyFree && (
+                  <Button type="button" onClick={() => onSelect(skill.catalog, skill.name)}>
+                    Select
+                  </Button>
+                )}
+              </div>
             </li>
           ))}
         </ul>

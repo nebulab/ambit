@@ -16,6 +16,7 @@ export interface BrowsedSkill {
   readonly name: string;
   readonly description?: string;
   readonly selected: boolean;
+  readonly dependencyFree: boolean;
 }
 
 export interface LocalSkillBrowser {
@@ -63,6 +64,7 @@ export async function browseLocalSkills(home: string): Promise<LocalSkillBrowser
       name: skill.name,
       ...(skill.description !== undefined && { description: skill.description }),
       selected: selected.has(`${skill.catalog}/${skill.name}`),
+      dependencyFree: skill.requires.length === 0,
     })),
     remoteCatalogs: config.catalogs
       .filter((entry) => !entry.source.startsWith("path:"))

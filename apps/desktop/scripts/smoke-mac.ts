@@ -132,9 +132,11 @@ try {
     assert.deepEqual(await evaluate(socket, "Object.keys(window.ambit).sort()"), [
       "applyEmpty",
       "browseLocalSkills",
+      "cancelApply",
       "cancelPendingAction",
       "chooseLocalCatalog",
       "inspectPersonal",
+      "onApplyProgress",
       "onRequestReview",
       "openExternal",
       "readLocalSkill",
@@ -142,6 +144,7 @@ try {
       "revealPersonal",
       "reviewEmpty",
       "stageLocalCatalog",
+      "stageSkill",
       "stageTool",
     ]);
 
@@ -250,6 +253,41 @@ try {
         0,
       );
       assert.equal(await evaluate(socket, "document.querySelector('#injected') === null"), true);
+      await clickText(socket, "Select");
+      await waitForText(socket, "Review installation");
+      await clickText(socket, "Review changes");
+      await waitForText(socket, ".agents/skills/example");
+      await clickText(socket, "Apply changes");
+      for (let attempt = 0; attempt < 100; attempt++) {
+        if (/skill:.*\/example/.test(await readFile(path.join(home, "ambit.yml"), "utf8"))) {
+          break;
+        }
+
+        await Bun.sleep(100);
+      }
+
+      assert.match(await readFile(path.join(home, "ambit.yml"), "utf8"), /skill:.*\/example/);
+      let selected = false;
+
+      for (let attempt = 0; attempt < 100; attempt++) {
+        selected = Boolean(
+          await evaluate(
+            socket,
+            "Array.from(document.querySelectorAll('span')).some((span) => span.textContent?.trim() === 'Selected')",
+          ),
+        );
+        if (selected) {
+          break;
+        }
+
+        await Bun.sleep(100);
+      }
+
+      assert.equal(selected, true);
+      assert.equal(
+        await readFile(path.join(home, ".agents", "skills", "example", "SKILL.md"), "utf8"),
+        await readFile(path.join(catalog, "skills", "example", "SKILL.md"), "utf8"),
+      );
     } finally {
       socket.close();
     }

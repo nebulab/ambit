@@ -39,7 +39,13 @@ function App() {
   const [catalogName, setCatalogName] = useState("");
   const [step, setStep] = useState<"tools" | "catalogs" | "capabilities" | "review">("tools");
   const [reviewId, setReviewId] = useState<string | null>(null);
+  const [reviewPaths, setReviewPaths] = useState<readonly string[]>([]);
+  const [selectedSkill, setSelectedSkill] = useState<{
+    readonly catalog: string;
+    readonly name: string;
+  } | null>(null);
   const [partial, setPartial] = useState<string | null>(null);
+  const [applyPhase, setApplyPhase] = useState<"checking" | "writing" | "installing" | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -57,10 +63,16 @@ function App() {
   useEffect(() => {
     void refresh();
 
-    return window.ambit.onRequestReview(() => {
+    const offReview = window.ambit.onRequestReview(() => {
       setStep("review");
       setReviewId(null);
     });
+    const offProgress = window.ambit.onApplyProgress(setApplyPhase);
+
+    return () => {
+      offReview();
+      offProgress();
+    };
   }, [refresh]);
 
   async function chooseTool(value: SetupTool): Promise<void> {
@@ -76,12 +88,14 @@ function App() {
 
   async function discard(): Promise<void> {
     await window.ambit.stageTool(null);
+    await window.ambit.stageSkill(null, null);
     await window.ambit.cancelPendingAction();
     setTool(null);
     setCatalog(null);
     setCatalogFolder(null);
     setCatalogName("");
     setReviewId(null);
+    setSelectedSkill(null);
     setStep("tools");
     setRequestError(null);
   }
@@ -139,11 +153,24 @@ function App() {
       const result = await window.ambit.reviewEmpty();
 
       setReviewId(result.id);
+      setReviewPaths(result.paths);
       setStep("review");
     } catch (error) {
       setRequestError(String(error));
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function selectSkill(catalogName: string, name: string): Promise<void> {
+    setRequestError(null);
+    try {
+      await window.ambit.stageSkill(catalogName, name);
+      setSelectedSkill({ catalog: catalogName, name });
+      setReviewId(null);
+      setStep("review");
+    } catch (error) {
+      setRequestError(String(error));
     }
   }
 
@@ -159,6 +186,7 @@ function App() {
 
       setTool(null);
       setCatalog(null);
+      setSelectedSkill(null);
       setReviewId(null);
       setStep("tools");
       setPartial(result.status === "partial" ? (result.message ?? "Installation failed") : null);
@@ -167,6 +195,7 @@ function App() {
       setReviewId(null);
       setRequestError(String(error));
     } finally {
+      setApplyPhase(null);
       setLoading(false);
     }
   }
@@ -235,6 +264,23 @@ function App() {
             <Heading level={2}>Could not read Personal setup</Heading>
             <p>{requestError}</p>
           </section>
+        )}
+        {applyPhase && (
+          <div
+            role="status"
+            className="mb-4 rounded-lg border border-blue-200 bg-blue-50 p-3 text-blue-900 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-100"
+          >
+            {applyPhase === "checking"
+              ? "Checking the reviewed inputs…"
+              : applyPhase === "writing"
+                ? "Saving your selection…"
+                : "Installing your skill…"}
+            {applyPhase === "checking" && (
+              <Button type="button" onClick={() => void window.ambit.cancelApply()}>
+                Cancel before changes
+              </Button>
+            )}
+          </div>
         )}
         {partial && (
           <section
@@ -375,9 +421,28 @@ function App() {
               <>
                 <p>
                   {catalog
-                    ? "Capability selection comes next. This setup will connect the catalog without selecting capabilities."
+                    ? "Choose one dependency-free skill, or continue without a selection."
                     : "There are no capabilities to select without a catalog."}
                 </p>
+                {catalog?.skills
+                  .filter((skill) => skill.dependencyFree)
+                  .map((skill) => (
+                    <div
+                      key={skill.name}
+                      className="flex items-center justify-between gap-3 border-b border-zinc-200 py-2 dark:border-zinc-700"
+                    >
+                      <span>
+                        {skill.name}
+                        {skill.description ? ` · ${skill.description}` : ""}
+                      </span>
+                      <Button
+                        type="button"
+                        onClick={() => void selectSkill(catalog.name, skill.name)}
+                      >
+                        Select
+                      </Button>
+                    </div>
+                  ))}
                 <div className="mt-5 flex flex-wrap gap-2.5">
                   <Button type="button" onClick={() => void review()} disabled={loading}>
                     Review changes
@@ -396,8 +461,12 @@ function App() {
                 <Heading level={3}>Review setup</Heading>
                 <p>Agent tool: {tool ? TOOL_NAMES[tool] : "None"}</p>
                 <p>
-                  Catalog: {catalog ? `${catalog.name} (${catalog.folder})` : "none"}. Capabilities:
-                  none. Managed installation paths affected: none.
+                  Catalog: {catalog ? `${catalog.name} (${catalog.folder})` : "none"}. Capability:
+                  {selectedSkill ? ` ${selectedSkill.catalog}/${selectedSkill.name}` : " none"}.
+                </p>
+                <p>
+                  Managed installation paths affected:{" "}
+                  {reviewPaths.length ? reviewPaths.join(", ") : "none"}.
                 </p>
                 <p>
                   The configuration and installation records will be created in your home folder.
@@ -468,7 +537,36 @@ function App() {
                 </ul>
               </>
             )}
-            {setup.catalogs.length > 0 && <SkillBrowser revision={String(setupRevision)} />}
+            {setup.catalogs.length > 0 && (
+              <SkillBrowser
+                revision={String(setupRevision)}
+                onSelect={(catalogName, name) => void selectSkill(catalogName, name)}
+              />
+            )}
+            {step === "review" && setup.catalogs.length > 0 && selectedSkill && (
+              <div className="mt-5 rounded-lg border border-zinc-200 p-4 dark:border-zinc-700">
+                <Heading level={3}>Review installation</Heading>
+                <p>
+                  Skill: {selectedSkill.catalog}/{selectedSkill.name}
+                </p>
+                <p>
+                  Managed installation paths affected:{" "}
+                  {reviewPaths.length ? reviewPaths.join(", ") : "review to see paths"}.
+                </p>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    onClick={() => void (reviewId ? apply() : review())}
+                    disabled={loading}
+                  >
+                    {reviewId ? "Apply changes" : "Review changes"}
+                  </Button>
+                  <Button type="button" onClick={() => void discard()}>
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            )}
             {setup.catalogs.length === 0 && step === "tools" && (
               <div className="mt-5 flex flex-wrap gap-2.5">
                 <Button type="button" onClick={() => setStep("catalogs")}>

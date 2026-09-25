@@ -9,8 +9,11 @@ export const DESKTOP_CHANNELS = {
   stageTool: "desktop:stage-tool",
   chooseLocalCatalog: "desktop:choose-local-catalog",
   stageLocalCatalog: "desktop:stage-local-catalog",
+  stageSkill: "desktop:stage-skill",
   reviewEmpty: "desktop:review-empty",
   applyEmpty: "desktop:apply-empty",
+  cancelApply: "desktop:cancel-apply",
+  applyProgress: "desktop:apply-progress",
   retryEmpty: "desktop:retry-empty",
   cancelPendingAction: "desktop:cancel-pending-action",
   requestReview: "desktop:request-review",
@@ -29,14 +32,19 @@ export interface DesktopApi {
   stageTool(tool: SetupTool | null): Promise<void>;
   chooseLocalCatalog(): Promise<string | null>;
   stageLocalCatalog(folder: string | null, name: string): Promise<LocalCatalogDraft | null>;
+  stageSkill(catalog: string | null, name: string | null): Promise<void>;
   reviewEmpty(): Promise<{
     readonly id: string;
     readonly tool: SetupTool;
     readonly catalog: LocalCatalogDraft | null;
+    readonly skill?: { readonly catalog: string; readonly name: string };
+    readonly paths: readonly string[];
   }>;
   applyEmpty(
     id: string,
   ): Promise<{ readonly status: "installed" | "partial"; readonly message?: string }>;
+  cancelApply(): Promise<void>;
+  onApplyProgress(callback: (phase: "checking" | "writing" | "installing") => void): () => void;
   retryEmpty(): Promise<void>;
   cancelPendingAction(): Promise<void>;
   onRequestReview(callback: () => void): () => void;
