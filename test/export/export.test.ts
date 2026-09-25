@@ -78,7 +78,7 @@ afterEach(async () => {
 
 it("preserves plugin boundaries, external dependencies, and transitive skill requirements", async () => {
   await exportIt();
-  expect(await readdir(path.join(root, "out"))).toEqual(["example-base", "work"]);
+  expect((await readdir(path.join(root, "out"))).sort()).toEqual(["example-base", "work"]);
   expect(await json("work/.claude-plugin/plugin.json")).toEqual({
     name: "example-work",
     version: "1.2.3",
@@ -86,7 +86,7 @@ it("preserves plugin boundaries, external dependencies, and transitive skill req
     author: { name: "Example" },
     dependencies: ["external-tools", "example-base"],
   });
-  expect(await readdir(path.join(root, "out/work/skills"))).toEqual(["do-work", "helper"]);
+  expect((await readdir(path.join(root, "out/work/skills"))).sort()).toEqual(["do-work", "helper"]);
   expect(await read("work/skills/do-work/SKILL.md")).toBe(
     await readFile(path.join(source, "skills/do-work/SKILL.md"), "utf8"),
   );
