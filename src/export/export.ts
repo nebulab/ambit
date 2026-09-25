@@ -1,27 +1,20 @@
-import {
-  chmod,
-  lstat,
-  mkdir,
-  mkdtemp,
-  realpath,
-  rename,
-  rm,
-  symlink,
-  writeFile,
-} from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp, rename, rm, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { AmbitError, configError } from "../errors.js";
+import { AmbitError, configError, driftError } from "../errors.js";
 import { loadCatalogs, mergeCatalogs } from "../model/catalog.js";
 import { loadProjectConfig } from "../model/config.js";
 import type { SourceContext } from "../model/sources.js";
 import { renderClaudePlugin, validateSkillReferences } from "./claude.js";
 import type { PackageFiles } from "./files.js";
 import { resolvePlugins } from "./resolve.js";
+import { canonicalPath, packageTree, readTree, sameEntry } from "./tree.js";
 
 export interface ExportOptions {
   readonly output: string;
   readonly dryRun?: boolean;
   readonly link?: boolean;
+  readonly force?: boolean;
+  readonly check?: boolean;
 }
 
 export interface ExportResult {
@@ -34,8 +27,8 @@ export interface ExportResult {
 }
 
 /**
- * Exports selected packs into a new directory, honoring existing catalog lock pins.
- * @throws {AmbitError} Exit 2 for invalid packages or an existing output; exit 3 for resolution errors.
+ * Exports or checks selected packs, honoring existing catalog lock pins.
+ * @throws {AmbitError} Exit 2 for invalid packages or an existing output; exit 3 for resolution errors; exit 5 for drift.
  */
 export async function exportPlugins(
   context: SourceContext,
@@ -44,18 +37,18 @@ export async function exportPlugins(
   let staging: string | undefined;
   try {
     const output = path.resolve(context.projectDir, options.output);
-    if (
-      await lstat(output).then(
-        () => true,
-        (error: NodeJS.ErrnoException) => {
-          if (error.code === "ENOENT") return false;
-          throw error;
-        },
-      )
-    )
+    if (options.check && (options.force || options.dryRun))
+      throw configError("--check cannot be combined with --force or --dry-run");
+    const existing = await lstat(output).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return undefined;
+      throw error;
+    });
+    if (existing && !options.force && !options.check)
       throw configError(`export output already exists: ${output}`, [
-        "choose a new output directory",
+        "use --force to regenerate it or --check to check for drift",
       ]);
+    if (existing && (!existing.isDirectory() || existing.isSymbolicLink()))
+      throw configError(`export output must be a regular directory: ${output}`);
     const config = await loadProjectConfig(context.projectDir);
     if (options.link && config.catalogs.some((catalog) => !catalog.source.startsWith("path:")))
       throw configError("linked exports require local path catalogs", [
@@ -80,52 +73,103 @@ export async function exportPlugins(
         files: [...rendered[index]!.values()].filter((file) => file.data !== null).length,
       })),
     };
+    const finalOutput = await canonicalPath(output);
+    const contains = (root: string, target: string): boolean => {
+      const relative = path.relative(root, target);
+      return (
+        relative === "" ||
+        (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative))
+      );
+    };
+    if (options.force) {
+      const roots = [context.projectDir, ...catalogs.map((catalog) => catalog.root)];
+      const assets = plugins.flatMap((plugin) =>
+        [...plugin.bundle.skills, ...plugin.bundle.hooks].map((asset) =>
+          path.join(asset.catalogRoot, asset.path),
+        ),
+      );
+      for (const source of [...roots, ...assets]) {
+        const actual = await canonicalPath(source);
+        if (
+          contains(finalOutput, actual) ||
+          (assets.includes(source) && contains(actual, finalOutput))
+        )
+          throw configError(
+            `export output contains source files or overlaps source assets: ${output}`,
+            ["choose a directory outside the catalog's skills and hooks"],
+          );
+      }
+    }
+    const tree = packageTree(
+      plugins.map((plugin, index) => ({
+        directory: plugin.directory,
+        files: rendered[index]!,
+      })),
+      finalOutput,
+      options.link === true,
+    );
+    const current = existing ? await readTree(output) : new Map();
+    if (options.check) {
+      const differences = [...new Set([...tree.keys(), ...current.keys()])]
+        .sort()
+        .filter(
+          (name) =>
+            !tree.has(name) ||
+            !current.has(name) ||
+            !sameEntry(name, tree.get(name)!, current.get(name)!),
+        );
+      if (!existing || differences.length)
+        throw driftError(`export differs from ${output}`, [
+          ...differences,
+          "run export with --force to regenerate it",
+        ]);
+      return result;
+    }
     if (options.dryRun) return result;
     await mkdir(path.dirname(output), { recursive: true });
-    const outputParent = await realpath(path.dirname(output));
     staging = await mkdtemp(path.join(path.dirname(output), ".ambit-export-"));
-    for (const [index, files] of rendered.entries()) {
-      const linkedDirectories: string[] = [];
-      for (const [relative, file] of files) {
-        if (linkedDirectories.some((directory) => relative.startsWith(`${directory}/`))) continue;
-        const target = path.join(staging, plugins[index]!.directory, relative);
-        if (
-          options.link &&
-          file.source &&
-          ((file.data === null && /^skills\/[^/]+$/.test(relative)) ||
-            (file.data !== null && relative.startsWith("hooks/")))
-        ) {
-          await mkdir(path.dirname(target), { recursive: true });
-          const finalTarget = path.join(
-            outputParent,
-            path.basename(output),
-            plugins[index]!.directory,
-            relative,
-          );
-          await symlink(
-            path.relative(path.dirname(finalTarget), file.source),
-            target,
-            file.data === null ? "dir" : "file",
-          );
-          if (file.data === null) linkedDirectories.push(relative);
-          continue;
-        }
-        if (file.data === null) {
-          await mkdir(target, { recursive: true });
-          continue;
-        }
-        await mkdir(path.dirname(target), { recursive: true });
-        await writeFile(target, file.data);
+    for (const [relative, file] of tree) {
+      const target = path.join(staging, relative);
+      if (file.link !== undefined) {
+        await symlink(file.link, target, file.linkType);
+      } else if (file.data === null) {
+        await mkdir(target, { recursive: true });
+      } else {
+        const previous = current.get(relative);
+        // Retain JSON formatting for unchanged values to avoid unrelated marketplace diffs.
+        const data =
+          previous?.data && sameEntry(relative, file, previous) ? previous.data : file.data;
+        await writeFile(target, data);
         await chmod(target, file.mode);
       }
     }
-    // Reserve the destination exclusively after rendering, so concurrent exports cannot replace it.
-    await mkdir(output);
-    try {
-      await rename(staging, output);
-    } catch (error) {
-      await rm(output, { recursive: true, force: true });
-      throw error;
+    if (existing) {
+      const backup = await mkdtemp(path.join(path.dirname(output), ".ambit-export-"));
+      try {
+        await rename(output, path.join(backup, "previous"));
+        try {
+          await rename(staging, output);
+        } catch (error) {
+          await rename(path.join(backup, "previous"), output);
+          throw error;
+        }
+        await rm(backup, { recursive: true, force: true });
+      } catch (error) {
+        // Keep the backup available if restoring the previous export also fails.
+        throw configError(`cannot replace export at ${output}`, [
+          String(error),
+          `previous export backup: ${backup}`,
+        ]);
+      }
+    } else {
+      // Reserve exclusively so concurrent exports cannot replace another writer's output.
+      await mkdir(output);
+      try {
+        await rename(staging, output);
+      } catch (error) {
+        await rm(output, { recursive: true, force: true });
+        throw error;
+      }
     }
     staging = undefined;
     return result;

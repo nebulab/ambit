@@ -438,3 +438,100 @@ it("rejects remote catalogs for linked exports even during dry runs", async () =
     exportPlugins(context(), { output: "plugins", link: true, dryRun: true }),
   ).rejects.toThrow("linked exports require local path catalogs");
 });
+
+it("checks linked exports without writing and replaces drift while retaining JSON formatting", async () => {
+  const options = { output: "plugins", link: true };
+  await exportPlugins(context(), options);
+  const manifest = path.join(source, "plugins/work/.claude-plugin/plugin.json");
+  const original = JSON.parse(await readFile(manifest, "utf8"));
+  const formatted = JSON.stringify(original);
+  await writeFile(manifest, formatted);
+  const before = (await stat(manifest)).mtimeMs;
+  await exportPlugins(context(), { ...options, check: true });
+  expect((await stat(manifest)).mtimeMs).toBe(before);
+  await put("plugins/stale/file", "stale");
+  await expect(exportPlugins(context(), { ...options, check: true })).rejects.toMatchObject({
+    code: 5,
+  });
+  expect(await readFile(path.join(source, "plugins/stale/file"), "utf8")).toBe("stale");
+  await exportPlugins(context(), { ...options, force: true });
+  expect(await readFile(manifest, "utf8")).toBe(formatted);
+  expect(await readlink(path.join(source, "plugins/work/skills/do-work"))).toBe(
+    "../../../skills/do-work",
+  );
+  await expect(lstat(path.join(source, "plugins/stale"))).rejects.toMatchObject({ code: "ENOENT" });
+  await exportPlugins(context(), { ...options, check: true });
+  await writeFile(manifest, JSON.stringify({ ...original, version: "2.0.0" }));
+  await expect(exportPlugins(context(), { ...options, check: true })).rejects.toMatchObject({
+    code: 5,
+  });
+});
+
+it("detects changed link targets and copied directories in linked exports", async () => {
+  const options = { output: "plugins", link: true };
+  await exportPlugins(context(), options);
+  const skill = path.join(source, "plugins/work/skills/do-work");
+  await rm(skill);
+  await symlink("../../../skills/./do-work", skill);
+  await expect(exportPlugins(context(), { ...options, check: true })).rejects.toMatchObject({
+    code: 5,
+  });
+  await rm(skill);
+  await mkdir(skill);
+  await writeFile(
+    path.join(skill, "SKILL.md"),
+    await readFile(path.join(source, "skills/do-work/SKILL.md")),
+  );
+  await expect(exportPlugins(context(), { ...options, check: true })).rejects.toMatchObject({
+    code: 5,
+  });
+});
+
+it("detects changed bytes and executable permissions in standalone exports", async () => {
+  await exportIt();
+  const options = { output: path.join(root, "out"), check: true };
+  await exportPlugins(context(), options);
+  const script = path.join(root, "out/work/hooks/check.sh");
+  await chmod(script, 0o644);
+  await expect(exportPlugins(context(), options)).rejects.toMatchObject({ code: 5 });
+  await chmod(script, 0o755);
+  await writeFile(script, "changed");
+  await expect(exportPlugins(context(), options)).rejects.toMatchObject({ code: 5 });
+});
+
+it("refuses unsafe replacements and validates before touching an existing export", async () => {
+  await expect(exportPlugins(context(), { output: ".", force: true })).rejects.toThrow(
+    "contains source files",
+  );
+  await expect(exportPlugins(context(), { output: "skills", force: true })).rejects.toThrow(
+    "contains source files",
+  );
+  await expect(
+    exportPlugins(context(), { output: "skills/do-work/assets", force: true }),
+  ).rejects.toThrow("overlaps source assets");
+  await symlink(source, path.join(root, "alias"));
+  await expect(
+    exportPlugins(context(), { output: path.join(root, "alias"), force: true }),
+  ).rejects.toThrow("regular directory");
+  await exportIt();
+  const manifest = await read("work/.claude-plugin/plugin.json");
+  await put("skills/helper/SKILL.md", "missing frontmatter");
+  await expect(
+    exportPlugins(context(), { output: path.join(root, "out"), force: true }),
+  ).rejects.toThrow();
+  expect(await read("work/.claude-plugin/plugin.json")).toBe(manifest);
+});
+
+it("exposes check and force through the CLI and leaves missing output untouched", async () => {
+  const args = ["export", "--format", "claude-plugin", "--output", "missing/plugins", "--link"];
+  const cli = (flags: string[]) =>
+    run([...args, ...flags], { cwd: source, stdout: () => {}, stderr: () => {} });
+  expect(await cli(["--check"])).toBe(5);
+  expect(await readdir(source)).not.toContain("missing");
+  expect(await cli(["--force", "--dry-run"])).toBe(0);
+  expect(await readdir(source)).not.toContain("missing");
+  expect(await cli(["--force"])).toBe(0);
+  expect(await cli(["--check"])).toBe(0);
+  expect(await cli(["--check", "--force"])).toBe(2);
+  expect(await cli(["--check", "--dry-run"])).toBe(2);
+});

@@ -10,7 +10,7 @@ export const ExitCode = {
   Resolution: 3,
   /** Network or cache error. */
   Network: 4,
-  /** Drift detected (`status --check`, `install --frozen`). */
+  /** Drift detected (`status --check`, `install --frozen`, `export --check`). */
   Drift: 5,
   /** A health check found something: `doctor` failures. */
   Doctor: 6,

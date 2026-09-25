@@ -424,21 +424,34 @@ apply to export only; `ambit install` installs the pack's Ambit requirements.
 | `directory`    | string   | no       | Output directory basename. Defaults to `name`; uses the same naming rules. |
 | `commands`     | string   | no       | Catalog-relative directory copied into the plugin's `commands/`.           |
 
-| Export flag              | Behavior                                                                                                    |
-| ------------------------ | ----------------------------------------------------------------------------------------------------------- |
-| `--format claude-plugin` | Required. Claude Code is the supported format.                                                              |
-| `--output <dir>`         | Required. New output directory, relative to `--project` or the current project. Existing paths are refused. |
-| `--link`                 | Create relative symlinks for skill directories and hook assets. Requires local `path:` catalogs.            |
-| `--link`                 | Create relative symlinks for skill directories and hook assets. Requires local `path:` catalogs.            |
-| `--dry-run`              | Validate packages and report their names and file counts without writing output.                            |
-| `--json`                 | Print the output path and plugin names, directories, and file counts as JSON.                               |
-| `--offline`              | Use cached catalogs only.                                                                                   |
-| `--project <dir>`        | Read `ambit.yml` and `ambit.lock` from this project.                                                        |
+| Export flag              | Behavior                                                                                                                                                        |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--format claude-plugin` | Required. Claude Code is the supported format.                                                                                                                  |
+| `--output <dir>`         | Required. New output directory, relative to `--project` or the current project. Existing paths require `--force` or `--check`.                                  |
+| `--force`                | Replace the entire output directory after validating the export. Preserve JSON formatting when values are unchanged.                                            |
+| `--check`                | Compare existing files, executable bits, JSON values, and exact symlink targets without writing. Exit 5 on drift. Cannot combine with `--force` or `--dry-run`. |
+| `--link`                 | Create relative symlinks for skill directories and hook assets. Requires local `path:` catalogs.                                                                |
+| `--link`                 | Create relative symlinks for skill directories and hook assets. Requires local `path:` catalogs.                                                                |
+| `--dry-run`              | Validate packages and report their names and file counts without writing output.                                                                                |
+| `--json`                 | Print the output path and plugin names, directories, and file counts as JSON.                                                                                   |
+| `--offline`              | Use cached catalogs only.                                                                                                                                       |
+| `--project <dir>`        | Read `ambit.yml` and `ambit.lock` from this project.                                                                                                            |
 
 For a marketplace kept in the same repository as its catalog, use
 `ambit export --format claude-plugin --output plugins --link`. Skills and hook assets remain linked
 to their source files; manifests and slash commands are regular files. Keep the catalogs and exported
 plugins in the same relative locations. Omit `--link` to produce standalone copies.
+
+Regenerate an existing marketplace and check it in CI:
+
+```sh
+ambit export --format claude-plugin --output plugins --link --force
+ambit export --format claude-plugin --output plugins --link --check
+```
+
+`--force` removes stale files from the output directory. It refuses to replace a project root,
+a catalog root, or a directory containing source skills or hooks. Failed validation leaves the
+existing export untouched.
 
 Exports honor catalog revisions in `ambit.lock` and leave the lock and installed harness configuration
 unchanged. Pin remote inputs with a lock or an immutable catalog `ref` for reproducible packages.
@@ -584,7 +597,7 @@ when `AMBIT_NO_UPDATE_CHECK` is set to anything. It never delays or fails the co
 | 2    | Config, ownership, export compatibility, or usage error                                 |
 | 3    | Resolution error: a pattern matching nothing, missing requirement, cycle, name conflict |
 | 4    | Network or cache error                                                                  |
-| 5    | Drift detected (`status --check`, `install --frozen`)                                   |
+| 5    | Drift detected (`status --check`, `install --frozen`, `export --check`)                 |
 | 6    | A health check found something (`doctor` failures)                                      |
 
 Every error names the file, the identifier, and one concrete next step:
