@@ -637,13 +637,6 @@ installs a fixture project with `node dist/cli.js`, which is the one thing `bun 
 
 `bun run fixture` builds the fixture catalog the suite resolves against.
 
-With a checkout of `nebulab/skills-internal` and its git history, run
-`bun run scripts/check-plugin-parity.ts /path/to/skills-internal` to compare exports with its
-manually maintained plugins. The check restores the retired Ambit configuration in a temporary
-catalog, adapts it to the checkout's plugin groups, and compares dereferenced files, executable
-permissions, and parsed JSON after removing the temporary catalog. It also runs Claude's plugin
-validator when installed.
-
 `AMBIT_SKIP_NETWORK_TESTS=1` skips the dotagents compatibility test.
 
 ## License
