@@ -74,10 +74,13 @@ function parseTransport(mapping: YamlMapping): McpTransport {
   }
 
   const kind = kinds[0]!;
+
   switch (kind) {
     case "stdio": {
       const stdio = transport.requireMapping("stdio");
+
       stdio.rejectUnknownKeys(["args", "command", "env"]);
+
       return {
         kind: "stdio",
         command: stdio.requireString("command"),
@@ -85,9 +88,12 @@ function parseTransport(mapping: YamlMapping): McpTransport {
         env: stdio.optionalMapping("env")?.stringEntries() ?? {},
       };
     }
+
     case "http": {
       const http = transport.requireMapping("http");
+
       http.rejectUnknownKeys(["bearer_token_env_var", "headers", "url"]);
+
       return {
         kind: "http",
         url: http.requireString("url"),
@@ -95,6 +101,7 @@ function parseTransport(mapping: YamlMapping): McpTransport {
         headers: http.optionalMapping("headers")?.stringEntries() ?? {},
       };
     }
+
     default:
       throw transport.keyError(kind, `unknown transport kind "${kind}"`, [
         `supported kinds: ${MCP_TRANSPORT_KINDS.join(", ")}`,

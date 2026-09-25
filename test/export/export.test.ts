@@ -30,11 +30,14 @@ const context = () => ({
   env: { AMBIT_CACHE_DIR: path.join(root, "cache") },
   offline: true,
 });
+
 async function put(file: string, value: string): Promise<void> {
   const target = path.join(source, file);
+
   await mkdir(path.dirname(target), { recursive: true });
   await writeFile(target, value);
 }
+
 const read = (file: string) => readFile(path.join(root, "out", file), "utf8");
 const json = async (file: string) => JSON.parse(await read(file));
 const exportIt = () => exportPlugins(context(), { output: path.join(root, "out") });
@@ -124,6 +127,7 @@ it("copies symlinked assets, preserves executability, and runs after relocation 
   await symlink("../../hooks/check/message.txt", path.join(source, "skills/do-work/message.txt"));
   await exportIt();
   const exported = path.join(root, "out/work");
+
   expect((await lstat(path.join(exported, "skills/do-work/message.txt"))).isSymbolicLink()).toBe(
     false,
   );
@@ -168,6 +172,7 @@ it("copies Claude command files without leaking catalog paths into the manifest"
     "name: work\nplugin: {name: example-work, commands: commands/work}\n",
   );
   const command = "---\ndescription: A command\n---\nCommand body.\n";
+
   await put("commands/work/check.md", command);
   await exportIt();
   expect(await read("example-work/commands/check.md")).toBe(command);
@@ -176,6 +181,7 @@ it("copies Claude command files without leaking catalog paths into the manifest"
 
 it("validates a dry run without writing output or its parent", async () => {
   const result = await exportPlugins(context(), { output: "missing/deep/output", dryRun: true });
+
   expect(result.plugins).toHaveLength(2);
   expect(await readdir(source)).not.toContain("missing");
 });
@@ -271,6 +277,7 @@ it("rejects a nested skill layout", async () => {
 it("rejects catalog-escaping and cyclic symlinks", async () => {
   await writeFile(path.join(root, "secret"), "not a plugin asset");
   const link = path.join(source, "skills/helper/link");
+
   await symlink(path.join(root, "secret"), link);
   await expect(exportIt()).rejects.toThrow("escapes its catalog");
   await rm(link);
@@ -299,8 +306,10 @@ it("requires explicit CLI format and output and supports JSON dry runs", async (
       stdout: (text) => stdout.push(text),
       stderr: (text) => stderr.push(text),
     });
+
     return { code, stdout: stdout.join("\n"), stderr: stderr.join("\n") };
   }
+
   expect((await cli(["export"])).code).toBe(2);
   expect((await cli(["export", "--format", "agent-plugin", "--output", "out"])).code).toBe(2);
   const result = await cli([
@@ -312,6 +321,7 @@ it("requires explicit CLI format and output and supports JSON dry runs", async (
     "--dry-run",
     "--json",
   ]);
+
   expect(result.code, result.stderr).toBe(0);
   expect(JSON.parse(result.stdout).plugins).toHaveLength(2);
   expect(await readdir(source)).not.toContain("out");
@@ -320,6 +330,7 @@ it("requires explicit CLI format and output and supports JSON dry runs", async (
 it("uses locked git revisions reproducibly, including metadata, when offline", async () => {
   const git = (...args: string[]) =>
     execFileSync("git", ["-C", source, ...args], { encoding: "utf8" });
+
   git("init", "-b", "main");
   git("add", ".");
   git(
@@ -333,6 +344,7 @@ it("uses locked git revisions reproducibly, including metadata, when offline", a
   );
   const commit = git("rev-parse", "HEAD").trim();
   const project = path.join(root, "consumer");
+
   await mkdir(project);
   await writeFile(
     path.join(project, "ambit.yml"),
@@ -342,6 +354,7 @@ it("uses locked git revisions reproducibly, including metadata, when offline", a
   const config = await loadProjectConfig(project);
   const catalogs = await loadCatalogs(config, remoteContext);
   const lock = serializeLock(buildLock(catalogs, resolveBundle(config, mergeCatalogs(catalogs))));
+
   await writeFile(path.join(project, "ambit.lock"), lock);
   expect(catalogs[0]!.commit).toBe(commit);
   await exportPlugins(remoteContext, { output: path.join(root, "first") });
@@ -359,6 +372,7 @@ it("uses locked git revisions reproducibly, including metadata, when offline", a
   await rm(source, { recursive: true });
   await exportPlugins({ ...remoteContext, offline: true }, { output: path.join(root, "second") });
   const compare = (relative: string) => readFile(path.join(root, relative), "utf8");
+
   expect(await compare("second/work/.claude-plugin/plugin.json")).toBe(
     await compare("first/work/.claude-plugin/plugin.json"),
   );
@@ -416,10 +430,12 @@ it("requires a directory for slash commands and a valid homepage URL", async () 
 it("links skills and hook assets relative to the final output and survives moving the repository", async () => {
   await exportPlugins(context(), { output: "plugins", link: true });
   const plugin = path.join(source, "plugins/work");
+
   expect(await readlink(path.join(plugin, "skills/do-work"))).toBe("../../../skills/do-work");
   expect(await readlink(path.join(plugin, "hooks/check.sh"))).toBe("../../../hooks/check/check.sh");
   expect((await lstat(path.join(plugin, "hooks/hooks.json"))).isSymbolicLink()).toBe(false);
   const moved = path.join(root, "moved");
+
   await rename(source, moved);
   expect(
     await readFile(path.join(moved, "plugins/work/skills/do-work/SKILL.md"), "utf8"),
@@ -441,12 +457,15 @@ it("rejects remote catalogs for linked exports even during dry runs", async () =
 
 it("checks linked exports without writing and replaces drift while retaining JSON formatting", async () => {
   const options = { output: "plugins", link: true };
+
   await exportPlugins(context(), options);
   const manifest = path.join(source, "plugins/work/.claude-plugin/plugin.json");
   const original = JSON.parse(await readFile(manifest, "utf8"));
   const formatted = JSON.stringify(original);
+
   await writeFile(manifest, formatted);
   const before = (await stat(manifest)).mtimeMs;
+
   await exportPlugins(context(), { ...options, check: true });
   expect((await stat(manifest)).mtimeMs).toBe(before);
   await put("plugins/stale/file", "stale");
@@ -469,8 +488,10 @@ it("checks linked exports without writing and replaces drift while retaining JSO
 
 it("detects changed link targets and copied directories in linked exports", async () => {
   const options = { output: "plugins", link: true };
+
   await exportPlugins(context(), options);
   const skill = path.join(source, "plugins/work/skills/do-work");
+
   await rm(skill);
   await symlink("../../../skills/./do-work", skill);
   await expect(exportPlugins(context(), { ...options, check: true })).rejects.toMatchObject({
@@ -490,8 +511,10 @@ it("detects changed link targets and copied directories in linked exports", asyn
 it("detects changed bytes and executable permissions in standalone exports", async () => {
   await exportIt();
   const options = { output: path.join(root, "out"), check: true };
+
   await exportPlugins(context(), options);
   const script = path.join(root, "out/work/hooks/check.sh");
+
   await chmod(script, 0o644);
   await expect(exportPlugins(context(), options)).rejects.toMatchObject({ code: 5 });
   await chmod(script, 0o755);
@@ -515,6 +538,7 @@ it("refuses unsafe replacements and validates before touching an existing export
   ).rejects.toThrow("regular directory");
   await exportIt();
   const manifest = await read("work/.claude-plugin/plugin.json");
+
   await put("skills/helper/SKILL.md", "missing frontmatter");
   await expect(
     exportPlugins(context(), { output: path.join(root, "out"), force: true }),
@@ -526,6 +550,7 @@ it("exposes check and force through the CLI and leaves missing output untouched"
   const args = ["export", "--format", "claude-plugin", "--output", "missing/plugins", "--link"];
   const cli = (flags: string[]) =>
     run([...args, ...flags], { cwd: source, stdout: () => {}, stderr: () => {} });
+
   expect(await cli(["--check"])).toBe(5);
   expect(await readdir(source)).not.toContain("missing");
   expect(await cli(["--force", "--dry-run"])).toBe(0);

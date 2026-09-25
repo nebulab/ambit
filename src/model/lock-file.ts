@@ -53,10 +53,14 @@ function isMissing(error: unknown): boolean {
  */
 export async function readLockText(projectDir: string): Promise<string | undefined> {
   const file = lockFilePath(projectDir);
+
   try {
     return await readFile(file, "utf8");
   } catch (error) {
-    if (isMissing(error)) return undefined;
+    if (isMissing(error)) {
+      return undefined;
+    }
+
     throw configError(`cannot read ${LOCK_FILENAME}`, [
       error instanceof Error ? error.message : String(error),
       `make ${file} readable, or delete it and run \`ambit install\` again`,
@@ -100,20 +104,31 @@ async function readRecordedCatalogs(
   projectDir: string,
 ): Promise<ReadonlyMap<string, RecordedCatalog> | undefined> {
   const text = await readLockText(projectDir);
-  if (text === undefined) return undefined;
+
+  if (text === undefined) {
+    return undefined;
+  }
 
   const root = parseYamlMapping(text, LOCK_FILENAME);
   const version = root.requireInteger("version");
-  if (version !== LOCK_VERSION) unsupportedVersion(version);
+
+  if (version !== LOCK_VERSION) {
+    unsupportedVersion(version);
+  }
 
   const catalogs = root.optionalMapping("catalogs");
-  if (catalogs === undefined) return new Map();
+
+  if (catalogs === undefined) {
+    return new Map();
+  }
 
   const recorded = new Map<string, RecordedCatalog>();
+
   for (const name of catalogs.keys()) {
     const entry = catalogs.requireMapping(name);
     const commit = entry.optionalString("commit");
     const ref = entry.optionalString("ref");
+
     // Refused here rather than left to git, so the message names the file the pin was hand-edited in.
     if (commit !== undefined && !isCommitSha(commit)) {
       throw entry.keyError(
@@ -125,12 +140,14 @@ async function readRecordedCatalogs(
         ],
       );
     }
+
     recorded.set(name, {
       source: entry.requireString("source"),
       ...(ref !== undefined && { ref }),
       ...(commit !== undefined && { commit }),
     });
   }
+
   return recorded;
 }
 
@@ -157,6 +174,7 @@ function gitIdentity(source: string, ref: string | undefined): string | undefine
       subject: "",
       where: "",
     });
+
     return parsed.kind === "git" ? `${parsed.url} ${parsed.ref ?? ""}` : undefined;
   } catch {
     return undefined;
@@ -187,18 +205,32 @@ export async function readCatalogPins(
   config: ProjectConfig,
 ): Promise<ReadonlyMap<string, string>> {
   const recorded = await readRecordedCatalogs(projectDir);
-  if (recorded === undefined) return new Map();
+
+  if (recorded === undefined) {
+    return new Map();
+  }
 
   const pins = new Map<string, string>();
+
   for (const entry of config.catalogs) {
     const locked = recorded.get(entry.name);
-    if (locked?.commit === undefined) continue;
+
+    if (locked?.commit === undefined) {
+      continue;
+    }
 
     const configured = gitIdentity(entry.source, entry.ref);
-    if (configured === undefined) continue;
-    if (gitIdentity(locked.source, locked.ref) !== configured) continue;
+
+    if (configured === undefined) {
+      continue;
+    }
+
+    if (gitIdentity(locked.source, locked.ref) !== configured) {
+      continue;
+    }
 
     pins.set(entry.name, locked.commit);
   }
+
   return pins;
 }

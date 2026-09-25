@@ -35,6 +35,7 @@ function toJson(bundle: Bundle, explain: boolean): Readonly<Record<string, unkno
       (hook) => hook.name,
       (hook) => {
         const why = reason(bundle, { kind: "hook", name: hook.name }, explain);
+
         return {
           catalog: hook.catalog,
           event: hook.event,
@@ -47,6 +48,7 @@ function toJson(bundle: Bundle, explain: boolean): Readonly<Record<string, unkno
       (mcp) => mcp.name,
       (mcp) => {
         const why = reason(bundle, { kind: "mcp", name: mcp.name }, explain);
+
         return {
           catalog: mcp.catalog,
           ...(why !== undefined && { reason: why }),
@@ -60,6 +62,7 @@ function toJson(bundle: Bundle, explain: boolean): Readonly<Record<string, unkno
       (pack) => pack.name,
       (pack) => {
         const why = reason(bundle, { kind: "pack", name: pack.name }, explain);
+
         return {
           catalog: pack.catalog,
           ...(why !== undefined && { reason: why }),
@@ -71,6 +74,7 @@ function toJson(bundle: Bundle, explain: boolean): Readonly<Record<string, unkno
       (skill) => skill.name,
       (skill) => {
         const why = reason(bundle, { kind: "skill", name: skill.name }, explain);
+
         return {
           catalog: skill.catalog,
           path: skill.path,
@@ -139,9 +143,11 @@ export const resolveHandler: CommandHandler = async (ctx) => {
 
   if (jsonRequested(ctx)) {
     ctx.stdout(JSON.stringify(toJson(bundle, explain), null, 2));
+
     return ExitCode.Success;
   }
 
   printSections(toText(bundle, explain), ctx.stdout);
+
   return ExitCode.Success;
 };

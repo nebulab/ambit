@@ -169,13 +169,18 @@ export interface FetchedGitSource {
  */
 export function cacheRoot(env: NodeJS.ProcessEnv): string {
   const xdg = env.XDG_CACHE_HOME;
-  if (xdg !== undefined && xdg.trim() !== "") return path.join(xdg, CACHE_DIRNAME);
+
+  if (xdg !== undefined && xdg.trim() !== "") {
+    return path.join(xdg, CACHE_DIRNAME);
+  }
+
   return path.join(env.HOME ?? homedir(), ".cache", CACHE_DIRNAME);
 }
 
 /** Keeps a key segment inside the cache directory, whatever a URL put in it. */
 function sanitize(segment: string): string {
   const cleaned = segment.replace(/[^A-Za-z0-9._-]+/g, "-");
+
   return cleaned === "" || cleaned === "." || cleaned === ".." ? "-" : cleaned;
 }
 
@@ -185,6 +190,7 @@ function splitUrl(url: string): { readonly host: string; readonly target: string
     try {
       const parsed = new URL(url);
       const host = parsed.hostname === "" ? LOCAL_HOST : parsed.hostname.toLowerCase();
+
       return { host, target: parsed.pathname };
     } catch {
       // Not a URL the platform parses. git may still understand it, and the cache key is ambit's
@@ -195,7 +201,10 @@ function splitUrl(url: string): { readonly host: string; readonly target: string
   const scp = SCP_LIKE.exec(url);
   const host = scp?.[1];
   const target = scp?.[2];
-  if (host !== undefined && target !== undefined) return { host: host.toLowerCase(), target };
+
+  if (host !== undefined && target !== undefined) {
+    return { host: host.toLowerCase(), target };
+  }
 
   return { host: LOCAL_HOST, target: url };
 }
@@ -211,6 +220,7 @@ export function gitCacheKey(url: string): string {
 
   const segments = target.split("/").filter((segment) => segment !== "");
   const last = segments.pop();
+
   if (last !== undefined) {
     segments.push(last.endsWith(GIT_SUFFIX) ? last.slice(0, -GIT_SUFFIX.length) : last);
   }
@@ -248,6 +258,7 @@ function lastLine(text: string): string {
     .split("\n")
     .map((line) => line.trim())
     .filter((line) => line !== "");
+
   return lines[lines.length - 1] ?? "";
 }
 
@@ -256,7 +267,11 @@ function gitEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   // Fails instead of prompting for credentials: a prompt on a non-interactive run is
   // indistinguishable from a hang.
   const copy: NodeJS.ProcessEnv = { ...env, GIT_TERMINAL_PROMPT: "0" };
-  for (const name of REDIRECTING_GIT_VARS) delete copy[name];
+
+  for (const name of REDIRECTING_GIT_VARS) {
+    delete copy[name];
+  }
+
   return copy;
 }
 
@@ -283,6 +298,7 @@ async function runGit(
       env: gitEnvironment(request.env),
       encoding: "utf8",
     });
+
     return { ok: true, stdout: result.stdout, stderr: result.stderr };
   } catch (error) {
     if (isRecord(error) && error.code === "ENOENT") {
@@ -291,7 +307,11 @@ async function runGit(
         "install git, or add it to PATH",
       ]);
     }
-    if (!isRecord(error)) throw error;
+
+    if (!isRecord(error)) {
+      throw error;
+    }
+
     return { ok: false, stdout: asString(error.stdout), stderr: asString(error.stderr) };
   }
 }
@@ -300,6 +320,7 @@ async function runGit(
 function gitFailed(summary: string, outcome: GitOutcome, advice: string): never {
   const said =
     lastLine(outcome.stderr) === "" ? lastLine(outcome.stdout) : lastLine(outcome.stderr);
+
   throw networkError(summary, [
     said === "" ? "git reported no reason" : `git said: ${said}`,
     advice,
@@ -319,6 +340,7 @@ function gitFailed(summary: string, outcome: GitOutcome, advice: string): never 
  */
 async function clone(repo: string, request: GitFetchRequest): Promise<void> {
   const incoming = `${repo}${INCOMING_SUFFIX}`;
+
   await rm(incoming, { recursive: true, force: true });
   await mkdir(path.dirname(repo), { recursive: true });
 
@@ -326,6 +348,7 @@ async function clone(repo: string, request: GitFetchRequest): Promise<void> {
     ["clone", "--mirror", "--quiet", "--", request.url, incoming],
     request,
   );
+
   if (!outcome.ok) {
     await rm(incoming, { recursive: true, force: true });
     gitFailed(
@@ -345,6 +368,7 @@ async function clone(repo: string, request: GitFetchRequest): Promise<void> {
  */
 async function fetchInto(repo: string, request: GitFetchRequest): Promise<void> {
   const outcome = await runGit(["-C", repo, "fetch", "--quiet", "--prune", "origin"], request);
+
   if (!outcome.ok) {
     gitFailed(
       `cannot fetch ${request.subject} ${request.where}`,
@@ -381,6 +405,7 @@ async function probeInto(repo: string, request: GitFetchRequest): Promise<void> 
     ],
     request,
   );
+
   if (!outcome.ok) {
     gitFailed(
       `cannot check ${request.subject} for updates ${request.where}`,
@@ -400,9 +425,13 @@ async function revParse(
     ["-C", repo, "rev-parse", "--verify", "--quiet", `${revision}^{commit}`],
     request,
   );
-  if (!outcome.ok) return undefined;
+
+  if (!outcome.ok) {
+    return undefined;
+  }
 
   const commit = outcome.stdout.trim();
+
   return commit === "" ? undefined : commit;
 }
 
@@ -449,8 +478,12 @@ async function resolveProbed(
 
   for (const [revision, moving] of candidates) {
     const commit = await revParse(repo, revision, request);
-    if (commit !== undefined) return { commit, moving };
+
+    if (commit !== undefined) {
+      return { commit, moving };
+    }
   }
+
   return undefined;
 }
 
@@ -462,12 +495,18 @@ async function resolveProbed(
  */
 async function isMovingRef(repo: string, request: GitFetchRequest): Promise<boolean> {
   const ref = request.ref;
+
   // An absent ref is the default branch, which is a branch.
-  if (ref === undefined) return true;
+  if (ref === undefined) {
+    return true;
+  }
 
   for (const namespace of ["refs/heads", "refs/tags"]) {
-    if ((await revParse(repo, `${namespace}/${ref}`, request)) !== undefined) return true;
+    if ((await revParse(repo, `${namespace}/${ref}`, request)) !== undefined) {
+      return true;
+    }
   }
+
   return false;
 }
 
@@ -478,7 +517,10 @@ async function isMovingRef(repo: string, request: GitFetchRequest): Promise<bool
  */
 function assertUsableRef(request: GitFetchRequest): void {
   const ref = request.ref;
-  if (ref === undefined) return;
+
+  if (ref === undefined) {
+    return;
+  }
 
   if (ref.trim() === "" || ref.startsWith("-") || /\s/.test(ref)) {
     throw configError(`${request.subject} has an unusable ref ${request.where}`, [
@@ -499,7 +541,10 @@ function assertUsableRef(request: GitFetchRequest): void {
  */
 function assertUsablePin(request: GitFetchRequest): void {
   const pin = request.pin;
-  if (pin === undefined || isCommitSha(pin)) return;
+
+  if (pin === undefined || isCommitSha(pin)) {
+    return;
+  }
 
   throw configError(`${request.subject} has an unusable pin ${request.where}`, [
     `"${pin}" is not a full commit SHA`,
@@ -510,6 +555,7 @@ function assertUsablePin(request: GitFetchRequest): void {
 /** The error for a ref the repository does not have, after a fetch has already been tried. */
 function unknownRef(request: GitFetchRequest): never {
   const ref = request.ref;
+
   if (ref === undefined) {
     throw configError(`${request.subject} has no default branch ${request.where}`, [
       `${request.url} is empty, or its HEAD points at nothing`,
@@ -607,12 +653,20 @@ async function pinnedCommit(
   request: GitFetchRequest,
 ): Promise<string> {
   let commit = await revParse(repo, pin, request);
+
   if (commit === undefined && !cloned) {
-    if (request.offline === true) pinNotCached(request, pin);
+    if (request.offline === true) {
+      pinNotCached(request, pin);
+    }
+
     await fetchInto(repo, request);
     commit = await revParse(repo, pin, request);
   }
-  if (commit === undefined) unknownPin(request, pin);
+
+  if (commit === undefined) {
+    unknownPin(request, pin);
+  }
+
   return commit;
 }
 
@@ -631,7 +685,9 @@ async function ensureCheckout(
   const target = path.join(cache, SOURCES_DIRNAME, key, commit);
   const ready = `${target}${READY_SUFFIX}`;
 
-  if ((await isFile(ready)) && (await isDirectory(target))) return target;
+  if ((await isFile(ready)) && (await isDirectory(target))) {
+    return target;
+  }
 
   await rm(ready, { force: true });
   await rm(target, { recursive: true, force: true });
@@ -658,6 +714,7 @@ async function ensureCheckout(
     ],
     request,
   );
+
   if (!outcome.ok) {
     await rm(target, { recursive: true, force: true });
     gitFailed(
@@ -669,6 +726,7 @@ async function ensureCheckout(
 
   // Written last: the marker is what a later run trusts, so it must mean the checkout is complete.
   await writeFile(ready, `${commit}\n`, "utf8");
+
   return target;
 }
 
@@ -697,15 +755,22 @@ export async function fetchGitSource(request: GitFetchRequest): Promise<FetchedG
 
   const refresh = request.refresh ?? "none";
   const offline = request.offline === true;
-  if (offline && refresh !== "none") cannotRefreshOffline(request);
+
+  if (offline && refresh !== "none") {
+    cannotRefreshOffline(request);
+  }
 
   const cache = cacheRoot(request.env);
   const key = gitCacheKey(request.url);
   const repo = path.join(cache, REPOS_DIRNAME, `${key}${GIT_SUFFIX}`);
 
   let cloned = false;
+
   if (!(await isDirectory(repo))) {
-    if (offline) notCached(request, repo);
+    if (offline) {
+      notCached(request, repo);
+    }
+
     await clone(repo, request);
     cloned = true;
   }
@@ -713,8 +778,10 @@ export async function fetchGitSource(request: GitFetchRequest): Promise<FetchedG
   // Only consulted when nothing is refreshing: a refreshing run was asked for a newer answer than
   // the recorded commit.
   const pin = refresh === "none" ? request.pin : undefined;
+
   if (pin !== undefined) {
     const commit = await pinnedCommit(repo, pin, cloned, request);
+
     return { root: await ensureCheckout(cache, key, repo, commit, request), commit };
   }
 
@@ -722,7 +789,11 @@ export async function fetchGitSource(request: GitFetchRequest): Promise<FetchedG
     // Needed even right after a clone: the probe namespace is empty until fetched into.
     await probeInto(repo, request);
     const probed = await resolveProbed(repo, request);
-    if (probed === undefined) unknownRef(request);
+
+    if (probed === undefined) {
+      unknownRef(request);
+    }
+
     return {
       root: await ensureCheckout(cache, key, repo, probed.commit, request),
       commit: probed.commit,
@@ -731,19 +802,32 @@ export async function fetchGitSource(request: GitFetchRequest): Promise<FetchedG
   }
 
   // A fresh clone is already the remote's current answer, so advancing it would fetch nothing.
-  if (refresh === "advance" && !cloned) await fetchInto(repo, request);
+  if (refresh === "advance" && !cloned) {
+    await fetchInto(repo, request);
+  }
 
   let commit = await resolveCommit(repo, request.ref, request);
+
   if (commit === undefined && !cloned && refresh !== "advance") {
     // Reported as a cache miss, not a config error: only a fetch can tell whether the ref is
     // simply unfetched or genuinely does not exist.
-    if (offline) refNotCached(request);
+    if (offline) {
+      refNotCached(request);
+    }
+
     await fetchInto(repo, request);
     commit = await resolveCommit(repo, request.ref, request);
   }
-  if (commit === undefined) unknownRef(request);
+
+  if (commit === undefined) {
+    unknownRef(request);
+  }
 
   const root = await ensureCheckout(cache, key, repo, commit, request);
-  if (refresh === "none") return { root, commit };
+
+  if (refresh === "none") {
+    return { root, commit };
+  }
+
   return { root, commit, moving: await isMovingRef(repo, request) };
 }

@@ -118,6 +118,7 @@ async function writeProfile(
   const written = [...packs.map((pack) => requiresEntry(pack)), ...entries];
   const list = written.length === 0 ? "[]" : `\n${written.join("\n")}`;
   const harnessLine = harnesses === undefined ? "" : `harnesses: [${harnesses.join(", ")}]\n`;
+
   await writeFile(
     path.join(projectDir, "ambit.yml"),
     `version: 1
@@ -146,6 +147,7 @@ async function cli(
     stdout: (line) => out.push(line),
     stderr: (line) => err.push(line),
   });
+
   return { code, stdout: out.join("\n"), stderr: err.join("\n") };
 }
 
@@ -168,6 +170,7 @@ async function tree(dir: string): Promise<readonly string[]> {
   const walk = async (current: string, relative: string): Promise<void> => {
     for (const entry of await readdir(current)) {
       const within = relative === "" ? entry : `${relative}/${entry}`;
+
       if (await isDirectoryAt(path.join(current, entry))) {
         await walk(path.join(current, entry), within);
       } else {
@@ -177,6 +180,7 @@ async function tree(dir: string): Promise<readonly string[]> {
   };
 
   await walk(absolute, "");
+
   return found.sort();
 }
 
@@ -195,18 +199,23 @@ async function snapshot(): Promise<Record<string, string>> {
       // only reachable through it.
       if (entry.isSymbolicLink()) {
         const points = path.resolve(current, await readlink(absolute));
+
         if (!path.relative(projectDir, points).startsWith("..")) {
           found[within] = `-> ${await readlink(absolute)}`;
           continue;
         }
       }
 
-      if (await isDirectoryAt(absolute)) await walk(absolute, within);
-      else found[within] = await readFile(absolute, "utf8");
+      if (await isDirectoryAt(absolute)) {
+        await walk(absolute, within);
+      } else {
+        found[within] = await readFile(absolute, "utf8");
+      }
     }
   };
 
   await walk(projectDir, "");
+
   return found;
 }
 
@@ -214,16 +223,24 @@ async function snapshot(): Promise<Record<string, string>> {
 async function installedSkills(): Promise<readonly string[]> {
   const skills = path.join(projectDir, SKILLS_DIR);
   const names: string[] = [];
+
   for (const entry of await readdir(skills)) {
-    if (await isDirectoryAt(path.join(skills, entry))) names.push(entry);
+    if (await isDirectoryAt(path.join(skills, entry))) {
+      names.push(entry);
+    }
   }
+
   return names.sort();
 }
 
 /** Where an installed skill's symlink points, or undefined when it is not a symlink at all. */
 async function linkAt(target: string): Promise<string | undefined> {
   const absolute = path.join(projectDir, target);
-  if (!(await lstat(absolute)).isSymbolicLink()) return undefined;
+
+  if (!(await lstat(absolute)).isSymbolicLink()) {
+    return undefined;
+  }
+
   return readlink(absolute);
 }
 
@@ -248,6 +265,7 @@ async function writeCatalogFile(relative: string, contents: string): Promise<voi
 async function exists(absolute: string): Promise<boolean> {
   try {
     await stat(absolute);
+
     return true;
   } catch {
     return false;
@@ -281,6 +299,7 @@ afterEach(async () => {
 async function bundleFor(): Promise<Bundle> {
   const context: SourceContext = { projectDir, env: process.env };
   const config = await loadProjectConfig(projectDir);
+
   return resolveBundle(config, mergeCatalogs(await loadCatalogs(config, context)));
 }
 
@@ -332,6 +351,7 @@ describe("the Claude adapter's plan", () => {
     const skills = plan.filter(
       (artifact): artifact is PlannedSkillDir => artifact.kind === "skill-dir",
     );
+
     expect(skills.map((artifact) => artifact.mode)).toEqual(["link", "link", "link"]);
     expect(skills[0]?.source).toBe(path.join(catalogDir, "skills/code-review"));
     expect(await pathExists(SKILLS_DIR)).toBe(false);
@@ -377,6 +397,7 @@ describe("the Claude adapter's plan", () => {
 describe("ambit install", () => {
   it("writes exactly the resolved skill directories", async () => {
     const result = await cli("install");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     expect(await installedSkills()).toEqual([ENGINEERING_SKILL, CORE_SKILL, FRONTEND_SKILL]);
@@ -395,6 +416,7 @@ describe("ambit install", () => {
       "utf8",
     );
     const source = await readFile(path.join(catalogDir, "skills/company-context/SKILL.md"), "utf8");
+
     expect(installed).toBe(source);
   });
 
@@ -410,6 +432,7 @@ describe("ambit install", () => {
     await writeProfile([]);
 
     const result = await cli("install");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
     expect(await pathExists(SKILLS_DIR)).toBe(false);
     expect(parseState(await readStateFile(), STATE_FILENAME).artifacts).toEqual([]);
@@ -419,6 +442,7 @@ describe("ambit install", () => {
     await cli("install");
 
     const state = parseState(await readStateFile(), STATE_FILENAME);
+
     expect(state).toEqual({
       version: 1,
       harnesses: ["claude"],
@@ -449,6 +473,7 @@ describe("ambit install", () => {
   it("writes a byte-stable state file", async () => {
     await cli("install");
     const first = await readStateFile();
+
     await cli("install");
 
     expect(await readStateFile()).toBe(first);
@@ -459,6 +484,7 @@ describe("ambit install", () => {
     const first = await tree(SKILLS_DIR);
 
     const second = await cli("install");
+
     expect(second.code, second.stderr).toBe(ExitCode.Success);
     expect(await tree(SKILLS_DIR)).toEqual(first);
   });
@@ -468,6 +494,7 @@ describe("ambit install", () => {
     // skill writes into the catalog, where a stale file is the catalog's problem and not install's.
     await cli("install", "--copy");
     const stale = path.join(projectDir, SKILLS_DIR, CORE_SKILL, "stale.md");
+
     await writeFile(stale, "left over from an older catalog\n", "utf8");
 
     await cli("install", "--copy");
@@ -485,6 +512,7 @@ describe("ambit install", () => {
     // Both columns but the last are padded out to their longest cell, so the kinds line up down
     // the section and the config file's missing mode reads as a gap rather than a shifted row.
     const width = `${SKILLS_DIR}/${CORE_SKILL}`.length;
+
     expect(result.stdout).toBe(
       [
         "harnesses (1)",
@@ -562,14 +590,17 @@ describe("how a skill's source reaches its target", () => {
   /** The mode state records for one skill directory. */
   async function recordedMode(target: string): Promise<string | undefined> {
     const state = parseState(await readStateFile(), STATE_FILENAME);
+
     return state.artifacts.find((artifact) => artifact.path === target)?.mode;
   }
 
   it("symlinks a `path:` catalog's skill, relatively, at the directory the catalog holds", async () => {
     const result = await cli("install");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     const written = await linkAt(CORE_TARGET);
+
     expect(written).toBe(
       path.relative(
         path.dirname(path.join(projectDir, CORE_TARGET)),
@@ -593,6 +624,7 @@ describe("how a skill's source reaches its target", () => {
 
   it("copies under `--copy`, so editing the installed skill leaves the source alone", async () => {
     const result = await cli("install", "--copy");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
     expect(await linkAt(CORE_TARGET)).toBeUndefined();
     expect(await recordedMode(CORE_TARGET)).toBe("copy");
@@ -642,6 +674,7 @@ describe("how a skill's source reaches its target", () => {
     await writeProfile(["core"]);
 
     const result = await cli("install");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     expect(await installedSkills()).toEqual([CORE_SKILL]);
@@ -672,6 +705,7 @@ describe(".mcp.json", () => {
     await writeProfile(BOTH_SERVERS);
 
     const result = await cli("install");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     // Both transport kinds at once: `fixture` is stdio, `tagged` is http.
@@ -684,6 +718,7 @@ describe(".mcp.json", () => {
     await writeProfile(["core"]);
 
     const result = await cli("install");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
     expect(await pathExists(MCP_FILE)).toBe(false);
   });
@@ -733,6 +768,7 @@ describe(".mcp.json", () => {
     await writeProfile([], undefined, [`  - { mcp: "${CATALOG_NAME}/planner" }`]);
 
     const result = await cli("install");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     expect(await readMcpConfig()).toEqual({
@@ -773,6 +809,7 @@ describe(".mcp.json", () => {
 
   it("leaves a hand-added server and every foreign key untouched", async () => {
     const handmade = { command: "node", args: ["./scripts/local-mcp.js"] };
+
     await writeFile(
       path.join(projectDir, MCP_FILE),
       `${JSON.stringify({ mcpServers: { handmade }, extra: { kept: true } }, null, 2)}\n`,
@@ -781,9 +818,11 @@ describe(".mcp.json", () => {
     await writeProfile(BOTH_SERVERS);
 
     const result = await cli("install");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     const document = await readMcpConfig();
+
     expect(document).toEqual({
       mcpServers: { handmade, [FIXTURE_MCP]: FIXTURE_SERVER, [PACKED_MCP]: TAGGED_SERVER },
       extra: { kept: true },
@@ -808,6 +847,7 @@ describe(".mcp.json", () => {
     await cli("install");
 
     const state = parseState(await readStateFile(), STATE_FILENAME);
+
     expect(state.artifacts.find((artifact) => artifact.path === MCP_FILE)).toEqual({
       path: MCP_FILE,
       kind: "harness-config",
@@ -863,8 +903,10 @@ describe(".gitignore", () => {
     const lines = (await readFile(path.join(projectDir, file), "utf8")).split("\n");
     const start = lines.findIndex((line) => line.startsWith(BLOCK_BEGIN));
     const end = lines.findIndex((line) => line.startsWith(BLOCK_END));
+
     expect(start, `no managed block in ${file}`).toBeGreaterThanOrEqual(0);
     expect(end).toBeGreaterThan(start);
+
     return lines.slice(start + 1, end);
   }
 
@@ -913,6 +955,7 @@ describe(".gitignore", () => {
     expect((await cli("install")).code).toBe(ExitCode.Success);
 
     const contents = await readFile(path.join(projectDir, GITIGNORE_FILENAME), "utf8");
+
     expect(contents.startsWith(HANDWRITTEN)).toBe(true);
     expect(await managedBlock()).toContain(`${STATE_DIRNAME}/`);
   });
@@ -922,6 +965,7 @@ describe(".gitignore", () => {
     await writeProfile(["core"]);
 
     const result = await cli("install");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     expect(await managedBlock(SHARED_GITIGNORE_FILE)).toEqual([`/skills/${CORE_SKILL}`]);
@@ -938,6 +982,7 @@ describe(".gitignore", () => {
 
     for (const file of [GITIGNORE_FILENAME, SHARED_GITIGNORE_FILE]) {
       const contents = await readFile(path.join(projectDir, file), "utf8");
+
       expect(contents.split(BLOCK_BEGIN), file).toHaveLength(2);
       expect(contents, file).not.toContain(ENGINEERING_SKILL);
     }
@@ -972,6 +1017,7 @@ describe(".gitignore", () => {
 
   it("exits 2 rather than guessing at an unterminated block, leaving the file alone", async () => {
     const broken = `${HANDWRITTEN}${BLOCK_BEGIN}\n${STATE_DIRNAME}/\ncoverage/\n`;
+
     await writeFile(path.join(projectDir, GITIGNORE_FILENAME), broken, "utf8");
 
     const result = await cli("install");
@@ -1019,6 +1065,7 @@ describe("a project as its own catalog", () => {
   /** Writes one of the project's own files, relative to the project root. */
   async function writeOwnFile(relative: string, body: string): Promise<void> {
     const target = path.join(projectDir, relative);
+
     await mkdir(path.dirname(target), { recursive: true });
     await writeFile(target, body, "utf8");
   }
@@ -1050,6 +1097,7 @@ describe("a project as its own catalog", () => {
 
   it("installs the project's own skill and server, and records both", async () => {
     const result = await cli("install");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     expect(await installedSkills()).toEqual([OWN_SKILL]);
@@ -1105,6 +1153,7 @@ describe("ambit install failures", () => {
     await writeProfile(["core"], ["zed"]);
 
     const result = await cli("install");
+
     expect(result.code).toBe(ExitCode.Config);
     expect(result.stderr).toContain('unknown harness "zed"');
     // The message lists what this build does ship, so a typo is one line from being fixed.
@@ -1116,6 +1165,7 @@ describe("ambit install failures", () => {
     await rm(path.join(projectDir, "ambit.yml"));
 
     const result = await cli("install");
+
     expect(result.code).toBe(ExitCode.Config);
     expect(result.stderr).toContain("no ambit config");
   });
@@ -1129,6 +1179,7 @@ describe("ambit install failures", () => {
     );
 
     const result = await cli("install");
+
     expect(result.code).toBe(ExitCode.Config);
     expect(result.stderr).toContain("not a valid ambit state file");
   });
@@ -1159,6 +1210,7 @@ describe("ambit install --dry-run", () => {
 
   it("writes nothing at all", async () => {
     const result = await cli("install", "--dry-run");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     // The config is the only file the project had, and the only one it still has.
@@ -1170,6 +1222,7 @@ describe("ambit install --dry-run", () => {
     const preview = await cli("install", "--dry-run");
 
     const installed = await cli("install");
+
     expect(installed.code, installed.stderr).toBe(ExitCode.Success);
 
     expect(preview.stdout).toBe(
@@ -1200,6 +1253,7 @@ describe("ambit install --dry-run", () => {
     const before = await snapshot();
 
     const result = await cli("install", "--dry-run", "--json");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     expect(JSON.parse(result.stdout)).toEqual({
@@ -1230,6 +1284,7 @@ describe("ambit install --dry-run", () => {
 
   it("refuses an unowned target rather than previewing an install that would stop", async () => {
     const target = path.join(projectDir, SKILLS_DIR, CORE_SKILL);
+
     await mkdir(target, { recursive: true });
     await writeFile(path.join(target, "SKILL.md"), "---\nname: hand-written\n---\n", "utf8");
 
@@ -1263,6 +1318,7 @@ describe("ownership", () => {
   /** A directory the plan targets, holding files no state claims. */
   async function writeUnownedSkillDir(): Promise<void> {
     const target = path.join(projectDir, CORE_TARGET);
+
     await mkdir(target, { recursive: true });
     await writeFile(path.join(target, "SKILL.md"), HANDWRITTEN, "utf8");
     await writeFile(path.join(target, "notes.md"), STRAY, "utf8");
@@ -1280,7 +1336,9 @@ describe("ownership", () => {
       null,
       2,
     )}\n`;
+
     await writeFile(path.join(projectDir, MCP_FILE), contents, "utf8");
+
     return contents;
   }
 
@@ -1328,6 +1386,7 @@ describe("ownership", () => {
     expect((await cli("install")).code).toBe(ExitCode.Success);
     await writeProfile(["core", "function.engineering", "function.engineering.*"]);
     const target = path.join(projectDir, SKILLS_DIR, ENGINEERING_SKILL);
+
     await mkdir(target, { recursive: true });
     await writeFile(path.join(target, "SKILL.md"), HANDWRITTEN, "utf8");
 
@@ -1355,6 +1414,7 @@ describe("ownership", () => {
     await writeUnownedSkillDir();
 
     const result = await cli("install", "--adopt");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     // The stray file is gone and SKILL.md is the catalog's, which is what taking ownership means.
@@ -1375,9 +1435,11 @@ describe("ownership", () => {
     await writeUnownedServer();
 
     const result = await cli("install", "--adopt");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     const document = await readMcpConfig();
+
     expect(document).toEqual({
       mcpServers: {
         [PACKED_MCP]: {
@@ -1432,6 +1494,7 @@ describe("pruning", () => {
   /** A skill directory beside ambit's that no state claims. */
   async function writeForeignSkillDir(): Promise<void> {
     const target = path.join(projectDir, SKILLS_DIR, HANDMADE_SKILL);
+
     await mkdir(target, { recursive: true });
     await writeFile(path.join(target, "SKILL.md"), `---\nname: ${HANDMADE_SKILL}\n---\n`, "utf8");
   }
@@ -1441,6 +1504,7 @@ describe("pruning", () => {
     await writeProfile(["core"]);
 
     const result = await cli("install");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     expect(await installedSkills()).toEqual([CORE_SKILL]);
@@ -1489,6 +1553,7 @@ describe("pruning", () => {
     await writeProfile(["function.engineering", "function.engineering.*"]);
 
     const result = await cli("install");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     // `linter` is still in the engineering pack; `fixture` only ever arrived through the project
@@ -1533,6 +1598,7 @@ describe("pruning", () => {
 
   it("leaves a hand-added server and every foreign key untouched", async () => {
     const handmade = { command: "node", args: ["./scripts/local-mcp.js"] };
+
     await writeFile(
       path.join(projectDir, MCP_FILE),
       `${JSON.stringify({ mcpServers: { handmade }, extra: { kept: true } }, null, 2)}\n`,
@@ -1542,6 +1608,7 @@ describe("pruning", () => {
     await writeProfile(["core"]);
 
     const result = await cli("install");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     expect(await readMcpConfig()).toEqual({ mcpServers: { handmade }, extra: { kept: true } });
@@ -1566,6 +1633,7 @@ describe("pruning", () => {
     await writeProfile([]);
 
     const result = await cli("install");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     expect(await installedSkills()).toEqual([]);
@@ -1605,6 +1673,7 @@ describe("pruning", () => {
     // A key ambit still owns, so ownership enforcement passes and pruning is what has to deal with
     // the second one — which no build of ambit could have written.
     const state = parseState(await readStateFile(), STATE_FILENAME);
+
     await writeFile(
       path.join(projectDir, STATE_DIRNAME, STATE_FILENAME),
       serializeState({
@@ -1659,9 +1728,11 @@ describe("idempotence", () => {
   it("changes no bytes on a second identical install", async () => {
     expect((await cli("install")).code).toBe(ExitCode.Success);
     const before = await snapshot();
+
     expect(Object.keys(before).sort()).toEqual([...PROJECT_FILES].sort());
 
     const second = await cli("install");
+
     expect(second.code, second.stderr).toBe(ExitCode.Success);
 
     expect(await snapshot()).toEqual(before);
@@ -1674,6 +1745,7 @@ describe("idempotence", () => {
       "utf8",
     );
     const foreign = path.join(projectDir, SKILLS_DIR, "hand-written");
+
     await mkdir(foreign, { recursive: true });
     await writeFile(path.join(foreign, "SKILL.md"), "---\nname: hand-written\n---\n", "utf8");
 
@@ -1681,6 +1753,7 @@ describe("idempotence", () => {
     const before = await snapshot();
 
     const second = await cli("install");
+
     expect(second.code, second.stderr).toBe(ExitCode.Success);
 
     expect(await snapshot()).toEqual(before);

@@ -31,7 +31,10 @@ if (code === ExitCode.Success) {
       mainPath: process.argv[1] ?? "",
       fetch: (url, init) => fetch(url, init),
     });
-    if (notice !== undefined) process.stderr.write(`${notice}\n`);
+
+    if (notice !== undefined) {
+      process.stderr.write(`${notice}\n`);
+    }
   } catch {
     // Never at the cost of the command that already worked.
   }

@@ -17,29 +17,36 @@ import {
 async function listFiles(dir: string, prefix = ""): Promise<string[]> {
   const entries = await readdir(dir, { withFileTypes: true });
   const found: string[] = [];
+
   for (const entry of entries) {
     const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
+
     if (entry.isDirectory()) {
       found.push(...(await listFiles(path.join(dir, entry.name), relative)));
     } else {
       found.push(relative);
     }
   }
+
   return found.sort();
 }
 
 async function snapshot(dir: string): Promise<Record<string, string>> {
   const contents: Record<string, string> = {};
+
   for (const relative of await listFiles(dir)) {
     contents[relative] = await readFile(path.join(dir, relative), "utf8");
   }
+
   return contents;
 }
 
 /** Splits a `---`-delimited frontmatter block off the top of a document. */
 function frontmatter(source: string): Record<string, unknown> {
   const match = /^---\n([\s\S]*?)\n---\n/.exec(source);
+
   expect(match, "document has no frontmatter block").not.toBeNull();
+
   return parse(match![1]!) as Record<string, unknown>;
 }
 
@@ -52,7 +59,9 @@ function frontmatter(source: string): Record<string, unknown> {
  */
 function annotations(source: string): Record<string, unknown> {
   const block = frontmatter(source).ambit;
+
   expect(block, "frontmatter has no `ambit:` block").toBeTypeOf("object");
+
   return (block ?? {}) as Record<string, unknown>;
 }
 
@@ -114,11 +123,13 @@ describe("fixture catalog", () => {
     expect(EXPECTED_FILES).not.toContain("ambit.yml");
 
     const declared: string[] = [];
+
     for (const pack of PACK_PATHS) {
       const parsed = parse(await readFile(path.join(dir, pack), "utf8")) as {
         name: string;
         description?: string;
       };
+
       expect(parsed.description, `${pack} has no description`).toBeTruthy();
       declared.push(parsed.name);
     }
@@ -140,6 +151,7 @@ describe("fixture catalog", () => {
         .replace(/^packs\//, "")
         .replace(/\.yml$/, "")
         .replaceAll("/", ".");
+
       expect(parsed.name).toBe(derived);
     }
   });
@@ -147,6 +159,7 @@ describe("fixture catalog", () => {
   it("names every skill after its path", async () => {
     for (const skill of SKILL_PATHS) {
       const meta = frontmatter(await readFile(path.join(dir, skill), "utf8"));
+
       expect(meta.name).toBe(nameFromPath(skill, "skills"));
       expect(meta.description).toBeTruthy();
     }
@@ -158,6 +171,7 @@ describe("fixture catalog", () => {
         name: string;
         description?: string;
       };
+
       expect(entity.name).toBe(nameFromPath(hook, "hooks"));
       expect(entity.description).toBeTruthy();
     }
@@ -165,11 +179,13 @@ describe("fixture catalog", () => {
 
   it("gathers one skill into each pack, one of them through another pack", async () => {
     const membership: Record<string, unknown> = {};
+
     for (const pack of PACK_PATHS) {
       const parsed = parse(await readFile(path.join(dir, pack), "utf8")) as {
         name: string;
         requires: unknown;
       };
+
       membership[parsed.name] = parsed.requires;
     }
 
@@ -291,12 +307,14 @@ describe("fixture catalog", () => {
   it("names each MCP entity after its filename stem", async () => {
     for (const file of ["mcps/fixture.yml", "mcps/linter.yml"]) {
       const entity = parse(await readFile(path.join(dir, file), "utf8")) as { name: string };
+
       expect(entity.name).toBe(path.posix.basename(file, ".yml"));
     }
   });
 
   it("is idempotent — a rebuild reproduces the tree byte for byte", async () => {
     const before = await snapshot(dir);
+
     await buildFixtureCatalog(dir);
 
     expect(await snapshot(dir)).toEqual(before);
@@ -314,6 +332,7 @@ describe("fixture catalog", () => {
 
   it("refuses to overwrite a directory it did not create", async () => {
     const foreign = path.join(root, "foreign");
+
     await mkdir(foreign, { recursive: true });
     await writeFile(path.join(foreign, "notes.md"), "mine\n", "utf8");
 
@@ -323,6 +342,7 @@ describe("fixture catalog", () => {
 
   it("builds into an existing empty directory", async () => {
     const empty = path.join(root, "empty");
+
     await mkdir(empty, { recursive: true });
 
     await expect(buildFixtureCatalog(empty)).resolves.toBe(empty);

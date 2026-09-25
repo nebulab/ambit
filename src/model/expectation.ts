@@ -126,17 +126,26 @@ function ambiguousEntry(entry: YamlMapping, keys: readonly string[]): AmbitError
  */
 export function parseExpectations(mapping: YamlMapping): readonly Expectation[] {
   const entries = mapping.optionalEntryList(EXPECTS_KEY);
-  if (entries === undefined) return [];
+
+  if (entries === undefined) {
+    return [];
+  }
 
   return entries.map((entry) => {
     // A `PositionedString` is a plain name; everything else the sequence could hold was already
     // refused by `optionalEntryList`.
-    if (!(entry instanceof YamlMapping)) throw bareEntry(mapping, entry.value);
+    if (!(entry instanceof YamlMapping)) {
+      throw bareEntry(mapping, entry.value);
+    }
 
     const keys = entry.keys();
-    if (keys.length !== 1) throw ambiguousEntry(entry, keys);
+
+    if (keys.length !== 1) {
+      throw ambiguousEntry(entry, keys);
+    }
 
     const kind = keys[0]!;
+
     if (!isExpectationKind(kind)) {
       throw entry.keyError(kind, `unknown precondition "${kind}" in an \`${EXPECTS_KEY}\` entry`, [
         `an entry is one key: ${kindList()}`,

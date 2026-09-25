@@ -92,6 +92,7 @@ function requiresEntry(pack: string, catalog = CATALOG_NAME): string {
 async function writeProfile(packs: readonly string[]): Promise<void> {
   const list =
     packs.length === 0 ? "[]" : `\n${packs.map((pack) => requiresEntry(pack)).join("\n")}`;
+
   await writeFile(
     path.join(projectDir, "ambit.yml"),
     `version: 1
@@ -120,6 +121,7 @@ async function writeHookProfile(
 ): Promise<void> {
   if (hooks.length > 0) {
     const dir = path.join(catalogDir, "hooks", HOOK);
+
     await mkdir(dir, { recursive: true });
     await writeFile(path.join(dir, "hook.yml"), [`name: ${HOOK}`, ...hooks, ""].join("\n"), "utf8");
     // The pack the profile below takes: nothing labels itself, so the grouping is a document.
@@ -136,6 +138,7 @@ async function writeHookProfile(
       "utf8",
     );
   }
+
   await writeFile(
     path.join(projectDir, "ambit.yml"),
     `version: 1
@@ -160,6 +163,7 @@ async function cli(
     stdout: (line) => out.push(line),
     stderr: (line) => err.push(line),
   });
+
   return { code, stdout: out.join("\n"), stderr: err.join("\n") };
 }
 
@@ -174,18 +178,24 @@ async function snapshot(): Promise<Record<string, string>> {
     for (const entry of await readdir(current)) {
       const within = relative === "" ? entry : `${relative}/${entry}`;
       const absolute = path.join(current, entry);
-      if ((await stat(absolute)).isDirectory()) await walk(absolute, within);
-      else found[within] = await readFile(absolute, "utf8");
+
+      if ((await stat(absolute)).isDirectory()) {
+        await walk(absolute, within);
+      } else {
+        found[within] = await readFile(absolute, "utf8");
+      }
     }
   };
 
   await walk(projectDir, "");
+
   return found;
 }
 
 /** Every finding, as `check/severity: message`, so a whole report fits one assertion. */
 async function findings(): Promise<readonly string[]> {
   const report = await diagnoseProject(projectDir);
+
   return report.findings.map(
     (finding) => `${finding.check}/${finding.severity}: ${finding.message}`,
   );
@@ -195,13 +205,16 @@ async function findings(): Promise<readonly string[]> {
 async function detailOf(needle: string): Promise<readonly string[]> {
   const report = await diagnoseProject(projectDir);
   const found = report.findings.filter((finding) => finding.message.includes(needle));
+
   expect(found).toHaveLength(1);
+
   return found[0]?.detail ?? [];
 }
 
 /** Every check's verdict, as `check=status`. */
 async function checks(): Promise<readonly string[]> {
   const report = await diagnoseProject(projectDir);
+
   return report.checks.map((result) => `${result.check}=${result.status}`);
 }
 
@@ -245,6 +258,7 @@ describe("ambit doctor on a healthy project", () => {
 
     // The lock is the one file the second run was told about; nothing else moved.
     const after = await snapshot();
+
     expect(Object.keys(after).sort()).toEqual(
       Object.keys(before)
         .filter((file) => file !== LOCK_FILE)
@@ -607,6 +621,7 @@ describe("ambit doctor on a project configuring codex", () => {
     expect((await cli("install")).code).toBe(ExitCode.Success);
 
     const result = await cli("doctor");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
     expect(await findings()).toEqual([
       "harness/warn: codex runs hooks only with `[features] codex_hooks = true` set",

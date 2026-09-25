@@ -31,13 +31,20 @@ import { printSections, section } from "../output.js";
  * runs (`src/cli/commands.ts`).
  */
 function modeOverride(ctx: CommandContext): ArtifactMode | undefined {
-  if (ctx.options.copy === true) return "copy";
-  if (ctx.options.link === true) return "link";
+  if (ctx.options.copy === true) {
+    return "copy";
+  }
+
+  if (ctx.options.link === true) {
+    return "link";
+  }
+
   return undefined;
 }
 
 function installOptionsOf(ctx: CommandContext): UpdateInstallOptions {
   const mode = modeOverride(ctx);
+
   return { adopt: ctx.options.adopt === true, ...(mode !== undefined && { mode }) };
 }
 
@@ -80,15 +87,27 @@ export const updateHandler: CommandHandler = async (ctx) => {
 
   if (dryRunRequested(ctx)) {
     const plan = await previewUpdate(projectDir, options);
-    if (jsonRequested(ctx)) ctx.stdout(JSON.stringify(previewJson(plan), null, 2));
-    else printSections(planText(plan), ctx.stdout);
+
+    if (jsonRequested(ctx)) {
+      ctx.stdout(JSON.stringify(previewJson(plan), null, 2));
+    } else {
+      printSections(planText(plan), ctx.stdout);
+    }
+
     return ExitCode.Success;
   }
 
   const result = await updateProject(projectDir, options, installOptionsOf(ctx));
 
-  if (jsonRequested(ctx)) ctx.stdout(JSON.stringify(toJson(result), null, 2));
-  else printSections(toText(result), ctx.stdout);
-  for (const line of skipWarnings(result.install.skipped)) ctx.stderr(line);
+  if (jsonRequested(ctx)) {
+    ctx.stdout(JSON.stringify(toJson(result), null, 2));
+  } else {
+    printSections(toText(result), ctx.stdout);
+  }
+
+  for (const line of skipWarnings(result.install.skipped)) {
+    ctx.stderr(line);
+  }
+
   return ExitCode.Success;
 };

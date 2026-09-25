@@ -64,4 +64,6 @@ const binaries = process.argv.includes("--binaries");
 
 await rm("dist", { recursive: true, force: true });
 await buildPackage();
-if (binaries) await buildBinaries();
+if (binaries) {
+  await buildBinaries();
+}

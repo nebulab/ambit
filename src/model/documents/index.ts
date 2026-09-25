@@ -64,14 +64,18 @@ export function driverFor(
   shape: DocumentShape = "map",
   rootDefaults?: JsonObject,
 ): DocumentDriver {
-  if (shape === "map") return MAP_DRIVERS[format];
+  if (shape === "map") {
+    return MAP_DRIVERS[format];
+  }
 
   const driver = ARRAY_DRIVERS[format];
+
   if (driver === undefined) {
     throw new AmbitError(ExitCode.Internal, `no ${format} driver for an array-shaped section`, [
       "every harness file ambit writes an array-shaped section into is JSON",
       "this is a bug in ambit; nothing a project can hold selects this pairing",
     ]);
   }
+
   return driver(rootDefaults);
 }

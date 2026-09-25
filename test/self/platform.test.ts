@@ -42,21 +42,25 @@ describe("installKind", () => {
 
   it("recognizes npx by the cache directory it runs out of", () => {
     const main = "/Users/x/.npm/_npx/8fa1b2/node_modules/@nebulab/ambit/dist/cli.js";
+
     expect(installKind(`file://${main}`, main)).toBe("npx");
   });
 
   it("recognizes npx on Windows, where the same path uses backslashes", () => {
     const main = "C:\\Users\\x\\AppData\\npm-cache\\_npx\\8fa1b2\\node_modules\\ambit\\cli.js";
+
     expect(installKind("file:///C:/Users/x/ambit/cli.js", main)).toBe("npx");
   });
 
   it("treats a global npm install as neither", () => {
     const main = "/usr/local/lib/node_modules/@nebulab/ambit/dist/cli.js";
+
     expect(installKind(`file://${main}`, main)).toBe("node");
   });
 
   it("does not mistake a directory merely containing the segment for the npx cache", () => {
     const main = "/Users/x/my_npx_notes/ambit/cli.js";
+
     expect(installKind(`file://${main}`, main)).toBe("node");
   });
 });
@@ -80,6 +84,7 @@ describe("runningBinary", () => {
   it("resolves the symlink a PATH entry usually is", async () => {
     const real = path.join(workspace, "ambit-real");
     const link = path.join(workspace, "ambit");
+
     await writeFile(real, "#!/bin/sh\n");
     await symlink(real, link);
 
@@ -89,6 +94,7 @@ describe("runningBinary", () => {
 
   it("falls back to the path it was given when nothing is there", async () => {
     const missing = path.join(workspace, "gone");
+
     expect(await runningBinary(missing)).toBe(missing);
   });
 });
@@ -96,6 +102,7 @@ describe("runningBinary", () => {
 describe("canReplace", () => {
   it("accepts a binary in a writable directory", async () => {
     const binary = path.join(workspace, "ambit");
+
     await writeFile(binary, "");
 
     expect(await canReplace(binary)).toBe(true);
@@ -103,8 +110,10 @@ describe("canReplace", () => {
 
   it.skipIf(IS_ROOT)("refuses a binary whose directory cannot be written", async () => {
     const locked = path.join(workspace, "locked");
+
     await mkdir(locked);
     const binary = path.join(locked, "ambit");
+
     await writeFile(binary, "");
     await chmod(locked, 0o500);
 

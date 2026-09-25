@@ -13,16 +13,26 @@ const original = new Map<string, string | undefined>();
 
 /** Sets `name` for the rest of the file, or unsets it when `value` is `undefined`. */
 export function stubEnv(name: string, value: string | undefined): void {
-  if (!original.has(name)) original.set(name, process.env[name]);
-  if (value === undefined) delete process.env[name];
-  else process.env[name] = value;
+  if (!original.has(name)) {
+    original.set(name, process.env[name]);
+  }
+
+  if (value === undefined) {
+    delete process.env[name];
+  } else {
+    process.env[name] = value;
+  }
 }
 
 /** Puts every name {@link stubEnv} touched back the way it was found. */
 export function restoreEnv(): void {
   for (const [name, value] of original) {
-    if (value === undefined) delete process.env[name];
-    else process.env[name] = value;
+    if (value === undefined) {
+      delete process.env[name];
+    } else {
+      process.env[name] = value;
+    }
   }
+
   original.clear();
 }

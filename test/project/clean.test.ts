@@ -96,6 +96,7 @@ function requiresEntry(pack: string, catalog = CATALOG_NAME): string {
 async function writeProfile(packs: readonly string[]): Promise<void> {
   const list =
     packs.length === 0 ? "[]" : `\n${packs.map((pack) => requiresEntry(pack)).join("\n")}`;
+
   await writeFile(
     path.join(projectDir, "ambit.yml"),
     `version: 1
@@ -119,6 +120,7 @@ async function cli(
     stdout: (line) => out.push(line),
     stderr: (line) => err.push(line),
   });
+
   return { code, stdout: out.join("\n"), stderr: err.join("\n") };
 }
 
@@ -135,12 +137,17 @@ async function snapshot(): Promise<Record<string, string>> {
     for (const entry of await readdir(current)) {
       const within = relative === "" ? entry : `${relative}/${entry}`;
       const absolute = path.join(current, entry);
-      if ((await stat(absolute)).isDirectory()) await walk(absolute, within);
-      else found[within] = await readFile(absolute, "utf8");
+
+      if ((await stat(absolute)).isDirectory()) {
+        await walk(absolute, within);
+      } else {
+        found[within] = await readFile(absolute, "utf8");
+      }
     }
   };
 
   await walk(projectDir, "");
+
   return found;
 }
 
@@ -156,6 +163,7 @@ async function installedSkills(): Promise<readonly string[]> {
 async function pathExists(target: string): Promise<boolean> {
   try {
     await stat(path.join(projectDir, target));
+
     return true;
   } catch {
     return false;
@@ -171,6 +179,7 @@ async function readMcpConfig(): Promise<Record<string, unknown>> {
 
 async function ownedPathsNow(): Promise<readonly string[]> {
   const text = await readFile(path.join(projectDir, STATE_FILE), "utf8");
+
   return parseState(text, STATE_FILENAME).artifacts.map((artifact) => artifact.path);
 }
 
@@ -179,15 +188,21 @@ async function managedBlock(
   file: string = GITIGNORE_FILENAME,
 ): Promise<readonly string[] | undefined> {
   let text: string;
+
   try {
     text = await readFile(path.join(projectDir, file), "utf8");
   } catch {
     return undefined;
   }
+
   const lines = text.split("\n");
   const start = lines.findIndex((line) => line.startsWith(BLOCK_BEGIN));
   const end = lines.findIndex((line) => line.startsWith(BLOCK_END));
-  if (start === -1 || end <= start) return undefined;
+
+  if (start === -1 || end <= start) {
+    return undefined;
+  }
+
   return lines.slice(start + 1, end);
 }
 
@@ -203,6 +218,7 @@ async function lockOfFreshInstall(packs: readonly string[]): Promise<string> {
   const reference = await mkdtemp(path.join(root, "reference-"));
   const list =
     packs.length === 0 ? "[]" : `\n${packs.map((pack) => requiresEntry(pack)).join("\n")}`;
+
   await writeFile(
     path.join(reference, "ambit.yml"),
     `version: 1
@@ -219,13 +235,16 @@ requires: ${list}
     stdout: () => undefined,
     stderr: () => undefined,
   });
+
   expect(code).toBe(ExitCode.Success);
+
   return await readFile(path.join(reference, LOCK_FILENAME), "utf8");
 }
 
 /** A skill directory beside ambit's that no state claims. */
 async function writeForeignSkillDir(): Promise<void> {
   const target = path.join(projectDir, SKILLS_DIR, HANDMADE_SKILL);
+
   await mkdir(target, { recursive: true });
   await writeFile(path.join(target, "SKILL.md"), `---\nname: ${HANDMADE_SKILL}\n---\n`, "utf8");
 }
@@ -254,6 +273,7 @@ describe("ambit prune", () => {
     await writeProfile(["core"]);
 
     const result = await cli("prune");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     expect(await installedSkills()).toEqual([CORE_SKILL]);
@@ -301,6 +321,7 @@ describe("ambit prune", () => {
     await writeProfile(["core"]);
 
     const result = await cli("prune");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     expect(await installedSkills()).toEqual([CORE_SKILL, HANDMADE_SKILL].sort());
@@ -319,6 +340,7 @@ describe("ambit prune", () => {
     // The reference is a fresh install of the narrowed profile into a second project: the lock a prune
     // leaves must be the one install writes for the surviving set, not a subtraction of its own.
     const pruned = await readFile(path.join(projectDir, LOCK_FILENAME), "utf8");
+
     expect(pruned).toBe(await lockOfFreshInstall(["core"]));
 
     // And it really did change — otherwise the assertion above would pass on a prune that wrote nothing.
@@ -341,9 +363,11 @@ describe("ambit prune", () => {
   it("writes no lock under `--dry-run`, however much it says it would remove", async () => {
     await cli("install");
     const lock = await readFile(path.join(projectDir, LOCK_FILENAME), "utf8");
+
     await writeProfile(["core"]);
 
     const result = await cli("prune", "--dry-run");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     expect(await readFile(path.join(projectDir, LOCK_FILENAME), "utf8")).toBe(lock);
@@ -358,6 +382,7 @@ describe("ambit prune", () => {
     // The whole point of rewriting the lock: the project a prune leaves is one `doctor` calls healthy,
     // where it used to report `ambit.lock is out of date` for the change the prune had just made.
     const report = await diagnoseProject(projectDir);
+
     expect(report.findings.map((finding) => `${finding.check}/${finding.severity}`)).toEqual([]);
     expect(isHealthy(report)).toBe(true);
   });
@@ -367,6 +392,7 @@ describe("ambit prune", () => {
     const before = await snapshot();
 
     const result = await cli("prune");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     expect(await snapshot()).toEqual(before);
@@ -375,6 +401,7 @@ describe("ambit prune", () => {
 
   it("writes nothing at all in a project ambit never installed into", async () => {
     const result = await cli("prune");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     // Not even the state file or a `.gitignore` block: a prune with nothing to remove has nothing to
@@ -389,6 +416,7 @@ describe("ambit prune", () => {
     const before = await snapshot();
 
     const result = await cli("prune");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     expect(await snapshot()).toEqual(before);
@@ -402,6 +430,7 @@ describe("ambit prune", () => {
     const result = await cli("prune");
 
     const width = `${SKILLS_DIR}/${FRONTEND_SKILL}`.length;
+
     expect(result.stdout).toBe(
       [
         "pruned (5)",
@@ -445,6 +474,7 @@ describe("ambit prune", () => {
     const before = await snapshot();
 
     const result = await cli("prune", "--dry-run", "--json");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     expect(JSON.parse(result.stdout).pruned).toEqual([
@@ -471,6 +501,7 @@ describe("ambit clean", () => {
 
   it("removes every skill directory and every managed server key", async () => {
     const result = await cli("clean");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     expect(await installedSkills()).toEqual([]);
@@ -499,6 +530,7 @@ describe("ambit clean", () => {
 
   it("gives a .gitignore the project already had back byte for byte", async () => {
     const handwritten = "node_modules/\n.env\n";
+
     await rm(path.join(projectDir, GITIGNORE_FILENAME));
     await writeFile(path.join(projectDir, GITIGNORE_FILENAME), handwritten, "utf8");
     await cli("install");
@@ -512,6 +544,7 @@ describe("ambit clean", () => {
   it("leaves a hand-written skill and a hand-added server untouched", async () => {
     await writeForeignSkillDir();
     const handmade = { command: "node", args: ["./scripts/local-mcp.js"] };
+
     await writeFile(
       path.join(projectDir, MCP_FILE),
       `${JSON.stringify({ mcpServers: { handmade, [PACKED_MCP]: { type: "http", url: "x" } }, extra: 1 }, null, 2)}\n`,
@@ -521,6 +554,7 @@ describe("ambit clean", () => {
     await cli("install", "--adopt");
 
     const result = await cli("clean");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     expect(await installedSkills()).toEqual([HANDMADE_SKILL]);
@@ -533,6 +567,7 @@ describe("ambit clean", () => {
     await rm(path.join(projectDir, "ambit.yml"));
 
     const result = await cli("clean");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     expect(await installedSkills()).toEqual([]);
@@ -544,6 +579,7 @@ describe("ambit clean", () => {
     const before = await snapshot();
 
     const second = await cli("clean");
+
     expect(second.code, second.stderr).toBe(ExitCode.Success);
 
     expect(await snapshot()).toEqual(before);
@@ -556,6 +592,7 @@ describe("ambit clean", () => {
     const result = await cli("clean");
 
     const width = `${SKILLS_DIR}/${CORE_SKILL}`.length;
+
     expect(result.stdout).toBe(
       [
         "removed (7)",
@@ -602,6 +639,7 @@ describe("ambit clean", () => {
     const before = await snapshot();
 
     const result = await cli("clean", "--dry-run", "--json");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     expect(JSON.parse(result.stdout)).toEqual({

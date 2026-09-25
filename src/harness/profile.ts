@@ -174,12 +174,16 @@ function compare(a: string, b: string): number {
  * the same question the same way.
  */
 function modeOf(item: { readonly commit?: string }, project: ProjectPaths): ArtifactMode {
-  if (project.mode !== undefined) return project.mode;
+  if (project.mode !== undefined) {
+    return project.mode;
+  }
+
   return item.commit === undefined ? "link" : "copy";
 }
 
 function planSkill(skill: MergedSkill, project: ProjectPaths): PlannedSkillDir {
   const relative = `${SHARED_SKILLS_DIR}/${skill.name}`;
+
   return {
     kind: "skill-dir",
     path: relative,
@@ -201,7 +205,10 @@ function planSkillsLink(
   skills: readonly MergedSkill[],
   project: ProjectPaths,
 ): PlannedSkillsLink | undefined {
-  if (profile.skillsLink === undefined || skills.length === 0) return undefined;
+  if (profile.skillsLink === undefined || skills.length === 0) {
+    return undefined;
+  }
+
   return {
     kind: "skills-link",
     path: profile.skillsLink,
@@ -222,7 +229,9 @@ function planMcpConfig(
   mcps: readonly MergedMcp[],
   project: ProjectPaths,
 ): PlannedHarnessConfig | undefined {
-  if (mcps.length === 0) return undefined;
+  if (mcps.length === 0) {
+    return undefined;
+  }
 
   // `mcps` arrives sorted by name, so the entries, and the managed keys state records, are too.
   const entries: readonly ConfigEntry[] = mcps.map((mcp) => ({
@@ -255,9 +264,13 @@ function planMcpConfig(
  */
 function hookArrayFor(profile: HarnessProfile, hook: HookEntity): string | undefined {
   const layout = profile.hooks;
-  if (layout === undefined || profile.hookConfig === undefined) return undefined;
+
+  if (layout === undefined || profile.hookConfig === undefined) {
+    return undefined;
+  }
 
   const events: Readonly<Record<string, string | undefined>> | undefined = layout.events;
+
   return events === undefined ? hook.event : events[hook.event];
 }
 
@@ -273,6 +286,7 @@ export function skippedHooks(
   hooks: readonly HookEntity[],
 ): readonly SkippedHook[] {
   const reason: HookSkipReason = profile.hooks === undefined ? "no-mechanism" : "no-event";
+
   return hooks
     .filter((hook) => hookArrayFor(profile, hook) === undefined)
     .map((hook) => ({ harness: profile.name, hook: hook.name, event: hook.event, reason }));
@@ -294,10 +308,16 @@ function planHookDir(
   hook: MergedHook,
   project: ProjectPaths,
 ): PlannedHookDir | undefined {
-  if (hook.type !== "script") return undefined;
-  if (hookArrayFor(profile, hook) === undefined) return undefined;
+  if (hook.type !== "script") {
+    return undefined;
+  }
+
+  if (hookArrayFor(profile, hook) === undefined) {
+    return undefined;
+  }
 
   const relative = `${SHARED_HOOKS_DIR}/${hook.name}`;
+
   return {
     kind: "hook-dir",
     path: relative,
@@ -331,16 +351,27 @@ function planHookConfig(
 ): PlannedHarnessConfig | undefined {
   const layout = profile.hooks;
   const render = profile.hookConfig;
-  if (layout === undefined || render === undefined) return undefined;
+
+  if (layout === undefined || render === undefined) {
+    return undefined;
+  }
 
   // `hooks` arrives sorted by name, so the entries, and the managed keys state records, are too.
   const entries: readonly ConfigEntry[] = hooks.flatMap((hook) => {
     const event = hookArrayFor(profile, hook);
-    if (event === undefined) return [];
+
+    if (event === undefined) {
+      return [];
+    }
+
     const value = render(hook, project);
+
     return [{ key: arrayEntryKey(event, value), value }];
   });
-  if (entries.length === 0) return undefined;
+
+  if (entries.length === 0) {
+    return undefined;
+  }
 
   return {
     kind: "harness-config",
@@ -367,6 +398,7 @@ function planHookConfig(
  */
 async function link(from: string, at: string, label: string, hint: string): Promise<void> {
   const relative = path.relative(path.dirname(at), from);
+
   try {
     // `dir` is what Windows needs to make a directory link; POSIX ignores it.
     await symlink(relative, at, "dir");
@@ -404,6 +436,7 @@ async function applyCatalogDir(
     // source is never deleted.
     await rm(artifact.target, { recursive: true, force: true });
   }
+
   await mkdir(path.dirname(artifact.target), { recursive: true });
 
   if (artifact.mode === "link") {
@@ -432,7 +465,10 @@ async function applySkillsLink(
   owned: ReadonlySet<string>,
 ): Promise<AppliedArtifact> {
   await mkdir(artifact.source, { recursive: true });
-  if (owned.has(artifact.path)) await rm(artifact.target, { recursive: true, force: true });
+  if (owned.has(artifact.path)) {
+    await rm(artifact.target, { recursive: true, force: true });
+  }
+
   await mkdir(path.dirname(artifact.target), { recursive: true });
 
   await link(
@@ -482,12 +518,14 @@ export function adapterFor(profile: HarnessProfile): HarnessAdapter {
       const skillsLink = planSkillsLink(profile, bundle.skills, project);
       const mcpConfig = planMcpConfig(profile, bundle.mcps, project);
       const hookConfig = planHookConfig(profile, bundle.hooks, project);
+
       return [
         ...bundle.skills.map((skill) => planSkill(skill, project)),
         // Directories before configs. `flatMap` because most hooks plan none: a hook with no script
         // is just a command line, which is the config artifact's business.
         ...bundle.hooks.flatMap((hook) => {
           const dir = planHookDir(profile, hook, project);
+
           return dir === undefined ? [] : [dir];
         }),
         ...(skillsLink === undefined ? [] : [skillsLink]),
@@ -508,11 +546,13 @@ export function adapterFor(profile: HarnessProfile): HarnessAdapter {
       for (const artifact of plan) {
         // Both directory kinds are named explicitly rather than left to a trailing `else`: falling
         // through to `applyHarnessConfig` would try to merge a section into a directory.
-        if (artifact.kind === "skill-dir" || artifact.kind === "hook-dir")
+        if (artifact.kind === "skill-dir" || artifact.kind === "hook-dir") {
           applied.push(await applyCatalogDir(artifact, owned));
-        else if (artifact.kind === "skills-link")
+        } else if (artifact.kind === "skills-link") {
           applied.push(await applySkillsLink(artifact, owned));
-        else applied.push(await applyHarnessConfig(artifact));
+        } else {
+          applied.push(await applyHarnessConfig(artifact));
+        }
       }
 
       return applied;
@@ -533,11 +573,13 @@ export async function holdsOnlyOwned(
   owned: ReadonlySet<string>,
 ): Promise<boolean> {
   let entries: readonly string[];
+
   try {
     entries = await readdir(target);
   } catch {
     return false;
   }
+
   return entries.every((entry) => owned.has(`${relative}/${entry}`));
 }
 

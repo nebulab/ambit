@@ -77,7 +77,10 @@ const REMOVED_INLINE_KEYS: readonly {
  */
 function assertNoInlineDefinitions(root: YamlMapping): void {
   for (const removed of REMOVED_INLINE_KEYS) {
-    if (!root.has(removed.key)) continue;
+    if (!root.has(removed.key)) {
+      continue;
+    }
+
     throw root.keyError(removed.key, `top-level \`${removed.key}\` is gone`, [
       `${removed.subject} is defined by a file of its own: move each entry to \`${removed.file}\``,
       SELF_CATALOG_ADVICE,
@@ -119,6 +122,7 @@ function catalogAliases(root: YamlMapping): readonly string[] {
   try {
     return (root.optionalMappingList("catalogs") ?? []).flatMap((entry) => {
       const name = entry.optionalString("name");
+
       return name === undefined ? [] : [name];
     });
   } catch {
@@ -135,6 +139,7 @@ function catalogAliases(root: YamlMapping): readonly string[] {
  */
 function rewriteAlias(root: YamlMapping): string {
   const aliases = catalogAliases(root);
+
   return aliases.length === 1 ? aliases[0]! : ALIAS_PLACEHOLDER;
 }
 
@@ -147,7 +152,9 @@ function rewriteAlias(root: YamlMapping): string {
  */
 function assertNoRemovedSelection(root: YamlMapping): void {
   for (const removed of REMOVED_SELECTION_KEYS) {
-    if (!root.has(removed.key)) continue;
+    if (!root.has(removed.key)) {
+      continue;
+    }
 
     const catalog = rewriteAlias(root);
     const kind = removed.kind;
@@ -157,6 +164,7 @@ function assertNoRemovedSelection(root: YamlMapping): void {
         : (root.optionalPositionedStringList(removed.key) ?? []).map((entry) => {
             const yaml = entryYaml({ kind, pattern: entry.value, catalog });
             const where = entry.line === undefined ? "" : `line ${entry.line}: `;
+
             return `${where}\`${entry.value}\` becomes \`${yaml}\``;
           });
 
@@ -242,11 +250,13 @@ function nameTracker(
   return (name, line) => {
     if (seen.has(name)) {
       const first = seen.get(name);
+
       throw configError(`duplicate ${subject} "${name}" ${at(file, line)}`, [
         first === undefined ? "already declared earlier" : `first declared on line ${first}`,
         advice,
       ]);
     }
+
     seen.set(name, line);
   };
 }
@@ -263,7 +273,9 @@ function nameTracker(
  * alias rather than a pattern.
  */
 function assertAddressableAlias(entry: YamlMapping, name: string): void {
-  if (!name.includes(CATALOG_SEPARATOR)) return;
+  if (!name.includes(CATALOG_SEPARATOR)) {
+    return;
+  }
 
   throw entry.keyError("name", `catalog name "${name}" holds a \`${CATALOG_SEPARATOR}\``, [
     `a \`${REQUIRES_KEY}\` entry addresses an item as \`<catalog>${CATALOG_SEPARATOR}<pattern>\`, so nothing can select from an alias holding one`,
@@ -278,10 +290,12 @@ function parseCatalogs(root: YamlMapping): readonly CatalogRef[] {
   for (const entry of root.optionalMappingList("catalogs") ?? []) {
     entry.rejectUnknownKeys(CATALOG_KEYS);
     const name = entry.requireString("name");
+
     assertAddressableAlias(entry, name);
     track(name, entry.lineOf("name"));
 
     const ref = entry.optionalString("ref");
+
     catalogs.push({
       name,
       source: entry.requireString("source"),
@@ -312,11 +326,15 @@ function parseSelection(root: YamlMapping): Selection {
   const items = root.optionalEntryList(REQUIRES_KEY) ?? [];
 
   const lines = new Map<string, number>();
+
   written.forEach((entry, index) => {
     const item = items[index];
     const line = item instanceof YamlMapping ? item.line : undefined;
     const key = entryYaml(entry);
-    if (line !== undefined && !lines.has(key)) lines.set(key, line);
+
+    if (line !== undefined && !lines.has(key)) {
+      lines.set(key, line);
+    }
   });
 
   return { entries: uniqueEntries(written), lines };
@@ -329,6 +347,7 @@ function fromMapping(root: YamlMapping): ProjectConfig {
   root.rejectUnknownKeys(CONFIG_KEYS);
 
   const version = root.requireInteger("version");
+
   if (version !== CONFIG_VERSION) {
     throw root.keyError("version", `unsupported config version ${version}`, [
       `this build of ambit understands version ${CONFIG_VERSION}`,
@@ -380,9 +399,13 @@ async function isFile(target: string): Promise<boolean> {
  */
 export async function existingConfigFiles(projectDir: string): Promise<readonly string[]> {
   const present: string[] = [];
+
   for (const name of CONFIG_FILENAMES) {
-    if (await isFile(path.join(projectDir, name))) present.push(name);
+    if (await isFile(path.join(projectDir, name))) {
+      present.push(name);
+    }
   }
+
   return present;
 }
 
@@ -403,6 +426,7 @@ export async function findConfigFile(
       "run `ambit init` to scaffold one",
     ]);
   }
+
   if (present.length > 1) {
     throw configError(`${present.join(" and ")} both exist in ${projectDir}`, [
       "ambit cannot tell which one is authoritative",
@@ -411,6 +435,7 @@ export async function findConfigFile(
   }
 
   const file = present[0]!;
+
   return { path: path.join(projectDir, file), file };
 }
 
@@ -421,5 +446,6 @@ export async function findConfigFile(
  */
 export async function loadProjectConfig(projectDir: string): Promise<ProjectConfig> {
   const found = await findConfigFile(projectDir);
+
   return fromMapping(await readYamlMapping(found.path, found.file));
 }

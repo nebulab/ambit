@@ -68,6 +68,7 @@ async function writeProfile(
 ): Promise<void> {
   const list =
     packs.length === 0 ? "[]" : `\n${packs.map((pack) => requiresEntry(pack)).join("\n")}`;
+
   await writeFile(
     path.join(projectDir, "ambit.yml"),
     `version: 1
@@ -118,6 +119,7 @@ async function writeSkill(
   within = catalogDir,
 ): Promise<void> {
   const target = path.join(within, "skills", relative, "SKILL.md");
+
   await mkdir(path.dirname(target), { recursive: true });
   await writeFile(
     target,
@@ -137,6 +139,7 @@ async function writeSkill(
 /** The same, with a frontmatter `name` the path does not derive — the one recoverable violation. */
 async function writeMisnamedSkill(relative: string, declared: string): Promise<void> {
   const target = path.join(catalogDir, "skills", relative, "SKILL.md");
+
   await mkdir(path.dirname(target), { recursive: true });
   await writeFile(
     target,
@@ -157,6 +160,7 @@ async function writeHook(
   within = catalogDir,
 ): Promise<void> {
   const target = path.join(within, "hooks", name.replaceAll(".", "/"), "hook.yml");
+
   await mkdir(path.dirname(target), { recursive: true });
   await writeFile(target, [`name: ${name}`, ...lines, ""].join("\n"), "utf8");
 }
@@ -172,6 +176,7 @@ async function cli(
     stdout: (line) => out.push(line),
     stderr: (line) => err.push(line),
   });
+
   return { code, stdout: out.join("\n"), stderr: err.join("\n") };
 }
 
@@ -189,6 +194,7 @@ async function cliInCatalogRepo(
     stdout: (line) => out.push(line),
     stderr: (line) => err.push(line),
   });
+
   return { code, stdout: out.join("\n"), stderr: err.join("\n") };
 }
 
@@ -218,6 +224,7 @@ async function report(...argv: readonly string[]): Promise<{
   problems: readonly ProblemRecord[];
 }> {
   const result = await cli(...argv, "--json");
+
   return JSON.parse(result.stdout) as {
     valid: boolean;
     checked: Readonly<Record<string, number>>;
@@ -516,12 +523,14 @@ describe("ambit validate: a name two catalogs provide", () => {
     expect((await cli("validate")).code).toBe(ExitCode.Success);
 
     const resolved = await cli("resolve");
+
     expect(resolved.code).toBe(ExitCode.Resolution);
     expect(resolved.stderr).toContain("is selected from more than one catalog");
   });
 
   it("reports a broken skill once per copy, because two copies are two documents", async () => {
     const dangling = [requires(needs("skill", "absent"))];
+
     await writeSkill("dangling", dangling);
     await writeSkill("dangling", dangling, path.join(root, SECOND));
 

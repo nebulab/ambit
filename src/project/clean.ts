@@ -88,11 +88,13 @@ export interface CleanResult {
  */
 async function plannedGitignoreRemovals(projectDir: string): Promise<readonly string[]> {
   const files: string[] = [];
+
   for (const file of [GITIGNORE_FILENAME, SHARED_GITIGNORE_FILE]) {
     if (removeGitignoreText(await readGitignoreText(projectDir, file), file) !== undefined) {
       files.push(file);
     }
   }
+
   return files;
 }
 
@@ -100,6 +102,7 @@ async function plannedGitignoreRemovals(projectDir: string): Promise<readonly st
 async function exists(target: string): Promise<boolean> {
   try {
     await lstat(target);
+
     return true;
   } catch {
     return false;
@@ -138,8 +141,13 @@ export async function pruneProject(
   const stale = planPrune(planned.artifacts, planned.prior);
   const remaining = remainingArtifacts(planned.prior, stale);
 
-  if (options.dryRun === true) return { pruned: stale, remaining };
-  if (stale.length === 0) return { pruned: [], remaining: planned.prior.artifacts };
+  if (options.dryRun === true) {
+    return { pruned: stale, remaining };
+  }
+
+  if (stale.length === 0) {
+    return { pruned: [], remaining: planned.prior.artifacts };
+  }
 
   const pruned = await pruneArtifacts(projectDir, planned.artifacts, planned.prior);
 
@@ -193,6 +201,7 @@ export async function cleanProject(
   const gitignoreRemoved = await removeGitignoreBlocks(projectDir);
 
   const stateRemoved = await exists(stateFilePath(projectDir));
+
   await rm(stateDir, { recursive: true, force: true });
 
   return { removed, stateRemoved, gitignoreRemoved };

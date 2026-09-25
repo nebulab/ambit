@@ -54,9 +54,13 @@ function isMissing(error: unknown): boolean {
 async function exists(target: string, file: string): Promise<boolean> {
   try {
     await lstat(target);
+
     return true;
   } catch (error) {
-    if (isMissing(error)) return false;
+    if (isMissing(error)) {
+      return false;
+    }
+
     throw configError(`cannot inspect ${file}`, [
       error instanceof Error ? error.message : String(error),
       `make ${target} readable, so ambit can tell whether it would overwrite something`,
@@ -84,6 +88,7 @@ async function blockingAncestor(artifact: PlannedPathArtifact): Promise<string |
   // project root: the plan already carries both forms of this location.
   const ancestors: string[] = [];
   let absolute = artifact.target;
+
   for (let depth = segments.length - 1; depth > 0; depth -= 1) {
     absolute = path.dirname(absolute);
     ancestors.unshift(absolute);
@@ -91,12 +96,15 @@ async function blockingAncestor(artifact: PlannedPathArtifact): Promise<string |
 
   for (const [index, directory] of ancestors.entries()) {
     const walked = segments.slice(0, index + 1).join("/");
+
     absolute = directory;
 
     try {
       // `stat`, following links: an ancestor that is a symlink to a real directory is a directory as
       // far as writing into it goes.
-      if (!(await stat(absolute)).isDirectory()) return walked;
+      if (!(await stat(absolute)).isDirectory()) {
+        return walked;
+      }
     } catch (error) {
       if (!isMissing(error)) {
         throw configError(`cannot inspect ${walked}`, [
@@ -104,6 +112,7 @@ async function blockingAncestor(artifact: PlannedPathArtifact): Promise<string |
           `make ${absolute} readable, so ambit can tell whether it can write beneath it`,
         ]);
       }
+
       // Nothing resolves there: either the path is genuinely absent, or a link points at something
       // that is not there. Only `lstat` can tell those apart.
       try {
@@ -111,6 +120,7 @@ async function blockingAncestor(artifact: PlannedPathArtifact): Promise<string |
       } catch {
         continue;
       }
+
       return walked;
     }
   }
@@ -135,6 +145,7 @@ function refusePath(artifact: PlannedPathArtifact): never {
     artifact.kind === "skills-link"
       ? `${artifact.path} exists but ambit did not create it, so it cannot be pointed at ${SHARED_SKILLS_DIR}`
       : `${artifact.path} exists but ambit did not create it`;
+
   throw configError("refusing to overwrite unowned path", [
     detail,
     "move it aside, or run `ambit install --adopt` to take ownership",
@@ -157,10 +168,17 @@ function refuseKey(artifact: PlannedHarnessConfig, key: string): never {
  */
 export function ownedKeys(prior: State, file: string): ReadonlySet<string> {
   const keys = new Set<string>();
+
   for (const artifact of prior.artifacts) {
-    if (artifact.path !== file) continue;
-    for (const key of artifact.managedKeys ?? []) keys.add(key);
+    if (artifact.path !== file) {
+      continue;
+    }
+
+    for (const key of artifact.managedKeys ?? []) {
+      keys.add(key);
+    }
   }
+
   return keys;
 }
 
@@ -184,14 +202,21 @@ async function checkConfigKeys(
     artifact.section,
     artifact.path,
   );
-  if (present.size === 0 || options.adopt === true) return;
+
+  if (present.size === 0 || options.adopt === true) {
+    return;
+  }
 
   const owned = ownedKeys(prior, artifact.path);
+
   // Driven by the plan's entries, which arrive sorted, so which collision is reported first depends
   // on the bundle, not on the order keys happen to sit in the file.
   for (const entry of artifact.entries) {
     const key = managedKey(artifact.section, entry.key);
-    if (present.has(entry.key) && !owned.has(key)) refuseKey(artifact, key);
+
+    if (present.has(entry.key) && !owned.has(key)) {
+      refuseKey(artifact, key);
+    }
   }
 }
 
@@ -227,10 +252,18 @@ export async function authorizePlan(
     // no more writable than a new one when the directory it lives in has been replaced by a dangling
     // link.
     const blocking = await blockingAncestor(artifact);
-    if (blocking !== undefined) refuseAncestor(artifact, blocking);
 
-    if (owned.has(artifact.path)) continue;
-    if (!(await exists(artifact.target, artifact.path))) continue;
+    if (blocking !== undefined) {
+      refuseAncestor(artifact, blocking);
+    }
+
+    if (owned.has(artifact.path)) {
+      continue;
+    }
+
+    if (!(await exists(artifact.target, artifact.path))) {
+      continue;
+    }
 
     // The one case adoption is implicit: a skills directory holding nothing but skills ambit itself
     // installed. This is what a pre-shared-layout install leaves behind, and replacing it with a link
@@ -240,10 +273,16 @@ export async function authorizePlan(
       artifact.kind === "skills-link" &&
       (await holdsOnlyOwned(artifact.target, artifact.path, owned));
 
-    if (!migrating && options.adopt !== true) refusePath(artifact);
+    if (!migrating && options.adopt !== true) {
+      refusePath(artifact);
+    }
+
     adopted.push({ path: artifact.path, kind: artifact.kind, mode: artifact.mode });
   }
 
-  if (adopted.length === 0) return prior;
+  if (adopted.length === 0) {
+    return prior;
+  }
+
   return { ...prior, artifacts: [...prior.artifacts, ...adopted] };
 }

@@ -101,6 +101,7 @@ export function parseItemSubject(text: string, summary: string): Reference<ItemK
   }
 
   const name = text.slice(separator + KIND_SEPARATOR.length);
+
   if (name === "") {
     throw configError(summary, [
       `\`${kind}${KIND_SEPARATOR}\` names no item`,

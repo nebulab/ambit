@@ -65,8 +65,11 @@ function toText(report: DoctorReport): readonly string[] {
 export const doctorHandler: CommandHandler = async (ctx) => {
   const report = await diagnoseProject(projectDirOf(ctx), { offline: offlineRequested(ctx) });
 
-  if (jsonRequested(ctx)) ctx.stdout(JSON.stringify(toJson(report), null, 2));
-  else printSections(toText(report), ctx.stdout);
+  if (jsonRequested(ctx)) {
+    ctx.stdout(JSON.stringify(toJson(report), null, 2));
+  } else {
+    printSections(toText(report), ctx.stdout);
+  }
 
   return isHealthy(report) ? ExitCode.Success : ExitCode.Doctor;
 };

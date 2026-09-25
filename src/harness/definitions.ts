@@ -217,10 +217,17 @@ function headersFor(
     }),
     ...mcp.transport.headers,
   }).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
-  if (declared.length === 0) return undefined;
+
+  if (declared.length === 0) {
+    return undefined;
+  }
 
   const headers: Record<string, string> = {};
-  for (const [name, value] of declared) headers[name] = translateRefs(value, style);
+
+  for (const [name, value] of declared) {
+    headers[name] = translateRefs(value, style);
+  }
+
   return headers;
 }
 
@@ -236,6 +243,7 @@ function stdio(
   envKey = "env",
 ): Record<string, unknown> {
   const env = stdioEnv(expectedEnv(mcp.expects), mcp.transport.env, style);
+
   return {
     command: mcp.transport.command,
     ...(mcp.transport.args.length > 0 && {
@@ -256,10 +264,13 @@ export const claude: HarnessProfile = {
   skillsLink: CLAUDE_SKILLS_LINK,
   mcp: { file: ".mcp.json", section: "mcpServers", format: "json" },
   serverConfig: (mcp) => {
-    if (mcp.transport.kind === "stdio")
+    if (mcp.transport.kind === "stdio") {
       return stdio({ ...mcp, transport: mcp.transport }, shellRef);
+    }
+
     const remote = { ...mcp, transport: mcp.transport };
     const headers = headersFor(remote, shellRef);
+
     return {
       type: "http",
       url: url(remote, shellRef),
@@ -281,10 +292,13 @@ export const cursor: HarnessProfile = {
   skillsLink: CLAUDE_SKILLS_LINK,
   mcp: { file: ".cursor/mcp.json", section: "mcpServers", format: "json" },
   serverConfig: (mcp) => {
-    if (mcp.transport.kind === "stdio")
+    if (mcp.transport.kind === "stdio") {
       return stdio({ ...mcp, transport: mcp.transport }, shellRef);
+    }
+
     const remote = { ...mcp, transport: mcp.transport };
     const headers = headersFor(remote, namespacedRef);
+
     return { url: url(remote, namespacedRef), ...(headers !== undefined && { headers }) };
   },
   hooks: CURSOR_HOOKS,
@@ -315,8 +329,10 @@ export const vscode: HarnessProfile = {
     if (mcp.transport.kind === "stdio") {
       return { type: "stdio", ...stdio({ ...mcp, transport: mcp.transport }, namespacedRef) };
     }
+
     const remote = { ...mcp, transport: mcp.transport };
     const headers = headersFor(remote, namespacedRef);
+
     return {
       type: "http",
       url: url(remote, namespacedRef),
@@ -340,18 +356,24 @@ export const codex: HarnessProfile = {
   name: "codex",
   mcp: { file: ".codex/config.toml", section: "mcp_servers", format: "toml" },
   serverConfig: (mcp) => {
-    if (mcp.transport.kind === "stdio")
+    if (mcp.transport.kind === "stdio") {
       return stdio({ ...mcp, transport: mcp.transport }, shellRef);
+    }
 
     const literal: Record<string, string> = {};
     const fromEnv: Record<string, string> = {};
     const declared = Object.entries(mcp.transport.headers).sort(([a], [b]) =>
       a < b ? -1 : a > b ? 1 : 0,
     );
+
     for (const [name, value] of declared) {
       const sole = soleReference(value);
-      if (sole === undefined) literal[name] = translateRefs(value, shellRef);
-      else fromEnv[name] = sole;
+
+      if (sole === undefined) {
+        literal[name] = translateRefs(value, shellRef);
+      } else {
+        fromEnv[name] = sole;
+      }
     }
 
     return {
@@ -382,6 +404,7 @@ export const opencode: HarnessProfile = {
   serverConfig: (mcp) => {
     if (mcp.transport.kind === "stdio") {
       const env = stdioEnv(expectedEnv(mcp.expects), mcp.transport.env, shellRef);
+
       return {
         type: "local",
         command: [
@@ -391,8 +414,10 @@ export const opencode: HarnessProfile = {
         ...(env !== undefined && { environment: env }),
       };
     }
+
     const remote = { ...mcp, transport: mcp.transport };
     const headers = headersFor(remote, bracedRef);
+
     return {
       type: "remote",
       url: url(remote, bracedRef),

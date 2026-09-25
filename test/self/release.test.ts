@@ -52,7 +52,11 @@ function answering(response: () => Response): Fetch {
 function order(a: string, b: string): number {
   const left = parseVersion(a);
   const right = parseVersion(b);
-  if (left === undefined || right === undefined) throw new Error(`unparseable: ${a} or ${b}`);
+
+  if (left === undefined || right === undefined) {
+    throw new Error(`unparseable: ${a} or ${b}`);
+  }
+
   return compareVersions(left, right);
 }
 
@@ -60,9 +64,13 @@ async function refusalOf(run: () => Promise<unknown>): Promise<AmbitError> {
   try {
     await run();
   } catch (error) {
-    if (error instanceof AmbitError) return error;
+    if (error instanceof AmbitError) {
+      return error;
+    }
+
     throw error;
   }
+
   throw new Error("expected a refusal");
 }
 
@@ -71,9 +79,13 @@ function refusalOfSync(run: () => unknown): AmbitError {
   try {
     run();
   } catch (error) {
-    if (error instanceof AmbitError) return error;
+    if (error instanceof AmbitError) {
+      return error;
+    }
+
     throw error;
   }
+
   throw new Error("expected a refusal");
 }
 
@@ -167,6 +179,7 @@ describe("latestTag", () => {
     );
 
     const error = await refusalOf(() => latestTag(fetchImpl));
+
     expect(error.code).toBe(ExitCode.Network);
     expect(error.message).toContain("did not name a latest ambit release");
   });
@@ -175,6 +188,7 @@ describe("latestTag", () => {
     const fetchImpl: Fetch = () => Promise.reject(new Error("getaddrinfo ENOTFOUND github.com"));
 
     const error = await refusalOf(() => latestTag(fetchImpl));
+
     expect(error.code).toBe(ExitCode.Network);
     expect(error.detail.join(" ")).toContain("ENOTFOUND");
   });
@@ -185,6 +199,7 @@ describe("checksumFor", () => {
 
   it("finds the line for one asset", () => {
     const file = [`${"b".repeat(64)}  ambit-darwin-arm64`, `${hash}  ${ASSET}`].join("\n");
+
     expect(checksumFor(file, ASSET)).toBe(hash);
   });
 
@@ -194,11 +209,13 @@ describe("checksumFor", () => {
 
   it("does not match an asset whose name merely ends with the one asked for", () => {
     const error = refusalOfSync(() => checksumFor(`${hash}  extra-${ASSET}\n`, ASSET));
+
     expect(error.code).toBe(ExitCode.Network);
   });
 
   it("refuses when the file lists no line for the asset", () => {
     const error = refusalOfSync(() => checksumFor(`${hash}  ambit-darwin-arm64\n`, ASSET));
+
     expect(error.code).toBe(ExitCode.Network);
     expect(error.message).toContain("lists no entry");
   });
@@ -207,6 +224,7 @@ describe("checksumFor", () => {
 describe("fetchAssetText", () => {
   it("returns the body", async () => {
     const fetchImpl = answering(() => new Response("hello\n"));
+
     expect(await fetchAssetText(fetchImpl, TAG, "checksums.txt")).toBe("hello\n");
   });
 
@@ -214,6 +232,7 @@ describe("fetchAssetText", () => {
     const fetchImpl = answering(() => new Response("Not Found", { status: 404 }));
 
     const error = await refusalOf(() => fetchAssetText(fetchImpl, TAG, "checksums.txt"));
+
     expect(error.code).toBe(ExitCode.Network);
     expect(error.detail.join(" ")).toContain("404");
   });
@@ -232,6 +251,7 @@ describe("downloadAsset", () => {
 
   it("writes it executable, since it replaces something that has to run", async () => {
     const destination = path.join(workspace, ASSET);
+
     await downloadAsset(
       answering(() => new Response("#!/bin/sh\n")),
       TAG,
@@ -247,6 +267,7 @@ describe("downloadAsset", () => {
     const fetchImpl = answering(() => new Response("Not Found", { status: 404 }));
 
     const error = await refusalOf(() => downloadAsset(fetchImpl, TAG, ASSET, destination));
+
     expect(error.code).toBe(ExitCode.Network);
     expect(error.detail.join(" ")).toContain("404");
   });

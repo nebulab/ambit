@@ -56,9 +56,13 @@ function refusal(text: string): AmbitError {
   try {
     merge(text, FIXTURE);
   } catch (error) {
-    if (error instanceof AmbitError) return error;
+    if (error instanceof AmbitError) {
+      return error;
+    }
+
     throw error;
   }
+
   throw new Error("expected a refusal, but the merge succeeded");
 }
 
@@ -423,6 +427,7 @@ args = ["-y", "@acme/fixture-mcp"]
 describe("what it refuses to render", () => {
   it("names itself as the culprit for an entry that is not a table", () => {
     let caught: AmbitError | undefined;
+
     try {
       merge(undefined, { key: "fixture", value: "npx" });
     } catch (error) {
@@ -440,6 +445,7 @@ describe("what it refuses to render", () => {
 
   it("says the same for a value type TOML has no scalar for", () => {
     let caught: AmbitError | undefined;
+
     try {
       merge(undefined, { key: "fixture", value: { command: null } });
     } catch (error) {

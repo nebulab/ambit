@@ -47,6 +47,7 @@ async function writeConfig(body: string): Promise<void> {
 /** Replaces one file inside the fixture catalog. */
 async function writeCatalogFile(relative: string, body: string): Promise<void> {
   const target = path.join(catalogDir, relative);
+
   await mkdir(path.dirname(target), { recursive: true });
   await writeFile(target, body, "utf8");
 }
@@ -56,10 +57,15 @@ async function rejection(): Promise<AmbitError> {
   try {
     await parseCatalogDirectory(CATALOG_NAME, "path:../catalog", catalogDir);
   } catch (error) {
-    if (!(error instanceof AmbitError)) throw error;
+    if (!(error instanceof AmbitError)) {
+      throw error;
+    }
+
     expect(error.code, `expected exit ${ExitCode.Config}: ${error.format()}`).toBe(ExitCode.Config);
+
     return error;
   }
+
   throw new Error("expected the catalog to be rejected");
 }
 
@@ -117,6 +123,7 @@ async function writeCollidingCatalog(name: string): Promise<void> {
 
   for (const [relative, body] of Object.entries(files)) {
     const target = path.join(root, name, relative);
+
     await mkdir(path.dirname(target), { recursive: true });
     await writeFile(target, body, "utf8");
   }
@@ -190,6 +197,7 @@ async function invoke(
     handlers,
     rules,
   );
+
   return { code, stdout: out.join("\n"), stderr: err.join("\n") };
 }
 
@@ -300,6 +308,7 @@ ambit:
     );
 
     const catalog = await parseCatalogDirectory(CATALOG_NAME, "path:../catalog", catalogDir);
+
     expect(catalog.skills.map((skill) => skill.name)).toContain("code-review");
   });
 
@@ -309,6 +318,7 @@ ambit:
     // Rebuilding into a fresh directory in a different write order is the closest a test can get
     // to a differently-ordered readdir.
     const other = path.join(root, "reordered");
+
     await cp(catalogDir, other, { recursive: true });
     const second = await parseCatalogDirectory(CATALOG_NAME, "path:../catalog", other);
 
@@ -328,6 +338,7 @@ description: x
     );
 
     const error = await rejection();
+
     expect(error.message).toContain('skill name "wrong-name" does not match its path');
     // The line is the one the reader will find `name` on in the whole document, not in the block.
     expect(error.message).toContain(`${CODE_REVIEW} line 2`);
@@ -347,6 +358,7 @@ ambit:
     );
 
     const error = await rejection();
+
     expect(error.message).toBe(`unknown key "ambit.tag" (${CODE_REVIEW} line 5)`);
     expect(error.detail).toContain("accepted keys: expects, requires");
   });
@@ -408,6 +420,7 @@ transport:
     );
 
     const error = await rejection();
+
     expect(error.message).toContain('MCP name "notother" does not match its filename');
     expect(error.detail.join("\n")).toContain('declares the name "other"');
   });
@@ -476,6 +489,7 @@ transport:
     await writeCatalogFile("scopes.yml", "scopes:\n  core:\n    description: A\n");
 
     const error = await rejection();
+
     expect(error.message).toBe("the scope registry is gone (scopes.yml)");
     expect(error.detail.join("\n")).toContain("a group of items is a pack now");
     expect(error.detail.join("\n")).toContain("selected with `pack:`");
@@ -514,6 +528,7 @@ catalogs:
 `);
 
     const result = await cli("search", "*");
+
     expect(result.code).toBe(ExitCode.Config);
     expect(result.stderr).toContain(`catalog "${CATALOG_NAME}" has an unrecognized source`);
     expect(result.stderr).toContain("use owner/repo, a git URL, `git:<url>`, or `path:./dir`");
@@ -527,6 +542,7 @@ catalogs:
 `);
 
     const result = await cli("search", "*");
+
     expect(result.code).toBe(ExitCode.Config);
     expect(result.stderr).toContain(`catalog "${CATALOG_NAME}" is not a directory`);
   });
@@ -667,6 +683,7 @@ describe("ambit search", () => {
 
     expect(second.stdout).toBe(first.stdout);
     const emitted = JSON.parse(first.stdout) as Record<string, unknown>;
+
     expect(Object.keys(emitted)).toEqual([...Object.keys(emitted)].sort());
   });
 
@@ -696,6 +713,7 @@ describe("ambit search", () => {
     await writeConfig("version: 1\nrequires: []\n");
 
     const result = await cli("search", "*");
+
     expect(result.code).toBe(ExitCode.Success);
     expect(result.stdout).toContain("no catalogs configured");
   });
@@ -704,6 +722,7 @@ describe("ambit search", () => {
     await writeCatalogFile(CODE_REVIEW, "---\nname: wrong-name\n---\n");
 
     const result = await cli("search", "*", "--json");
+
     expect(result.code).toBe(ExitCode.Config);
     expect(result.stdout).toBe("");
     expect(result.stderr).toContain("does not match its path");
@@ -713,6 +732,7 @@ describe("ambit search", () => {
     await rm(path.join(projectDir, "ambit.yml"));
 
     const result = await cli("search", "*");
+
     expect(result.code).toBe(ExitCode.Config);
     expect(result.stderr).toContain("no ambit config");
   });
@@ -735,9 +755,14 @@ describe("ambit search, narrowed", () => {
   function rowsUnder(stdout: string, title: string): readonly string[] {
     const lines = stdout.split("\n");
     const start = lines.findIndex((line) => line.startsWith(`${title} (`));
-    if (start === -1) return [];
+
+    if (start === -1) {
+      return [];
+    }
+
     const rest = lines.slice(start + 1);
     const end = rest.findIndex((line) => !line.startsWith("  "));
+
     return (end === -1 ? rest : rest.slice(0, end)).map((line) => line.trim());
   }
 
@@ -800,6 +825,7 @@ describe("ambit search, narrowed", () => {
     const result = await cli("search", "*", "--capability", "skill", "--json");
 
     const emitted = JSON.parse(result.stdout) as Record<string, Record<string, unknown>>;
+
     expect(Object.keys(emitted)).toEqual(["catalogs", "hooks", "mcps", "packs", "skills"]);
     expect(Object.keys(emitted.skills!).length).toBeGreaterThan(0);
     expect(emitted.packs).toEqual({});
@@ -809,12 +835,14 @@ describe("ambit search, narrowed", () => {
 
   it("limits to one catalog, and widens when `--catalog` is repeated", async () => {
     const second = "acme";
+
     await writeCollidingCatalog(second);
     await writeCatalogOrder([second]);
 
     // `company-context` is the name both catalogs provide, so it is the one that can tell a filter
     // that narrowed from a filter that did nothing.
     const one = await cli("search", CORE_SKILL, "--capability", "skill", "--catalog", second);
+
     expect(rowsUnder(one.stdout, "skills")).toEqual([`${CORE_SKILL}  ${second}`]);
     // The header answers *where did I just look*, so it narrows with the filter.
     expect(one.stdout).not.toContain(`${CATALOG_NAME}  path:../catalog`);
@@ -829,6 +857,7 @@ describe("ambit search, narrowed", () => {
       "--catalog",
       CATALOG_NAME,
     );
+
     expect(rowsUnder(both.stdout, "skills")).toEqual([
       `${CORE_SKILL}  ${second}`,
       `${CORE_SKILL}  ${CATALOG_NAME}`,
@@ -837,6 +866,7 @@ describe("ambit search, narrowed", () => {
 
   it("narrows across flags: a result satisfies the pattern, the capability and the catalog", async () => {
     const second = "acme";
+
     await writeCollidingCatalog(second);
     await writeCatalogOrder([second]);
 
@@ -926,6 +956,7 @@ describe("catalog hooks", () => {
     lines: readonly string[],
   ): Promise<void> {
     const target = path.join(root, catalog, "hooks", name.replaceAll(".", "/"), "hook.yml");
+
     await mkdir(path.dirname(target), { recursive: true });
     await writeFile(target, document(name, lines), "utf8");
   }
@@ -936,6 +967,7 @@ describe("catalog hooks", () => {
   /** The hooks a case wrote, parsed — the fixture's own filtered out. */
   async function hooks() {
     const parsed = (await parseCatalogDirectory(CATALOG_NAME, "path:../catalog", catalogDir)).hooks;
+
     return parsed.filter((hook) => !FIXTURE_HOOKS.includes(hook.name));
   }
 
@@ -1029,6 +1061,7 @@ describe("catalog hooks", () => {
     await writeCatalogFile(`${HOOK_DIR}/lib/helper.sh`, "#!/bin/sh\nexit 0\n");
 
     const error = await rejection();
+
     expect(error.message).toBe(`hook "${HOOK_NAME}" ships no hook.sh (${HOOK_FILE} line 4)`);
     expect(error.detail).toContain(`${HOOK_DIR} holds: hoook.sh, lib/helper.sh`);
     expect(error.detail.join("\n")).toContain("say `type: command` instead");
@@ -1050,6 +1083,7 @@ describe("catalog hooks", () => {
     );
 
     const error = await rejection();
+
     expect(error.message).toBe(
       `hook name "wrong-name" does not match its path (${HOOK_FILE} line 1)`,
     );
@@ -1089,6 +1123,7 @@ describe("catalog hooks", () => {
     const emitted = JSON.parse((await cli("search", "*", "--json")).stdout) as {
       hooks: Record<string, unknown>;
     };
+
     expect(emitted.hooks[`${CATALOG_NAME}/${HOOK_NAME}`]).toEqual({
       catalog: CATALOG_NAME,
       type: "script",
@@ -1108,6 +1143,7 @@ describe("catalog hooks", () => {
     const row = (await cli("search", "*")).stdout
       .split("\n")
       .find((line) => line.trimStart().startsWith(`${HOOK_NAME} `));
+
     expect(row?.replace(/\s+/g, " ").trim()).toBe(
       `${HOOK_NAME} ${CATALOG_NAME} PreToolUse hook.sh (shipped)`,
     );
@@ -1168,7 +1204,9 @@ describe("the command surface", () => {
    */
   async function usage(...words: readonly string[]): Promise<string> {
     const result = await invoke([...words, "--help"]);
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
+
     return result.stdout;
   }
 
@@ -1190,7 +1228,9 @@ describe("the command surface", () => {
     // The flatness itself, asserted on the specs rather than on any one command: a group reintroduced
     // by accident — or a `catalog` spec surviving a rebase — fails here rather than in whichever case
     // happens to type its name.
-    for (const spec of COMMAND_SPECS) expect(spec.subcommands, spec.name).toBeUndefined();
+    for (const spec of COMMAND_SPECS) {
+      expect(spec.subcommands, spec.name).toBeUndefined();
+    }
   });
 
   it("does not answer to `ambit catalog`, which is not a command any more", async () => {
@@ -1214,12 +1254,18 @@ describe("the command surface", () => {
     for (const name of COMMANDS) {
       const help = await usage(name);
 
-      if (name === "self-update") expect(help, name).not.toContain("--project");
-      else expect(help, name).toContain("--project <dir>");
+      if (name === "self-update") {
+        expect(help, name).not.toContain("--project");
+      } else {
+        expect(help, name).toContain("--project <dir>");
+      }
+
       expect(help, name).toContain("--json");
       expect(help, name).toContain("--offline");
       expect(help, name).not.toContain("--catalog <dir>");
-      if (name !== "search") expect(help, name).not.toContain("--catalog");
+      if (name !== "search") {
+        expect(help, name).not.toContain("--catalog");
+      }
     }
   });
 
@@ -1270,6 +1316,7 @@ describe("the nested-command seam no command uses", () => {
     const command = group({
       "grp sub": (ctx) => {
         seen = typeof ctx.options.project === "string" ? ctx.options.project : undefined;
+
         return ExitCode.Success;
       },
     });
@@ -1369,11 +1416,13 @@ describe("the flag rules Commander enforces before a handler runs", () => {
   /** A wiring in which one command's handler succeeds, doing nothing but recording the visit. */
   function stub(name: string): { handlers: CommandHandlers; reached: () => boolean } {
     let visited = false;
+
     return {
       handlers: {
         ...HANDLERS,
         [name]: () => {
           visited = true;
+
           return ExitCode.Success;
         },
       },
@@ -1457,6 +1506,7 @@ describe("merging", () => {
 
   it("keeps every catalog's copy of a duplicate name, grouped by name then catalog", async () => {
     const other = path.join(root, "other");
+
     await buildFixtureCatalog(other);
     const config = await loadProjectConfig(projectDir);
     const first = await loadCatalogs(config, context());
@@ -1466,6 +1516,7 @@ describe("merging", () => {
     );
 
     const merged = mergeCatalogs([...first, ...second]);
+
     expect(merged.catalogs).toEqual([CATALOG_NAME, "personal"]);
     // Two identical catalogs, so every name is provided twice and nothing is dropped.
     expect(merged.skills).toHaveLength(8);

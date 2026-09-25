@@ -75,18 +75,21 @@ export function arrayEntryKey(event: string, value: unknown): string {
  */
 function splitEntryKey(key: string, file: string): readonly [event: string, digest: string] {
   const at = key.lastIndexOf(DIGEST_SEPARATOR);
+
   if (at <= 0 || at === key.length - 1) {
     throw new AmbitError(ExitCode.Internal, `cannot address "${key}" in ${file}`, [
       `an entry in an array section is keyed \`<Event>${DIGEST_SEPARATOR}<digest>\`, and this is not`,
       "this is a bug in ambit; deleting `.ambit/state.json` and installing again clears it",
     ]);
   }
+
   return [key.slice(0, at), key.slice(at + 1)];
 }
 
 /** The managed section as an object; anything unusable reads as empty. */
 function sectionOf(document: JsonObject, section: string): JsonObject {
   const existing = document[section];
+
   return isRecord(existing) ? existing : EMPTY;
 }
 
@@ -99,12 +102,19 @@ function sectionOf(document: JsonObject, section: string): JsonObject {
  */
 function keysOf(text: string | undefined, section: string, file: string): ReadonlySet<string> {
   const keys = new Set<string>();
+
   for (const [event, entries] of Object.entries(
     sectionOf(parseJsonDocument(text, file), section),
   )) {
-    if (!Array.isArray(entries)) continue;
-    for (const entry of entries) keys.add(arrayEntryKey(event, entry));
+    if (!Array.isArray(entries)) {
+      continue;
+    }
+
+    for (const entry of entries) {
+      keys.add(arrayEntryKey(event, entry));
+    }
   }
+
   return keys;
 }
 
@@ -142,6 +152,7 @@ export function arraySectionDriver(rootDefaults: JsonObject = EMPTY): DocumentDr
     ): string => {
       const document = parseJsonDocument(text, file);
       const existing = document[section];
+
       if (existing !== undefined && !isRecord(existing)) {
         throw configError(`"${section}" in ${file} is not a JSON object`, [
           `ambit appends its entries to the arrays inside \`${section}\``,
@@ -150,9 +161,11 @@ export function arraySectionDriver(rootDefaults: JsonObject = EMPTY): DocumentDr
       }
 
       const merged: Record<string, unknown> = { ...existing };
+
       for (const entry of entries) {
         const [event, digest] = splitEntryKey(entry.key, file);
         const current = merged[event];
+
         if (current !== undefined && !Array.isArray(current)) {
           throw configError(`"${section}.${event}" in ${file} is not a JSON array`, [
             `ambit appends one entry per managed hook to \`${section}.${event}\``,
@@ -161,9 +174,13 @@ export function arraySectionDriver(rootDefaults: JsonObject = EMPTY): DocumentDr
         }
 
         const present: readonly unknown[] = current ?? [];
+
         // Already there, by digest: skip it, so a second install is a no-op instead of adding a
         // duplicate hook.
-        if (present.some((item) => entryDigest(item) === digest)) continue;
+        if (present.some((item) => entryDigest(item) === digest)) {
+          continue;
+        }
+
         merged[event] = [...present, entry.value];
       }
 
@@ -188,30 +205,47 @@ export function arraySectionDriver(rootDefaults: JsonObject = EMPTY): DocumentDr
     ): string | undefined => {
       const document = parseJsonDocument(text, file);
       const existing = document[section];
-      if (!isRecord(existing)) return undefined;
+
+      if (!isRecord(existing)) {
+        return undefined;
+      }
 
       const wanted = new Map<string, Set<string>>();
+
       for (const key of keys) {
         const [event, digest] = splitEntryKey(key, file);
         const digests = wanted.get(event) ?? new Set<string>();
+
         digests.add(digest);
         wanted.set(event, digests);
       }
 
       const kept: Record<string, unknown> = { ...existing };
       let removed = false;
+
       for (const [event, digests] of wanted) {
         const current = kept[event];
-        if (!Array.isArray(current)) continue;
+
+        if (!Array.isArray(current)) {
+          continue;
+        }
+
         const remaining = current.filter((item) => !digests.has(entryDigest(item)));
-        if (remaining.length === current.length) continue;
+
+        if (remaining.length === current.length) {
+          continue;
+        }
+
         kept[event] = remaining;
         removed = true;
       }
 
       // Nothing matched: no write to make. Keeps a prune with nothing stale byte-identical, and does
       // not recreate a file someone deleted by hand.
-      if (!removed) return undefined;
+      if (!removed) {
+        return undefined;
+      }
+
       return serializeJsonDocument({ ...document, [section]: kept });
     },
   };

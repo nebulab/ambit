@@ -65,6 +65,7 @@ async function writeProject(
   extra: readonly string[] = [],
 ): Promise<void> {
   const refLine = ref === undefined ? "" : `    ref: "${ref}"\n`;
+
   await mkdir(dir, { recursive: true });
   await writeFile(
     path.join(dir, "ambit.yml"),
@@ -96,6 +97,7 @@ async function cli(
     stdout: (line) => out.push(line),
     stderr: (line) => err.push(line),
   });
+
   return { code, stdout: out.join("\n"), stderr: err.join("\n") };
 }
 
@@ -119,20 +121,30 @@ async function installed(dir: string): Promise<Record<string, string>> {
   const walk = async (current: string, relative: string): Promise<void> => {
     for (const entry of await readdir(current)) {
       const within = relative === "" ? entry : `${relative}/${entry}`;
-      if (PER_SOURCE_FILES.has(within)) continue;
+
+      if (PER_SOURCE_FILES.has(within)) {
+        continue;
+      }
+
       const absolute = path.join(current, entry);
-      if ((await stat(absolute)).isDirectory()) await walk(absolute, within);
-      else found[within] = await readFile(absolute, "utf8");
+
+      if ((await stat(absolute)).isDirectory()) {
+        await walk(absolute, within);
+      } else {
+        found[within] = await readFile(absolute, "utf8");
+      }
     }
   };
 
   await walk(dir, "");
+
   return found;
 }
 
 async function pathExists(target: string): Promise<boolean> {
   try {
     await stat(target);
+
     return true;
   } catch {
     return false;
@@ -143,6 +155,7 @@ async function pathExists(target: string): Promise<boolean> {
 function cachePaths(): { readonly clone: string; readonly checkouts: string } {
   const cache = cacheRoot(process.env);
   const key = gitCacheKey(fixture.url);
+
   return {
     clone: path.join(cache, REPOS_DIRNAME, `${key}.git`),
     checkouts: path.join(cache, SOURCES_DIRNAME, key),
@@ -154,7 +167,11 @@ async function gitCatalog(): Promise<{ readonly root: string; readonly commit?: 
   const config = await loadProjectConfig(gitProject);
   const catalogs = await loadCatalogs(config, { projectDir: gitProject, env: process.env });
   const catalog = catalogs[0];
-  if (catalog === undefined) throw new Error("expected the project to declare one catalog");
+
+  if (catalog === undefined) {
+    throw new Error("expected the project to declare one catalog");
+  }
+
   return catalog;
 }
 
@@ -188,8 +205,10 @@ describe("a catalog fetched from git", () => {
     // and state records which. Everything else — every skill, every server key — must
     // match byte for byte, so the flag is what keeps this comparison about fetching.
     const fromPath = await cli(pathProject, "install", "--copy");
+
     expect(fromPath.code, fromPath.stderr).toBe(ExitCode.Success);
     const fromGit = await cli(gitProject, "install");
+
     expect(fromGit.code, fromGit.stderr).toBe(ExitCode.Success);
 
     expect(await installed(gitProject)).toEqual(await installed(pathProject));
@@ -200,11 +219,14 @@ describe("a catalog fetched from git", () => {
 
   it("copies its skills, since a commit is not a working tree anyone edits", async () => {
     const result = await cli(gitProject, "install");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     const target = path.join(gitProject, SKILLS_DIR, CORE_SKILL);
+
     expect((await lstat(target)).isSymbolicLink()).toBe(false);
     const state = await readFile(path.join(gitProject, STATE_DIRNAME, STATE_FILENAME), "utf8");
+
     expect(parseState(state, STATE_FILENAME).artifacts).toContainEqual({
       path: `${SKILLS_DIR}/${CORE_SKILL}`,
       kind: "skill-dir",
@@ -214,9 +236,11 @@ describe("a catalog fetched from git", () => {
 
   it("clones into the cache, keyed by host and path, and checks the commit out there", async () => {
     const result = await cli(gitProject, "install");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     const { clone, checkouts } = cachePaths();
+
     expect(await pathExists(path.join(clone, "HEAD"))).toBe(true);
     expect(
       await pathExists(path.join(checkouts, fixture.commit, "skills/company-context/SKILL.md")),
@@ -243,6 +267,7 @@ describe("a catalog fetched from git", () => {
           : ref === "abbreviated"
             ? fixture.commit.slice(0, 8)
             : ref;
+
       await writeProject(gitProject, fixture.url, asked);
 
       expect((await gitCatalog()).commit).toBe(fixture.commit);
@@ -251,6 +276,7 @@ describe("a catalog fetched from git", () => {
 
   it("resolves from the cache on a second run, with the remote gone", async () => {
     const first = await cli(gitProject, "install");
+
     expect(first.code, first.stderr).toBe(ExitCode.Success);
     const before = await installed(gitProject);
 
@@ -258,6 +284,7 @@ describe("a catalog fetched from git", () => {
     await rm(fixture.repo, { recursive: true, force: true });
 
     const second = await cli(gitProject, "install");
+
     expect(second.code, second.stderr).toBe(ExitCode.Success);
     expect(await installed(gitProject)).toEqual(before);
   });
@@ -300,9 +327,11 @@ describe("the lock a git source writes", () => {
     await writeProject(gitProject, fixture.url, fixture.tag);
 
     const result = await cli(gitProject, "install");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     const entry = (await lock(gitProject)).requireMapping("catalogs").requireMapping(CATALOG_NAME);
+
     expect(entry.requireString("source")).toBe(fixture.url);
     expect(entry.requireString("ref")).toBe(fixture.tag);
     expect(entry.requireString("commit")).toBe(fixture.commit);
@@ -312,6 +341,7 @@ describe("the lock a git source writes", () => {
     await cli(gitProject, "install");
 
     const entry = (await lock(gitProject)).requireMapping("skills").requireMapping(CORE_SKILL);
+
     expect(entry.requireString("catalog")).toBe(CATALOG_NAME);
     expect(entry.requireString("commit")).toBe(fixture.commit);
   });
@@ -320,6 +350,7 @@ describe("the lock a git source writes", () => {
     await cli(pathProject, "install");
 
     const entry = (await lock(pathProject)).requireMapping("catalogs").requireMapping(CATALOG_NAME);
+
     expect(entry.optionalString("commit")).toBeUndefined();
     expect(entry.requireString("source")).toBe("path:../catalog");
   });
@@ -363,6 +394,7 @@ describe("--offline", () => {
   /** Fills the cache the way a normal run does, so an offline run has something to work from. */
   async function warmTheCache(): Promise<void> {
     const result = await cli(gitProject, "install");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
   }
 
@@ -379,6 +411,7 @@ describe("--offline", () => {
   it("installs a project that never fetched, from the cache another project filled", async () => {
     await warmTheCache();
     const second = path.join(root, "from-cache");
+
     await writeProject(second, fixture.url);
     await rm(fixture.repo, { recursive: true, force: true });
 
@@ -393,6 +426,7 @@ describe("--offline", () => {
     // The clone stays; only the materialized checkout goes, which is the case the cache can still
     // answer without asking anyone.
     const { checkouts } = cachePaths();
+
     await rm(path.join(checkouts, fixture.commit), { recursive: true, force: true });
     await rm(`${path.join(checkouts, fixture.commit)}.ready`, { force: true });
     await rm(fixture.repo, { recursive: true, force: true });

@@ -53,9 +53,15 @@ function toText(status: ProjectStatus): readonly string[] {
 export const statusHandler: CommandHandler = async (ctx) => {
   const status = await projectStatus(projectDirOf(ctx), { offline: offlineRequested(ctx) });
 
-  if (jsonRequested(ctx)) ctx.stdout(JSON.stringify(toJson(status), null, 2));
-  else printSections(toText(status), ctx.stdout);
+  if (jsonRequested(ctx)) {
+    ctx.stdout(JSON.stringify(toJson(status), null, 2));
+  } else {
+    printSections(toText(status), ctx.stdout);
+  }
 
-  if (ctx.options.check !== true || isClean(status)) return ExitCode.Success;
+  if (ctx.options.check !== true || isClean(status)) {
+    return ExitCode.Success;
+  }
+
   return ExitCode.Drift;
 };

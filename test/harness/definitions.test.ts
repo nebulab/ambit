@@ -310,6 +310,7 @@ describe("a stdio server whose env map renames a variable", () => {
       env?: unknown;
       environment?: unknown;
     };
+
     return emitted.env ?? emitted.environment;
   };
 
@@ -341,6 +342,7 @@ describe("a credential in a stdio server's arguments", () => {
         args?: readonly string[];
         command?: string | readonly string[];
       };
+
       return emitted.args ?? (emitted.command as readonly string[]);
     };
 
@@ -467,6 +469,7 @@ describe("the hook each profile emits", () => {
     });
     expect(Object.keys(emitted as object)).toEqual(["matcher", "hooks"]);
     const [command] = (emitted as { hooks: readonly object[] }).hooks;
+
     expect(Object.keys(command as object)).toEqual(["type", "command", "timeout"]);
   });
 
@@ -539,6 +542,7 @@ describe("the hook each profile emits", () => {
         command?: string;
         hooks?: readonly { command: string }[];
       };
+
       return emitted.command ?? emitted.hooks?.[0]?.command ?? "";
     }
 
@@ -596,6 +600,7 @@ describe("the hook each profile emits", () => {
       for (const profile of [claude, codex, cursor, vscode]) {
         expect(commandOf(profile, inline), profile.name).toBe("npx --yes prettier --check");
       }
+
       // Including one whose command reads exactly like a path and is still a command line: `type` is
       // the answer, and it was declared. Rewriting on the spelling alone would point at a file the
       // hook's directory never held.
@@ -625,6 +630,7 @@ describe("the hook each profile emits", () => {
       it("leaves nothing for a harness or a project to resolve", () => {
         for (const profile of [claude, codex, cursor, vscode]) {
           const command = commandOf(profile, SCRIPT, HOME);
+
           // No placeholder, since `${CLAUDE_PROJECT_DIR}` is the project's root and not this one, and
           // nothing relative, which would resolve against the open project's tree.
           expect(command, profile.name).not.toContain("${");
@@ -682,6 +688,7 @@ describe("the hook each profile emits", () => {
     it("skips nothing on the four harnesses that do, for every event ambit knows", () => {
       for (const profile of PROFILES.filter((candidate) => candidate.hooks !== undefined)) {
         const every = HOOK_EVENTS.map((event) => ({ ...BARE, event }));
+
         expect(skippedHooks(profile, every), profile.name).toEqual([]);
       }
     });

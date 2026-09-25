@@ -105,6 +105,7 @@ export function hasOutdated(plan: UpdatePlan): boolean {
  */
 function unknownCatalog(name: string, config: ProjectConfig): never {
   const configured = config.catalogs.map((catalog) => catalog.name);
+
   throw configError(
     `unknown catalog "${name}" ${at(config.origin.file, undefined)}`,
     configured.length === 0
@@ -135,15 +136,21 @@ function refreshPlan(
   mode: RefreshMode,
 ): ReadonlyMap<string, RefreshMode> {
   const configured = new Set(config.catalogs.map((catalog) => catalog.name));
+
   if (named === undefined || named.length === 0) {
     return new Map([...configured].map((name) => [name, mode]));
   }
 
   const plan = new Map<string, RefreshMode>();
+
   for (const name of named) {
-    if (!configured.has(name)) unknownCatalog(name, config);
+    if (!configured.has(name)) {
+      unknownCatalog(name, config);
+    }
+
     plan.set(name, mode);
   }
+
   return plan;
 }
 
@@ -173,6 +180,7 @@ async function resolveWith(
   options: CatalogLoadOptions,
 ): Promise<Resolution> {
   const catalogs = await loadCatalogs(config, context, options);
+
   return { catalogs, bundle: resolveBundle(config, mergeCatalogs(catalogs)) };
 }
 
@@ -216,7 +224,10 @@ async function resolveBefore(
   try {
     return await resolveWith(config, context, loadOptions(pins));
   } catch (error) {
-    if (error instanceof AmbitError && error.code !== ExitCode.Network) return undefined;
+    if (error instanceof AmbitError && error.code !== ExitCode.Network) {
+      return undefined;
+    }
+
     throw error;
   }
 }
@@ -250,7 +261,11 @@ function pinOf(before: Catalog, after: Catalog | undefined): CatalogPin {
   }
 
   const commits = { commit: before.commit, latest: after.commit };
-  if (after.moving === false) return { ...base, ...commits, freshness: "pinned" };
+
+  if (after.moving === false) {
+    return { ...base, ...commits, freshness: "pinned" };
+  }
+
   return {
     ...base,
     ...commits,
@@ -272,10 +287,16 @@ function unresolvedPinOf(after: Catalog): CatalogPin {
     ...(after.ref !== undefined && { ref: after.ref }),
   };
 
-  if (after.commit === undefined) return { ...base, freshness: "unversioned" };
+  if (after.commit === undefined) {
+    return { ...base, freshness: "unversioned" };
+  }
+
   // No `commit`: the project resolves to nothing right now, so this row must not claim the commit it
   // failed at as the one it "resolves to".
-  if (after.moving === false) return { ...base, latest: after.commit, freshness: "pinned" };
+  if (after.moving === false) {
+    return { ...base, latest: after.commit, freshness: "pinned" };
+  }
+
   return { ...base, latest: after.commit, freshness: "outdated" };
 }
 
@@ -308,6 +329,7 @@ async function planUpdate(
   const after = await resolveWith(config, context, loadOptions(pins, refresh));
 
   const latest = new Map(after.catalogs.map((catalog) => [catalog.name, catalog]));
+
   return {
     plan: {
       catalogs:
@@ -375,5 +397,6 @@ export async function updateProject(
   install: UpdateInstallOptions = {},
 ): Promise<UpdateResult> {
   const { plan, released } = await planUpdate(projectDir, "advance", options);
+
   return { ...plan, install: await installProject(projectDir, install, released) };
 }

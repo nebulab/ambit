@@ -219,6 +219,7 @@ export function selectingEntry(
   item: { readonly catalog: string; readonly name: string },
 ): PatternEntry | undefined {
   const subject = patternItem(kind, item);
+
   return entries
     .filter((entry) => matches(entry, subject))
     .sort((a, b) => compare(formatEntry(a), formatEntry(b)))[0];
@@ -328,7 +329,10 @@ export function assertEntriesMatch(config: ProjectConfig, merged: MergedCatalog)
   const entries = [...config.requires].sort((a, b) => compare(formatEntry(a), formatEntry(b)));
 
   for (const entry of entries) {
-    if (matchesAnything(entry, merged)) continue;
+    if (matchesAnything(entry, merged)) {
+      continue;
+    }
+
     throw unmatchedEntryError(
       entry,
       entryCatalog(entry),
@@ -534,13 +538,17 @@ export function closeOverRequires(
 
   const follow = (requirer: Requirer): void => {
     const key = requirerKey(requirer);
-    if (closed.has(key)) return;
+
+    if (closed.has(key)) {
+      return;
+    }
 
     path.push(requirer);
     (requirer.kind === "pack" ? chosenPacks : chosenSkills).add(qualifiedName(requirer));
 
     for (const entry of requiredEntries(requirer)) {
       const required = requiredItems(entry, requirer, merged);
+
       if (isEmpty(required)) {
         throw unmatchedEntryError(
           entry,
@@ -552,8 +560,13 @@ export function closeOverRequires(
 
       // Leaf namespaces: an MCP or a hook carries no requires, so joining the selection is all
       // there is to do.
-      for (const mcp of required.mcps) chosenMcps.add(qualifiedName(mcp));
-      for (const hook of required.hooks) chosenHooks.add(qualifiedName(hook));
+      for (const mcp of required.mcps) {
+        chosenMcps.add(qualifiedName(mcp));
+      }
+
+      for (const hook of required.hooks) {
+        chosenHooks.add(qualifiedName(hook));
+      }
 
       const next = [
         ...required.packs.map((pack) =>
@@ -568,6 +581,7 @@ export function closeOverRequires(
         // Checked here rather than on entry to `follow`, because only here do we know which entry
         // the edge came from, and the cycle error needs to name it.
         const opened = path.findIndex((seen) => requirerKey(seen) === requirerKey(child));
+
         if (opened !== -1) {
           throw cycleError(
             [...path.slice(opened), child].map((seen) => ({ kind: seen.kind, name: seen.name })),
@@ -575,6 +589,7 @@ export function closeOverRequires(
             entry,
           );
         }
+
         follow(child);
       }
     }
@@ -583,7 +598,9 @@ export function closeOverRequires(
     closed.add(key);
   };
 
-  for (const root of roots) follow(root);
+  for (const root of roots) {
+    follow(root);
+  }
 
   // Filtering the merged lists, rather than collecting during the walk, keeps the result in the
   // merged catalog's order regardless of discovery order.
@@ -625,12 +642,15 @@ function assertOnePerName(
   items: readonly { readonly name: string; readonly catalog: string }[],
 ): void {
   const providers = new Map<string, string[]>();
+
   for (const item of items) {
     providers.set(item.name, [...(providers.get(item.name) ?? []), item.catalog]);
   }
 
   for (const [name, catalogs] of providers) {
-    if (catalogs.length > 1) throw collisionError(kind, name, catalogs);
+    if (catalogs.length > 1) {
+      throw collisionError(kind, name, catalogs);
+    }
   }
 }
 
@@ -697,6 +717,7 @@ function requiredByReason(
       candidate.catalog === item.catalog &&
       candidate.requires.some((entry) => matches(entry, item)),
   );
+
   return requirer === undefined
     ? undefined
     : { kind: "required-by", requirer: { kind: requirer.kind, name: requirer.name } };
@@ -734,6 +755,7 @@ function selectionReasons(
         `it is in the bundle, but no \`${REQUIRES_KEY}\` entry and no \`${REQUIRES_KEY}\` edge selected it`,
       );
     }
+
     reasons.set(item.name, reason);
   }
 
@@ -767,7 +789,11 @@ export function isSelected(bundle: Bundle, item: BundleItem): boolean {
  */
 export function reasonOf(bundle: Bundle, item: BundleItem): SelectionReason {
   const reason = reasonsOf(bundle, item.kind).get(item.name);
-  if (reason === undefined) throw unexplainable(item, "it is not in the bundle");
+
+  if (reason === undefined) {
+    throw unexplainable(item, "it is not in the bundle");
+  }
+
   return reason;
 }
 
@@ -787,15 +813,20 @@ export function explainSelection(bundle: Bundle, item: BundleItem): readonly Rea
 
   for (;;) {
     const reason = reasonOf(bundle, current);
+
     chain.unshift({ ...current, reason });
-    if (reason.kind !== "required-by") return chain;
+    if (reason.kind !== "required-by") {
+      return chain;
+    }
 
     // Guards against a broken invariant, not a bad catalog: a repeat here would mean a `requires`
     // cycle survived closure. Looping forever would be a worse way to report that.
     const next = formatItem(reason.requirer);
+
     if (walked.has(next)) {
       throw unexplainable(current, `the \`requires\` chain through ${next} does not terminate`);
     }
+
     walked.add(next);
     current = reason.requirer;
   }

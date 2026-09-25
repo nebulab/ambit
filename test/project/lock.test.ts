@@ -49,6 +49,7 @@ async function writeProfile(
 ): Promise<void> {
   const written = [...packs.map((pack) => requiresEntry(pack)), ...entries];
   const list = written.length === 0 ? "[]" : `\n${written.join("\n")}`;
+
   await writeFile(
     path.join(projectDir, "ambit.yml"),
     `version: 1
@@ -77,6 +78,7 @@ async function cli(
     stdout: (line) => out.push(line),
     stderr: (line) => err.push(line),
   });
+
   return { code, stdout: out.join("\n"), stderr: err.join("\n") };
 }
 
@@ -111,14 +113,18 @@ async function writeCatalogHook(
   script?: { readonly file: string; readonly body: string },
 ): Promise<void> {
   const dir = path.join(catalogDir, "hooks", name);
+
   await mkdir(dir, { recursive: true });
   await writeFile(path.join(dir, "hook.yml"), [`name: ${name}`, ...body, ""].join("\n"), "utf8");
-  if (script !== undefined) await writeFile(path.join(dir, script.file), script.body, "utf8");
+  if (script !== undefined) {
+    await writeFile(path.join(dir, script.file), script.body, "utf8");
+  }
 }
 
 /** What the project's current profile resolves to against `catalogs`. */
 async function bundleFrom(catalogs: readonly Catalog[]): Promise<Bundle> {
   const config = await loadProjectConfig(projectDir);
+
   return resolveBundle(config, mergeCatalogs(catalogs));
 }
 
@@ -138,6 +144,7 @@ afterEach(async () => {
 describe("ambit.lock", () => {
   it("records every configured catalog and every selected item, keys sorted throughout", async () => {
     const result = await cli("install");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     expect(await readLock()).toBe(
@@ -233,6 +240,7 @@ describe("ambit.lock", () => {
     const lock = parseYamlMapping(await readLock(), LOCK_FILENAME);
 
     const skills = lock.requireMapping("skills");
+
     expect(skills.requireMapping(ENGINEERING_SKILL).requireString("reason")).toBe(
       `skill:${CATALOG_NAME}/${ENGINEERING_SKILL}`,
     );
@@ -299,6 +307,7 @@ describe("ambit.lock", () => {
     // is — never the command written into a harness file, which is rewritten per harness and so is no
     // single value a lock could hold.
     const shipping = hooks.requireMapping("block-rm");
+
     expect(shipping.keys()).toEqual(["catalog", "commit", "path", "reason"]);
     expect(shipping.requireString("catalog")).toBe(CATALOG_NAME);
     expect(shipping.requireString("path")).toBe("hooks/block-rm");
@@ -308,6 +317,7 @@ describe("ambit.lock", () => {
     // `npx --yes say done` is a command line, so the same catalog entry ships nothing and pins
     // nothing: a directory holding only the declaration that was already read has no bytes to record.
     const inert = hooks.requireMapping("announce");
+
     expect(inert.keys()).toEqual(["catalog", "reason"]);
     expect(inert.requireString("catalog")).toBe(CATALOG_NAME);
   });
@@ -324,6 +334,7 @@ describe("ambit.lock", () => {
 
     const lock = parseYamlMapping(text, LOCK_FILENAME);
     const entry = lock.requireMapping("catalogs").requireMapping(CATALOG_NAME);
+
     expect(entry.requireString("commit")).toBe("1234567");
     expect(entry.requireString("ref")).toBe("1e5");
     // Every catalog skill inherits it, so the same quoting has to hold there too.

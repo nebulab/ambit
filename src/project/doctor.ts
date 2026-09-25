@@ -135,10 +135,15 @@ interface EnvDemand {
 
 function demandOf(demands: Map<string, EnvDemand>, variable: string): EnvDemand {
   const existing = demands.get(variable);
-  if (existing !== undefined) return existing;
+
+  if (existing !== undefined) {
+    return existing;
+  }
 
   const created: EnvDemand = { wanted: [] };
+
   demands.set(variable, created);
+
   return created;
 }
 
@@ -150,13 +155,20 @@ function demandOf(demands: Map<string, EnvDemand>, variable: string): EnvDemand 
  * discovery order depends only on the value, not on how it was built.
  */
 function stringsIn(value: unknown): readonly string[] {
-  if (typeof value === "string") return [value];
-  if (Array.isArray(value)) return value.flatMap((item) => stringsIn(item));
+  if (typeof value === "string") {
+    return [value];
+  }
+
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => stringsIn(item));
+  }
+
   if (typeof value === "object" && value !== null) {
     return Object.entries(value as Readonly<Record<string, unknown>>)
       .sort(([a], [b]) => compare(a, b))
       .flatMap(([, nested]) => stringsIn(nested));
   }
+
   return [];
 }
 
@@ -172,6 +184,7 @@ function entityReferences(mcp: MergedMcp): readonly string[] {
     mcp.transport.kind === "http"
       ? [mcp.transport.url, ...stringsIn(mcp.transport.headers)]
       : [...mcp.transport.args, ...stringsIn(mcp.transport.env)];
+
   return [
     ...strings.flatMap(referencedNames),
     ...(mcp.transport.kind === "http" && mcp.transport.bearerTokenEnvVar !== undefined
@@ -230,9 +243,11 @@ function envDemands(
   const configs = artifacts.filter(
     (artifact): artifact is PlannedHarnessConfig => artifact.kind === "harness-config",
   );
+
   for (const artifact of configs) {
     for (const entry of artifact.entries) {
       const key = managedKey(artifact.section, entry.key);
+
       for (const variable of referenced.get(entry.key) ?? []) {
         demandOf(demands, variable).wanted.push(
           `"${key}" in ${artifact.path} references it, for the harness to expand at spawn`,
@@ -285,7 +300,10 @@ async function lockFindings(
   expected: string,
 ): Promise<readonly DoctorFinding[]> {
   const actual = await readLockText(projectDir);
-  if (actual === expected) return [];
+
+  if (actual === expected) {
+    return [];
+  }
 
   if (actual === undefined) {
     return [
@@ -325,8 +343,14 @@ function ownershipFindings(artifacts: readonly StatusArtifact[]): readonly Docto
 
 /** The one concrete next step for an artifact install would change. */
 function driftStep(state: StatusArtifact["state"]): string {
-  if (state === "stale") return "run `ambit install`, or `ambit prune`, to remove it";
-  if (state === "missing") return "run `ambit install` to write it";
+  if (state === "stale") {
+    return "run `ambit install`, or `ambit prune`, to remove it";
+  }
+
+  if (state === "missing") {
+    return "run `ambit install` to write it";
+  }
+
   return "run `ambit install` to restore it";
 }
 
@@ -382,7 +406,11 @@ async function driftFindings(
 async function installedMode(target: string): Promise<ArtifactMode | undefined> {
   try {
     const found = await lstat(target);
-    if (found.isSymbolicLink()) return "link";
+
+    if (found.isSymbolicLink()) {
+      return "link";
+    }
+
     return found.isDirectory() ? "copy" : undefined;
   } catch {
     return undefined;
@@ -414,9 +442,13 @@ async function modeFindings(
   );
 
   const findings: DoctorFinding[] = [];
+
   for (const artifact of directories) {
     const found = await installedMode(artifact.target);
-    if (found === undefined || found === artifact.mode) continue;
+
+    if (found === undefined || found === artifact.mode) {
+      continue;
+    }
 
     findings.push(
       warn("mode", `${artifact.path} is installed as a ${found}`, [
@@ -443,8 +475,14 @@ async function modeFindings(
  */
 function harnessFindings(bundle: Bundle, harnesses: readonly string[]): readonly DoctorFinding[] {
   const layout = codex.hooks;
-  if (layout === undefined || bundle.hooks.length === 0) return [];
-  if (!harnesses.includes(codex.name)) return [];
+
+  if (layout === undefined || bundle.hooks.length === 0) {
+    return [];
+  }
+
+  if (!harnesses.includes(codex.name)) {
+    return [];
+  }
 
   return [
     warn("harness", `${codex.name} runs hooks only with \`${CODEX_HOOKS_FEATURE}\` set`, [
@@ -459,7 +497,11 @@ function harnessFindings(bundle: Bundle, harnesses: readonly string[]): readonly
 function checkResults(findings: readonly DoctorFinding[]): readonly CheckResult[] {
   return DOCTOR_CHECKS.map((check) => {
     const own = findings.filter((finding) => finding.check === check);
-    if (own.some((finding) => finding.severity === "fail")) return { check, status: "fail" };
+
+    if (own.some((finding) => finding.severity === "fail")) {
+      return { check, status: "fail" };
+    }
+
     return { check, status: own.length === 0 ? "ok" : "warn" };
   });
 }

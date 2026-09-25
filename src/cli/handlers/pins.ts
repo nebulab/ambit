@@ -36,8 +36,14 @@ function abbreviate(commit: string): string {
  * change, so printing it where nothing changed would make every row look like one.
  */
 function transitionOf(pin: CatalogPin): string {
-  if (pin.commit === undefined) return NO_COMMIT;
-  if (pin.latest === undefined || pin.latest === pin.commit) return abbreviate(pin.commit);
+  if (pin.commit === undefined) {
+    return NO_COMMIT;
+  }
+
+  if (pin.latest === undefined || pin.latest === pin.commit) {
+    return abbreviate(pin.commit);
+  }
+
   return `${abbreviate(pin.commit)} → ${abbreviate(pin.latest)}`;
 }
 

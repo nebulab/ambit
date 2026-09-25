@@ -53,8 +53,14 @@ const ASSETS: Readonly<Record<string, string>> = {
  * and has nothing to upgrade.
  */
 export function installKind(moduleUrl: string, mainPath: string): InstallKind {
-  if (EMBEDDED_ROOTS.some((root) => moduleUrl.includes(root))) return "binary";
-  if (mainPath.split(/[\\/]/).includes(NPX_SEGMENT)) return "npx";
+  if (EMBEDDED_ROOTS.some((root) => moduleUrl.includes(root))) {
+    return "binary";
+  }
+
+  if (mainPath.split(/[\\/]/).includes(NPX_SEGMENT)) {
+    return "npx";
+  }
+
   return "node";
 }
 
@@ -91,6 +97,7 @@ export async function runningBinary(execPath: string): Promise<string> {
 export async function canReplace(binary: string): Promise<boolean> {
   try {
     await access(path.dirname(binary), constants.W_OK);
+
     return true;
   } catch {
     return false;

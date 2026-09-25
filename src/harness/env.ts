@@ -60,6 +60,7 @@ export function referencedNames(value: string): readonly string[] {
  */
 export function soleReference(value: string): string | undefined {
   const match = /^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$/.exec(value);
+
   return match?.[1];
 }
 
@@ -86,9 +87,19 @@ export function stdioEnv(
   const supplies = new Set(Object.values(declared).flatMap((value) => referencedNames(value)));
   const env = new Map<string, string>();
 
-  for (const name of expected) if (!supplies.has(name)) env.set(name, style(name));
-  for (const [name, value] of Object.entries(declared)) env.set(name, translateRefs(value, style));
-  if (env.size === 0) return undefined;
+  for (const name of expected) {
+    if (!supplies.has(name)) {
+      env.set(name, style(name));
+    }
+  }
+
+  for (const [name, value] of Object.entries(declared)) {
+    env.set(name, translateRefs(value, style));
+  }
+
+  if (env.size === 0) {
+    return undefined;
+  }
 
   return Object.fromEntries([...env].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
 }

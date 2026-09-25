@@ -370,6 +370,7 @@ function byEntryName(entries: readonly CatalogEntry[]): readonly CatalogEntry[] 
 /** Directory entries in name order, so a catalog parses identically whatever the filesystem says. */
 async function sortedEntries(dir: string): Promise<readonly CatalogEntry[]> {
   const entries = await readdir(dir, { withFileTypes: true });
+
   return byEntryName(
     entries.map((entry) => ({ name: entry.name, directory: entry.isDirectory() })),
   );
@@ -399,7 +400,10 @@ class CatalogFiles {
 
   /** The entries of a directory, in name order, or none at all when it is not there. */
   async entries(relative: string): Promise<readonly CatalogEntry[]> {
-    if (!(await isDirectory(this.absolute(relative)))) return [];
+    if (!(await isDirectory(this.absolute(relative)))) {
+      return [];
+    }
+
     return sortedEntries(this.absolute(relative));
   }
 
@@ -482,7 +486,9 @@ async function findEntityDirectories(
   parent: string,
   marker: string,
 ): Promise<readonly string[]> {
-  if (!(await files.isDirectory(parent))) return [];
+  if (!(await files.isDirectory(parent))) {
+    return [];
+  }
 
   const found: string[] = [];
   const walk = async (relative: string): Promise<void> => {
@@ -496,6 +502,7 @@ async function findEntityDirectories(
   };
 
   await walk("");
+
   return found;
 }
 
@@ -522,6 +529,7 @@ async function findHookDirectories(files: CatalogFiles): Promise<readonly string
 function skillAnnotations(mapping: YamlMapping): Omit<CatalogSkill, "name" | "path"> {
   const description = mapping.optionalString("description");
   const ambit = mapping.optionalMapping(AMBIT_FRONTMATTER_KEY);
+
   ambit?.rejectUnknownKeys(ANNOTATION_KEYS);
 
   return {
@@ -557,12 +565,17 @@ async function parseSkill(
 
   const name = mapping.requireString("name");
   const derived = skillNameFromPath(relative);
+
   if (name !== derived) {
     const problem = mapping.keyError("name", `skill name "${name}" does not match its path`, [
       `${file} derives the name "${derived}"`,
       "rename the directory, or correct `name` to match it",
     ]);
-    if (collect === undefined) throw problem;
+
+    if (collect === undefined) {
+      throw problem;
+    }
+
     collect(problem);
   }
 
@@ -587,7 +600,9 @@ async function findEntityFiles(
   dirname: string,
   nested: boolean,
 ): Promise<readonly { name: string; file: string }[]> {
-  if (!(await files.isDirectory(dirname))) return [];
+  if (!(await files.isDirectory(dirname))) {
+    return [];
+  }
 
   // Keyed by the derived name rather than by the filename, so the two spellings that can produce
   // one name — `a/b.yml` and `a.b.yml` — collide here and are refused together with the two
@@ -597,13 +612,23 @@ async function findEntityFiles(
   const walk = async (relative: string): Promise<void> => {
     for (const entry of await files.entries(relative === "" ? dirname : `${dirname}/${relative}`)) {
       const within = relative === "" ? entry.name : `${relative}/${entry.name}`;
+
       if (entry.directory) {
-        if (nested) await walk(within);
+        if (nested) {
+          await walk(within);
+        }
+
         continue;
       }
+
       const extension = YAML_EXTENSIONS.find((candidate) => entry.name.endsWith(candidate));
-      if (extension === undefined) continue;
+
+      if (extension === undefined) {
+        continue;
+      }
+
       const name = skillNameFromPath(within.slice(0, -extension.length));
+
       byName.set(name, [...(byName.get(name) ?? []), within]);
     }
   };
@@ -613,11 +638,13 @@ async function findEntityFiles(
   return [...byName.entries()].map(([name, found]) => {
     if (found.length > 1) {
       const paths = found.map((relative) => `${dirname}/${relative}`);
+
       throw configError(`${paths.join(" and ")} both define "${name}"`, [
         "ambit cannot tell which one is authoritative",
         `delete one, keeping ${dirname}/${name}${YAML_EXTENSIONS[0]!}`,
       ]);
     }
+
     return { name, file: `${dirname}/${found[0]!}` };
   });
 }
@@ -675,11 +702,14 @@ async function parseMcpFile(files: CatalogFiles, stem: string, file: string): Pr
  * runs as-is, and prefixing it with a directory would break it.
  */
 export function hookCommand(hook: MergedHook, root: string): string {
-  if (hook.type !== "script") return hook.command;
+  if (hook.type !== "script") {
+    return hook.command;
+  }
 
   const command = hook.command.trim();
   const program = commandProgram(command);
   const script = `${root}/${hook.name}/${scriptReference(program)}`;
+
   return `${script}${command.slice(program.length)}`;
 }
 
@@ -694,12 +724,17 @@ async function hookDirectoryContents(
       relative === "" ? directory : `${directory}/${relative}`,
     )) {
       const within = relative === "" ? entry.name : `${relative}/${entry.name}`;
-      if (entry.directory) await walk(within);
-      else if (within !== HOOK_FILENAME) found.push(within);
+
+      if (entry.directory) {
+        await walk(within);
+      } else if (within !== HOOK_FILENAME) {
+        found.push(within);
+      }
     }
   };
 
   await walk("");
+
   return found;
 }
 
@@ -723,9 +758,13 @@ async function assertScriptShipped(
   command: string,
 ): Promise<void> {
   const reference = scriptReference(commandProgram(command));
-  if (await files.isFile(`${directory}/${reference}`)) return;
+
+  if (await files.isFile(`${directory}/${reference}`)) {
+    return;
+  }
 
   const contents = await hookDirectoryContents(files, directory);
+
   throw mapping.keyError("command", `hook "${name}" ships no ${reference}`, [
     `\`type: script\` means \`command\` names a file ${directory} holds`,
     contents.length === 0
@@ -759,6 +798,7 @@ async function parseHookDirectory(files: CatalogFiles, relative: string): Promis
   const entity = parseHookEntity(mapping);
 
   const derived = skillNameFromPath(relative);
+
   if (entity.name !== derived) {
     throw mapping.keyError("name", `hook name "${entity.name}" does not match its path`, [
       `${file} derives the name "${derived}"`,
@@ -780,7 +820,10 @@ async function parseHookDirectory(files: CatalogFiles, relative: string): Promis
  * @param subject the source as errors name it: `catalog "company"`.
  */
 function inSource(subject: string, root: string, error: unknown): unknown {
-  if (!(error instanceof AmbitError)) return error;
+  if (!(error instanceof AmbitError)) {
+    return error;
+  }
+
   return new AmbitError(error.code, error.message, [`in ${subject} (${root})`, ...error.detail]);
 }
 
@@ -825,24 +868,30 @@ export async function parseCatalogDirectory(
     // Nothing else is read here — a directory holding none of the four subdirectories is a
     // catalog with zero items, which the patterns selecting from it report better than a
     // missing-file error here could.
-    if (await files.isFile(REMOVED_REGISTRY_FILENAME)) throw removedRegistry();
+    if (await files.isFile(REMOVED_REGISTRY_FILENAME)) {
+      throw removedRegistry();
+    }
 
     const packs: CatalogPack[] = [];
+
     for (const { name: pack, file } of await findEntityFiles(files, PACKS_DIRNAME, true)) {
       packs.push(await parsePackFile(files, pack, file));
     }
 
     const skills: CatalogSkill[] = [];
+
     for (const relative of await findSkillDirectories(files)) {
       skills.push(await parseSkill(files, relative, collectFromCatalog));
     }
 
     const mcps: CatalogMcp[] = [];
+
     for (const { name: stem, file } of await findEntityFiles(files, MCPS_DIRNAME, false)) {
       mcps.push(await parseMcpFile(files, stem, file));
     }
 
     const hooks: CatalogHook[] = [];
+
     for (const relative of await findHookDirectories(files)) {
       hooks.push(await parseHookDirectory(files, relative));
     }
@@ -920,6 +969,7 @@ export async function loadCatalogs(
   const pins = options.pins ?? (await readCatalogPins(context.projectDir, config));
 
   const catalogs: Catalog[] = [];
+
   for (const entry of config.catalogs) {
     const resolved = await resolveCatalogRoot(
       entry,
@@ -935,6 +985,7 @@ export async function loadCatalogs(
       resolved.commit,
       options,
     );
+
     // `ref` and `moving` are facts about the config entry and how its source answered, not about
     // the directory that was parsed, so both are attached here rather than threaded through
     // parsing — which also keeps a `path:` catalog, whose directory has neither a ref nor a
@@ -945,6 +996,7 @@ export async function loadCatalogs(
       ...(resolved.moving !== undefined && { moving: resolved.moving }),
     });
   }
+
   return catalogs;
 }
 

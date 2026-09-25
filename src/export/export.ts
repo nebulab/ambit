@@ -35,35 +35,53 @@ export async function exportPlugins(
   options: ExportOptions,
 ): Promise<ExportResult> {
   let staging: string | undefined;
+
   try {
     const output = path.resolve(context.projectDir, options.output);
-    if (options.check && (options.force || options.dryRun))
+
+    if (options.check && (options.force || options.dryRun)) {
       throw configError("--check cannot be combined with --force or --dry-run");
+    }
+
     const existing = await lstat(output).catch((error: NodeJS.ErrnoException) => {
-      if (error.code === "ENOENT") return undefined;
+      if (error.code === "ENOENT") {
+        return undefined;
+      }
+
       throw error;
     });
-    if (existing && !options.force && !options.check)
+
+    if (existing && !options.force && !options.check) {
       throw configError(`export output already exists: ${output}`, [
         "use --force to regenerate it or --check to check for drift",
       ]);
-    if (existing && (!existing.isDirectory() || existing.isSymbolicLink()))
+    }
+
+    if (existing && (!existing.isDirectory() || existing.isSymbolicLink())) {
       throw configError(`export output must be a regular directory: ${output}`);
+    }
+
     const config = await loadProjectConfig(context.projectDir);
-    if (options.link && config.catalogs.some((catalog) => !catalog.source.startsWith("path:")))
+
+    if (options.link && config.catalogs.some((catalog) => !catalog.source.startsWith("path:"))) {
       throw configError("linked exports require local path catalogs", [
         "use local catalogs or omit --link for a standalone export",
       ]);
+    }
+
     const catalogs = await loadCatalogs(config, context);
     const plugins = resolvePlugins(config, mergeCatalogs(catalogs));
     const rendered: PackageFiles[] = [];
-    for (const plugin of plugins)
+
+    for (const plugin of plugins) {
       rendered.push(
         await renderClaudePlugin(
           plugin,
           catalogs.find((catalog) => catalog.name === plugin.pack.catalog)!.root,
         ),
       );
+    }
+
     validateSkillReferences(plugins, rendered);
     const result = {
       output,
@@ -76,11 +94,13 @@ export async function exportPlugins(
     const finalOutput = await canonicalPath(output);
     const contains = (root: string, target: string): boolean => {
       const relative = path.relative(root, target);
+
       return (
         relative === "" ||
         (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative))
       );
     };
+
     if (options.force) {
       const roots = [context.projectDir, ...catalogs.map((catalog) => catalog.root)];
       const assets = plugins.flatMap((plugin) =>
@@ -88,18 +108,22 @@ export async function exportPlugins(
           path.join(asset.catalogRoot, asset.path),
         ),
       );
+
       for (const source of [...roots, ...assets]) {
         const actual = await canonicalPath(source);
+
         if (
           contains(finalOutput, actual) ||
           (assets.includes(source) && contains(actual, finalOutput))
-        )
+        ) {
           throw configError(
             `export output contains source files or overlaps source assets: ${output}`,
             ["choose a directory outside the catalog's skills and hooks"],
           );
+        }
       }
     }
+
     const tree = packageTree(
       plugins.map((plugin, index) => ({
         directory: plugin.directory,
@@ -109,6 +133,7 @@ export async function exportPlugins(
       options.link === true,
     );
     const current = existing ? await readTree(output) : new Map();
+
     if (options.check) {
       const differences = [...new Set([...tree.keys(), ...current.keys()])]
         .sort()
@@ -118,18 +143,26 @@ export async function exportPlugins(
             !current.has(name) ||
             !sameEntry(name, tree.get(name)!, current.get(name)!),
         );
-      if (!existing || differences.length)
+
+      if (!existing || differences.length) {
         throw driftError(`export differs from ${output}`, [
           ...differences,
           "run export with --force to regenerate it",
         ]);
+      }
+
       return result;
     }
-    if (options.dryRun) return result;
+
+    if (options.dryRun) {
+      return result;
+    }
+
     await mkdir(path.dirname(output), { recursive: true });
     staging = await mkdtemp(path.join(path.dirname(output), ".ambit-export-"));
     for (const [relative, file] of tree) {
       const target = path.join(staging, relative);
+
       if (file.link !== undefined) {
         await symlink(file.link, target, file.linkType);
       } else if (file.data === null) {
@@ -139,12 +172,15 @@ export async function exportPlugins(
         // Retain JSON formatting for unchanged values to avoid unrelated marketplace diffs.
         const data =
           previous?.data && sameEntry(relative, file, previous) ? previous.data : file.data;
+
         await writeFile(target, data);
         await chmod(target, file.mode);
       }
     }
+
     if (existing) {
       const backup = await mkdtemp(path.join(path.dirname(output), ".ambit-export-"));
+
       try {
         await rename(output, path.join(backup, "previous"));
         try {
@@ -153,6 +189,7 @@ export async function exportPlugins(
           await rename(path.join(backup, "previous"), output);
           throw error;
         }
+
         await rm(backup, { recursive: true, force: true });
       } catch (error) {
         // Keep the backup available if restoring the previous export also fails.
@@ -171,15 +208,22 @@ export async function exportPlugins(
         throw error;
       }
     }
+
     staging = undefined;
+
     return result;
   } catch (error) {
-    if (error instanceof AmbitError) throw error;
+    if (error instanceof AmbitError) {
+      throw error;
+    }
+
     throw configError("cannot export Claude plugins", [
       error instanceof Error ? error.message : String(error),
       "check the source files and output directory permissions",
     ]);
   } finally {
-    if (staging !== undefined) await rm(staging, { recursive: true, force: true });
+    if (staging !== undefined) {
+      await rm(staging, { recursive: true, force: true });
+    }
   }
 }

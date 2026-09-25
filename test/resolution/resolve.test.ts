@@ -70,6 +70,7 @@ const FIRST_ENTRY_LINE = 6;
  */
 function entry(kind: "pack" | "skill" | "mcp" | "hook", address: string): string {
   const qualified = address.includes("/") ? address : `${CATALOG_NAME}/${address}`;
+
   return `  - { ${kind}: "${qualified}" }`;
 }
 
@@ -118,6 +119,7 @@ async function writeProfile(
   extra: readonly string[] = [],
 ): Promise<void> {
   const list = requires.length === 0 ? "[]" : `\n${requires.join("\n")}`;
+
   await writeFile(
     path.join(projectDir, "ambit.yml"),
     `version: 1
@@ -231,6 +233,7 @@ function ambitBlock(annotations: readonly string[]): readonly string[] {
  */
 async function writeSkill(relative: string, annotations: readonly string[]): Promise<void> {
   const target = path.join(catalogDir, "skills", relative, "SKILL.md");
+
   await mkdir(path.dirname(target), { recursive: true });
   await writeFile(
     target,
@@ -259,6 +262,7 @@ async function writeSkillIn(
   annotations: readonly string[] = [],
 ): Promise<void> {
   const target = path.join(root, catalog, "skills", relative, "SKILL.md");
+
   await mkdir(path.dirname(target), { recursive: true });
   await writeFile(
     target,
@@ -302,6 +306,7 @@ async function writeTwoCatalogProfile(second: string, requires: readonly string[
 /** Adds a hook to the fixture catalog, its name derived from its path per §2. */
 async function writeHook(name: string, lines: readonly string[]): Promise<void> {
   const target = path.join(catalogDir, "hooks", name.replaceAll(".", "/"), "hook.yml");
+
   await mkdir(path.dirname(target), { recursive: true });
   await writeFile(target, [`name: ${name}`, ...lines, ""].join("\n"), "utf8");
 }
@@ -328,6 +333,7 @@ function context(): SourceContext {
 async function bundle(requires: readonly string[], extra: readonly string[] = []): Promise<Bundle> {
   await writeProfile(requires, extra);
   const config = await loadProjectConfig(projectDir);
+
   return resolveBundle(config, mergeCatalogs(await loadCatalogs(config, context())));
 }
 
@@ -342,6 +348,7 @@ async function cli(
     stdout: (line) => out.push(line),
     stderr: (line) => err.push(line),
   });
+
   return { code, stdout: out.join("\n"), stderr: err.join("\n") };
 }
 
@@ -357,15 +364,18 @@ async function expectGolden(name: string, actual: string): Promise<void> {
   if (process.env.UPDATE_GOLDEN === "1") {
     await mkdir(GOLDEN_DIR, { recursive: true });
     await writeFile(file, `${actual}\n`, "utf8");
+
     return;
   }
 
   let expected: string;
+
   try {
     expected = await readFile(file, "utf8");
   } catch {
     throw new Error(`missing golden file ${file}; regenerate with UPDATE_GOLDEN=1 bun test`);
   }
+
   expect(actual, `golden mismatch for ${name}; UPDATE_GOLDEN=1 bun test to accept`).toBe(
     expected.replace(/\n$/, ""),
   );
@@ -390,6 +400,7 @@ describe("resolve golden files", () => {
       await writeProfile(profile.requires);
 
       const result = await cli("resolve", "--json");
+
       expect(result.code).toBe(ExitCode.Success);
       await expectGolden(profile.name, result.stdout);
     });
@@ -422,9 +433,11 @@ describe("glob rules in selection", () => {
 
   it("excludes the item named exactly the prefix, which takes a second entry", async () => {
     const one = await bundle([entry("skill", "prefix.*")]);
+
     expect(one.skills.map((skill) => skill.name)).not.toContain("prefix");
 
     const two = await bundle([entry("skill", "prefix"), entry("skill", "prefix.*")]);
+
     expect(two.skills.map((skill) => skill.name)).toContain("prefix");
   });
 
@@ -534,6 +547,7 @@ describe("selection by pattern", () => {
       ],
     ]) {
       const resolved = await bundle(requires);
+
       expect(resolved.skills.map((skill) => skill.name)).not.toContain(PROJECT_SKILL);
     }
   });
@@ -1158,11 +1172,13 @@ describe("catalog hooks", () => {
 
   it("reaches a hook through a wildcard entry, and not through the exact name above it", async () => {
     const wide = await bundle([entry("hook", "block-*")]);
+
     expect(wide.reasons.hooks.get(HOOK_NAME)).toMatchObject({
       entry: { pattern: "block-*" },
     });
 
     const elsewhere = await bundle([entry("pack", "core")]);
+
     expect(writtenHooks(elsewhere)).toEqual([]);
   });
 
@@ -1359,6 +1375,7 @@ describe("ambit resolve --explain", () => {
 
     expect(result.code, result.stderr).toBe(ExitCode.Success);
     const PACK = "function.engineering.frontend";
+
     expect(result.stdout).toBe(
       [
         "packs (3)",
@@ -1400,6 +1417,7 @@ describe("ambit resolve --explain", () => {
     const plain = JSON.parse((await cli("resolve", "--json")).stdout) as {
       skills: Record<string, { reason?: string }>;
     };
+
     expect(plain.skills[PROJECT_SKILL]).not.toHaveProperty("reason");
   });
 });
@@ -1761,6 +1779,7 @@ describe("ambit resolve", () => {
     ]);
 
     const result = await cli("resolve");
+
     expect(result.code).toBe(ExitCode.Success);
     expect(result.stdout).toBe(
       [
@@ -1793,6 +1812,7 @@ describe("ambit resolve", () => {
     await writeProfile([]);
 
     const result = await cli("resolve");
+
     expect(result.code).toBe(ExitCode.Success);
     expect(result.stdout).toBe(
       [
@@ -1851,6 +1871,7 @@ describe("ambit resolve", () => {
     await rm(path.join(projectDir, "ambit.yml"));
 
     const result = await cli("resolve");
+
     expect(result.code).toBe(ExitCode.Config);
     expect(result.stderr).toContain("no ambit config");
   });
@@ -1859,6 +1880,7 @@ describe("ambit resolve", () => {
     await writeFile(path.join(catalogDir, "mcps", "broken.yml"), "name: broken\n", "utf8");
 
     const result = await cli("resolve");
+
     expect(result.code).toBe(ExitCode.Config);
     expect(result.stderr).toContain('missing required key "transport"');
   });

@@ -85,12 +85,21 @@ function plannedPaths(plan: readonly PlannedArtifact[]): ReadonlySet<string> {
  */
 function plannedKeys(plan: readonly PlannedArtifact[]): ReadonlyMap<string, ReadonlySet<string>> {
   const byFile = new Map<string, Set<string>>();
+
   for (const artifact of plan) {
-    if (artifact.kind !== "harness-config") continue;
+    if (artifact.kind !== "harness-config") {
+      continue;
+    }
+
     const keys = byFile.get(artifact.path) ?? new Set<string>();
-    for (const key of artifact.managedKeys) keys.add(key);
+
+    for (const key of artifact.managedKeys) {
+      keys.add(key);
+    }
+
     byFile.set(artifact.path, keys);
   }
+
   return byFile;
 }
 
@@ -105,12 +114,14 @@ function plannedKeys(plan: readonly PlannedArtifact[]): ReadonlyMap<string, Read
  */
 function splitManagedKey(key: string, file: string): readonly [section: string, name: string] {
   const dot = key.indexOf(".");
+
   if (dot <= 0 || dot === key.length - 1) {
     throw configError(`cannot prune "${key}" from ${file}`, [
       `${STATE_DIRNAME}/${STATE_FILENAME} records it as a managed key, but it names no section`,
       `correct that entry, or delete ${STATE_DIRNAME}/${STATE_FILENAME} and run \`ambit install --adopt\``,
     ]);
   }
+
   return [key.slice(0, dot), key.slice(dot + 1)];
 }
 
@@ -143,8 +154,15 @@ export function planPrune(
     if (artifact.kind === "harness-config") {
       const kept = keptKeys.get(artifact.path) ?? NO_KEYS;
       const keys = [...(artifact.managedKeys ?? [])].sort(compare).filter((key) => !kept.has(key));
-      if (keys.length === 0) continue;
-      for (const key of keys) splitManagedKey(key, artifact.path);
+
+      if (keys.length === 0) {
+        continue;
+      }
+
+      for (const key of keys) {
+        splitManagedKey(key, artifact.path);
+      }
+
       stale.push({
         path: artifact.path,
         kind: artifact.kind,
@@ -155,7 +173,10 @@ export function planPrune(
       continue;
     }
 
-    if (keptPaths.has(artifact.path)) continue;
+    if (keptPaths.has(artifact.path)) {
+      continue;
+    }
+
     stale.push({ path: artifact.path, kind: artifact.kind });
   }
 
@@ -178,16 +199,23 @@ export function remainingArtifacts(
 
   for (const artifact of prior.artifacts) {
     const gone = removed.get(artifact.path);
+
     if (gone === undefined) {
       kept.push(artifact);
       continue;
     }
-    if (artifact.kind !== "harness-config") continue;
+
+    if (artifact.kind !== "harness-config") {
+      continue;
+    }
 
     const keys = (artifact.managedKeys ?? []).filter(
       (key) => !(gone.managedKeys ?? []).includes(key),
     );
-    if (keys.length > 0) kept.push({ ...artifact, managedKeys: keys });
+
+    if (keys.length > 0) {
+      kept.push({ ...artifact, managedKeys: keys });
+    }
   }
 
   return kept;
@@ -225,13 +253,21 @@ async function pruneConfigKeys(
   for (const key of stale) {
     const [section, name] = splitManagedKey(key, file);
     const next = driver.removeKeys(text, section, [name], file);
-    if (next === undefined) continue;
+
+    if (next === undefined) {
+      continue;
+    }
+
     text = next;
     removed.push(key);
   }
 
-  if (removed.length === 0 || text === undefined) return undefined;
+  if (removed.length === 0 || text === undefined) {
+    return undefined;
+  }
+
   await writeFile(target, text, "utf8");
+
   return { path: file, kind: "harness-config", managedKeys: removed };
 }
 
@@ -252,16 +288,20 @@ async function pruneConfigKeys(
  */
 async function ownedPathIntact(projectDir: string, relative: string): Promise<boolean> {
   let current = projectDir;
+
   for (const segment of relative.split("/").slice(0, -1)) {
     current = path.join(current, segment);
     try {
-      if ((await lstat(current)).isSymbolicLink()) return false;
+      if ((await lstat(current)).isSymbolicLink()) {
+        return false;
+      }
     } catch {
       // An ancestor that is not there at all means the artifact is not either, and `rm --force` on
       // it would be a no-op, so there is no reason to treat it as the link case.
       return true;
     }
   }
+
   return true;
 }
 
@@ -297,7 +337,11 @@ export async function pruneArtifacts(
         artifact.format ?? "json",
         artifact.shape,
       );
-      if (removed !== undefined) pruned.push(removed);
+
+      if (removed !== undefined) {
+        pruned.push(removed);
+      }
+
       continue;
     }
 
@@ -306,6 +350,7 @@ export async function pruneArtifacts(
     if (await ownedPathIntact(projectDir, artifact.path)) {
       await rm(path.join(projectDir, artifact.path), { recursive: true, force: true });
     }
+
     pruned.push(artifact);
   }
 

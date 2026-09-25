@@ -38,7 +38,11 @@ export class AmbitError extends Error {
   /** The full multi-line rendering, without the trailing newline. */
   format(): string {
     const head = `error: ${this.message}`;
-    if (this.detail.length === 0) return head;
+
+    if (this.detail.length === 0) {
+      return head;
+    }
+
     return [head, ...this.detail.map((line) => `       ${line}`)].join("\n");
   }
 }

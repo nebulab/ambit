@@ -35,14 +35,21 @@ import { artifactJson, artifactRows, removalRows } from "./artifacts.js";
  * (`src/cli/commands.ts`), so Commander refuses the invocation with exit 2 before any handler runs.
  */
 function modeOverride(ctx: CommandContext): ArtifactMode | undefined {
-  if (ctx.options.copy === true) return "copy";
-  if (ctx.options.link === true) return "link";
+  if (ctx.options.copy === true) {
+    return "copy";
+  }
+
+  if (ctx.options.link === true) {
+    return "link";
+  }
+
   return undefined;
 }
 
 /** Every flag `installProject` and `previewInstall` share, so the two paths cannot diverge. */
 function optionsOf(ctx: CommandContext): InstallOptions {
   const mode = modeOverride(ctx);
+
   return {
     frozen: ctx.options.frozen === true,
     offline: offlineRequested(ctx),
@@ -141,16 +148,31 @@ export const installHandler: CommandHandler = async (ctx) => {
 
   if (dryRunRequested(ctx)) {
     const preview = await previewInstall(projectDir, options);
-    if (jsonRequested(ctx)) ctx.stdout(JSON.stringify(previewJson(preview), null, 2));
-    else printSections(previewText(preview), ctx.stdout);
-    for (const line of skipWarnings(preview.skipped)) ctx.stderr(line);
+
+    if (jsonRequested(ctx)) {
+      ctx.stdout(JSON.stringify(previewJson(preview), null, 2));
+    } else {
+      printSections(previewText(preview), ctx.stdout);
+    }
+
+    for (const line of skipWarnings(preview.skipped)) {
+      ctx.stderr(line);
+    }
+
     return ExitCode.Success;
   }
 
   const result = await installProject(projectDir, options);
 
-  if (jsonRequested(ctx)) ctx.stdout(JSON.stringify(toJson(result), null, 2));
-  else printSections(toText(result), ctx.stdout);
-  for (const line of skipWarnings(result.skipped)) ctx.stderr(line);
+  if (jsonRequested(ctx)) {
+    ctx.stdout(JSON.stringify(toJson(result), null, 2));
+  } else {
+    printSections(toText(result), ctx.stdout);
+  }
+
+  for (const line of skipWarnings(result.skipped)) {
+    ctx.stderr(line);
+  }
+
   return ExitCode.Success;
 };

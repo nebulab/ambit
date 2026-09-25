@@ -224,6 +224,7 @@ async function isEmptyDirectory(dir: string): Promise<boolean> {
 async function pathExists(target: string): Promise<boolean> {
   try {
     await stat(target);
+
     return true;
   } catch {
     return false;
@@ -235,12 +236,16 @@ async function pathExists(target: string): Promise<boolean> {
  * builder did not create.
  */
 async function clearTarget(dir: string): Promise<void> {
-  if (!(await pathExists(dir))) return;
+  if (!(await pathExists(dir))) {
+    return;
+  }
 
   const info = await stat(dir);
+
   if (!info.isDirectory()) {
     throw new Error(`fixture target is not a directory: ${dir}`);
   }
+
   if (!(await isEmptyDirectory(dir)) && !(await pathExists(path.join(dir, FIXTURE_MARKER)))) {
     throw new Error(
       `refusing to overwrite ${dir}: it is not empty and has no ${FIXTURE_MARKER} marker`,
@@ -258,11 +263,14 @@ async function clearTarget(dir: string): Promise<void> {
  */
 export async function buildFixtureCatalog(dir: string): Promise<string> {
   const root = path.resolve(dir);
+
   await clearTarget(root);
 
   const files = Object.entries(FIXTURE_CATALOG_FILES).sort(([a], [b]) => (a < b ? -1 : 1));
+
   for (const [relative, contents] of files) {
     const target = path.join(root, relative);
+
     await mkdir(path.dirname(target), { recursive: true });
     await writeFile(target, contents, "utf8");
     if (FIXTURE_EXECUTABLE_FILES.includes(relative)) {
@@ -322,6 +330,7 @@ async function git(args: readonly string[], cwd: string): Promise<string> {
     env: { ...process.env, ...FIXTURE_GIT_ENV },
     encoding: "utf8",
   });
+
   return stdout.trim();
 }
 
@@ -382,10 +391,12 @@ export async function commitFixtureGitRevision(
 ): Promise<string> {
   for (const [relative, text] of Object.entries(files)) {
     const target = path.join(fixture.work, relative);
+
     if (text === null) {
       await rm(target, { recursive: true, force: true });
       continue;
     }
+
     await mkdir(path.dirname(target), { recursive: true });
     await writeFile(target, text, "utf8");
   }
@@ -393,7 +404,9 @@ export async function commitFixtureGitRevision(
   await git(["add", "--all"], fixture.work);
   await git(["commit", "--quiet", "--message", message], fixture.work);
   const commit = await git(["rev-parse", "HEAD"], fixture.work);
+
   await git(["push", "--quiet", fixture.repo, FIXTURE_GIT_BRANCH], fixture.work);
+
   return commit;
 }
 
@@ -402,10 +415,12 @@ const DEFAULT_DIR = "test/tmp/fixture-catalog";
 async function main(argv: readonly string[]): Promise<void> {
   const dir = argv[0] ?? DEFAULT_DIR;
   const root = await buildFixtureCatalog(dir);
+
   console.log(`fixture catalog written to ${root}`);
 }
 
 const entry = process.argv[1];
+
 if (entry && path.resolve(entry) === fileURLToPath(import.meta.url)) {
   await main(process.argv.slice(2));
 }

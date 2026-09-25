@@ -21,13 +21,19 @@ import {
 /** Runs `body`, asserting it rejected the document as a config error (exit 2). */
 function rejection(body: () => unknown): AmbitError {
   let result: unknown;
+
   try {
     result = body();
   } catch (error) {
-    if (!(error instanceof AmbitError)) throw error;
+    if (!(error instanceof AmbitError)) {
+      throw error;
+    }
+
     expect(error.code, `expected exit ${ExitCode.Config}: ${error.format()}`).toBe(ExitCode.Config);
+
     return error;
   }
+
   throw new Error(`expected a rejection, got ${JSON.stringify(result)}`);
 }
 
@@ -333,11 +339,13 @@ describe("YAML loader", () => {
 
     it("applies every §3.0 rule to the block", () => {
       const duplicate = ["---", "name: a", "name: b", "---", ""].join("\n");
+
       expect(rejection(() => frontmatter(duplicate)).message).toBe(
         `duplicate key "name" (${DOC} line 3)`,
       );
 
       const tabbed = ["---", "tags:", "\t- core", "---", ""].join("\n");
+
       expect(rejection(() => frontmatter(tabbed)).message).toContain("does not permit tabs");
     });
 
@@ -372,8 +380,10 @@ describe("YAML loader", () => {
 
     it("reads a file and names it as asked in errors", async () => {
       const dir = await mkdtemp(path.join(tmpdir(), "ambit-frontmatter-"));
+
       try {
         const target = path.join(dir, "SKILL.md");
+
         await writeFile(target, "---\nname: alpha\n---\n", "utf8");
 
         expect((await readFrontmatterMapping(target, DOC)).file).toBe(DOC);
@@ -396,6 +406,7 @@ describe("YAML loader", () => {
 
     it("reads a file and names it as asked in errors", async () => {
       const target = path.join(dir, "entity.yml");
+
       await writeFile(target, "tags:\n  core: {}\n", "utf8");
 
       const root = await readYamlMapping(target, "entity.yml");
@@ -444,6 +455,7 @@ describe("YAML emitter", () => {
 
     expect(text).toBe('commit: "1234567"\ncount: 12\nref: "1e5"\n');
     const parsed = load(text);
+
     expect(parsed.requireString("commit")).toBe("1234567");
     expect(parsed.requireString("ref")).toBe("1e5");
     expect(parsed.requireInteger("count")).toBe(12);

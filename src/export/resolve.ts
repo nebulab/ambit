@@ -29,16 +29,20 @@ export function resolvePlugins(
       "select exportable packs with `requires: [{ pack: catalog/name }]`",
     ]);
   }
+
   assertEntriesMatch(config, merged);
   const roots = merged.packs.filter((pack) =>
     config.requires.some((entry) => matches(entry, { ...pack, kind: "pack" })),
   );
+
   for (const pack of roots) {
-    if (!pack.plugin)
+    if (!pack.plugin) {
       throw configError(`${pack.file}: pack "${pack.name}" has no plugin metadata`, [
         "add a `plugin` mapping with at least a `name`",
       ]);
+    }
   }
+
   // Validate the complete graph before cutting boundary edges, so cycles cannot disappear.
   const selection = closeOverRequires(
     roots.map((pack) => ({ ...pack, kind: "pack" })),
@@ -49,15 +53,18 @@ export function resolvePlugins(
   const packs = selection.packs.filter((pack) => pack.plugin !== undefined);
   const names = new Set<string>();
   const directories = new Set<string>();
+
   return packs.map((pack) => {
     const metadata = pack.plugin!;
     const directory = metadata.directory ?? metadata.name;
+
     if (names.has(metadata.name) || directories.has(directory)) {
       throw resolutionError(
         `${pack.file}: duplicate plugin name or output directory "${directory}"`,
         ["give each exported pack a distinct plugin name and directory"],
       );
     }
+
     names.add(metadata.name);
     directories.add(directory);
     const bounded = {
@@ -74,20 +81,32 @@ export function resolvePlugins(
     const visited = new Set<string>();
     const follow = (node: Requirer): void => {
       const key = `${node.kind}:${node.catalog}/${node.name}`;
-      if (visited.has(key)) return;
+
+      if (visited.has(key)) {
+        return;
+      }
+
       visited.add(key);
       // Manifest arrays retain declaration order, including order within helper packs.
       for (const entry of node.requires) {
         const found = requiredItems(entry, node, merged);
+
         for (const child of found.packs) {
-          if (child.plugin) dependencies.add(child.plugin.name);
-          else follow({ ...child, kind: "pack" });
+          if (child.plugin) {
+            dependencies.add(child.plugin.name);
+          } else {
+            follow({ ...child, kind: "pack" });
+          }
         }
-        for (const child of found.skills)
+
+        for (const child of found.skills) {
           follow({ ...child, kind: "skill", file: `${child.path}/SKILL.md` });
+        }
       }
     };
+
     follow({ ...pack, kind: "pack" });
+
     return { pack, metadata, directory, dependencies: [...dependencies], bundle };
   });
 }

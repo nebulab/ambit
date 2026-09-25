@@ -35,6 +35,7 @@ export function parsePluginMetadata(mapping: YamlMapping): PluginMetadata {
     "commands",
   ]);
   const name = mapping.requireString("name");
+
   if (!NAME.test(name)) {
     throw mapping.keyError(
       "name",
@@ -42,7 +43,9 @@ export function parsePluginMetadata(mapping: YamlMapping): PluginMetadata {
       ["use a name such as `company-engineering`"],
     );
   }
+
   const result: { -readonly [K in keyof PluginMetadata]: PluginMetadata[K] } = { name };
+
   for (const key of [
     "version",
     "description",
@@ -53,8 +56,12 @@ export function parsePluginMetadata(mapping: YamlMapping): PluginMetadata {
     "commands",
   ] as const) {
     const value = mapping.optionalString(key);
-    if (value !== undefined) result[key] = value;
+
+    if (value !== undefined) {
+      result[key] = value;
+    }
   }
+
   if (result.directory !== undefined && !NAME.test(result.directory)) {
     throw mapping.keyError(
       "directory",
@@ -62,6 +69,7 @@ export function parsePluginMetadata(mapping: YamlMapping): PluginMetadata {
       ["use a directory such as `engineering` without path separators"],
     );
   }
+
   if (
     result.commands !== undefined &&
     (result.commands.startsWith("/") ||
@@ -72,10 +80,15 @@ export function parsePluginMetadata(mapping: YamlMapping): PluginMetadata {
       "use a catalog-relative path such as `commands/engineering`",
     ]);
   }
+
   for (const key of ["keywords", "dependencies"] as const) {
     const value = mapping.optionalStringList(key);
-    if (value !== undefined) result[key] = value;
+
+    if (value !== undefined) {
+      result[key] = value;
+    }
   }
+
   for (const dependency of result.dependencies ?? []) {
     if (!NAME.test(dependency) || dependency === name) {
       throw mapping.keyError("dependencies", `invalid plugin dependency "${dependency}"`, [
@@ -83,20 +96,25 @@ export function parsePluginMetadata(mapping: YamlMapping): PluginMetadata {
       ]);
     }
   }
+
   const author = mapping.optionalMapping("author");
+
   if (author !== undefined) {
     author.rejectUnknownKeys(["name", "email", "url"]);
     author.requireString("name");
     result.author = author.stringEntries();
   }
+
   for (const [field, url] of [
     ["homepage", result.homepage],
     ["author.url", result.author?.url],
   ] as const) {
-    if (url !== undefined && !URL.canParse(url))
+    if (url !== undefined && !URL.canParse(url)) {
       throw mapping.keyError(field, `invalid URL "${url}"`, [
         "use an absolute URL such as https://example.com",
       ]);
+    }
   }
+
   return result;
 }

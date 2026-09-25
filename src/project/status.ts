@@ -129,10 +129,17 @@ async function shapeOf(
 ): Promise<"absent" | "directory" | "link" | "other"> {
   try {
     const found = await lstat(target);
-    if (found.isSymbolicLink()) return "link";
+
+    if (found.isSymbolicLink()) {
+      return "link";
+    }
+
     return found.isDirectory() ? "directory" : "other";
   } catch (error) {
-    if (isMissing(error)) return "absent";
+    if (isMissing(error)) {
+      return "absent";
+    }
+
     unreadable(file, target, error);
   }
 }
@@ -152,8 +159,12 @@ async function fileList(dir: string, label: string): Promise<readonly string[]> 
   const walk = async (current: string, relative: string): Promise<void> => {
     for (const entry of await readdir(current, { withFileTypes: true })) {
       const within = relative === "" ? entry.name : `${relative}/${entry.name}`;
-      if (entry.isDirectory()) await walk(path.join(current, entry.name), within);
-      else found.push(within);
+
+      if (entry.isDirectory()) {
+        await walk(path.join(current, entry.name), within);
+      } else {
+        found.push(within);
+      }
     }
   };
 
@@ -162,6 +173,7 @@ async function fileList(dir: string, label: string): Promise<readonly string[]> 
   } catch (error) {
     unreadable(label, dir, error);
   }
+
   return found.sort(compare);
 }
 
@@ -174,6 +186,7 @@ async function fileList(dir: string, label: string): Promise<readonly string[]> 
 async function sameBytes(source: string, target: string): Promise<boolean> {
   try {
     const [expected, actual] = await Promise.all([readFile(source), readFile(target)]);
+
     return expected.equals(actual);
   } catch {
     return false;
@@ -199,8 +212,14 @@ async function firstDifference(artifact: PlannedCatalogDir): Promise<string | un
   const shipped = new Set(expected);
 
   for (const relative of [...new Set([...expected, ...actual])].sort(compare)) {
-    if (!installed.has(relative)) return `${relative} is missing`;
-    if (!shipped.has(relative)) return `${relative} is not in its source`;
+    if (!installed.has(relative)) {
+      return `${relative} is missing`;
+    }
+
+    if (!shipped.has(relative)) {
+      return `${relative} is not in its source`;
+    }
+
     if (
       !(await sameBytes(path.join(artifact.source, relative), path.join(artifact.target, relative)))
     ) {
@@ -222,6 +241,7 @@ async function firstDifference(artifact: PlannedCatalogDir): Promise<string | un
  */
 async function linkVerdict(artifact: PlannedPathArtifact): Promise<Verdict> {
   let written: string;
+
   try {
     written = await readlink(artifact.target);
   } catch (error) {
@@ -232,7 +252,11 @@ async function linkVerdict(artifact: PlannedPathArtifact): Promise<Verdict> {
   // same directory compare equal. Deliberately not `realpath`: this checks where the link points,
   // not what symlinks above it resolve to.
   const points = path.resolve(path.dirname(artifact.target), written);
-  if (points === artifact.source) return OK;
+
+  if (points === artifact.source) {
+    return OK;
+  }
+
   return { state: "modified", detail: `it points at ${written}, not at its source` };
 }
 
@@ -247,11 +271,19 @@ async function skillsLinkVerdict(
   owned: ReadonlySet<string>,
 ): Promise<Verdict> {
   const shape = await shapeOf(artifact.target, artifact.path);
-  if (shape === "absent") return { state: "missing", detail: "nothing is installed at this path" };
+
+  if (shape === "absent") {
+    return { state: "missing", detail: "nothing is installed at this path" };
+  }
+
   if (!owned.has(artifact.path)) {
     return { state: "unowned", detail: "it exists but ambit did not create it" };
   }
-  if (shape === "link") return linkVerdict(artifact);
+
+  if (shape === "link") {
+    return linkVerdict(artifact);
+  }
+
   return { state: "modified", detail: `it is not a symlink to ${SHARED_SKILLS_DIR}` };
 }
 
@@ -276,14 +308,25 @@ async function catalogDirVerdict(
   owned: ReadonlySet<string>,
 ): Promise<Verdict> {
   const shape = await shapeOf(artifact.target, artifact.path);
-  if (shape === "absent") return { state: "missing", detail: "nothing is installed at this path" };
+
+  if (shape === "absent") {
+    return { state: "missing", detail: "nothing is installed at this path" };
+  }
+
   if (!owned.has(artifact.path)) {
     return { state: "unowned", detail: "it exists but ambit did not create it" };
   }
-  if (shape === "link") return linkVerdict(artifact);
-  if (shape === "other") return { state: "modified", detail: "it is not a directory" };
+
+  if (shape === "link") {
+    return linkVerdict(artifact);
+  }
+
+  if (shape === "other") {
+    return { state: "modified", detail: "it is not a directory" };
+  }
 
   const difference = await firstDifference(artifact);
+
   return difference === undefined ? OK : { state: "modified", detail: difference };
 }
 
@@ -318,12 +361,18 @@ async function configVerdict(
   for (const artifact of artifacts) {
     const driver = driverFor(artifact.format, artifact.shape);
     const present = driver.sectionKeys(text, artifact.section, file);
+
     for (const entry of artifact.entries) {
       const key = managedKey(artifact.section, entry.key);
-      if (!present.has(entry.key)) return { state: "missing", detail: `"${key}" is absent` };
+
+      if (!present.has(entry.key)) {
+        return { state: "missing", detail: `"${key}" is absent` };
+      }
+
       if (!claimed.has(key)) {
         return { state: "unowned", detail: `"${key}" exists but ambit did not create it` };
       }
+
       if (!driver.entryMatches(text, artifact.section, entry, file)) {
         return { state: "modified", detail: `"${key}" is not what install would write` };
       }
@@ -331,7 +380,11 @@ async function configVerdict(
   }
 
   const [first] = stale;
-  if (first !== undefined) return { state: "stale", detail: `"${first}" is no longer selected` };
+
+  if (first !== undefined) {
+    return { state: "stale", detail: `"${first}" is no longer selected` };
+  }
+
   return OK;
 }
 
@@ -340,20 +393,27 @@ function plannedByPath(
   plan: readonly PlannedArtifact[],
 ): ReadonlyMap<string, readonly PlannedArtifact[]> {
   const byPath = new Map<string, PlannedArtifact[]>();
+
   for (const artifact of plan) {
     const group = byPath.get(artifact.path) ?? [];
+
     group.push(artifact);
     byPath.set(artifact.path, group);
   }
+
   return byPath;
 }
 
 /** Every managed key the plan writes into one config file, across every artifact naming it. */
 function plannedKeys(artifacts: readonly PlannedHarnessConfig[]): ReadonlySet<string> {
   const keys = new Set<string>();
+
   for (const artifact of artifacts) {
-    for (const key of artifact.managedKeys) keys.add(key);
+    for (const key of artifact.managedKeys) {
+      keys.add(key);
+    }
   }
+
   return keys;
 }
 
@@ -379,9 +439,12 @@ async function compareArtifacts(
 
   for (const [file, group] of groups) {
     const [first] = group;
+
     // A group is built from the plan, so it always has a member and every member shares a kind. Two
     // artifacts of different kinds at one path would be an adapter bug, not a project's problem.
-    if (first === undefined) continue;
+    if (first === undefined) {
+      continue;
+    }
 
     if (first.kind === "skill-dir" || first.kind === "hook-dir") {
       rows.push({ path: file, kind: first.kind, ...(await catalogDirVerdict(first, owned)) });
@@ -399,6 +462,7 @@ async function compareArtifacts(
     const claimed = ownedKeys(prior, file);
     const kept = plannedKeys(configs);
     const stale = [...claimed].sort(compare).filter((key) => !kept.has(key));
+
     rows.push({
       path: file,
       kind: first.kind,
@@ -409,8 +473,12 @@ async function compareArtifacts(
   // What state still claims and the plan no longer writes: install would prune it.
   // One row per path, since two adapters writing into one config file record one entry each.
   const reported = new Set<string>();
+
   for (const artifact of prior.artifacts) {
-    if (groups.has(artifact.path) || reported.has(artifact.path)) continue;
+    if (groups.has(artifact.path) || reported.has(artifact.path)) {
+      continue;
+    }
+
     reported.add(artifact.path);
     rows.push({
       path: artifact.path,
