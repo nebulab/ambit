@@ -15,11 +15,12 @@ import tseslint from "typescript-eslint";
  * time someone is in a hurry.
  */
 const FORBIDDEN = {
-  model: ["resolution", "harness", "authoring", "project", "cli"],
-  resolution: ["harness", "authoring", "project", "cli"],
-  harness: ["authoring", "project", "cli"],
-  authoring: ["harness", "project", "cli"],
-  project: ["authoring", "cli"],
+  model: ["resolution", "harness", "authoring", "project", "export", "cli"],
+  resolution: ["harness", "authoring", "project", "export", "cli"],
+  harness: ["authoring", "project", "export", "cli"],
+  authoring: ["harness", "project", "export", "cli"],
+  project: ["authoring", "export", "cli"],
+  export: ["authoring", "project", "cli"],
   // cli/ is the composition root and may reach for anything.
 };
 

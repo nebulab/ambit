@@ -209,6 +209,14 @@ export class YamlMapping {
     throw this.mismatch(key, "an integer", value);
   }
 
+  optionalBoolean(key: string): boolean | undefined {
+    if (!this.has(key)) return undefined;
+    const pair = this.require(key, "a boolean");
+    const value = this.value(pair, key, "a boolean", true);
+    if (isScalar(value) && typeof value.value === "boolean") return value.value;
+    throw this.mismatch(key, "a boolean", value);
+  }
+
   optionalInteger(key: string): number | undefined {
     return this.has(key) ? this.requireInteger(key) : undefined;
   }

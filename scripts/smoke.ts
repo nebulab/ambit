@@ -12,7 +12,7 @@
  * Run after `bun run build`, with `node` on the PATH. Exits non-zero with the child's own output.
  */
 import { spawn } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -68,6 +68,33 @@ try {
   // Nothing drifted the moment after installing, which is what says the artifacts install wrote are
   // the ones resolution asked for — read back out of every format it just wrote.
   await expectSuccess(["status", "--check", "--project", project]);
+  await writeFile(
+    path.join(root, "catalog/packs/export.yml"),
+    "name: export\nplugin: {name: smoke-plugin}\nrequires: [{skill: company-context}]\n",
+  );
+  await writeFile(
+    path.join(project, "ambit.yml"),
+    PROFILE.replace(/requires:[\s\S]*$/, "requires: [{pack: company/export}]\n"),
+  );
+  await expectSuccess([
+    "export",
+    "--format",
+    "claude-plugin",
+    "--output",
+    "plugins",
+    "--project",
+    project,
+  ]);
+  const manifest = JSON.parse(
+    await readFile(path.join(project, "plugins/smoke-plugin/.claude-plugin/plugin.json"), "utf8"),
+  ) as { name: string };
+  if (manifest.name !== "smoke-plugin") throw new Error("exported the wrong plugin manifest");
+  const skill = "skills/company-context/SKILL.md";
+  if (
+    (await readFile(path.join(project, "plugins/smoke-plugin", skill), "utf8")) !==
+    (await readFile(path.join(root, "catalog", skill), "utf8"))
+  )
+    throw new Error("export changed the skill contents");
 } finally {
   await rm(root, { recursive: true, force: true });
 }

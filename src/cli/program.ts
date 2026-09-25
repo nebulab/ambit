@@ -1,3 +1,4 @@
+import { exportHandler } from "./handlers/export.js";
 import { Command, CommanderError } from "commander";
 
 import type { CommandContext, CommandHandlers, CommandRules } from "./commands.js";
@@ -25,10 +26,11 @@ export type Io = Pick<CommandContext, "cwd" | "stdout" | "stderr">;
  * command added without an entry reports itself unimplemented (exit 1) rather than silently
  * succeeding.
  *
- * Thirteen entries, none with a space: the surface is flat. A group, were one declared, would
+ * Entries have no spaces: the surface is flat. A group, were one declared, would
  * still have no entry here, since it holds commands and runs none itself.
  */
 export const HANDLERS: CommandHandlers = {
+  export: exportHandler,
   clean: cleanHandler,
   doctor: doctorHandler,
   init: initHandler,

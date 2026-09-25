@@ -100,12 +100,21 @@ export interface CommandSpec {
  * Commands are wired to behavior as the build reaches them; until then they report themselves
  * unimplemented rather than pretending to work.
  *
- * Thirteen commands, flat: no group. Twelve act on a project, and `self-update` acts on ambit
+ * Commands are flat. Project commands act on a project, and `self-update` acts on ambit
  * itself. Nothing writes into a catalog — a catalog is Markdown and YAML in a git repo, edited
  * directly — and nothing reads a catalog directory instead of an `ambit.yml`, because a catalog
  * repo lists itself.
  */
 export const COMMAND_SPECS: readonly CommandSpec[] = [
+  {
+    name: "export",
+    summary: "export selected packs as Claude plugins",
+    mutating: true,
+    options: [
+      new Option("--format <format>", "package format").choices(["claude-plugin"]),
+      new Option("--output <dir>", "new output directory, relative to the project"),
+    ],
+  },
   { name: "init", summary: "scaffold ambit.yml, skills/, mcps/, hooks/", mutating: true },
   {
     name: "search",
