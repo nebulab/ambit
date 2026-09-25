@@ -6,6 +6,7 @@ export interface PackageFile {
   /** Null denotes a directory, including an empty asset directory. */
   readonly data: Buffer | null;
   readonly mode: number;
+  readonly source?: string;
 }
 export type PackageFiles = Map<string, PackageFile>;
 
@@ -61,7 +62,7 @@ export async function collectFiles(
       const existing = files.get(target);
       if (existing?.data)
         throw configError(`export path collision at ${target}`, ["rename the conflicting asset"]);
-      files.set(target, { data: null, mode: info.mode & 0o777 });
+      files.set(target, { data: null, mode: info.mode & 0o777, source: actual });
       const next = new Set([...ancestors, actual]);
       for (const name of (await readdir(actual)).sort()) {
         if (file === source && exclude.includes(name)) continue;
@@ -69,6 +70,7 @@ export async function collectFiles(
       }
     } else if (info.isFile()) {
       addFile(files, target, await readFile(actual), info.mode & 0o777);
+      files.set(target, { ...files.get(target)!, source: actual });
     } else {
       throw configError(`${file}: unsupported asset type`, [
         "package only regular files and directories",

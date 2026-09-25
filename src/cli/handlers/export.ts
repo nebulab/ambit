@@ -12,6 +12,7 @@ export const exportHandler: CommandHandler = async (ctx) => {
   const result = await exportPlugins(sourceContextOf(ctx), {
     output: ctx.options.output,
     dryRun: dryRunRequested(ctx),
+    link: ctx.options.link === true,
   });
   if (jsonRequested(ctx)) ctx.stdout(JSON.stringify(result, null, 2));
   else {

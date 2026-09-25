@@ -6,6 +6,7 @@ import {
   mkdtemp,
   readFile,
   readdir,
+  readlink,
   rename,
   rm,
   stat,
@@ -410,4 +411,30 @@ it("requires a directory for slash commands and a valid homepage URL", async () 
   await put("packs/work.yml", "name: work\nplugin: {name: good, commands: command.md}\n");
   await put("command.md", "---\ndescription: Command\n---\nBody\n");
   await expect(exportIt()).rejects.toThrow("asset directory");
+});
+
+it("links skills and hook assets relative to the final output and survives moving the repository", async () => {
+  await exportPlugins(context(), { output: "plugins", link: true });
+  const plugin = path.join(source, "plugins/work");
+  expect(await readlink(path.join(plugin, "skills/do-work"))).toBe("../../../skills/do-work");
+  expect(await readlink(path.join(plugin, "hooks/check.sh"))).toBe("../../../hooks/check/check.sh");
+  expect((await lstat(path.join(plugin, "hooks/hooks.json"))).isSymbolicLink()).toBe(false);
+  const moved = path.join(root, "moved");
+  await rename(source, moved);
+  expect(
+    await readFile(path.join(moved, "plugins/work/skills/do-work/SKILL.md"), "utf8"),
+  ).toContain("Do work");
+  expect(
+    execFileSync("sh", [path.join(moved, "plugins/work/hooks/check.sh")], { encoding: "utf8" }),
+  ).toBe("relocated successfully\n");
+});
+
+it("rejects remote catalogs for linked exports even during dry runs", async () => {
+  await put(
+    "ambit.yml",
+    "version: 1\ncatalogs: [{name: remote, source: 'github:example/catalog'}]\nrequires: [{pack: remote/work}]\n",
+  );
+  await expect(
+    exportPlugins(context(), { output: "plugins", link: true, dryRun: true }),
+  ).rejects.toThrow("linked exports require local path catalogs");
 });

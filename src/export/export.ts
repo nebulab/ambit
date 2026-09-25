@@ -1,4 +1,14 @@
-import { chmod, lstat, mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  lstat,
+  mkdir,
+  mkdtemp,
+  realpath,
+  rename,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import path from "node:path";
 import { AmbitError, configError } from "../errors.js";
 import { loadCatalogs, mergeCatalogs } from "../model/catalog.js";
@@ -11,6 +21,7 @@ import { resolvePlugins } from "./resolve.js";
 export interface ExportOptions {
   readonly output: string;
   readonly dryRun?: boolean;
+  readonly link?: boolean;
 }
 
 export interface ExportResult {
@@ -46,6 +57,10 @@ export async function exportPlugins(
         "choose a new output directory",
       ]);
     const config = await loadProjectConfig(context.projectDir);
+    if (options.link && config.catalogs.some((catalog) => !catalog.source.startsWith("path:")))
+      throw configError("linked exports require local path catalogs", [
+        "use local catalogs or omit --link for a standalone export",
+      ]);
     const catalogs = await loadCatalogs(config, context);
     const plugins = resolvePlugins(config, mergeCatalogs(catalogs));
     const rendered: PackageFiles[] = [];
@@ -67,10 +82,34 @@ export async function exportPlugins(
     };
     if (options.dryRun) return result;
     await mkdir(path.dirname(output), { recursive: true });
+    const outputParent = await realpath(path.dirname(output));
     staging = await mkdtemp(path.join(path.dirname(output), ".ambit-export-"));
     for (const [index, files] of rendered.entries()) {
+      const linkedDirectories: string[] = [];
       for (const [relative, file] of files) {
+        if (linkedDirectories.some((directory) => relative.startsWith(`${directory}/`))) continue;
         const target = path.join(staging, plugins[index]!.directory, relative);
+        if (
+          options.link &&
+          file.source &&
+          ((file.data === null && /^skills\/[^/]+$/.test(relative)) ||
+            (file.data !== null && relative.startsWith("hooks/")))
+        ) {
+          await mkdir(path.dirname(target), { recursive: true });
+          const finalTarget = path.join(
+            outputParent,
+            path.basename(output),
+            plugins[index]!.directory,
+            relative,
+          );
+          await symlink(
+            path.relative(path.dirname(finalTarget), file.source),
+            target,
+            file.data === null ? "dir" : "file",
+          );
+          if (file.data === null) linkedDirectories.push(relative);
+          continue;
+        }
         if (file.data === null) {
           await mkdir(target, { recursive: true });
           continue;

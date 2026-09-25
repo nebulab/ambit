@@ -113,6 +113,7 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
     options: [
       new Option("--format <format>", "package format").choices(["claude-plugin"]),
       new Option("--output <dir>", "new output directory, relative to the project"),
+      new Option("--link", "link skills and hook assets to local catalogs"),
     ],
   },
   { name: "init", summary: "scaffold ambit.yml, skills/, mcps/, hooks/", mutating: true },
