@@ -30,7 +30,9 @@ import { applySelfUpdate, isUpgrade, planSelfUpdate } from "../../self/update.js
  * @throws {AmbitError} exit 4 when `--offline` was given.
  */
 export const refusesOfflineSelfUpdateRule: CommandRule = (ctx: CommandContext) => {
-  if (!offlineRequested(ctx)) return;
+  if (!offlineRequested(ctx)) {
+    return;
+  }
 
   throw networkError("`--offline` cannot install a release", [
     "this command downloads a binary from GitHub, which no local cache holds",
@@ -69,9 +71,18 @@ function toJson(plan: SelfUpdatePlan, installed: boolean): Readonly<Record<strin
 
 /** The last line: what happened, or what would have. */
 function verdict(plan: SelfUpdatePlan, dryRun: boolean): string {
-  if (!plan.changed) return `ambit ${plan.target} is already installed`;
-  if (dryRun) return `would install ambit ${plan.target}`;
-  if (isUpgrade(plan)) return `installed ambit ${plan.target}`;
+  if (!plan.changed) {
+    return `ambit ${plan.target} is already installed`;
+  }
+
+  if (dryRun) {
+    return `would install ambit ${plan.target}`;
+  }
+
+  if (isUpgrade(plan)) {
+    return `installed ambit ${plan.target}`;
+  }
+
   return `installed ambit ${plan.target}, a downgrade from ${plan.current}`;
 }
 
@@ -94,10 +105,18 @@ export const selfUpdateHandler: CommandHandler = async (ctx) => {
   const plan = await planSelfUpdate(context, ctx.args[0]);
 
   const installed = plan.changed && !dryRun;
-  if (installed) await applySelfUpdate(plan, context);
 
-  if (jsonRequested(ctx)) ctx.stdout(JSON.stringify(toJson(plan, installed), null, 2));
-  else for (const line of toText(plan, dryRun)) ctx.stdout(line);
+  if (installed) {
+    await applySelfUpdate(plan, context);
+  }
+
+  if (jsonRequested(ctx)) {
+    ctx.stdout(JSON.stringify(toJson(plan, installed), null, 2));
+  } else {
+    for (const line of toText(plan, dryRun)) {
+      ctx.stdout(line);
+    }
+  }
 
   return ExitCode.Success;
 };

@@ -135,7 +135,11 @@ function byName<T, V>(
   value: (item: T) => V,
 ): Readonly<Record<string, V>> {
   const record: Record<string, V> = {};
-  for (const item of items) record[name(item)] = value(item);
+
+  for (const item of items) {
+    record[name(item)] = value(item);
+  }
+
   return record;
 }
 
@@ -232,7 +236,10 @@ export async function writeLockText(projectDir: string, text: string): Promise<v
  */
 export async function assertLockCurrent(projectDir: string, expected: string): Promise<void> {
   const actual = await readLockText(projectDir);
-  if (actual === expected) return;
+
+  if (actual === expected) {
+    return;
+  }
 
   throw driftError(`${LOCK_FILENAME} is out of date`, [
     actual === undefined

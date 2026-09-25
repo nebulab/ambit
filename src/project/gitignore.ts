@@ -103,9 +103,16 @@ function isEnd(line: string): boolean {
  * middle.
  */
 function splitLines(text: string | undefined): readonly string[] {
-  if (text === undefined || text === "") return [];
+  if (text === undefined || text === "") {
+    return [];
+  }
+
   const lines = text.split("\n");
-  if (lines[lines.length - 1] === "") lines.pop();
+
+  if (lines[lines.length - 1] === "") {
+    lines.pop();
+  }
+
   return lines;
 }
 
@@ -126,7 +133,10 @@ interface Block {
 function findBlock(lines: readonly string[], file: string): Block | undefined {
   const begins = lines.flatMap((line, index) => (isBegin(line) ? [index] : []));
   const [start, second] = begins;
-  if (start === undefined) return undefined;
+
+  if (start === undefined) {
+    return undefined;
+  }
 
   if (second !== undefined) {
     throw configError(`${file} holds more than one ambit block`, [
@@ -136,6 +146,7 @@ function findBlock(lines: readonly string[], file: string): Block | undefined {
   }
 
   const offset = lines.slice(start + 1).findIndex(isEnd);
+
   if (offset === -1) {
     throw configError(`${file} holds an unterminated ambit block`, [
       `the block opened on line ${start + 1} has no \`${BLOCK_END}\` line, so ambit cannot tell where it ends`,
@@ -181,12 +192,18 @@ export function gitignoreBlocks(artifacts: readonly OwnedArtifact[]): readonly I
   const shared: string[] = [];
 
   for (const artifact of artifacts) {
-    if (artifact.kind === "harness-config") continue;
+    if (artifact.kind === "harness-config") {
+      continue;
+    }
+
     // No trailing slash: a `path:` skill installs as a symlink, which git does not read as a
     // directory, so a `dir/` pattern would leave linked skills tracked. The skills link is also
     // always a symlink and needs the same fix.
-    if (isShared(artifact.path)) shared.push(sharedPattern(artifact.path));
-    else root.push(artifact.path);
+    if (isShared(artifact.path)) {
+      shared.push(sharedPattern(artifact.path));
+    } else {
+      root.push(artifact.path);
+    }
   }
 
   return [
@@ -212,7 +229,9 @@ export function updateGitignoreText(
   entries: readonly string[],
   file: string = GITIGNORE_FILENAME,
 ): string | undefined {
-  if (entries.length === 0) return removeGitignoreText(existing, file);
+  if (entries.length === 0) {
+    return removeGitignoreText(existing, file);
+  }
 
   const lines = [...splitLines(existing)];
   const block = findBlock(lines, file);
@@ -225,13 +244,17 @@ export function updateGitignoreText(
   if (block === undefined) {
     // Add one blank line of separation, but only if there is something to separate; a file that
     // already ends in a blank line keeps its own shape.
-    if (lines.length > 0 && lines[lines.length - 1]?.trim() !== "") lines.push("");
+    if (lines.length > 0 && lines[lines.length - 1]?.trim() !== "") {
+      lines.push("");
+    }
+
     lines.push(...rendered);
   } else {
     lines.splice(block.start, block.end - block.start + 1, ...rendered);
   }
 
   const text = `${lines.join("\n")}\n`;
+
   return text === existing ? undefined : text;
 }
 
@@ -255,10 +278,14 @@ export function removeGitignoreText(
 ): string | undefined {
   const lines = [...splitLines(existing)];
   const block = findBlock(lines, file);
-  if (block === undefined) return undefined;
+
+  if (block === undefined) {
+    return undefined;
+  }
 
   const start =
     block.start > 0 && lines[block.start - 1]?.trim() === "" ? block.start - 1 : block.start;
+
   lines.splice(start, block.end - start + 1);
 
   return lines.length === 0 ? "" : `${lines.join("\n")}\n`;
@@ -278,6 +305,7 @@ export async function readGitignoreText(
   file: string = GITIGNORE_FILENAME,
 ): Promise<string | undefined> {
   const target = path.join(projectDir, file);
+
   try {
     return await readFile(target, "utf8");
   } catch (error) {
@@ -288,6 +316,7 @@ export async function readGitignoreText(
     ) {
       return undefined;
     }
+
     throw configError(`cannot read ${file}`, [
       error instanceof Error ? error.message : String(error),
       `make ${target} readable, so ambit can rewrite its own block without discarding the rest`,
@@ -306,17 +335,24 @@ async function applyBlock(projectDir: string, block: IgnoreBlock): Promise<boole
     block.entries,
     block.file,
   );
-  if (next === undefined) return false;
+
+  if (next === undefined) {
+    return false;
+  }
 
   const target = path.join(projectDir, block.file);
+
   if (next === "") {
     await rm(target, { force: true });
+
     return true;
   }
+
   // The nested file sits in a directory the install creates, but `prune` and a bundle that installs
   // no skills both reach here without one.
   await mkdir(path.dirname(target), { recursive: true });
   await writeFile(target, next, "utf8");
+
   return true;
 }
 
@@ -334,9 +370,13 @@ export async function writeGitignoreBlocks(
   artifacts: readonly OwnedArtifact[],
 ): Promise<readonly string[]> {
   const written: string[] = [];
+
   for (const block of gitignoreBlocks(artifacts)) {
-    if (await applyBlock(projectDir, block)) written.push(block.file);
+    if (await applyBlock(projectDir, block)) {
+      written.push(block.file);
+    }
   }
+
   return written;
 }
 
@@ -356,14 +396,17 @@ export async function gitignoreStatus(
   artifacts: readonly OwnedArtifact[],
 ): Promise<readonly GitignoreStatus[]> {
   const rows: GitignoreStatus[] = [];
+
   for (const block of gitignoreBlocks(artifacts)) {
     const next = updateGitignoreText(
       await readGitignoreText(projectDir, block.file),
       block.entries,
       block.file,
     );
+
     rows.push({ file: block.file, changed: next !== undefined });
   }
+
   return rows;
 }
 
@@ -380,14 +423,24 @@ export async function gitignoreStatus(
  */
 export async function removeGitignoreBlocks(projectDir: string): Promise<readonly string[]> {
   const removed: string[] = [];
+
   for (const file of [GITIGNORE_FILENAME, SHARED_GITIGNORE_FILE]) {
     const next = removeGitignoreText(await readGitignoreText(projectDir, file), file);
-    if (next === undefined) continue;
+
+    if (next === undefined) {
+      continue;
+    }
 
     const target = path.join(projectDir, file);
-    if (next === "") await rm(target, { force: true });
-    else await writeFile(target, next, "utf8");
+
+    if (next === "") {
+      await rm(target, { force: true });
+    } else {
+      await writeFile(target, next, "utf8");
+    }
+
     removed.push(file);
   }
+
   return removed;
 }

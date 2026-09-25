@@ -62,18 +62,27 @@ export function isRecord(value: unknown): value is JsonObject {
  * neither counts as drift.
  */
 export function structurallyEqual(expected: unknown, actual: unknown): boolean {
-  if (expected === actual) return true;
+  if (expected === actual) {
+    return true;
+  }
 
   if (Array.isArray(expected) || Array.isArray(actual)) {
-    if (!Array.isArray(expected) || !Array.isArray(actual)) return false;
+    if (!Array.isArray(expected) || !Array.isArray(actual)) {
+      return false;
+    }
+
     return (
       expected.length === actual.length &&
       expected.every((item, index) => structurallyEqual(item, actual[index]))
     );
   }
 
-  if (!isRecord(expected) || !isRecord(actual)) return false;
+  if (!isRecord(expected) || !isRecord(actual)) {
+    return false;
+  }
+
   const keys = Object.keys(expected);
+
   return (
     keys.length === Object.keys(actual).length &&
     keys.every((key) => Object.hasOwn(actual, key) && structurallyEqual(expected[key], actual[key]))
@@ -143,7 +152,10 @@ export async function readDocumentText(target: string, file: string): Promise<st
   try {
     return await readFile(target, "utf8");
   } catch (error) {
-    if (isRecord(error) && error.code === "ENOENT") return undefined;
+    if (isRecord(error) && error.code === "ENOENT") {
+      return undefined;
+    }
+
     throw configError(`cannot read ${file}`, [
       error instanceof Error ? error.message : String(error),
       `make ${target} readable, or move it aside so ambit can write a fresh one`,

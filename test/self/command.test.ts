@@ -24,6 +24,7 @@ async function invoke(...argv: readonly string[]): Promise<Invocation> {
     stdout: (line) => out.push(line),
     stderr: (line) => err.push(line),
   });
+
   return { code, stdout: out.join("\n"), stderr: err.join("\n") };
 }
 

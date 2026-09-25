@@ -35,10 +35,15 @@ function rejection(text: string, addressing: Addressing): AmbitError {
   try {
     parse(text, addressing);
   } catch (error) {
-    if (!(error instanceof AmbitError)) throw error;
+    if (!(error instanceof AmbitError)) {
+      throw error;
+    }
+
     expect(error.code, `expected exit ${ExitCode.Config}: ${error.format()}`).toBe(ExitCode.Config);
+
     return error;
   }
+
   throw new Error("expected the entry to be rejected");
 }
 
@@ -148,12 +153,14 @@ describe("matching one item", () => {
 
   it("restricts a qualified entry to its own catalog, and leaves an unqualified one blind", () => {
     const qualified = entry({ pattern: "*", catalog: "company" });
+
     expect(matches(qualified, item({ catalog: "company" }))).toBe(true);
     expect(matches(qualified, item({ catalog: "personal" }))).toBe(false);
 
     // An unqualified entry carries no catalog to compare, so restricting it to one is the caller's
     // job — it matches whatever it is offered.
     const unqualified = entry({ pattern: "*" });
+
     expect(matches(unqualified, item({ catalog: "company" }))).toBe(true);
     expect(matches(unqualified, item({ catalog: "personal" }))).toBe(true);
   });
@@ -161,6 +168,7 @@ describe("matching one item", () => {
   it("matches every namespace with the same glob rules, packs included", () => {
     for (const kind of ITEM_KINDS) {
       const wide = entry({ kind, pattern: "core.*" });
+
       expect(matches(wide, item({ kind, name: "core.a.b" }))).toBe(true);
       expect(matches(wide, item({ kind, name: "core" }))).toBe(false);
     }
@@ -182,6 +190,7 @@ describe("writing an entry back out", () => {
 
   it("renders advice as one block-style line, which one key fits on", () => {
     const yaml = entryYaml(entry({ kind: "skill", pattern: "core.*", catalog: "company" }));
+
     expect(yaml).toBe(`- skill: "company/core.*"`);
     expect(yaml).not.toContain("\n");
     // The advice has to round-trip: what a refusal tells a reader to write must parse.
@@ -202,6 +211,7 @@ describe("literal equality and deduplication", () => {
 
   it("separates the namespaces, the catalogs, and the patterns", () => {
     const base = entry({ kind: "skill", pattern: "x", catalog: "company" });
+
     expect(sameEntry(base, { ...base, kind: "pack" })).toBe(false);
     expect(sameEntry(base, { ...base, pattern: "y" })).toBe(false);
     expect(sameEntry(base, { ...base, catalog: "personal" })).toBe(false);
@@ -213,6 +223,7 @@ describe("literal equality and deduplication", () => {
   it("keeps the first of each duplicate and the order the list was written in", () => {
     const a = entry({ pattern: "a" });
     const b = entry({ pattern: "b" });
+
     expect(uniqueEntries([b, a, b, a])).toEqual([b, a]);
     expect(uniqueEntries([])).toEqual([]);
   });
@@ -265,6 +276,7 @@ describe("parsing a `requires` list", () => {
 `,
       "qualified",
     );
+
     expect(entries.map(entryAddress)).toEqual(["b/*", "a/*", "b/*"]);
     expect(uniqueEntries(entries).map(entryAddress)).toEqual(["b/*", "a/*"]);
   });
@@ -273,6 +285,7 @@ describe("parsing a `requires` list", () => {
 describe("refusing a malformed entry", () => {
   it("refuses a bare pattern, naming what it fails to say", () => {
     const error = rejection(`requires:\n  - "company/core.*"\n`, "qualified");
+
     expect(error.message).toContain(`"company/core.*"`);
     expect(error.message).toContain("line 2");
     expect(error.format()).toContain("does not say which namespace it selects from");
@@ -282,11 +295,13 @@ describe("refusing a malformed entry", () => {
 
   it("proposes a placeholder alias rather than guessing one, for a bare unqualified pattern", () => {
     const error = rejection(`requires:\n  - "core.*"\n`, "qualified");
+
     expect(error.format()).toContain(`- skill: "<catalog>/core.*"`);
   });
 
   it("refuses a key this grammar does not have, listing the four that it does", () => {
     const error = rejection(`requires:\n  - description: hello\n`, "qualified");
+
     expect(error.message).toContain(`unknown key "requires[0].description"`);
     expect(error.message).toContain("line 2");
     expect(error.format()).toContain("accepted keys: hook, mcp, pack, skill");
@@ -294,12 +309,14 @@ describe("refusing a malformed entry", () => {
 
   it("refuses an empty entry, which names no namespace at all", () => {
     const error = rejection(`requires:\n  - {}\n`, "qualified");
+
     expect(error.message).toContain("selects from no namespace");
     expect(error.format()).toContain("`pack`, `skill`, `mcp`, `hook`");
   });
 
   it("refuses an entry naming two namespaces, rather than picking one", () => {
     const error = rejection(`requires:\n  - pack: "c/a"\n    skill: "c/b"\n`, "qualified");
+
     expect(error.message).toContain("selects from 2 namespaces: pack, skill");
     expect(error.message).toContain("line 2");
     expect(error.format()).toContain("one entry per namespace");
@@ -312,6 +329,7 @@ describe("refusing a malformed entry", () => {
       `requires:\n  - tag: "c/core"\n    capabilities: [skills]\n`,
       "qualified",
     );
+
     expect(tagged.message).toContain(`unknown key "requires[0].tag"`);
     expect(tagged.format()).toContain("accepted keys: hook, mcp, pack, skill");
 
@@ -319,6 +337,7 @@ describe("refusing a malformed entry", () => {
       `requires:\n  - skill: "c/core"\n    capabilities: [skills]\n`,
       "qualified",
     );
+
     expect(capped.message).toContain(`unknown key "requires[0].capabilities"`);
   });
 
@@ -335,6 +354,7 @@ describe("refusing a malformed entry", () => {
 describe("the two spellings of an address", () => {
   it("requires a qualifier in a project, naming the key and the line", () => {
     const error = rejection(`requires:\n  - skill: "core.*"\n`, "qualified");
+
     expect(error.message).toContain(`"core.*" names no catalog`);
     expect(error.message).toContain("line 2");
     expect(error.format()).toContain("`<catalog>/core.*`");
@@ -343,6 +363,7 @@ describe("the two spellings of an address", () => {
 
   it("refuses a qualifier in a catalog, saying why an author cannot write one", () => {
     const error = rejection(`requires:\n  - hook: "company/guards"\n`, "unqualified");
+
     expect(error.message).toContain(`"company/guards" names a catalog`);
     expect(error.message).toContain("line 2");
     expect(error.format()).toContain("belongs to the consumer's config");
@@ -352,9 +373,11 @@ describe("the two spellings of an address", () => {
   it("refuses a second separator in either spelling, since a name holds none", () => {
     for (const addressing of ["qualified", "unqualified"] as const) {
       const error = rejection(`requires:\n  - skill: "c/core/a"\n`, addressing);
+
       expect(error.message).toContain("line 2");
       expect(error.code).toBe(ExitCode.Config);
     }
+
     expect(rejection(`requires:\n  - skill: "c/core/a"\n`, "qualified").message).toContain(
       "2 `/` separators",
     );
@@ -371,6 +394,7 @@ describe("the two spellings of an address", () => {
 
   it("takes `<catalog>/*` as the catalog-wide selector, with no root to synthesize", () => {
     const [only] = parse(`requires:\n  - skill: "company/*"\n`, "qualified");
+
     expect(only).toEqual({ kind: "skill", catalog: "company", pattern: "*" });
     expect(matches(only!, item({ catalog: "company", name: "anything.at.all" }))).toBe(true);
     expect(matches(only!, item({ catalog: "personal" }))).toBe(false);
@@ -378,6 +402,7 @@ describe("the two spellings of an address", () => {
 
   it("keeps a catalog alias holding a dot addressable, which is why the separator is `/`", () => {
     const [only] = parse(`requires:\n  - skill: "my.catalog/core.*"\n`, "qualified");
+
     expect(only).toEqual({ kind: "skill", catalog: "my.catalog", pattern: "core.*" });
   });
 });

@@ -109,6 +109,7 @@ async function cli(
     stdout: (line) => out.push(line),
     stderr: (line) => err.push(line),
   });
+
   return { code, stdout: out.join("\n"), stderr: err.join("\n") };
 }
 
@@ -123,6 +124,7 @@ async function stateArtifacts() {
 async function pathExists(relative: string): Promise<boolean> {
   try {
     await lstat(path.join(projectDir, relative));
+
     return true;
   } catch {
     return false;
@@ -174,6 +176,7 @@ describe("two harnesses of the same family", () => {
 
   it("writes both config files and one skills tree", async () => {
     const result = await cli("install");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     expect(Object.keys(JSON.parse(await read(".mcp.json")).mcpServers as object)).toEqual([
@@ -193,6 +196,7 @@ describe("two harnesses of the same family", () => {
     await cli("install");
 
     const paths = (await stateArtifacts()).map((artifact) => artifact.path);
+
     expect(new Set(paths).size).toBe(paths.length);
   });
 
@@ -200,6 +204,7 @@ describe("two harnesses of the same family", () => {
     await cli("install");
 
     const contents = await read(".gitignore");
+
     expect(contents.split(CLAUDE_LINK)).toHaveLength(2);
   });
 
@@ -212,6 +217,7 @@ describe("two harnesses of the same family", () => {
     ];
 
     const second = await cli("install");
+
     expect(second.code, second.stderr).toBe(ExitCode.Success);
 
     expect([
@@ -234,6 +240,7 @@ describe("two harnesses from different families", () => {
 
   it("writes each harness's config in that harness's own file and format", async () => {
     const result = await cli("install");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     expect(JSON.parse(await read(".mcp.json"))).toEqual({
@@ -319,6 +326,7 @@ ${requiresEntry("core")}
     );
 
     const result = await cli("install");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     expect(JSON.parse(await read(".mcp.json"))).toEqual({ mcpServers: {} });
@@ -333,10 +341,12 @@ model = "gpt-5-codex"
 [sandbox]
 mode = "read-only"
 `;
+
     await mkdir(path.join(projectDir, ".codex"), { recursive: true });
     await writeFile(path.join(projectDir, ".codex/config.toml"), handwritten, "utf8");
 
     const result = await cli("install");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     expect((await read(".codex/config.toml")).startsWith(handwritten)).toBe(true);
@@ -348,6 +358,7 @@ describe("all five harnesses at once", () => {
     await writeProfile(["claude", "codex", "cursor", "opencode", "vscode"]);
 
     const result = await cli("install");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     expect((await readdir(path.join(projectDir, SKILLS_DIR))).sort()).toEqual(
@@ -362,6 +373,7 @@ describe("all five harnesses at once", () => {
     ]) {
       expect(await pathExists(file), file).toBe(true);
     }
+
     // Each skill is materialized once however many harnesses read it: three directories, not fifteen.
     expect(
       (await stateArtifacts()).filter((artifact) => artifact.kind === "skill-dir"),
@@ -389,6 +401,7 @@ describe("all five harnesses at once", () => {
 
     try {
       const result = await cli("doctor");
+
       expect(result.code, result.stderr).toBe(ExitCode.Success);
     } finally {
       delete process.env[PACKED_KEY_VAR];
@@ -472,16 +485,21 @@ describe("migrating an old-layout .claude/skills", () => {
         mode: "link",
       })),
     };
+
     for (const name of ALL_SKILLS) {
       const target = path.join(projectDir, CLAUDE_LINK, name);
+
       await mkdir(target, { recursive: true });
       await writeFile(path.join(target, "SKILL.md"), `---\nname: ${name}\n---\n`, "utf8");
     }
+
     if (extra !== undefined) {
       const target = path.join(projectDir, CLAUDE_LINK, extra);
+
       await mkdir(target, { recursive: true });
       await writeFile(path.join(target, "SKILL.md"), `---\nname: ${extra}\n---\n`, "utf8");
     }
+
     await mkdir(path.join(projectDir, STATE_DIRNAME), { recursive: true });
     await writeFile(
       path.join(projectDir, STATE_DIRNAME, STATE_FILENAME),
@@ -494,6 +512,7 @@ describe("migrating an old-layout .claude/skills", () => {
     await writeOldLayout();
 
     const result = await cli("install");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     // ambit wrote everything that was in there, so turning the container into a link loses nothing —
@@ -527,6 +546,7 @@ describe("migrating an old-layout .claude/skills", () => {
     await writeOldLayout("hand-written");
 
     const result = await cli("install", "--adopt");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     expect(await readlink(path.join(projectDir, CLAUDE_LINK))).toBe(`../${SKILLS_DIR}`);
@@ -586,10 +606,12 @@ describe("migrating an old-layout .claude/skills", () => {
     // directory as far as writing into it goes, and refusing it would break anyone who keeps
     // `.agents` on another volume.
     const elsewhere = path.join(root, "elsewhere");
+
     await mkdir(elsewhere, { recursive: true });
     await symlink(path.relative(projectDir, elsewhere), path.join(projectDir, ".agents"), "dir");
 
     const result = await cli("install");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     expect((await readdir(path.join(elsewhere, "skills"))).sort()).toEqual([...ALL_SKILLS].sort());
@@ -600,6 +622,7 @@ describe("migrating an old-layout .claude/skills", () => {
     await symlink("../.agents/skills", path.join(projectDir, CLAUDE_LINK), "dir");
 
     const result = await cli("install", "--adopt");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     expect(await readlink(path.join(projectDir, CLAUDE_LINK))).toBe(`../${SKILLS_DIR}`);

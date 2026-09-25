@@ -108,9 +108,13 @@ export async function planSelfUpdate(
   requested?: string,
 ): Promise<SelfUpdatePlan> {
   const kind = installKind(context.moduleUrl, context.mainPath);
-  if (kind !== "binary") refuseKind(kind);
+
+  if (kind !== "binary") {
+    refuseKind(kind);
+  }
 
   const asset = assetName(context.platform, context.arch);
+
   if (asset === undefined) {
     throw configError(`no ambit binary is published for ${context.platform}-${context.arch}`, [
       "this build cannot replace itself with one that does not exist",
@@ -119,6 +123,7 @@ export async function planSelfUpdate(
   }
 
   const binary = await runningBinary(context.execPath);
+
   if (!(await canReplace(binary))) {
     throw configError(`cannot write to the directory holding ${binary}`, [
       "self-update replaces the binary in place, and that needs write access to its directory",
@@ -155,10 +160,12 @@ export async function swapInPlace(
 ): Promise<void> {
   if (!windows) {
     await rename(incoming, binary);
+
     return;
   }
 
   const displaced = `${binary}${DISPLACED_SUFFIX}`;
+
   await rename(binary, displaced);
   try {
     await rename(incoming, binary);
@@ -186,13 +193,16 @@ export async function applySelfUpdate(plan: SelfUpdatePlan, context: SelfContext
 
   // A leftover from a Windows update that could not delete its own displaced binary while it was
   // still running. Harmless, but it is this command's mess to clear.
-  if (windows) await rm(`${plan.binary}${DISPLACED_SUFFIX}`, { force: true });
+  if (windows) {
+    await rm(`${plan.binary}${DISPLACED_SUFFIX}`, { force: true });
+  }
 
   const checksums = await fetchAssetText(context.fetch, plan.target, CHECKSUMS_ASSET);
   const expected = checksumFor(checksums, plan.asset);
 
   try {
     const actual = await downloadAsset(context.fetch, plan.target, plan.asset, incoming);
+
     if (actual !== expected) {
       throw networkError(`checksum mismatch for ${plan.asset}`, [
         `expected ${expected}, got ${actual}`,
@@ -200,6 +210,7 @@ export async function applySelfUpdate(plan: SelfUpdatePlan, context: SelfContext
         "try again; if it keeps happening, report it at https://github.com/nebulab/ambit/issues",
       ]);
     }
+
     await swapInPlace(plan.binary, incoming, windows);
   } finally {
     await rm(incoming, { force: true });

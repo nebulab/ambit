@@ -98,9 +98,13 @@ function caught(run: () => unknown): AmbitError {
   try {
     run();
   } catch (error) {
-    if (error instanceof AmbitError) return error;
+    if (error instanceof AmbitError) {
+      return error;
+    }
+
     throw error;
   }
+
   throw new Error("expected a refusal, but the call succeeded");
 }
 

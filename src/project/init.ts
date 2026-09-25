@@ -207,6 +207,7 @@ export interface InitResult {
 async function exists(target: string): Promise<boolean> {
   try {
     await stat(target);
+
     return true;
   } catch {
     return false;
@@ -232,6 +233,7 @@ async function isDirectory(target: string): Promise<boolean> {
  */
 async function write(projectDir: string, scaffolded: ScaffoldedFile): Promise<void> {
   const target = path.join(projectDir, scaffolded.file);
+
   try {
     await mkdir(path.dirname(target), { recursive: true });
     await writeFile(target, scaffolded.text, "utf8");
@@ -261,6 +263,7 @@ export async function initProject(
   options: InitOptions = {},
 ): Promise<InitResult> {
   const present = await existingConfigFiles(projectDir);
+
   if (present.length > 0) {
     throw configError(`refusing to overwrite ${present.join(" and ")}`, [
       `${projectDir} already holds an ambit config`,
@@ -279,14 +282,22 @@ export async function initProject(
 
   const created: ScaffoldedFile[] = [];
   const kept: string[] = [];
+
   for (const scaffolded of scaffoldProject()) {
-    if (await exists(path.join(projectDir, scaffolded.file))) kept.push(scaffolded.file);
-    else created.push(scaffolded);
+    if (await exists(path.join(projectDir, scaffolded.file))) {
+      kept.push(scaffolded.file);
+    } else {
+      created.push(scaffolded);
+    }
   }
 
-  if (options.dryRun === true) return { created, kept, written: false };
+  if (options.dryRun === true) {
+    return { created, kept, written: false };
+  }
 
-  for (const scaffolded of created) await write(projectDir, scaffolded);
+  for (const scaffolded of created) {
+    await write(projectDir, scaffolded);
+  }
 
   return { created, kept, written: true };
 }

@@ -33,10 +33,15 @@ function rejection(text: string): AmbitError {
   try {
     parseProjectConfig(text, FILE);
   } catch (error) {
-    if (!(error instanceof AmbitError)) throw error;
+    if (!(error instanceof AmbitError)) {
+      throw error;
+    }
+
     expect(error.code, `expected exit ${ExitCode.Config}: ${error.format()}`).toBe(ExitCode.Config);
+
     return error;
   }
+
   throw new Error("expected the config to be rejected");
 }
 

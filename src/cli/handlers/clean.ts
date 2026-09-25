@@ -48,7 +48,11 @@ function toText(result: CleanResult): readonly string[] {
 export const cleanHandler: CommandHandler = async (ctx) => {
   const result = await cleanProject(projectDirOf(ctx), { dryRun: dryRunRequested(ctx) });
 
-  if (jsonRequested(ctx)) ctx.stdout(JSON.stringify(toJson(result), null, 2));
-  else printSections(toText(result), ctx.stdout);
+  if (jsonRequested(ctx)) {
+    ctx.stdout(JSON.stringify(toJson(result), null, 2));
+  } else {
+    printSections(toText(result), ctx.stdout);
+  }
+
   return ExitCode.Success;
 };

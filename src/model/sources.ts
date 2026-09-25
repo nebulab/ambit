@@ -126,10 +126,14 @@ function conflictingRefs(request: SourceRequest, inSource: string, declared: str
 
 /** The ref a shorthand carried and the one the entry declared, once they are known to agree. */
 function refOf(request: SourceRequest, inSource: string | undefined): string | undefined {
-  if (inSource === undefined) return request.ref;
+  if (inSource === undefined) {
+    return request.ref;
+  }
+
   if (request.ref !== undefined && request.ref !== inSource) {
     conflictingRefs(request, inSource, request.ref);
   }
+
   return inSource;
 }
 
@@ -152,32 +156,40 @@ export function parseSource(request: SourceRequest): Source {
 
   if (source.startsWith(PATH_PREFIX)) {
     const directory = source.slice(PATH_PREFIX.length);
+
     if (directory.trim() === "") {
       throw configError(`${request.subject} has an empty path source ${request.where}`, [
         `\`${source}\` names no directory`,
         "write the directory after the prefix, as `path:./dir`",
       ]);
     }
+
     return { kind: "path", directory };
   }
 
   if (source.startsWith(GIT_PREFIX)) {
     const url = source.slice(GIT_PREFIX.length);
+
     if (url.trim() === "") {
       throw configError(`${request.subject} has an empty git source ${request.where}`, [
         `\`${source}\` names no repository`,
         "write the URL after the prefix, as `git:ssh://host/owner/repo.git`",
       ]);
     }
+
     return gitSource(url, request.ref);
   }
 
   // Taken literally: a URL or an ssh remote is already exactly what git wants.
-  if (source.includes("://") || SCP_LIKE.test(source)) return gitSource(source, request.ref);
+  if (source.includes("://") || SCP_LIKE.test(source)) {
+    return gitSource(source, request.ref);
+  }
 
   const shorthand = SHORTHAND.exec(source);
+
   if (shorthand !== null) {
     const [, owner, repo, inSource] = shorthand;
+
     if (owner !== undefined && repo !== undefined) {
       return gitSource(`https://${GITHUB_HOST}/${owner}/${repo}.git`, refOf(request, inSource));
     }
@@ -202,7 +214,9 @@ async function resolvePathRoot(
   const root = path.resolve(context.projectDir, source.directory);
 
   try {
-    if ((await stat(root)).isDirectory()) return root;
+    if ((await stat(root)).isDirectory()) {
+      return root;
+    }
   } catch {
     // Reported below alongside the not-a-directory case: same mistake, same fix.
   }
@@ -244,6 +258,7 @@ export async function resolveSource(
     ...(request.refresh !== undefined && { refresh: request.refresh }),
     ...(request.pin !== undefined && { pin: request.pin }),
   });
+
   return {
     root: fetched.root,
     commit: fetched.commit,

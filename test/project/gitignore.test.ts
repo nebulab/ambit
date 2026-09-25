@@ -28,6 +28,7 @@ const ENTRIES = [".ambit/", `${SKILLS_DIR}/company-context`];
 /** The file as lines, which is how every assertion here reads. */
 function lines(text: string | undefined): readonly string[] {
   expect(text).toBeDefined();
+
   return (text ?? "").split("\n");
 }
 
@@ -36,10 +37,15 @@ function rejection(body: () => unknown): AmbitError {
   try {
     body();
   } catch (error) {
-    if (!(error instanceof AmbitError)) throw error;
+    if (!(error instanceof AmbitError)) {
+      throw error;
+    }
+
     expect(error.code, `expected exit ${ExitCode.Config}: ${error.format()}`).toBe(ExitCode.Config);
+
     return error;
   }
+
   throw new Error("expected a rejection");
 }
 

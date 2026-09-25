@@ -75,9 +75,11 @@ function releaseServer(bytes: string, checksum = sha256(bytes)): Fetch {
         }),
       );
     }
+
     if (url.endsWith("/checksums.txt")) {
       return Promise.resolve(new Response(`${checksum}  ambit-linux-x64\n`));
     }
+
     return Promise.resolve(new Response(bytes));
   };
 }
@@ -98,9 +100,13 @@ async function refusalOf(run: () => Promise<unknown>): Promise<AmbitError> {
   try {
     await run();
   } catch (error) {
-    if (error instanceof AmbitError) return error;
+    if (error instanceof AmbitError) {
+      return error;
+    }
+
     throw error;
   }
+
   throw new Error("expected a refusal");
 }
 
@@ -162,8 +168,10 @@ describe("planSelfUpdate", () => {
 
   it.skipIf(IS_ROOT)("refuses before downloading when the directory is read-only", async () => {
     const locked = path.join(workspace, "locked");
+
     await mkdir(locked);
     const installed = path.join(locked, "ambit");
+
     await writeFile(installed, OLD_BYTES);
     await chmod(locked, 0o500);
 
@@ -183,6 +191,7 @@ describe("applySelfUpdate", () => {
   it("installs the verified bytes over the running binary", async () => {
     const context = contextOf();
     const plan = await planSelfUpdate(context);
+
     await applySelfUpdate(plan, context);
 
     expect(await readFile(binary, "utf8")).toBe(NEW_BYTES);
@@ -221,6 +230,7 @@ describe("applySelfUpdate", () => {
 describe("swapInPlace", () => {
   it("renames straight over the binary on POSIX", async () => {
     const incoming = `${binary}.incoming`;
+
     await writeFile(incoming, NEW_BYTES);
 
     await swapInPlace(binary, incoming, false);
@@ -231,6 +241,7 @@ describe("swapInPlace", () => {
 
   it("moves the running binary aside first on Windows, then clears it away", async () => {
     const incoming = `${binary}.incoming`;
+
     await writeFile(incoming, NEW_BYTES);
 
     await swapInPlace(binary, incoming, true);

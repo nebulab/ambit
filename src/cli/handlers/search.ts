@@ -171,6 +171,7 @@ interface SearchFilter {
 function filterOf(ctx: CommandContext, configured: readonly string[]): SearchFilter {
   const requested = listOf(ctx, "catalog");
   const unknown = requested.filter((name) => !configured.includes(name));
+
   if (unknown.length > 0) {
     throw configError(
       `no catalog named "${unknown[0]}" (${CONFIG_FILENAMES[0]})`,
@@ -189,6 +190,7 @@ function filterOf(ctx: CommandContext, configured: readonly string[]): SearchFil
   // Filtered out of `ITEM_KINDS` rather than built from what was typed, so the set is `ItemKind`
   // without a cast. The CLI already refuses a value that is not one of the four.
   const capabilities = listOf(ctx, "capability");
+
   return {
     pattern: ctx.args[0] ?? "",
     capabilities: new Set(ITEM_KINDS.filter((kind) => capabilities.includes(kind))),
@@ -296,9 +298,11 @@ export const searchHandler: CommandHandler = async (ctx) => {
 
   if (jsonRequested(ctx)) {
     ctx.stdout(JSON.stringify(toJson(found), null, 2));
+
     return ExitCode.Success;
   }
 
   printSections(toText(catalogs, found, filter), ctx.stdout);
+
   return ExitCode.Success;
 };

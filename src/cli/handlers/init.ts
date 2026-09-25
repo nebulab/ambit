@@ -64,8 +64,11 @@ export const initHandler: CommandHandler = async (ctx) => {
   const dryRun = dryRunRequested(ctx);
   const result = await initProject(projectDirOf(ctx), { dryRun });
 
-  if (jsonRequested(ctx)) ctx.stdout(JSON.stringify(toJson(result), null, 2));
-  else printSections(toText(result, dryRun), ctx.stdout);
+  if (jsonRequested(ctx)) {
+    ctx.stdout(JSON.stringify(toJson(result), null, 2));
+  } else {
+    printSections(toText(result, dryRun), ctx.stdout);
+  }
 
   return ExitCode.Success;
 };

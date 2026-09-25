@@ -118,6 +118,7 @@ export function serializeState(state: State): string {
     harnesses: [...new Set(state.harnesses)].sort(compare),
     version: state.version,
   };
+
   return `${JSON.stringify(body, null, 2)}\n`;
 }
 
@@ -136,24 +137,31 @@ function stringList(value: unknown, file: string, label: string): readonly strin
   if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) {
     stateError(file, `"${label}" must be an array of strings`);
   }
+
   return value as readonly string[];
 }
 
 function parseArtifact(value: unknown, file: string, index: number): OwnedArtifact {
   const label = `artifacts[${index}]`;
-  if (!isRecord(value)) stateError(file, `"${label}" must be an object`);
+
+  if (!isRecord(value)) {
+    stateError(file, `"${label}" must be an object`);
+  }
 
   const target = value.path;
+
   if (typeof target !== "string" || target === "") {
     stateError(file, `"${label}.path" must be a non-empty string`);
   }
 
   const kind = value.kind;
+
   if (typeof kind !== "string" || !(ARTIFACT_KINDS as readonly string[]).includes(kind)) {
     stateError(file, `"${label}.kind" must be one of: ${ARTIFACT_KINDS.join(", ")}`);
   }
 
   const mode = value.mode;
+
   if (
     mode !== undefined &&
     (typeof mode !== "string" || !(ARTIFACT_MODES as readonly string[]).includes(mode))
@@ -162,6 +170,7 @@ function parseArtifact(value: unknown, file: string, index: number): OwnedArtifa
   }
 
   const format = value.format;
+
   if (
     format !== undefined &&
     (typeof format !== "string" || !(DOCUMENT_FORMATS as readonly string[]).includes(format))
@@ -170,6 +179,7 @@ function parseArtifact(value: unknown, file: string, index: number): OwnedArtifa
   }
 
   const shape = value.shape;
+
   if (
     shape !== undefined &&
     (typeof shape !== "string" || !(DOCUMENT_SHAPES as readonly string[]).includes(shape))
@@ -178,6 +188,7 @@ function parseArtifact(value: unknown, file: string, index: number): OwnedArtifa
   }
 
   const managedKeys = value.managedKeys;
+
   return {
     path: target,
     kind: kind as ArtifactKind,
@@ -200,18 +211,23 @@ function parseArtifact(value: unknown, file: string, index: number): OwnedArtifa
  */
 export function parseState(text: string, file: string): State {
   let document: unknown;
+
   try {
     document = JSON.parse(text);
   } catch (error) {
     stateError(file, error instanceof Error ? error.message : String(error));
   }
 
-  if (!isRecord(document)) stateError(file, "the document must be a JSON object");
+  if (!isRecord(document)) {
+    stateError(file, "the document must be a JSON object");
+  }
 
   const version = document.version;
+
   if (typeof version !== "number" || !Number.isInteger(version)) {
     stateError(file, '"version" must be an integer');
   }
+
   if (version !== STATE_VERSION) {
     throw configError(`${file} has unsupported state version ${version}`, [
       `this build of ambit understands version ${STATE_VERSION}`,
@@ -220,7 +236,10 @@ export function parseState(text: string, file: string): State {
   }
 
   const artifacts = document.artifacts;
-  if (!Array.isArray(artifacts)) stateError(file, '"artifacts" must be an array');
+
+  if (!Array.isArray(artifacts)) {
+    stateError(file, '"artifacts" must be an array');
+  }
 
   return {
     version,
@@ -237,15 +256,20 @@ export function parseState(text: string, file: string): State {
 export async function readState(projectDir: string): Promise<State> {
   const file = stateFilePath(projectDir);
   let text: string;
+
   try {
     text = await readFile(file, "utf8");
   } catch (error) {
-    if (isRecord(error) && error.code === "ENOENT") return EMPTY_STATE;
+    if (isRecord(error) && error.code === "ENOENT") {
+      return EMPTY_STATE;
+    }
+
     throw configError(`cannot read ${STATE_DIRNAME}/${STATE_FILENAME}`, [
       error instanceof Error ? error.message : String(error),
       `make ${file} readable, or delete it and run \`ambit install\` again`,
     ]);
   }
+
   return parseState(text, `${STATE_DIRNAME}/${STATE_FILENAME}`);
 }
 
@@ -257,6 +281,7 @@ export async function readState(projectDir: string): Promise<State> {
  */
 export async function writeState(projectDir: string, state: State): Promise<void> {
   const file = stateFilePath(projectDir);
+
   await mkdir(path.dirname(file), { recursive: true });
   await writeFile(file, serializeState(state), "utf8");
 }

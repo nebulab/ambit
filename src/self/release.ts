@@ -59,9 +59,13 @@ export function asTag(version: string): string {
 /** A version, or `undefined` for anything that is not one. Callers never guess at an ordering. */
 export function parseVersion(text: string): Version | undefined {
   const match = VERSION_PATTERN.exec(text.trim());
-  if (!match) return undefined;
+
+  if (!match) {
+    return undefined;
+  }
 
   const [, major, minor, patch, prerelease] = match;
+
   return {
     major: Number(major),
     minor: Number(minor),
@@ -77,9 +81,19 @@ export function parseVersion(text: string): Version | undefined {
 function compareIdentifiers(a: string, b: string): number {
   const numericA = /^\d+$/.test(a);
   const numericB = /^\d+$/.test(b);
-  if (numericA && numericB) return Number(a) - Number(b);
-  if (numericA) return -1;
-  if (numericB) return 1;
+
+  if (numericA && numericB) {
+    return Number(a) - Number(b);
+  }
+
+  if (numericA) {
+    return -1;
+  }
+
+  if (numericB) {
+    return 1;
+  }
+
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
@@ -90,22 +104,48 @@ function compareIdentifiers(a: string, b: string): number {
  * someone already on `1.0.0`.
  */
 export function compareVersions(a: Version, b: Version): number {
-  if (a.major !== b.major) return a.major - b.major;
-  if (a.minor !== b.minor) return a.minor - b.minor;
-  if (a.patch !== b.patch) return a.patch - b.patch;
+  if (a.major !== b.major) {
+    return a.major - b.major;
+  }
 
-  if (a.prerelease.length === 0 && b.prerelease.length === 0) return 0;
-  if (a.prerelease.length === 0) return 1;
-  if (b.prerelease.length === 0) return -1;
+  if (a.minor !== b.minor) {
+    return a.minor - b.minor;
+  }
+
+  if (a.patch !== b.patch) {
+    return a.patch - b.patch;
+  }
+
+  if (a.prerelease.length === 0 && b.prerelease.length === 0) {
+    return 0;
+  }
+
+  if (a.prerelease.length === 0) {
+    return 1;
+  }
+
+  if (b.prerelease.length === 0) {
+    return -1;
+  }
 
   for (let index = 0; index < Math.max(a.prerelease.length, b.prerelease.length); index += 1) {
     const left = a.prerelease[index];
     const right = b.prerelease[index];
+
     // A shorter set of identifiers sorts below an otherwise identical longer one.
-    if (left === undefined) return -1;
-    if (right === undefined) return 1;
+    if (left === undefined) {
+      return -1;
+    }
+
+    if (right === undefined) {
+      return 1;
+    }
+
     const order = compareIdentifiers(left, right);
-    if (order !== 0) return order;
+
+    if (order !== 0) {
+      return order;
+    }
   }
 
   return 0;
@@ -115,7 +155,11 @@ export function compareVersions(a: Version, b: Version): number {
 export function isNewer(current: string, candidate: string): boolean {
   const from = parseVersion(current);
   const to = parseVersion(candidate);
-  if (from === undefined || to === undefined) return false;
+
+  if (from === undefined || to === undefined) {
+    return false;
+  }
+
   return compareVersions(to, from) > 0;
 }
 
@@ -134,6 +178,7 @@ export async function latestTag(
   timeoutMs = METADATA_TIMEOUT_MS,
 ): Promise<string> {
   let response: Response;
+
   try {
     response = await fetchImpl(`${RELEASES_URL}/latest`, {
       redirect: "manual",
@@ -148,6 +193,7 @@ export async function latestTag(
 
   const location = response.headers.get("location") ?? "";
   const tag = /\/releases\/tag\/([^/?#]+)/.exec(location)?.[1];
+
   if (tag === undefined) {
     throw networkError("GitHub did not name a latest ambit release", [
       `${RELEASES_URL}/latest answered ${String(response.status)} pointing at "${location}"`,
@@ -171,6 +217,7 @@ export async function fetchAssetText(
 ): Promise<string> {
   const url = assetUrl(tag, asset);
   let response: Response;
+
   try {
     response = await fetchImpl(url, { signal: AbortSignal.timeout(timeoutMs) });
   } catch (error) {
@@ -199,7 +246,10 @@ export async function fetchAssetText(
 export function checksumFor(checksums: string, asset: string): string {
   for (const line of checksums.split("\n")) {
     const match = CHECKSUM_LINE.exec(line.trim());
-    if (match?.[2] === asset && match[1] !== undefined) return match[1];
+
+    if (match?.[2] === asset && match[1] !== undefined) {
+      return match[1];
+    }
   }
 
   throw networkError(`${CHECKSUMS_ASSET} lists no entry for ${asset}`, [
@@ -235,12 +285,14 @@ export async function downloadAsset(
 
   try {
     const response = await fetchImpl(url, { signal: AbortSignal.timeout(timeoutMs) });
+
     if (!response.ok) {
       throw networkError(`could not download ${asset}`, [
         `${url} answered ${String(response.status)}`,
         `check that release ${tag} exists and attaches ${asset}`,
       ]);
     }
+
     if (response.body === null) {
       throw networkError(`could not download ${asset}`, [
         `${url} answered with no body`,
@@ -257,7 +309,10 @@ export async function downloadAsset(
   } catch (error) {
     // The two refusals above are already in the standard shape; only a transport failure or a
     // write error reaches the wrapping below.
-    if (error instanceof AmbitError) throw error;
+    if (error instanceof AmbitError) {
+      throw error;
+    }
+
     throw networkError(`could not download ${asset}`, [
       error instanceof Error ? error.message : String(error),
       `it was requested from ${url}`,

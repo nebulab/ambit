@@ -1,3 +1,4 @@
+import { exportHandler } from "./handlers/export.js";
 import { Command, CommanderError } from "commander";
 
 import type { CommandContext, CommandHandlers, CommandRules } from "./commands.js";
@@ -25,10 +26,11 @@ export type Io = Pick<CommandContext, "cwd" | "stdout" | "stderr">;
  * command added without an entry reports itself unimplemented (exit 1) rather than silently
  * succeeding.
  *
- * Thirteen entries, none with a space: the surface is flat. A group, were one declared, would
+ * Entries have no spaces: the surface is flat. A group, were one declared, would
  * still have no entry here, since it holds commands and runs none itself.
  */
 export const HANDLERS: CommandHandlers = {
+  export: exportHandler,
   clean: cleanHandler,
   doctor: doctorHandler,
   init: initHandler,
@@ -110,6 +112,7 @@ export function buildProgram(
   for (const spec of COMMAND_SPECS) {
     program.addCommand(buildCommand(spec, handlers, rules, io, onExit));
   }
+
   inheritSettings(program);
 
   return program;
@@ -138,24 +141,30 @@ export async function run(
   // Bare `ambit` is a request for usage, not a mistake.
   if (argv.length === 0) {
     io.stdout(program.helpInformation().replace(/\n$/, ""));
+
     return ExitCode.Success;
   }
 
   try {
     await program.parseAsync([...argv], { from: "user" });
+
     return code;
   } catch (error) {
     if (error instanceof CommanderError) {
       // Commander already wrote help or its own message via configureOutput.
       return error.exitCode === 0 ? ExitCode.Success : ExitCode.Config;
     }
+
     if (error instanceof AmbitError) {
       io.stderr(error.format());
+
       return error.code;
     }
+
     io.stderr(`error: unexpected internal error`);
     io.stderr(`       ${error instanceof Error ? error.message : String(error)}`);
     io.stderr(`       this is a bug in ambit; please report it`);
+
     return ExitCode.Internal;
   }
 }

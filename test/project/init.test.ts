@@ -78,6 +78,7 @@ async function cli(
     stdout: (line) => out.push(line),
     stderr: (line) => err.push(line),
   });
+
   return { code, stdout: out.join("\n"), stderr: err.join("\n") };
 }
 
@@ -98,17 +99,24 @@ async function snapshot(dir: string): Promise<Record<string, string>> {
       a.name < b.name ? -1 : 1,
     )) {
       const next = relative === "" ? entry.name : `${relative}/${entry.name}`;
-      if (entry.isDirectory()) await walk(path.join(inner, entry.name), next);
-      else files[next] = await readFile(path.join(inner, entry.name), "utf8");
+
+      if (entry.isDirectory()) {
+        await walk(path.join(inner, entry.name), next);
+      } else {
+        files[next] = await readFile(path.join(inner, entry.name), "utf8");
+      }
     }
   };
+
   await walk(dir, "");
+
   return files;
 }
 
 /** The document with every comment and separator dropped: the values, as YAML. */
 function values(text: string): string {
   const lines = text.split("\n").filter((line) => !line.startsWith("#") && line !== "");
+
   return `${lines.join("\n")}\n`;
 }
 
@@ -130,12 +138,15 @@ function uncommented(text: string): string {
 function commentAbove(text: string, key: string): readonly string[] {
   const lines = text.split("\n");
   const index = lines.indexOf(`${key}:`);
+
   expect(index, `${key} is not a top-level key`).toBeGreaterThan(-1);
 
   const comment: string[] = [];
+
   for (let above = index - 1; above >= 0 && lines[above]?.startsWith("#") === true; above -= 1) {
     comment.unshift(lines[above] ?? "");
   }
+
   return comment;
 }
 
@@ -156,6 +167,7 @@ describe("ambit init", () => {
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     const config = parseProjectConfig(await readConfig(), INIT_FILENAME);
+
     expect(config.version).toBe(1);
     expect(config.harnesses).toEqual(["claude"]);
     // The project lists itself, which is the only way a project ships a skill of its own.
@@ -216,6 +228,7 @@ describe("ambit init", () => {
     expect(values(text)).toBe(emitYaml(WITH_EXAMPLE));
 
     const config = parseProjectConfig(text, INIT_FILENAME);
+
     // The `requires` example quotes the alias the live `catalogs` block declares, so uncommenting it
     // leaves a config that agrees with itself.
     expect(config.requires).toEqual([
@@ -229,6 +242,7 @@ describe("ambit init", () => {
     const first = await snapshot(projectDir);
 
     const second = path.join(root, "second");
+
     await mkdir(second, { recursive: true });
     await run(["init", "--project", second], {
       cwd: root,
@@ -282,7 +296,9 @@ describe("ambit init", () => {
     expect(report.written).toBe(true);
     expect(report.kept).toEqual([]);
     expect(report.created.map((file) => file.file)).toEqual(SCAFFOLD_FILES);
-    for (const file of report.created) expect(file.text).toBe(await read(file.file));
+    for (const file of report.created) {
+      expect(file.text).toBe(await read(file.file));
+    }
   });
 });
 
@@ -391,7 +407,9 @@ describe("ambit init --dry-run", () => {
     await cli("init");
 
     expect(previewed.written).toBe(false);
-    for (const file of previewed.created) expect(file.text).toBe(await read(file.file));
+    for (const file of previewed.created) {
+      expect(file.text).toBe(await read(file.file));
+    }
   });
 });
 

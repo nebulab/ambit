@@ -379,3 +379,7 @@ export type {
 } from "./cli/commands.js";
 export { buildProgram, run } from "./cli/program.js";
 export type { Io } from "./cli/program.js";
+
+export { exportPlugins } from "./export/export.js";
+export type { ExportOptions, ExportResult } from "./export/export.js";
+export type { PluginMetadata } from "./model/plugin.js";

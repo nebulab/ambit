@@ -31,10 +31,15 @@ function rejection(source: string, ref?: string): AmbitError {
   try {
     parse(source, ref);
   } catch (error) {
-    if (!(error instanceof AmbitError)) throw error;
+    if (!(error instanceof AmbitError)) {
+      throw error;
+    }
+
     expect(error.code, `expected exit ${ExitCode.Config}: ${error.format()}`).toBe(ExitCode.Config);
+
     return error;
   }
+
   throw new Error(`expected \`${source}\` to be rejected`);
 }
 

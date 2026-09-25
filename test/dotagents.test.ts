@@ -105,6 +105,7 @@ async function dotagents(args: readonly string[], cwd: string): Promise<ChildRes
     }),
     ...(REQUIRE_NETWORK ? {} : IMPATIENT_NPM),
   };
+
   try {
     const { stdout, stderr } = await execFileAsync("npx", ["--yes", DOTAGENTS_PACKAGE, ...args], {
       cwd,
@@ -112,9 +113,11 @@ async function dotagents(args: readonly string[], cwd: string): Promise<ChildRes
       encoding: "utf8",
       timeout: CHILD_TIMEOUT_MS,
     });
+
     return { code: 0, stdout, stderr };
   } catch (error) {
     const failure = error as { code?: number | null; stdout?: string; stderr?: string };
+
     return {
       code: failure.code ?? null,
       stdout: failure.stdout ?? "",
@@ -165,14 +168,17 @@ function firstLines(text: string): string {
 async function expectInstallable(): Promise<void> {
   const catalogDir = path.join(project, CATALOG_DIRNAME);
   const catalog = await parseCatalogDirectory("subject", `path:${catalogDir}`, catalogDir);
+
   expect(catalog.skills.length).toBeGreaterThan(0);
 
   // `--project`, because dotagents operates on the global scope by default: a bare `install` writes
   // `~/.agents/agents.toml` and reports success, leaving the project it was run in untouched.
   const result = await dotagents(["--project", "install"], project);
+
   expect(result.code, `${result.stdout}\n${result.stderr}`).toBe(0);
 
   const installed = (await readdir(path.join(project, INSTALLED_DIR))).sort();
+
   expect(installed).toEqual([...catalog.skills.map((skill) => skill.name)].sort());
 
   for (const skill of catalog.skills) {
@@ -181,6 +187,7 @@ async function expectInstallable(): Promise<void> {
       path.join(project, INSTALLED_DIR, skill.name, SKILL_FILENAME),
       "utf8",
     );
+
     expect(target, skill.name).toBe(source);
   }
 
@@ -190,13 +197,18 @@ async function expectInstallable(): Promise<void> {
 
 /** Whether `npx @sentry/dotagents` runs at all, and why not when it does not. */
 async function probe(): Promise<string | undefined> {
-  if ((process.env[SKIP_VAR] ?? "") !== "") return `${SKIP_VAR} is set`;
+  if ((process.env[SKIP_VAR] ?? "") !== "") {
+    return `${SKIP_VAR} is set`;
+  }
 
   dotagentsHome = await mkdtemp(path.join(tmpdir(), "ambit-dotagents-home-"));
 
   // Doubles as the warm-up: every later invocation resolves from the npx cache this one fills.
   const result = await dotagents(["--version"], tmpdir());
-  if (result.code === 0) return undefined;
+
+  if (result.code === 0) {
+    return undefined;
+  }
 
   return (
     `cannot run \`npx ${DOTAGENTS_PACKAGE}\` (exit ${String(result.code)}), so the ` +
@@ -216,13 +228,18 @@ const unavailable = await probe();
 // Loud either way, for opposite reasons: offline, a developer needs to know the promise went
 // unchecked; in CI, a promise that quietly passed by never running is worse than no test at all.
 if (unavailable !== undefined) {
-  if (REQUIRE_NETWORK) throw new Error(unavailable);
+  if (REQUIRE_NETWORK) {
+    throw new Error(unavailable);
+  }
+
   console.warn(`skipping the dotagents compatibility test: ${unavailable}`);
 }
 
 describe("dotagents compatibility", () => {
   afterAll(async () => {
-    if (dotagentsHome !== undefined) await rm(dotagentsHome, { recursive: true, force: true });
+    if (dotagentsHome !== undefined) {
+      await rm(dotagentsHome, { recursive: true, force: true });
+    }
   });
 
   beforeEach(async () => {

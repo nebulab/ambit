@@ -25,9 +25,12 @@ const EMPTY: JsonObject = {};
  *   destroy content ambit does not own.
  */
 export function parseJsonDocument(text: string | undefined, file: string): JsonObject {
-  if (text === undefined) return EMPTY;
+  if (text === undefined) {
+    return EMPTY;
+  }
 
   let document: unknown;
+
   try {
     document = JSON.parse(text);
   } catch (error) {
@@ -50,6 +53,7 @@ export function parseJsonDocument(text: string | undefined, file: string): JsonO
 /** The managed section as an object; anything unusable reads as empty. */
 function sectionOf(document: JsonObject, section: string): JsonObject {
   const existing = document[section];
+
   return isRecord(existing) ? existing : EMPTY;
 }
 
@@ -75,6 +79,7 @@ export const jsonDriver: DocumentDriver = {
   ): string => {
     const document = parseJsonDocument(text, file);
     const existing = document[section];
+
     if (existing !== undefined && !isRecord(existing)) {
       throw configError(`"${section}" in ${file} is not a JSON object`, [
         `ambit writes one key per managed entry inside \`${section}\``,
@@ -83,7 +88,10 @@ export const jsonDriver: DocumentDriver = {
     }
 
     const merged: Record<string, unknown> = { ...existing };
-    for (const entry of entries) merged[entry.key] = entry.value;
+
+    for (const entry of entries) {
+      merged[entry.key] = entry.value;
+    }
 
     return serializeJsonDocument({ ...document, [section]: merged });
   },
@@ -101,13 +109,22 @@ export const jsonDriver: DocumentDriver = {
   ): string | undefined => {
     const document = parseJsonDocument(text, file);
     const existing = document[section];
-    if (!isRecord(existing)) return undefined;
+
+    if (!isRecord(existing)) {
+      return undefined;
+    }
 
     const present = keys.filter((key) => Object.hasOwn(existing, key));
-    if (present.length === 0) return undefined;
+
+    if (present.length === 0) {
+      return undefined;
+    }
 
     const kept: Record<string, unknown> = { ...existing };
-    for (const key of present) delete kept[key];
+
+    for (const key of present) {
+      delete kept[key];
+    }
 
     return serializeJsonDocument({ ...document, [section]: kept });
   },

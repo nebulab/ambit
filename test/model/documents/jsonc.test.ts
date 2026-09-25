@@ -57,9 +57,13 @@ function caught(run: () => unknown): AmbitError {
   try {
     run();
   } catch (error) {
-    if (error instanceof AmbitError) return error;
+    if (error instanceof AmbitError) {
+      return error;
+    }
+
     throw error;
   }
+
   throw new Error("expected a refusal, but the call succeeded");
 }
 
@@ -78,6 +82,7 @@ describe("merging a server into an opencode config", () => {
     const merged = merge(HANDWRITTEN, FIXTURE);
 
     const document = parsed(merged);
+
     expect(document.model).toBe("anthropic/claude-opus-4");
     expect(Object.keys(document[SECTION] as object)).toEqual(["handmade", "fixture"]);
     expect((document[SECTION] as Record<string, unknown>).fixture).toEqual(FIXTURE.value);

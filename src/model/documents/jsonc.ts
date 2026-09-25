@@ -53,6 +53,7 @@ function parse(text: string, file: string): JsonObject {
 
 function sectionOf(document: JsonObject, section: string): JsonObject | undefined {
   const existing = document[section];
+
   return isRecord(existing) ? existing : undefined;
 }
 
@@ -65,12 +66,18 @@ export const jsoncDriver: DocumentDriver = {
   format: "jsonc",
 
   sectionKeys: (text, section, file) => {
-    if (text === undefined) return new Set();
+    if (text === undefined) {
+      return new Set();
+    }
+
     return new Set(Object.keys(sectionOf(parse(text, file), section) ?? {}));
   },
 
   entryMatches: (text, section, entry, file) => {
-    if (text === undefined) return false;
+    if (text === undefined) {
+      return false;
+    }
+
     return structurallyEqual(entry.value, sectionOf(parse(text, file), section)?.[entry.key]);
   },
 
@@ -84,6 +91,7 @@ export const jsoncDriver: DocumentDriver = {
     const document = parse(current, file);
 
     const existing = document[section];
+
     if (existing !== undefined && !isRecord(existing)) {
       throw configError(`"${section}" in ${file} is not a JSONC object`, [
         `ambit writes one key per managed entry inside \`${section}\``,
@@ -92,7 +100,10 @@ export const jsoncDriver: DocumentDriver = {
     }
 
     // One edit per key, applied to the text the previous edit produced, so offsets stay valid.
-    for (const entry of entries) current = edit(current, [section, entry.key], entry.value);
+    for (const entry of entries) {
+      current = edit(current, [section, entry.key], entry.value);
+    }
+
     return current;
   },
 
@@ -102,17 +113,30 @@ export const jsoncDriver: DocumentDriver = {
     keys: readonly string[],
     file: string,
   ): string | undefined => {
-    if (text === undefined) return undefined;
+    if (text === undefined) {
+      return undefined;
+    }
+
     const existing = sectionOf(parse(text, file), section);
-    if (existing === undefined) return undefined;
+
+    if (existing === undefined) {
+      return undefined;
+    }
 
     const present = keys.filter((key) => Object.hasOwn(existing, key));
-    if (present.length === 0) return undefined;
+
+    if (present.length === 0) {
+      return undefined;
+    }
 
     let current = text;
+
     // `undefined` is how `modify` expresses removal. The section itself is left in place even when
     // it empties out, same as the JSON driver leaving `{}` behind.
-    for (const key of present) current = edit(current, [section, key], undefined);
+    for (const key of present) {
+      current = edit(current, [section, key], undefined);
+    }
+
     return current;
   },
 };

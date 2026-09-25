@@ -112,12 +112,12 @@ $ ambit outdated            # has any catalog moved, and would it change anythin
 
 A **catalog** is a git repo (or a local directory) holding up to four kinds of thing:
 
-| Kind      | Lives in                 | What it is                                                                   |
-| --------- | ------------------------ | ---------------------------------------------------------------------------- |
-| **Skill** | `skills/<name>/SKILL.md` | Instructions the agent can load                                              |
-| **MCP**   | `mcps/<name>.yml`        | A server definition                                                          |
-| **Hook**  | `hooks/<name>/hook.yml`  | A command that runs on one harness event                                     |
-| **Pack**  | `packs/<name>.yml`       | A named group of the other three. ambit's own idea, invisible to the harness |
+| Kind      | Lives in                 | What it is                                                              |
+| --------- | ------------------------ | ----------------------------------------------------------------------- |
+| **Skill** | `skills/<name>/SKILL.md` | Instructions the agent can load                                         |
+| **MCP**   | `mcps/<name>.yml`        | A server definition                                                     |
+| **Hook**  | `hooks/<name>/hook.yml`  | A command that runs on one harness event                                |
+| **Pack**  | `packs/<name>.yml`       | A named group of capabilities; optionally exportable as a Claude plugin |
 
 An item's name is its path inside its directory, with `/` read as `.`. So
 `skills/close-crm/SKILL.md` is the skill `close-crm`, and `packs/function/engineering.yml` is the
@@ -319,10 +319,8 @@ Hook support varies by harness:
 
 ### Packs
 
-**A pack is ambit's own invention.** Skills, MCP servers, and hooks are things your harness already
-understands. A pack is not: it exists only inside ambit, ships no files, and installs nowhere. No
-harness ever sees one. What it does is give a group of the other three a name, so one `requires`
-entry takes the lot.
+A pack groups skills, MCP servers, hooks, and other packs under one name. Selecting it includes
+its requirements. Add `plugin` metadata to export the pack as a Claude Code plugin.
 
 ```yaml
 # packs/function/engineering.yml
@@ -342,6 +340,133 @@ requires:
 | `name`        | string | yes      | Must match the path under `packs/`, extension dropped and `/` read as `.`. |
 | `description` | string | no       | What the pack is for. Shown by `ambit search`.                             |
 | `requires`    | map[]  | no       | Same grammar as a skill's: one key per entry, bare patterns, same catalog. |
+| `plugin`      | map    | no       | Metadata for [exporting a Claude plugin](#exporting-claude-plugins).       |
+
+## Exporting Claude plugins
+
+Select packs in `ambit.yml`, then export them for people who use Claude Code without Ambit:
+
+```yaml
+# ambit.yml
+version: 1
+catalogs:
+  - name: local
+    source: path:.
+requires:
+  - pack: local/reviews
+```
+
+Define the pack:
+
+```yaml
+# packs/reviews.yml
+name: reviews
+plugin:
+  name: acme-reviews
+  version: "1.0.0"
+  description: Review changes using the team's conventions.
+  author:
+    name: Acme
+requires:
+  - skill: code-review
+```
+
+Create `skills/code-review/SKILL.md`:
+
+```markdown
+---
+name: code-review
+description: Review changes for correctness and maintainability.
+---
+
+Review the diff and report actionable findings.
+```
+
+```sh
+ambit export --format claude-plugin --output dist/plugins
+```
+
+```text
+Exported 1 Claude plugins to /path/to/project/dist/plugins
+  acme-reviews/ (acme-reviews, 2 files)
+```
+
+The result contains `acme-reviews/.claude-plugin/plugin.json` and
+`acme-reviews/skills/code-review/SKILL.md`. Validate or try it with Claude:
+
+```sh
+claude plugin validate dist/plugins/acme-reviews
+claude --plugin-dir ./dist/plugins/acme-reviews
+```
+
+Each selected pack must have `plugin` metadata. A requirement on another pack with plugin metadata
+adds that plugin to the manifest's `dependencies` and exports it in a separate directory. Packs
+without plugin metadata expand into the containing plugin. Skill requirements include transitive
+skills, MCP servers, and hooks. A pack containing only plugin dependencies is supported.
+
+Use `plugin.dependencies` for external plugins already available in the consumer's marketplace.
+Ambit records their names without downloading or exporting them. List local dependencies through
+`requires: [{pack: other-pack}]`. External names appear first in the manifest, followed by local
+plugin dependencies in declaration order; repeated names appear once. External plugin dependencies
+apply to export only; `ambit install` installs the pack's Ambit requirements.
+
+| `plugin` field | Type     | Required | Behavior                                                                   |
+| -------------- | -------- | -------- | -------------------------------------------------------------------------- |
+| `name`         | string   | yes      | Claude plugin namespace. Lowercase letters, digits, and single hyphens.    |
+| `version`      | string   | no       | Plugin version, such as `"1.0.0"`.                                         |
+| `description`  | string   | no       | Plugin description. Separate from the pack's search description.           |
+| `author`       | map      | no       | Author with required `name` and optional `email` and `url` strings.        |
+| `homepage`     | string   | no       | Plugin homepage URL.                                                       |
+| `repository`   | string   | no       | Source repository URL.                                                     |
+| `license`      | string   | no       | License identifier.                                                        |
+| `keywords`     | string[] | no       | Discovery keywords.                                                        |
+| `dependencies` | string[] | no       | External Claude plugin names.                                              |
+| `directory`    | string   | no       | Output directory basename. Defaults to `name`; uses the same naming rules. |
+| `commands`     | string   | no       | Catalog-relative directory copied into the plugin's `commands/`.           |
+
+| Export flag              | Behavior                                                                                                                                                        |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--format claude-plugin` | Required. Claude Code is the supported format.                                                                                                                  |
+| `--output <dir>`         | Required. New output directory, relative to `--project` or the current project. Existing paths require `--force` or `--check`.                                  |
+| `--force`                | Replace the entire output directory after validating the export. Preserve JSON formatting when values are unchanged.                                            |
+| `--check`                | Compare existing files, executable bits, JSON values, and exact symlink targets without writing. Exit 5 on drift. Cannot combine with `--force` or `--dry-run`. |
+| `--link`                 | Create relative symlinks for skill directories and hook assets. Requires local `path:` catalogs.                                                                |
+| `--link`                 | Create relative symlinks for skill directories and hook assets. Requires local `path:` catalogs.                                                                |
+| `--dry-run`              | Validate packages and report their names and file counts without writing output.                                                                                |
+| `--json`                 | Print the output path and plugin names, directories, and file counts as JSON.                                                                                   |
+| `--offline`              | Use cached catalogs only.                                                                                                                                       |
+| `--project <dir>`        | Read `ambit.yml` and `ambit.lock` from this project.                                                                                                            |
+
+For a marketplace kept in the same repository as its catalog, use
+`ambit export --format claude-plugin --output plugins --link`. Skills and hook assets remain linked
+to their source files; manifests and slash commands are regular files. Keep the catalogs and exported
+plugins in the same relative locations. Omit `--link` to produce standalone copies.
+
+Regenerate an existing marketplace and check it in CI:
+
+```sh
+ambit export --format claude-plugin --output plugins --link --force
+ambit export --format claude-plugin --output plugins --link --check
+```
+
+`--force` removes stale files from the output directory. It refuses to replace a project root,
+a catalog root, or a directory containing source skills or hooks. Failed validation leaves the
+existing export untouched.
+
+Exports honor catalog revisions in `ambit.lock` and leave the lock and installed harness configuration
+unchanged. Pin remote inputs with a lock or an immutable catalog `ref` for reproducible packages.
+
+| Content          | Export behavior and limits                                                                                                                                                                                                     |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Skills           | Copy into `skills/<name>/`, including supporting files. Names must be flat, lowercase and hyphenated, at most 64 characters; frontmatter must include matching `name` and a nonempty `description`. Nested skills are refused. |
+| Skill references | Use `/plugin-name:skill-name` for explicit Claude invocations. Ambit checks these against the exported plugin and its dependency plugins; external plugin skill names cannot be verified. Skill prose is copied unchanged.     |
+| MCP servers      | Write `.mcp.json` using Claude's environment references. Credential values are never read. Local MCP commands and explicit local-path arguments are refused; reference bundled assets through `${CLAUDE_PLUGIN_ROOT}`.         |
+| Hooks            | Write `hooks/hooks.json`; copy script assets into `hooks/` and reference them with `${CLAUDE_PLUGIN_ROOT}`. Assets with conflicting paths are refused.                                                                         |
+| Slash commands   | Copy the declared directory into `commands/`. Markdown commands must have YAML frontmatter.                                                                                                                                    |
+| Symlinks         | Copy their targets when inside the catalog. External targets, cycles, and relative Markdown links above the plugin root are refused. Executable permissions are preserved.                                                     |
+
+Export does not publish a marketplace. Distribute the generated directories through your own
+marketplace. Agent Plugins export is not supported.
 
 ## Staying up to date
 
@@ -442,6 +567,7 @@ when `AMBIT_NO_UPDATE_CHECK` is set to anything. It never delays or fails the co
 | `ambit resolve [--explain]`                                         | Compute the bundle and print it. `--explain` prints why each item is in it.                                                                          |
 | `ambit why <kind:name>`                                             | Explain why one item is in the bundle, as a chain back to the entry that asked for it.                                                               |
 | `ambit install [--frozen] [--adopt] [--copy\|--link]`               | Resolve, write `ambit.lock`, install the files, remove what is no longer selected.                                                                   |
+| `ambit export --format claude-plugin --output <dir>`                | Export selected packs and their local plugin dependencies into separate Claude plugin directories.                                                   |
 | `ambit outdated`                                                    | Ask each remote where its `ref` points now, and report what moving there would change.                                                               |
 | `ambit update [<catalog>…] [--adopt] [--copy\|--link]`              | Move those pins forward, then install. Every catalog when none is named.                                                                             |
 | `ambit status [--check]`                                            | Compare what is installed against what resolve produces. `--check` exits 5 on drift.                                                                 |
@@ -468,10 +594,10 @@ when `AMBIT_NO_UPDATE_CHECK` is set to anything. It never delays or fails the co
 | ---- | --------------------------------------------------------------------------------------- |
 | 0    | Success                                                                                 |
 | 1    | Unexpected internal error                                                               |
-| 2    | Config or ownership error, including a usage error                                      |
+| 2    | Config, ownership, export compatibility, or usage error                                 |
 | 3    | Resolution error: a pattern matching nothing, missing requirement, cycle, name conflict |
 | 4    | Network or cache error                                                                  |
-| 5    | Drift detected (`status --check`, `install --frozen`)                                   |
+| 5    | Drift detected (`status --check`, `install --frozen`, `export --check`)                 |
 | 6    | A health check found something (`doctor` failures)                                      |
 
 Every error names the file, the identifier, and one concrete next step:

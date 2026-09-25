@@ -63,6 +63,7 @@ function requiresEntry(pack: string, catalog = CATALOG_NAME): string {
 async function writeProfile(packs: readonly string[]): Promise<void> {
   const list =
     packs.length === 0 ? "[]" : `\n${packs.map((pack) => requiresEntry(pack)).join("\n")}`;
+
   await writeFile(
     path.join(projectDir, "ambit.yml"),
     `version: 1
@@ -86,6 +87,7 @@ async function cli(
     stdout: (line) => out.push(line),
     stderr: (line) => err.push(line),
   });
+
   return { code, stdout: out.join("\n"), stderr: err.join("\n") };
 }
 
@@ -102,24 +104,31 @@ async function snapshot(): Promise<Record<string, string>> {
     for (const entry of await readdir(current)) {
       const within = relative === "" ? entry : `${relative}/${entry}`;
       const absolute = path.join(current, entry);
-      if ((await stat(absolute)).isDirectory()) await walk(absolute, within);
-      else found[within] = await readFile(absolute, "utf8");
+
+      if ((await stat(absolute)).isDirectory()) {
+        await walk(absolute, within);
+      } else {
+        found[within] = await readFile(absolute, "utf8");
+      }
     }
   };
 
   await walk(projectDir, "");
+
   return found;
 }
 
 /** Every artifact status reports, as `path=state` pairs, so a whole report fits one assertion. */
 async function states(): Promise<readonly string[]> {
   const status = await projectStatus(projectDir);
+
   return status.artifacts.map((artifact) => `${artifact.path}=${artifact.state}`);
 }
 
 /** The detail line status gives for one path. */
 async function detailOf(target: string): Promise<string | undefined> {
   const status = await projectStatus(projectDir);
+
   return status.artifacts.find((artifact) => artifact.path === target)?.detail;
 }
 
@@ -163,12 +172,14 @@ describe("ambit status on an installed project", () => {
 
   it("reports every artifact as matching, and says so rather than printing nothing", async () => {
     const result = await cli("status");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     // The detail column is empty on every row here, so `columns` trims it away and the state ends
     // each line — but the two columns before it are still padded out to their widest cell.
     const width = CORE_TARGET.length;
     const kind = "harness-config".length;
+
     expect(result.stdout).toBe(
       [
         "artifacts (7)",
@@ -235,6 +246,7 @@ describe("ambit status after a manual edit", () => {
     );
 
     const result = await cli("status");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
     expect(result.stdout).toContain(`modified  SKILL.md differs from its source`);
     expect(await states()).toEqual([
@@ -306,6 +318,7 @@ describe("ambit status after a manual edit", () => {
     const document = await readMcpConfig();
     const tagged =
       (document.mcpServers as Record<string, Record<string, unknown>>)[PACKED_MCP] ?? {};
+
     await writeMcpFile({
       mcpServers: { [PACKED_MCP]: { headers: tagged.headers, url: tagged.url, type: tagged.type } },
     });
@@ -315,6 +328,7 @@ describe("ambit status after a manual edit", () => {
 
   it("says nothing about a hand-added server, or any other key in the file", async () => {
     const document = await readMcpConfig();
+
     await writeMcpFile({
       ...document,
       mcpServers: { ...(document.mcpServers as object), handmade: { command: "node" } },
@@ -334,6 +348,7 @@ describe("ambit status after a manual edit", () => {
 
   it("says nothing about a skill directory no state claims", async () => {
     const target = path.join(projectDir, SKILLS_DIR, "hand-written");
+
     await mkdir(target, { recursive: true });
     await writeFile(path.join(target, "SKILL.md"), "---\nname: hand-written\n---\n", "utf8");
 
@@ -415,6 +430,7 @@ describe("ambit status on a symlinked install", () => {
 describe("ambit status before an install", () => {
   it("reports every artifact resolution wants as missing", async () => {
     const result = await cli("status");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     expect(await states()).toEqual([
@@ -431,6 +447,7 @@ describe("ambit status before an install", () => {
 
   it("reports a target install would refuse as unowned rather than as modified", async () => {
     const target = path.join(projectDir, CORE_TARGET);
+
     await mkdir(target, { recursive: true });
     await writeFile(path.join(target, "SKILL.md"), "---\nname: not ambit's\n---\n", "utf8");
     await writeMcpFile({ mcpServers: { [PACKED_MCP]: { command: "not ambit's either" } } });
@@ -499,6 +516,7 @@ describe("ambit status after the profile narrows", () => {
     expect((await cli("install")).code).toBe(ExitCode.Success);
 
     const status = await projectStatus(projectDir);
+
     expect(statusDrift(status)).toEqual([]);
     expect((await cli("status", "--check")).code).toBe(ExitCode.Success);
   });

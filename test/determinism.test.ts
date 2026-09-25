@@ -78,9 +78,12 @@ const forwardReaddir = fsPromises.readdir as unknown as (
 mock.module("node:fs/promises", () => {
   const wrapped = async (...args: readonly unknown[]): Promise<unknown[]> => {
     readOrder.seen.push(String(args[0]));
+
     return permute(await forwardReaddir(...args), readOrder.current);
   };
+
   const readdir = wrapped as unknown as typeof fsPromises.readdir;
+
   return { ...fsPromises, readdir, default: { ...fsPromises, readdir } };
 });
 
@@ -100,6 +103,7 @@ function permute<T>(entries: readonly T[], order: ReadOrder): T[] {
       return [...entries].reverse();
     case "rotated": {
       const [first, ...rest] = entries;
+
       return first === undefined ? [] : [...rest, first];
     }
   }
@@ -268,6 +272,7 @@ ${SELECTED_PACKS.map((pack) => requiresEntry(pack)).join("\n")}
 async function writeExtraHooks(dir: string): Promise<void> {
   for (const [name, lines] of Object.entries(EXTRA_HOOKS)) {
     const target = path.join(dir, "hooks", name);
+
     await mkdir(target, { recursive: true });
     await writeFile(
       path.join(target, "hook.yml"),
@@ -277,6 +282,7 @@ async function writeExtraHooks(dir: string): Promise<void> {
   }
 
   const [group, leaf] = EXTRA_PACK.split(".");
+
   await mkdir(path.join(dir, "packs", group!), { recursive: true });
   await writeFile(
     path.join(dir, "packs", group!, `${leaf!}.yml`),
@@ -300,6 +306,7 @@ async function cli(argv: readonly string[], cwd: string): Promise<Output> {
     stdout: (line) => out.push(line),
     stderr: (line) => err.push(line),
   });
+
   return { code, stdout: out.join("\n"), stderr: err.join("\n") };
 }
 
@@ -337,18 +344,26 @@ async function snapshot(dir: string): Promise<Record<string, string>> {
       const within = relative === "" ? entry : `${relative}/${entry}`;
       const absolute = path.join(current, entry);
       const stats = await lstat(absolute);
-      if (stats.isSymbolicLink()) found[within] = `-> ${await readlink(absolute)}`;
-      else if (stats.isDirectory()) await walk(absolute, within);
-      else found[within] = await readFile(absolute, "utf8");
+
+      if (stats.isSymbolicLink()) {
+        found[within] = `-> ${await readlink(absolute)}`;
+      } else if (stats.isDirectory()) {
+        await walk(absolute, within);
+      } else {
+        found[within] = await readFile(absolute, "utf8");
+      }
     }
   };
 
   await walk(dir, "");
+
   return found;
 }
 
 beforeAll(async () => {
-  for (const [name, value] of Object.entries(ENV_STUBS)) stubEnv(name, value);
+  for (const [name, value] of Object.entries(ENV_STUBS)) {
+    stubEnv(name, value);
+  }
 
   root = await mkdtemp(path.join(tmpdir(), "ambit-determinism-"));
   catalogDir = path.join(root, "catalog");
@@ -361,6 +376,7 @@ beforeAll(async () => {
   await writeProfile(projectDir);
 
   const install = await cli(["install", "--project", projectDir], root);
+
   expect(install.code, install.stderr).toBe(ExitCode.Success);
   installed = await snapshot(projectDir);
   fixture = await snapshot(catalogDir);
@@ -378,7 +394,10 @@ afterAll(async () => {
 describe("the shuffled read order this suite relies on", () => {
   it("hands a directory's entries back in a different order under each shuffle", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "ambit-read-order-"));
-    for (const name of ["a", "b", "c"]) await writeFile(path.join(dir, name), "", "utf8");
+
+    for (const name of ["a", "b", "c"]) {
+      await writeFile(path.join(dir, name), "", "utf8");
+    }
 
     const natural = await withReadOrder("natural", () => readdir(dir));
     const reversed = await withReadOrder("reversed", () => readdir(dir));
@@ -496,6 +515,7 @@ describe("a report of problems is in the same order whatever order directories a
   /** Adds a skill whose frontmatter `name` disagrees with its path — the one problem parsing collects. */
   async function writeMismatchedSkill(relative: string, declared: string): Promise<void> {
     const target = path.join(brokenCatalog, "skills", relative, "SKILL.md");
+
     await mkdir(path.dirname(target), { recursive: true });
     await writeFile(
       target,
@@ -578,10 +598,12 @@ describe("ambit install writes the same tree whatever order directories are read
   /** Installs a fresh project under one read order and returns everything that landed in it. */
   async function installUnder(order: ReadOrder): Promise<Record<string, string>> {
     const dir = path.join(writeRoot, `project-${order}`);
+
     await mkdir(dir, { recursive: true });
     await writeProfile(dir);
 
     const result = await withReadOrder(order, () => cli(["install", "--project", dir], writeRoot));
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     return snapshot(dir);

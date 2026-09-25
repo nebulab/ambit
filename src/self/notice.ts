@@ -67,11 +67,26 @@ function isSet(value: string | undefined): boolean {
  * flag is a statement that this run must not reach the network.
  */
 export function shouldCheck(context: NoticeContext): boolean {
-  if (isSet(context.env[OPT_OUT_VAR])) return false;
-  if (isSet(context.env.CI)) return false;
-  if (!context.isTty) return false;
-  if (context.argv.includes("--json") || context.argv.includes("--offline")) return false;
-  if (context.argv.includes("self-update")) return false;
+  if (isSet(context.env[OPT_OUT_VAR])) {
+    return false;
+  }
+
+  if (isSet(context.env.CI)) {
+    return false;
+  }
+
+  if (!context.isTty) {
+    return false;
+  }
+
+  if (context.argv.includes("--json") || context.argv.includes("--offline")) {
+    return false;
+  }
+
+  if (context.argv.includes("self-update")) {
+    return false;
+  }
+
   return installKind(context.moduleUrl, context.mainPath) !== "npx";
 }
 
@@ -82,9 +97,17 @@ function cacheFile(env: NodeJS.ProcessEnv): string {
 async function readCache(env: NodeJS.ProcessEnv): Promise<NoticeCache | undefined> {
   try {
     const parsed: unknown = JSON.parse(await readFile(cacheFile(env), "utf8"));
-    if (typeof parsed !== "object" || parsed === null) return undefined;
+
+    if (typeof parsed !== "object" || parsed === null) {
+      return undefined;
+    }
+
     const record = parsed as Partial<NoticeCache>;
-    if (typeof record.checkedAt !== "number") return undefined;
+
+    if (typeof record.checkedAt !== "number") {
+      return undefined;
+    }
+
     return typeof record.latest === "string"
       ? { checkedAt: record.checkedAt, latest: record.latest }
       : { checkedAt: record.checkedAt };
@@ -96,6 +119,7 @@ async function readCache(env: NodeJS.ProcessEnv): Promise<NoticeCache | undefine
 async function writeCache(env: NodeJS.ProcessEnv, cache: NoticeCache): Promise<void> {
   try {
     const file = cacheFile(env);
+
     await mkdir(path.dirname(file), { recursive: true });
     await writeFile(file, `${JSON.stringify(cache, null, 2)}\n`, "utf8");
   } catch {
@@ -106,16 +130,20 @@ async function writeCache(env: NodeJS.ProcessEnv, cache: NoticeCache): Promise<v
 /** The tag of the newest release, from the cache when it is fresh and from GitHub when it is not. */
 async function newestRelease(context: NoticeContext): Promise<string | undefined> {
   const cached = await readCache(context.env);
+
   if (cached !== undefined && context.now - cached.checkedAt < CHECK_INTERVAL_MS) {
     return cached.latest;
   }
 
   try {
     const latest = await latestTag(context.fetch, CHECK_TIMEOUT_MS);
+
     await writeCache(context.env, { checkedAt: context.now, latest });
+
     return latest;
   } catch {
     await writeCache(context.env, { checkedAt: context.now });
+
     return undefined;
   }
 }
@@ -127,10 +155,15 @@ async function newestRelease(context: NoticeContext): Promise<string | undefined
  * update. npx never gets here, since {@link shouldCheck} rules it out.
  */
 export async function updateNotice(context: NoticeContext): Promise<string | undefined> {
-  if (!shouldCheck(context)) return undefined;
+  if (!shouldCheck(context)) {
+    return undefined;
+  }
 
   const latest = await newestRelease(context);
-  if (latest === undefined || !isNewer(VERSION, latest)) return undefined;
+
+  if (latest === undefined || !isNewer(VERSION, latest)) {
+    return undefined;
+  }
 
   const how =
     installKind(context.moduleUrl, context.mainPath) === "binary"

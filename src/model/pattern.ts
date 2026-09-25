@@ -143,13 +143,17 @@ function escapeLiteral(text: string): string {
  */
 export function matchesPattern(pattern: string, text: string): boolean {
   const literals = pattern.split(WILDCARD);
+
   // No wildcard: compare strings directly, since a regular expression could only ever test equality
   // here.
-  if (literals.length === 1) return pattern === text;
+  if (literals.length === 1) {
+    return pattern === text;
+  }
 
   // `[\s\S]*` rather than `.*`, which stops at a newline. A name holding one is pathological, but
   // the matcher should still honor "any run of characters" consistently.
   const source = `^${literals.map(escapeLiteral).join("[\\s\\S]*")}$`;
+
   return new RegExp(source).test(text);
 }
 
@@ -164,6 +168,7 @@ const KIND_SEPARATOR = ":";
  */
 export function entryAddress(entry: PatternEntry): string {
   const { catalog, pattern } = entry;
+
   return catalog === undefined ? pattern : `${catalog}${CATALOG_SEPARATOR}${pattern}`;
 }
 
@@ -210,9 +215,13 @@ export function sameEntry(a: PatternEntry, b: PatternEntry): boolean {
  */
 export function uniqueEntries(entries: readonly PatternEntry[]): readonly PatternEntry[] {
   const kept: PatternEntry[] = [];
+
   for (const entry of entries) {
-    if (!kept.some((seen) => sameEntry(seen, entry))) kept.push(entry);
+    if (!kept.some((seen) => sameEntry(seen, entry))) {
+      kept.push(entry);
+    }
   }
+
   return kept;
 }
 
@@ -224,8 +233,14 @@ export function uniqueEntries(entries: readonly PatternEntry[]): readonly Patter
  * {@link PatternEntry.catalog}), and the pattern matches the item's name.
  */
 export function matches(entry: PatternEntry, item: PatternItem): boolean {
-  if (entry.kind !== item.kind) return false;
-  if (entry.catalog !== undefined && entry.catalog !== item.catalog) return false;
+  if (entry.kind !== item.kind) {
+    return false;
+  }
+
+  if (entry.catalog !== undefined && entry.catalog !== item.catalog) {
+    return false;
+  }
+
   return matchesPattern(entry.pattern, item.name);
 }
 
@@ -254,6 +269,7 @@ function example(kind: ItemKind, address: string, addressing: Addressing): strin
       : address.includes(CATALOG_SEPARATOR)
         ? address
         : `${ALIAS_PLACEHOLDER}${CATALOG_SEPARATOR}${address}`;
+
   return `write it as \`${entryYaml({ kind, pattern: shown })}\``;
 }
 
@@ -269,6 +285,7 @@ function bareEntry(
   addressing: Addressing,
 ): AmbitError {
   const line = item.line ?? mapping.lineOf(REQUIRES_KEY);
+
   return configError(
     `\`${REQUIRES_KEY}\` entry "${item.value}" is not a mapping ${at(mapping.file, line)}`,
     [
@@ -288,6 +305,7 @@ function badKind(entry: YamlMapping, declared: readonly ItemKind[]): AmbitError 
   ];
 
   const first = declared[0];
+
   return first === undefined
     ? configError(
         `\`${REQUIRES_KEY}\` entry selects from no namespace ${at(entry.file, entry.line)}`,
@@ -339,7 +357,10 @@ function splitAddress(
   const parts = address.split(CATALOG_SEPARATOR);
 
   if (addressing === "unqualified") {
-    if (parts.length === 1) return { pattern: address };
+    if (parts.length === 1) {
+      return { pattern: address };
+    }
+
     throw badAddress(
       entry,
       kind,
@@ -360,6 +381,7 @@ function splitAddress(
       `qualify it: \`<catalog>${CATALOG_SEPARATOR}${address}\`, using an alias from \`catalogs:\``,
     );
   }
+
   if (parts.length > 2) {
     throw badAddress(
       entry,
@@ -373,6 +395,7 @@ function splitAddress(
 
   const catalog = parts[0]!;
   const pattern = parts[1]!;
+
   if (catalog === "") {
     throw badAddress(
       entry,
@@ -383,6 +406,7 @@ function splitAddress(
       `write the alias before the \`${CATALOG_SEPARATOR}\``,
     );
   }
+
   if (pattern === "") {
     throw badAddress(
       entry,
@@ -408,7 +432,10 @@ function parseEntry(entry: YamlMapping, addressing: Addressing): PatternEntry {
 
   const declared = ITEM_KINDS.filter((candidate) => entry.has(candidate));
   const kind = declared.length === 1 ? declared[0]! : undefined;
-  if (kind === undefined) throw badKind(entry, declared);
+
+  if (kind === undefined) {
+    throw badKind(entry, declared);
+  }
 
   const address = entry.requireString(kind);
   const { catalog, pattern } = splitAddress(entry, kind, address, addressing);
@@ -435,12 +462,18 @@ export function parseEntries(
   addressing: Addressing,
 ): readonly PatternEntry[] {
   const items = mapping.optionalEntryList(REQUIRES_KEY);
-  if (items === undefined) return [];
+
+  if (items === undefined) {
+    return [];
+  }
 
   return items.map((item) => {
     // A `PositionedString` is a bare pattern; everything else the sequence could hold was already
     // refused by `optionalEntryList`.
-    if (!(item instanceof YamlMapping)) throw bareEntry(mapping, item, addressing);
+    if (!(item instanceof YamlMapping)) {
+      throw bareEntry(mapping, item, addressing);
+    }
+
     return parseEntry(item, addressing);
   });
 }

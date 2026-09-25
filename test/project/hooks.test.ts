@@ -97,6 +97,7 @@ async function writeProfile(
   await rm(path.join(projectDir, "packs"), { recursive: true, force: true });
   for (const hook of hooks) {
     const dir = path.join(projectDir, "hooks", hook.name);
+
     await mkdir(dir, { recursive: true });
     await writeFile(
       path.join(dir, "hook.yml"),
@@ -104,6 +105,7 @@ async function writeProfile(
       "utf8",
     );
   }
+
   // The pack these cases select, gathering whichever hooks they wrote — nothing labels itself, so a
   // grouping is a document, and this is that document.
   if (hooks.length > 0) {
@@ -120,6 +122,7 @@ async function writeProfile(
       "utf8",
     );
   }
+
   await writeFile(
     path.join(projectDir, "ambit.yml"),
     `version: 1
@@ -148,6 +151,7 @@ async function cli(
     stdout: (line) => out.push(line),
     stderr: (line) => err.push(line),
   });
+
   return { code, stdout: out.join("\n"), stderr: err.join("\n") };
 }
 
@@ -168,12 +172,14 @@ async function settings(): Promise<Readonly<Record<string, unknown>>> {
 
 async function stateArtifacts(): Promise<readonly OwnedArtifact[]> {
   const text = await readFile(path.join(projectDir, STATE_DIRNAME, STATE_FILENAME), "utf8");
+
   return parseState(text, STATE_FILENAME).artifacts;
 }
 
 async function pathExists(relative: string): Promise<boolean> {
   try {
     await lstat(path.join(projectDir, relative));
+
     return true;
   } catch {
     return false;
@@ -206,6 +212,7 @@ describe("a project's own hook installed into .claude/settings.json", () => {
 
   it("writes one entry per hook, and records each entry's digest as owned", async () => {
     const result = await cli("install");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     expect(await settings()).toEqual({
@@ -279,6 +286,7 @@ describe("claude and vscode together", () => {
 
   it("writes the shared file once, and records it once", async () => {
     const result = await cli("install");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     // One entry, not one per harness reading it.
@@ -356,7 +364,9 @@ describe("a settings file a person wrote", () => {
   /** That document with `mutate` applied to its `hooks`, and nothing else touched. */
   function expected(mutate: (hooks: Record<string, unknown>) => void): string {
     const document = JSON.parse(HANDWRITTEN) as { hooks: Record<string, unknown> };
+
     mutate(document.hooks);
+
     return `${JSON.stringify(document, null, 2)}\n`;
   }
 
@@ -396,6 +406,7 @@ describe("a settings file a person wrote", () => {
 
     // Which is to say: the file still holds exactly what the user wrote.
     const remaining = JSON.parse(await settingsText()) as { hooks: Record<string, unknown> };
+
     delete remaining.hooks.Stop;
     expect(`${JSON.stringify(remaining, null, 2)}\n`).toBe(HANDWRITTEN);
   });
@@ -406,6 +417,7 @@ describe("a settings file a person wrote", () => {
     // The two hand-written entries have digests ambit never plans, so they are not in state, so
     // nothing can ever prune them. The promise falls out of the identity scheme rather than a rule.
     const [artifact] = await stateArtifacts();
+
     expect(artifact?.managedKeys).toEqual([FORMAT_KEY, NOTIFY_KEY]);
   });
 });
@@ -439,6 +451,7 @@ describe("a hand-written entry identical to one ambit would install", () => {
 
   it("takes it over under `--adopt`, without writing a second copy of it", async () => {
     const result = await cli("install", "--adopt");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     // The digest is already present, so the merge appends nothing — the array holds one entry.
@@ -497,6 +510,7 @@ describe("an entry whose digest no longer matches what state recorded", () => {
   /** Rewrites the installed entry's timeout, the way someone tweaking the file by hand would. */
   async function editInstalledEntry(): Promise<void> {
     const text = await settingsText();
+
     expect(text).toContain('"timeout": 30');
     await writeFile(
       path.join(projectDir, SETTINGS),
@@ -508,7 +522,9 @@ describe("an entry whose digest no longer matches what state recorded", () => {
   /** Every artifact row `status --json` reported. */
   async function statusRows(): Promise<readonly Readonly<Record<string, unknown>>[]> {
     const result = await cli("status", "--json");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
+
     return (
       JSON.parse(result.stdout) as { artifacts: readonly Readonly<Record<string, unknown>>[] }
     ).artifacts;
@@ -548,6 +564,7 @@ describe("an entry whose digest no longer matches what state recorded", () => {
     // And that is a settled state rather than a file that grows: the row is `ok` again, and a further
     // install appends nothing.
     const healed = await settingsText();
+
     expect((await cli("status", "--check")).code).toBe(ExitCode.Success);
     expect((await cli("install")).code).toBe(ExitCode.Success);
     expect(await settingsText()).toBe(healed);
@@ -624,6 +641,7 @@ describe("a project's own hook installed into .cursor/hooks.json", () => {
     await writeProfile([watchHook(event)], ["cursor"]);
 
     const result = await cli("install");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     // `version` first, because ambit created the file and Cursor's own documentation writes it there.
@@ -671,6 +689,7 @@ describe("a project's own hook installed into .cursor/hooks.json", () => {
     // Written through, `matcher` would be a key Cursor ignores — so the hook would silently run on
     // every tool while the file claimed otherwise. Dropped, it runs unfiltered and says so.
     const written = await fileText(HOOKS_JSON);
+
     expect(JSON.parse(written)).toEqual({
       version: 1,
       hooks: { preToolUse: [{ command: "./bin/guard" }] },
@@ -687,6 +706,7 @@ describe("a project's own hook installed into .cursor/hooks.json", () => {
       null,
       2,
     )}\n`;
+
     await writeProfile([watchHook("Stop")], ["cursor"]);
     await mkdir(path.join(projectDir, ".cursor"), { recursive: true });
     await writeFile(path.join(projectDir, HOOKS_JSON), HANDWRITTEN, "utf8");
@@ -698,6 +718,7 @@ describe("a project's own hook installed into .cursor/hooks.json", () => {
       null,
       2,
     )}\n`;
+
     expect(await fileText(HOOKS_JSON)).toBe(installed);
 
     // And `clean` gives back exactly what they wrote, `version: 2` included.
@@ -726,6 +747,7 @@ describe("a project's own hook installed into .codex/hooks.json", () => {
 
   it("writes Claude's own entries, under Claude's own event names", async () => {
     const result = await cli("install");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     // No `version` and no other root key: unlike Cursor's file this one holds hooks and nothing else,
@@ -767,6 +789,7 @@ describe("a project's own hook installed into .codex/hooks.json", () => {
       null,
       2,
     )}\n`;
+
     await mkdir(path.join(projectDir, ".codex"), { recursive: true });
     await writeFile(path.join(projectDir, CODEX_HOOKS), HANDWRITTEN, "utf8");
 
@@ -790,6 +813,7 @@ describe("a project's own hook installed into .codex/hooks.json", () => {
     await writeProfile([NOTIFY_HOOK], ["claude", "codex"]);
 
     const result = await cli("install");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     // Two artifacts rather than one: the entries are identical, so it is the *file* that makes them two
@@ -833,6 +857,7 @@ describe("a hook selected while opencode is configured", () => {
     await writeProfile([NOTIFY_HOOK], ["claude", "opencode"]);
 
     const result = await cli("install");
+
     expect(result.code).toBe(ExitCode.Success);
 
     // Claude's file is written in full. The skip is opencode's alone — which is the reason it is a
@@ -857,6 +882,7 @@ describe("a hook selected while opencode is configured", () => {
     await writeProfile([NOTIFY_HOOK], ["opencode"]);
 
     const result = await cli("install", "--json");
+
     expect(result.code).toBe(ExitCode.Success);
 
     expect((JSON.parse(result.stdout) as { skipped: unknown }).skipped).toEqual([
@@ -878,6 +904,7 @@ describe("claude and cursor together", () => {
     await writeProfile([NOTIFY_HOOK], ["claude", "cursor"]);
 
     const result = await cli("install");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     expect(await settings()).toEqual({ hooks: { Stop: [NOTIFY_ENTRY] } });
@@ -979,11 +1006,14 @@ describe("a hook that ships its own script", () => {
         "",
       ].join("\n"),
     };
+
     for (const [relative, body] of Object.entries(files)) {
       const target = path.join(catalogDir, relative);
+
       await mkdir(path.dirname(target), { recursive: true });
       await writeFile(target, body, "utf8");
     }
+
     // Executable in the catalog, which is the only reason `--copy` preserving it is a claim.
     await chmod(path.join(catalogDir, `hooks/${SCRIPT_HOOK}/${SCRIPT}`), 0o755);
 
@@ -1007,6 +1037,7 @@ ${requiresEntry("core", "company")}
 
   it("materializes the hook's directory, and records it as a hook-dir", async () => {
     const result = await cli("install");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     // The script is reachable at the shared location, and the settings entry is written beside it.
@@ -1053,6 +1084,7 @@ ${requiresEntry("core", "company")}
     await writeCatalog(["claude", "codex", "cursor", "vscode"]);
 
     const result = await cli("install");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     // One script, however many harnesses read it.
@@ -1105,6 +1137,7 @@ ${requiresEntry("core", "company")}
 
     // What a second run would remove, answered from state and the plan alone: nothing at all.
     const preview = await cli("install", "--dry-run", "--json");
+
     expect(preview.code, preview.stderr).toBe(ExitCode.Success);
     expect((JSON.parse(preview.stdout) as { pruned: unknown[] }).pruned).toEqual([]);
 
@@ -1127,11 +1160,13 @@ ${requiresEntry("core", "company")}
     await cli("install");
 
     const result = await cli("status", "--json");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     const { artifacts } = JSON.parse(result.stdout) as {
       artifacts: readonly Readonly<Record<string, unknown>>[];
     };
+
     expect(artifacts).toContainEqual({ kind: "hook-dir", path: HOOK_DIR, state: "ok" });
   });
 
@@ -1150,6 +1185,7 @@ ${requiresEntry("core", "company")}
     const { artifacts } = JSON.parse(result.stdout) as {
       artifacts: readonly Readonly<Record<string, unknown>>[];
     };
+
     expect(artifacts).toContainEqual({
       detail: `${SCRIPT} differs from its source`,
       kind: "hook-dir",
@@ -1182,6 +1218,7 @@ ${requiresEntry("core", "company")}
     // `fs.cp` preserves mode, and a hook the harness cannot execute is a hook that does not run — so
     // the bit is part of what the catalog ships rather than something the project has to restore.
     const mode = (await lstat(path.join(projectDir, HOOK_DIR, SCRIPT))).mode;
+
     expect(mode & 0o111).toBe(0o111);
   });
 
@@ -1198,6 +1235,7 @@ ${requiresEntry("core", "company")}
     const lines = (await fileText(SHARED_GITIGNORE_FILE)).split("\n");
     const start = lines.findIndex((line) => line.startsWith(BLOCK_BEGIN));
     const end = lines.findIndex((line) => line.startsWith(BLOCK_END));
+
     expect(start).toBeGreaterThanOrEqual(0);
     // Anchored and without a trailing slash, exactly as a skill's pattern is: the default install is a
     // symlink, which git does not match a `dir/` pattern against.
@@ -1241,6 +1279,7 @@ ${requiresEntry("core", "company")}
     await writeProfile([]);
 
     const result = await cli("install");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     // The other half of `plannedPaths`: a path the plan no longer writes *is* stale, and pruning it is
@@ -1272,18 +1311,23 @@ ${requiresEntry("core", "company")}
     });
 
     afterEach(() => {
-      if (priorHome === undefined) delete process.env.HOME;
-      else process.env.HOME = priorHome;
+      if (priorHome === undefined) {
+        delete process.env.HOME;
+      } else {
+        process.env.HOME = priorHome;
+      }
     });
 
     it("writes every harness the expanded install root", async () => {
       await writeCatalog(["claude", "cursor"]);
 
       const result = await cli("install");
+
       expect(result.code, result.stderr).toBe(ExitCode.Success);
 
       // The one path that reaches the script from every project, since it depends on none of them.
       const absolute = `${projectDir}/${HOOK_DIR}/${SCRIPT}`;
+
       expect(await settings()).toEqual({
         hooks: {
           PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: absolute }] }],
@@ -1308,6 +1352,7 @@ ${requiresEntry("core", "company")}
 
       process.env.HOME = projectDir;
       const result = await cli("install");
+
       expect(result.code, result.stderr).toBe(ExitCode.Success);
 
       // One entry, not two. The old key is state's, so pruning takes it out: leaving it would keep a

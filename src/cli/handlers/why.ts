@@ -157,10 +157,17 @@ function locate(
   config: ProjectConfig,
 ): BundleItem {
   const item = parseItemSubject(name, `\`why ${name}\` does not say what to explain`);
-  if (isSelected(bundle, item)) return item;
+
+  if (isSelected(bundle, item)) {
+    return item;
+  }
 
   const entries = providers(merged, item);
-  if (entries.length === 0) throw unknownName(item, config);
+
+  if (entries.length === 0) {
+    throw unknownName(item, config);
+  }
+
   throw notSelected(item, entries, config);
 }
 
@@ -194,6 +201,7 @@ function toText(item: BundleItem, chain: readonly ReasonedItem[]): readonly stri
 
 export const whyHandler: CommandHandler = async (ctx) => {
   const [name] = ctx.args;
+
   if (name === undefined) {
     // Commander enforces the argument, so this is unreachable rather than a user-facing path.
     throw new AmbitError(ExitCode.Internal, "`ambit why` was given no name", [
@@ -212,9 +220,11 @@ export const whyHandler: CommandHandler = async (ctx) => {
 
   if (jsonRequested(ctx)) {
     ctx.stdout(JSON.stringify(toJson(item, chain, reasonOf(bundle, item)), null, 2));
+
     return ExitCode.Success;
   }
 
   printSections(toText(item, chain), ctx.stdout);
+
   return ExitCode.Success;
 };

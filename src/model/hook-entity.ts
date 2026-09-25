@@ -165,7 +165,9 @@ function assertScriptReference(mapping: YamlMapping, command: string): void {
       ? "it climbs out through `..`"
       : undefined;
 
-  if (problem === undefined) return;
+  if (problem === undefined) {
+    return;
+  }
 
   throw mapping.keyError(
     "command",
@@ -195,7 +197,9 @@ export function parseHookEntity(mapping: YamlMapping): HookEntity {
   const command = mapping.requireString("command");
   const timeout = mapping.optionalInteger("timeout");
 
-  if (type === "script") assertScriptReference(mapping, command);
+  if (type === "script") {
+    assertScriptReference(mapping, command);
+  }
 
   return {
     name,

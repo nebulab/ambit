@@ -13,13 +13,18 @@ export function keyed<T>(
   value: (item: T) => unknown,
 ): Readonly<Record<string, unknown>> {
   const record: Record<string, unknown> = {};
-  for (const item of items) record[name(item)] = value(item);
+
+  for (const item of items) {
+    record[name(item)] = value(item);
+  }
+
   return record;
 }
 
 /** Pads every column but the last, so the eye can run down a section. */
 export function columns(rows: readonly (readonly string[])[]): readonly string[] {
   const widths: number[] = [];
+
   for (const row of rows) {
     row.forEach((cell, index) => {
       widths[index] = Math.max(widths[index] ?? 0, cell.length);
@@ -37,6 +42,7 @@ export function columns(rows: readonly (readonly string[])[]): readonly string[]
 /** A titled, counted, indented block, closed by a blank line. */
 export function section(title: string, rows: readonly (readonly string[])[]): readonly string[] {
   const body = rows.length === 0 ? ["(none)"] : columns(rows);
+
   return [`${title} (${rows.length})`, ...body.map((line) => `  ${line}`), ""];
 }
 
@@ -45,5 +51,7 @@ export function section(title: string, rows: readonly (readonly string[])[]): re
  * sections from each other, not the output from the shell prompt.
  */
 export function printSections(lines: readonly string[], stdout: (line: string) => void): void {
-  for (const line of lines.slice(0, lines.length - 1)) stdout(line);
+  for (const line of lines.slice(0, lines.length - 1)) {
+    stdout(line);
+  }
 }

@@ -111,6 +111,7 @@ let project: string;
 /** Writes a project pointing its one catalog at `source`, optionally at a `ref`. */
 async function writeProject(dir: string, source: string, ref?: string): Promise<void> {
   const refLine = ref === undefined ? "" : `    ref: "${ref}"\n`;
+
   await mkdir(dir, { recursive: true });
   await writeFile(
     path.join(dir, "ambit.yml"),
@@ -136,6 +137,7 @@ async function cli(
     stdout: (line) => out.push(line),
     stderr: (line) => err.push(line),
   });
+
   return { code, stdout: out.join("\n"), stderr: err.join("\n") };
 }
 
@@ -145,13 +147,16 @@ async function json(
   ...argv: readonly string[]
 ): Promise<Readonly<Record<string, unknown>>> {
   const result = await cli(dir, ...argv, "--json");
+
   expect(result.code, result.stderr).toBe(ExitCode.Success);
+
   return JSON.parse(result.stdout) as Readonly<Record<string, unknown>>;
 }
 
 /** The commit the lock pins the catalog to. */
 async function lockedCommit(dir: string): Promise<string | undefined> {
   const text = await readFile(path.join(dir, LOCK_FILENAME), "utf8");
+
   return parseYamlMapping(text, LOCK_FILENAME)
     .requireMapping("catalogs")
     .requireMapping(CATALOG_NAME)
@@ -165,9 +170,13 @@ async function cachedBranch(): Promise<string> {
   const loose = await readFile(path.join(repo, "refs", "heads", fixture.branch), "utf8").catch(
     () => "",
   );
-  if (loose.trim() !== "") return loose.trim();
+
+  if (loose.trim() !== "") {
+    return loose.trim();
+  }
 
   const line = packed.split("\n").find((entry) => entry.endsWith(`refs/heads/${fixture.branch}`));
+
   return line?.split(" ")[0] ?? "";
 }
 
@@ -175,12 +184,14 @@ async function cachedBranch(): Promise<string> {
 async function probedRefs(): Promise<readonly string[]> {
   const repo = path.join(cacheRoot(process.env), REPOS_DIRNAME, `${gitCacheKey(fixture.url)}.git`);
   const namespace = path.join(repo, ...PROBE_NAMESPACE.split("/"));
+
   return readdir(namespace).catch(() => []);
 }
 
 /** The skill names one bundle holds, from `resolve --json`. */
 async function resolvedSkills(dir: string): Promise<readonly string[]> {
   const bundle = await json(dir, "resolve");
+
   return Object.keys(bundle.skills as Readonly<Record<string, unknown>>);
 }
 
@@ -188,7 +199,9 @@ beforeEach(async () => {
   root = await mkdtemp(path.join(tmpdir(), "ambit-update-"));
   // The cache is machine-wide, so every test points it somewhere disposable.
   stubEnv("XDG_CACHE_HOME", path.join(root, "cache"));
-  for (const [name, value] of Object.entries(ENV_STUBS)) stubEnv(name, value);
+  for (const [name, value] of Object.entries(ENV_STUBS)) {
+    stubEnv(name, value);
+  }
 
   fixture = await buildFixtureGitCatalog(path.join(root, "remote"));
   project = path.join(root, "project");
@@ -203,6 +216,7 @@ afterEach(async () => {
 describe("ambit outdated leaves the cache exactly where it found it", () => {
   it("does not move the clone's own branch, so a later install pins the same commit", async () => {
     const first = await cli(project, "install");
+
     expect(first.code, first.stderr).toBe(ExitCode.Success);
     expect(await lockedCommit(project)).toBe(fixture.commit);
 
@@ -210,9 +224,11 @@ describe("ambit outdated leaves the cache exactly where it found it", () => {
       "skills/deploy-runbook/SKILL.md": NEW_SKILL,
       ...engineeringPack(["skill: deploy-runbook"]),
     });
+
     expect(moved).not.toBe(fixture.commit);
 
     const outdated = await cli(project, "outdated");
+
     expect(outdated.code, outdated.stderr).toBe(ExitCode.Success);
     expect(outdated.stdout).toContain("outdated");
 
@@ -223,6 +239,7 @@ describe("ambit outdated leaves the cache exactly where it found it", () => {
     // Which is the claim that matters: an ordinary install after `outdated` installs what it would
     // have installed before it.
     const second = await cli(project, "install");
+
     expect(second.code, second.stderr).toBe(ExitCode.Success);
     expect(await lockedCommit(project)).toBe(fixture.commit);
     expect(await resolvedSkills(project)).not.toContain("deploy-runbook");
@@ -230,6 +247,7 @@ describe("ambit outdated leaves the cache exactly where it found it", () => {
 
   it("writes nothing into the project", async () => {
     const install = await cli(project, "install");
+
     expect(install.code, install.stderr).toBe(ExitCode.Success);
     await commitFixtureGitRevision(fixture, {
       "skills/deploy-runbook/SKILL.md": NEW_SKILL,
@@ -329,10 +347,12 @@ describe("the bundle diff, which is what makes the report about capabilities", (
   /** Installs, commits `files` on the branch, and returns what `outdated --json` says changed. */
   async function changesAfter(files: Readonly<Record<string, string | null>>): Promise<DiffReport> {
     const install = await cli(project, "install");
+
     expect(install.code, install.stderr).toBe(ExitCode.Success);
     await commitFixtureGitRevision(fixture, files);
 
     const report = await json(project, "outdated");
+
     return report as unknown as DiffReport;
   }
 
@@ -491,6 +511,7 @@ describe("ambit update", () => {
     });
 
     const result = await cli(project, "update");
+
     expect(result.code, result.stderr).toBe(ExitCode.Success);
 
     expect(await lockedCommit(project)).toBe(moved);
@@ -571,12 +592,14 @@ ${REQUIRES}
     });
 
     const named = await cli(project, "update", "personal");
+
     expect(named.code, named.stderr).toBe(ExitCode.Success);
 
     // `personal` is a directory with no revision, so updating it moves nothing — and naming it must
     // not have moved the sibling that did have somewhere to go.
     expect(await lockedCommit(project)).toBe(fixture.commit);
     const report = await json(project, "outdated");
+
     expect(report.outdated).toBe(true);
   });
 });
@@ -585,6 +608,7 @@ describe("--offline", () => {
   for (const command of [["outdated"], ["update"], ["update", "--dry-run"]]) {
     it(`refuses \`ambit ${command.join(" ")}\` rather than answering from the cache`, async () => {
       const install = await cli(project, "install");
+
       expect(install.code, install.stderr).toBe(ExitCode.Success);
       await commitFixtureGitRevision(fixture, {
         "skills/deploy-runbook/SKILL.md": NEW_SKILL,
@@ -637,8 +661,10 @@ describe("a reinstall, which has a recorded commit to reproduce", () => {
     });
 
     const mover = path.join(root, "mover");
+
     await writeProject(mover, fixture.url, fixture.branch);
     const update = await cli(mover, "update");
+
     expect(update.code, update.stderr).toBe(ExitCode.Success);
     expect(await cachedBranch()).toBe(moved);
 
@@ -649,6 +675,7 @@ describe("a reinstall, which has a recorded commit to reproduce", () => {
   async function rewriteLockedCommit(dir: string, commit: string): Promise<void> {
     const file = path.join(dir, LOCK_FILENAME);
     const text = await readFile(file, "utf8");
+
     await writeFile(file, text.replaceAll(fixture.commit, commit), "utf8");
   }
 
@@ -670,12 +697,14 @@ describe("a reinstall, which has a recorded commit to reproduce", () => {
     // Every read-only command resolves the same commit as the install, or it would report on a project
     // nobody has: `resolve` above, and `status`, which plans through the adapters as install does.
     const status = await cli(project, "status");
+
     expect(status.code, status.stderr).toBe(ExitCode.Success);
   });
 
   it("satisfies `--frozen` on a cold cache, whatever the branch points at now", async () => {
     expect((await cli(project, "install")).code).toBe(ExitCode.Success);
     const committed = await readFile(path.join(project, LOCK_FILENAME), "utf8");
+
     await commitFixtureGitRevision(fixture, {
       "skills/deploy-runbook/SKILL.md": NEW_SKILL,
       ...engineeringPack(["skill: deploy-runbook"]),
@@ -733,6 +762,7 @@ describe("a reinstall, which has a recorded commit to reproduce", () => {
       "skills/deploy-runbook/SKILL.md": NEW_SKILL,
       ...engineeringPack(["skill: deploy-runbook"]),
     });
+
     await writeProject(project, fixture.url, fixture.branch);
 
     const second = await cli(project, "install");
@@ -779,6 +809,7 @@ ${PACKS.map((pack) => requiresEntry(pack, "acme")).join("\n")}
   it("exits 2 for a recorded commit the repository does not have, naming the way out", async () => {
     expect((await cli(project, "install")).code).toBe(ExitCode.Success);
     const vanished = "d".repeat(40);
+
     await rewriteLockedCommit(project, vanished);
 
     const second = await cli(project, "install");
@@ -829,6 +860,7 @@ ${PACKS.map((pack) => requiresEntry(pack, "acme")).join("\n")}
     expect((await cli(project, "install")).code).toBe(ExitCode.Success);
     const file = path.join(project, LOCK_FILENAME);
     const text = await readFile(file, "utf8");
+
     await writeFile(file, text.replace("version: 1", "version: 99"), "utf8");
 
     const second = await cli(project, "install");
@@ -843,6 +875,7 @@ describe("a first install, which has no earlier resolution to reproduce", () => 
   it("takes the commit the ref names now, not the one the shared cache happens to hold", async () => {
     // Some other project on this machine warmed the clone, and the branch moved afterwards.
     const warmed = path.join(root, "warmed");
+
     await writeProject(warmed, fixture.url, fixture.branch);
     expect((await cli(warmed, "install")).code).toBe(ExitCode.Success);
     const moved = await commitFixtureGitRevision(fixture, {
@@ -851,6 +884,7 @@ describe("a first install, which has no earlier resolution to reproduce", () => 
     });
 
     const fresh = path.join(root, "fresh");
+
     await writeProject(fresh, fixture.url, fixture.branch);
     const install = await cli(fresh, "install");
 
@@ -891,6 +925,7 @@ describe("ambit update, when the cached commit is one the project cannot resolve
       ...engineeringPack(["skill: deploy-runbook"]),
     });
     const broken = await cli(project, "install");
+
     expect(broken.code).toBe(ExitCode.Resolution);
 
     return commitFixtureGitRevision(fixture, {

@@ -32,7 +32,9 @@ import { printSections, section } from "../output.js";
  * @throws {AmbitError} exit 4 when `--offline` was given.
  */
 export const refusesOfflineRule: CommandRule = (ctx: CommandContext) => {
-  if (!offlineRequested(ctx)) return;
+  if (!offlineRequested(ctx)) {
+    return;
+  }
 
   throw networkError("`--offline` cannot answer where a ref points now", [
     "this command asks each catalog's remote for its current commit, which the cache cannot know",
@@ -64,8 +66,11 @@ export function planText(plan: UpdatePlan): readonly string[] {
 export const outdatedHandler: CommandHandler = async (ctx) => {
   const plan = await checkOutdated(projectDirOf(ctx));
 
-  if (jsonRequested(ctx)) ctx.stdout(JSON.stringify(toJson(plan), null, 2));
-  else printSections(planText(plan), ctx.stdout);
+  if (jsonRequested(ctx)) {
+    ctx.stdout(JSON.stringify(toJson(plan), null, 2));
+  } else {
+    printSections(planText(plan), ctx.stdout);
+  }
 
   return ExitCode.Success;
 };

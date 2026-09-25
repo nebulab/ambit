@@ -54,11 +54,16 @@ const CORE_TAGS: ReadonlySet<string> = new Set([
 ]);
 
 function rangeOf(node: unknown): [number, number] | undefined {
-  if (typeof node !== "object" || node === null || !("range" in node)) return undefined;
+  if (typeof node !== "object" || node === null || !("range" in node)) {
+    return undefined;
+  }
+
   const range = (node as { range?: unknown }).range;
+
   if (!Array.isArray(range) || typeof range[0] !== "number" || typeof range[1] !== "number") {
     return undefined;
   }
+
   return [range[0], range[1]];
 }
 
@@ -67,22 +72,47 @@ function rangeOf(node: unknown): [number, number] | undefined {
  * item, so the suggestion is something the reader can paste back.
  */
 function quoteHint(label: string, written: string): string {
-  if (label.endsWith("]")) return `- "${written}"`;
+  if (label.endsWith("]")) {
+    return `- "${written}"`;
+  }
+
   return `${label.slice(label.lastIndexOf(".") + 1)}: "${written}"`;
 }
 
 /** How a value is described in a type-mismatch message. */
 function describe(value: unknown): string {
-  if (isMap(value)) return "a mapping";
-  if (isSeq(value)) return "a sequence";
-  if (value === null) return "nothing";
+  if (isMap(value)) {
+    return "a mapping";
+  }
+
+  if (isSeq(value)) {
+    return "a sequence";
+  }
+
+  if (value === null) {
+    return "nothing";
+  }
+
   if (isScalar(value)) {
     const inner = value.value;
-    if (inner === null) return "null";
-    if (typeof inner === "boolean") return "a boolean";
-    if (typeof inner === "number") return Number.isInteger(inner) ? "an integer" : "a number";
-    if (typeof inner === "string") return "a string";
+
+    if (inner === null) {
+      return "null";
+    }
+
+    if (typeof inner === "boolean") {
+      return "a boolean";
+    }
+
+    if (typeof inner === "number") {
+      return Number.isInteger(inner) ? "an integer" : "a number";
+    }
+
+    if (typeof inner === "string") {
+      return "a string";
+    }
   }
+
   return "an unsupported value";
 }
 
@@ -103,6 +133,7 @@ class YamlSource {
   /** The 1-based line `node` starts on, counted in the containing file. */
   lineOf(node: unknown): number | undefined {
     const range = rangeOf(node);
+
     return range === undefined ? undefined : this.counter.linePos(range[0]).line + this.lineOffset;
   }
 
@@ -112,8 +143,13 @@ class YamlSource {
    */
   textOf(node: unknown): string | undefined {
     const range = rangeOf(node);
-    if (range === undefined) return undefined;
+
+    if (range === undefined) {
+      return undefined;
+    }
+
     const slice = this.text.slice(range[0], range[1]).trim();
+
     return slice === "" ? undefined : slice;
   }
 }
@@ -168,6 +204,7 @@ export class YamlMapping {
   /** The line `key` appears on, falling back to the mapping's own line. */
   lineOf(key: string): number | undefined {
     const pair = this.pairFor(key);
+
     return (pair === undefined ? undefined : this.source.lineOf(pair.key)) ?? this.line;
   }
 
@@ -182,8 +219,12 @@ export class YamlMapping {
    */
   rejectUnknownKeys(known: readonly string[]): void {
     const accepted = new Set(known);
+
     for (const key of this.keys()) {
-      if (accepted.has(key)) continue;
+      if (accepted.has(key)) {
+        continue;
+      }
+
       throw this.keyError(key, `unknown key "${this.label(key)}"`, [
         `accepted keys: ${[...accepted].sort().join(", ")}`,
         `remove \`${key}\`, or correct the spelling`,
@@ -197,16 +238,34 @@ export class YamlMapping {
 
   optionalString(key: string): string | undefined {
     const pair = this.pairFor(key);
+
     return pair === undefined ? undefined : this.readString(pair, key, false);
   }
 
   requireInteger(key: string): number {
     const pair = this.require(key, "an integer");
     const value = this.value(pair, key, "an integer", true);
+
     if (isScalar(value) && typeof value.value === "number" && Number.isInteger(value.value)) {
       return value.value;
     }
+
     throw this.mismatch(key, "an integer", value);
+  }
+
+  optionalBoolean(key: string): boolean | undefined {
+    if (!this.has(key)) {
+      return undefined;
+    }
+
+    const pair = this.require(key, "a boolean");
+    const value = this.value(pair, key, "a boolean", true);
+
+    if (isScalar(value) && typeof value.value === "boolean") {
+      return value.value;
+    }
+
+    throw this.mismatch(key, "a boolean", value);
   }
 
   optionalInteger(key: string): number | undefined {
@@ -227,10 +286,15 @@ export class YamlMapping {
    */
   optionalPositionedStringList(key: string): readonly PositionedString[] | undefined {
     const items = this.sequence(key, "a sequence of strings");
-    if (items === undefined) return undefined;
+
+    if (items === undefined) {
+      return undefined;
+    }
+
     return items.map((item, index) => {
       const value = this.readItemString(item, key, index);
       const line = this.source.lineOf(item) ?? this.lineOf(key);
+
       return { value, ...(line !== undefined && { line }) };
     });
   }
@@ -238,7 +302,11 @@ export class YamlMapping {
   requireMapping(key: string): YamlMapping {
     const pair = this.require(key, "a mapping");
     const value = this.value(pair, key, "a mapping", true);
-    if (!isMap(value)) throw this.mismatch(key, "a mapping", value);
+
+    if (!isMap(value)) {
+      throw this.mismatch(key, "a mapping", value);
+    }
+
     return new YamlMapping(value, this.source, this.label(key));
   }
 
@@ -248,9 +316,16 @@ export class YamlMapping {
 
   optionalMappingList(key: string): readonly YamlMapping[] | undefined {
     const items = this.sequence(key, "a sequence of mappings");
-    if (items === undefined) return undefined;
+
+    if (items === undefined) {
+      return undefined;
+    }
+
     return items.map((item, index) => {
-      if (!isMap(item)) throw this.itemMismatch(key, index, "a mapping", item);
+      if (!isMap(item)) {
+        throw this.itemMismatch(key, index, "a mapping", item);
+      }
+
       return new YamlMapping(item, this.source, `${this.label(key)}[${index}]`);
     });
   }
@@ -268,11 +343,19 @@ export class YamlMapping {
    */
   optionalEntryList(key: string): readonly (PositionedString | YamlMapping)[] | undefined {
     const items = this.sequence(key, "a sequence of strings or mappings");
-    if (items === undefined) return undefined;
+
+    if (items === undefined) {
+      return undefined;
+    }
+
     return items.map((item, index) => {
-      if (isMap(item)) return new YamlMapping(item, this.source, `${this.label(key)}[${index}]`);
+      if (isMap(item)) {
+        return new YamlMapping(item, this.source, `${this.label(key)}[${index}]`);
+      }
+
       const value = this.readItemString(item, key, index, "a string or a mapping");
       const line = this.source.lineOf(item) ?? this.lineOf(key);
+
       return { value, ...(line !== undefined && { line }) };
     });
   }
@@ -283,7 +366,11 @@ export class YamlMapping {
    */
   stringEntries(): Readonly<Record<string, string>> {
     const entries: Record<string, string> = {};
-    for (const key of this.keys()) entries[key] = this.requireString(key);
+
+    for (const key of this.keys()) {
+      entries[key] = this.requireString(key);
+    }
+
     return entries;
   }
 
@@ -297,7 +384,11 @@ export class YamlMapping {
 
   private require(key: string, expected: string): Pair<unknown, unknown> {
     const pair = this.pairFor(key);
-    if (pair !== undefined) return pair;
+
+    if (pair !== undefined) {
+      return pair;
+    }
+
     throw configError(`missing required key "${this.label(key)}" ${at(this.file, this.line)}`, [
       `expected ${expected}`,
       `add \`${key}:\` with a value`,
@@ -315,28 +406,33 @@ export class YamlMapping {
     required: boolean,
   ): unknown {
     const value = pair.value;
+
     if (value === null || (isScalar(value) && value.value === null)) {
       throw this.keyError(key, `"${this.label(key)}" must not be null`, [
         `expected ${expected}`,
         required ? "give it a value" : "give it a value, or remove the key to take its default",
       ]);
     }
+
     return value;
   }
 
   private readString(pair: Pair<unknown, unknown>, key: string, required: boolean): string {
     const value = this.value(pair, key, "a string", required);
+
     return this.coerceString(value, this.label(key), this.lineOf(key), "a string");
   }
 
   private readItemString(item: unknown, key: string, index: number, expected = "a string"): string {
     const label = `${this.label(key)}[${index}]`;
+
     if (item === null || (isScalar(item) && item.value === null)) {
       throw configError(`"${label}" must not be null ${at(this.file, this.source.lineOf(item))}`, [
         `expected ${expected}`,
         "give it a value, or remove the entry",
       ]);
     }
+
     return this.coerceString(item, label, this.source.lineOf(item) ?? this.lineOf(key), expected);
   }
 
@@ -358,12 +454,14 @@ export class YamlMapping {
           "give it a value, or remove the key",
         ]);
       }
+
       return value.value;
     }
 
     if (isScalar(value) && (typeof value.value === "number" || typeof value.value === "boolean")) {
       const written = this.source.textOf(value) ?? String(value.value);
       const kind = typeof value.value === "boolean" ? "a boolean" : "a number";
+
       throw configError(`"${label}" must be a string ${at(this.file, line)}`, [
         `YAML parsed \`${written}\` as ${kind}`,
         `quote it: \`${quoteHint(label, written)}\``,
@@ -379,9 +477,17 @@ export class YamlMapping {
   /** The items of an optional sequence-valued key, or `undefined` when the key is absent. */
   private sequence(key: string, expected: string): readonly unknown[] | undefined {
     const pair = this.pairFor(key);
-    if (pair === undefined) return undefined;
+
+    if (pair === undefined) {
+      return undefined;
+    }
+
     const value = this.value(pair, key, expected, false);
-    if (!isSeq(value)) throw this.mismatch(key, expected, value);
+
+    if (!isSeq(value)) {
+      throw this.mismatch(key, expected, value);
+    }
+
     return value.items;
   }
 
@@ -395,6 +501,7 @@ export class YamlMapping {
   private itemMismatch(key: string, index: number, expected: string, value: unknown): AmbitError {
     const label = `${this.label(key)}[${index}]`;
     const line = this.source.lineOf(value) ?? this.lineOf(key);
+
     return configError(`"${label}" must be ${expected} ${at(this.file, line)}`, [
       `found ${describe(value)}`,
       `give every \`${key}\` entry ${expected}`,
@@ -419,6 +526,7 @@ function syntaxError(
 
   // yaml appends " at line N, column M:" and a source snippet; both are redundant here.
   const summary = error.message.split("\n")[0]?.replace(/ at line \d+, column \d+:?$/, "") ?? "";
+
   return configError(`invalid YAML ${where}`, [summary, "fix the syntax error"]);
 }
 
@@ -431,10 +539,15 @@ function structuralProblem(source: YamlSource, root: unknown): AmbitError | unde
 
   const checkTag = (node: { tag?: string | null }): void => {
     const tag = node.tag;
-    if (tag === undefined || tag === null || CORE_TAGS.has(tag)) return;
+
+    if (tag === undefined || tag === null || CORE_TAGS.has(tag)) {
+      return;
+    }
+
     const shorthand = tag.startsWith("tag:yaml.org,2002:")
       ? `!!${tag.slice("tag:yaml.org,2002:".length)}`
       : tag;
+
     problems.push(
       configError(
         `custom YAML tag \`${shorthand}\` is not permitted ${at(source.file, source.lineOf(node))}`,
@@ -445,6 +558,7 @@ function structuralProblem(source: YamlSource, root: unknown): AmbitError | unde
 
   const checkKeys = (node: YAMLMap<unknown, unknown>): void => {
     const seen = new Map<string, number | undefined>();
+
     for (const item of node.items) {
       if (!isScalar(item.key) || typeof item.key.value !== "string") {
         problems.push(
@@ -459,6 +573,7 @@ function structuralProblem(source: YamlSource, root: unknown): AmbitError | unde
       const key = item.key.value;
       const line = source.lineOf(item.key);
       const first = seen.get(key);
+
       if (seen.has(key)) {
         problems.push(
           configError(`duplicate key "${key}" ${at(source.file, line)}`, [
@@ -468,6 +583,7 @@ function structuralProblem(source: YamlSource, root: unknown): AmbitError | unde
         );
         continue;
       }
+
       seen.set(key, line);
     }
   };
@@ -513,10 +629,16 @@ function parseChecked(text: string, file: string, lineOffset = 0): CheckedDocume
   const source = new YamlSource(file, text, counter, lineOffset);
 
   const failure = document.errors[0];
-  if (failure) throw syntaxError(source, failure);
+
+  if (failure) {
+    throw syntaxError(source, failure);
+  }
 
   const problem = structuralProblem(source, document);
-  if (problem) throw problem;
+
+  if (problem) {
+    throw problem;
+  }
 
   if (document.contents === null) {
     throw configError(`${file} is empty`, [
@@ -524,6 +646,7 @@ function parseChecked(text: string, file: string, lineOffset = 0): CheckedDocume
       "add the keys this format requires",
     ]);
   }
+
   if (!isMap(document.contents)) {
     throw configError(`root is not a mapping ${at(file, source.lineOf(document.contents))}`, [
       `found ${describe(document.contents)} at the document root`,
@@ -543,6 +666,7 @@ function parseChecked(text: string, file: string, lineOffset = 0): CheckedDocume
  */
 export function parseYamlMapping(text: string, file: string): YamlMapping {
   const checked = parseChecked(text, file);
+
   return new YamlMapping(checked.root, checked.source, "");
 }
 
@@ -600,6 +724,7 @@ export function splitFrontmatter(text: string, file: string): FrontmatterSplit {
   ]);
 
   let document: ParsedFrontmatter;
+
   try {
     document = matter(text, {
       language: FRONTMATTER_LANGUAGE,
@@ -622,7 +747,11 @@ export function splitFrontmatter(text: string, file: string): FrontmatterSplit {
       "add the keys this format requires",
     ]);
   }
-  if (document.matter === "") throw missing;
+
+  if (document.matter === "") {
+    throw missing;
+  }
+
   if (document.language !== FRONTMATTER_LANGUAGE) {
     throw configError(`${file} declares its frontmatter as "${document.language}"`, [
       "ambit reads frontmatter as YAML",
@@ -660,6 +789,7 @@ export function splitFrontmatter(text: string, file: string): FrontmatterSplit {
 export function parseFrontmatterMapping(text: string, file: string): YamlMapping {
   const split = splitFrontmatter(text, file);
   const checked = parseChecked(split.block, file, lineCount(split.open));
+
   return new YamlMapping(checked.root, checked.source, "");
 }
 

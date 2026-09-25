@@ -38,6 +38,7 @@ function ambit(args: readonly string[]): Promise<{ code: number; output: string 
   return new Promise((resolve, reject) => {
     const child = spawn("node", [BUNDLE, ...args], { stdio: ["ignore", "pipe", "pipe"] });
     let output = "";
+
     child.stdout.on("data", (chunk: Buffer) => (output += chunk.toString()));
     child.stderr.on("data", (chunk: Buffer) => (output += chunk.toString()));
     child.on("error", reject);
@@ -48,8 +49,11 @@ function ambit(args: readonly string[]): Promise<{ code: number; output: string 
 /** Runs one command, printing what it printed, and throwing if it failed. */
 async function expectSuccess(args: readonly string[]): Promise<void> {
   const { code, output } = await ambit(args);
+
   console.log(`$ node ${BUNDLE} ${args.join(" ")}\n${output}`);
-  if (code !== 0) throw new Error(`\`${args.join(" ")}\` exited ${code}`);
+  if (code !== 0) {
+    throw new Error(`\`${args.join(" ")}\` exited ${code}`);
+  }
 }
 
 const root = await mkdtemp(path.join(tmpdir(), "ambit-smoke-"));

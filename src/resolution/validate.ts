@@ -139,7 +139,10 @@ function requirementProblems(merged: MergedCatalog): readonly ValidationProblem[
 
   for (const requirer of requirersOf(merged)) {
     for (const entry of requiredEntries(requirer)) {
-      if (matchesOwnCatalog(entry, requirer, merged)) continue;
+      if (matchesOwnCatalog(entry, requirer, merged)) {
+        continue;
+      }
+
       problems.push(unmatchedRequirement(requirer, entry, merged.catalogs));
     }
   }
@@ -184,7 +187,10 @@ function cycleProblems(merged: MergedCatalog): readonly ValidationProblem[] {
     // tools treat this file as binary.
     const rotated = [...members.slice(start), ...members.slice(0, start)].join("\u0000");
 
-    if (reported.has(rotated)) return;
+    if (reported.has(rotated)) {
+      return;
+    }
+
     reported.add(rotated);
     // `<kind>:<name>` in the printed path, full addresses in the key: a path is read against the
     // `requires` lists an author wrote, which name siblings and never qualify them.
@@ -201,7 +207,9 @@ function cycleProblems(merged: MergedCatalog): readonly ValidationProblem[] {
   };
 
   const follow = (requirer: Requirer): void => {
-    if (closed.has(key(requirer))) return;
+    if (closed.has(key(requirer))) {
+      return;
+    }
 
     walked.push(requirer);
     for (const entry of requiredEntries(requirer)) {
@@ -218,18 +226,24 @@ function cycleProblems(merged: MergedCatalog): readonly ValidationProblem[] {
         // Checked here rather than on entry to `follow`: the cycle error names the entry that closed
         // the loop, and this is the only place that knows which one that is.
         const opened = walked.findIndex((seen) => key(seen) === key(child));
+
         if (opened !== -1) {
           record([...walked.slice(opened), child], requirer, entry);
           continue;
         }
+
         follow(child);
       }
     }
+
     walked.pop();
     closed.add(key(requirer));
   };
 
-  for (const requirer of byKey.values()) follow(requirer);
+  for (const requirer of byKey.values()) {
+    follow(requirer);
+  }
+
   return problems;
 }
 

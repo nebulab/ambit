@@ -60,6 +60,7 @@ function problemLines(problems: readonly ValidationProblem[]): readonly string[]
 
 function toText(report: ValidationReport): readonly string[] {
   const { checked } = report;
+
   return [
     `checked ${count(checked.packs, "pack")}, ${count(checked.skills, "skill")}, ${count(checked.mcps, "mcp")}, ${count(checked.hooks, "hook")}`,
     "",
@@ -71,8 +72,11 @@ function toText(report: ValidationReport): readonly string[] {
 export const validateHandler: CommandHandler = async (ctx) => {
   const found = await validateProject(sourceContextOf(ctx));
 
-  if (jsonRequested(ctx)) ctx.stdout(JSON.stringify(toJson(found), null, 2));
-  else printSections(toText(found), ctx.stdout);
+  if (jsonRequested(ctx)) {
+    ctx.stdout(JSON.stringify(toJson(found), null, 2));
+  } else {
+    printSections(toText(found), ctx.stdout);
+  }
 
   return isValid(found) ? ExitCode.Success : ExitCode.Resolution;
 };

@@ -170,6 +170,7 @@ function compare(a: string, b: string): number {
  */
 export function installScope(root: string, env: NodeJS.ProcessEnv): InstallScope {
   const home = env.HOME ?? homedir();
+
   return path.resolve(root) === path.resolve(home) ? "user" : "project";
 }
 
@@ -185,12 +186,14 @@ export function installScope(root: string, env: NodeJS.ProcessEnv): InstallScope
 export function adaptersFor(harnesses: readonly string[]): readonly HarnessAdapter[] {
   return harnesses.map((name) => {
     const adapter = ADAPTERS[name];
+
     if (adapter === undefined) {
       throw configError(`unknown harness "${name}" (ambit.yml)`, [
         `this build ships adapters for: ${Object.keys(ADAPTERS).sort(compare).join(", ")}`,
         "remove it from `harnesses`, or correct the spelling",
       ]);
     }
+
     return adapter;
   });
 }
@@ -204,7 +207,10 @@ export function adaptersFor(harnesses: readonly string[]): readonly HarnessAdapt
  * entries themselves.
  */
 function identityOf(artifact: PlannedArtifact): string {
-  if (artifact.kind !== "harness-config") return artifact.path;
+  if (artifact.kind !== "harness-config") {
+    return artifact.path;
+  }
+
   return JSON.stringify([
     artifact.path,
     artifact.section,
@@ -241,12 +247,18 @@ export function planFor(
   project: ProjectPaths,
 ): readonly AdapterPlan[] {
   const claimed = new Set<string>();
+
   return adapters.map((adapter) => ({
     adapter,
     plan: adapter.plan(bundle, project).filter((artifact) => {
       const identity = identityOf(artifact);
-      if (claimed.has(identity)) return false;
+
+      if (claimed.has(identity)) {
+        return false;
+      }
+
       claimed.add(identity);
+
       return true;
     }),
   }));
@@ -324,12 +336,15 @@ async function catalogPlan(
   const recorded = await readCatalogPins(projectDir, config);
   const pins = new Map([...recorded].filter(([name]) => !released.has(name)));
 
-  if (plan.refresh === undefined || options.offline === true) return { pins, refresh: undefined };
+  if (plan.refresh === undefined || options.offline === true) {
+    return { pins, refresh: undefined };
+  }
 
   const mode = plan.refresh;
   const asking = config.catalogs
     .map((entry) => entry.name)
     .filter((name) => !pins.has(name) && !released.has(name));
+
   return {
     pins,
     refresh: asking.length === 0 ? undefined : new Map(asking.map((name) => [name, mode])),
@@ -427,7 +442,11 @@ export async function previewInstall(
   // `"probe"`, not `"advance"`: an unpinned catalog resolves against what the remote says now (see
   // {@link catalogPlan}), and a preview must report that commit without moving the cache's own refs.
   const planned = await planInstall(projectDir, options, { refresh: "probe" });
-  if (options.frozen === true) await assertLockCurrent(projectDir, planned.lockText);
+
+  if (options.frozen === true) {
+    await assertLockCurrent(projectDir, planned.lockText);
+  }
+
   await authorizePlan(planned.artifacts, planned.prior, { adopt: options.adopt === true });
 
   const pruned = planPrune(planned.artifacts, planned.prior);
@@ -465,11 +484,15 @@ export async function installProject(
 ): Promise<InstallResult> {
   const planned = await planInstall(projectDir, options, { refresh: "advance", released });
   const { bundle, harnesses, plans, prior, lock, lockText, skipped } = planned;
-  if (options.frozen === true) await assertLockCurrent(projectDir, lockText);
+
+  if (options.frozen === true) {
+    await assertLockCurrent(projectDir, lockText);
+  }
 
   const owner = await authorizePlan(planned.artifacts, prior, { adopt: options.adopt === true });
 
   const artifacts: AppliedArtifact[] = [];
+
   for (const { adapter, plan } of plans) {
     artifacts.push(...(await adapter.apply(plan, owner)));
   }

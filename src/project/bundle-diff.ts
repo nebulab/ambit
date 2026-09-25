@@ -149,14 +149,22 @@ function firstFieldDifference(
   for (const key of [...new Set([...Object.keys(before), ...Object.keys(after)])].sort(compare)) {
     const left = before[key];
     const right = after[key];
-    if (sameValue(left, right)) continue;
+
+    if (sameValue(left, right)) {
+      continue;
+    }
 
     const at = prefix === "" ? key : `${prefix}.${key}`;
+
     // Both sides present and both records: recurse to name the innermost differing field. One side
     // absent is a difference at this level.
-    if (isRecord(left) && isRecord(right)) return firstFieldDifference(left, right, at);
+    if (isRecord(left) && isRecord(right)) {
+      return firstFieldDifference(left, right, at);
+    }
+
     return at;
   }
+
   return undefined;
 }
 
@@ -232,7 +240,10 @@ interface BundleEntity {
  * field.
  */
 function bytesDirectory(item: BundleEntity): string | undefined {
-  if (item.catalogRoot === undefined || item.path === undefined) return undefined;
+  if (item.catalogRoot === undefined || item.path === undefined) {
+    return undefined;
+  }
+
   return path.join(item.catalogRoot, item.path);
 }
 
@@ -243,8 +254,12 @@ async function fileList(dir: string): Promise<readonly string[] | undefined> {
   const walk = async (current: string, relative: string): Promise<void> => {
     for (const entry of await readdir(current, { withFileTypes: true })) {
       const within = relative === "" ? entry.name : `${relative}/${entry.name}`;
-      if (entry.isDirectory()) await walk(path.join(current, entry.name), within);
-      else found.push(within);
+
+      if (entry.isDirectory()) {
+        await walk(path.join(current, entry.name), within);
+      } else {
+        found.push(within);
+      }
     }
   };
 
@@ -253,6 +268,7 @@ async function fileList(dir: string): Promise<readonly string[] | undefined> {
   } catch {
     return undefined;
   }
+
   return found.sort(compare);
 }
 
@@ -263,10 +279,16 @@ async function fileList(dir: string): Promise<readonly string[] | undefined> {
  * unreadable file: a report of what an update would bring should not fail over a permission problem.
  */
 async function sameTree(before: string, after: string): Promise<boolean> {
-  if (before === after) return true;
+  if (before === after) {
+    return true;
+  }
 
   const [left, right] = await Promise.all([fileList(before), fileList(after)]);
-  if (left === undefined || right === undefined) return false;
+
+  if (left === undefined || right === undefined) {
+    return false;
+  }
+
   if (left.length !== right.length || left.some((file, index) => file !== right[index])) {
     return false;
   }
@@ -277,11 +299,15 @@ async function sameTree(before: string, after: string): Promise<boolean> {
         readFile(path.join(before, relative)),
         readFile(path.join(after, relative)),
       ]);
-      if (!a.equals(b)) return false;
+
+      if (!a.equals(b)) {
+        return false;
+      }
     } catch {
       return false;
     }
   }
+
   return true;
 }
 
@@ -293,6 +319,7 @@ async function sameTree(before: string, after: string): Promise<boolean> {
  */
 export function hookSummary(hook: MergedHook): string {
   const matched = hook.matcher === undefined ? "" : ` ${hook.matcher}`;
+
   return `${hook.event}${matched} — runs ${hookCommand(hook, SHARED_HOOKS_DIR)}`;
 }
 
@@ -336,6 +363,7 @@ async function diffNamespace<T extends BundleEntity>(
       });
       continue;
     }
+
     if (right === undefined && left !== undefined) {
       changes.push({
         kind: namespace.kind,
@@ -347,12 +375,16 @@ async function diffNamespace<T extends BundleEntity>(
       });
       continue;
     }
-    if (left === undefined || right === undefined) continue;
+
+    if (left === undefined || right === undefined) {
+      continue;
+    }
 
     const field = firstFieldDifference(
       namespace.shape(left, formatReason(reasonOf(before, item))),
       namespace.shape(right, formatReason(reasonOf(after, item))),
     );
+
     if (field !== undefined) {
       changes.push({ kind: namespace.kind, name, change: "changed", detail: `${field} changed` });
       continue;
@@ -360,6 +392,7 @@ async function diffNamespace<T extends BundleEntity>(
 
     const from = bytesDirectory(left);
     const to = bytesDirectory(right);
+
     if (from !== undefined && to !== undefined && !(await sameTree(from, to))) {
       changes.push({
         kind: namespace.kind,

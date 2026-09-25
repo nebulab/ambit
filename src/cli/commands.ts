@@ -56,11 +56,16 @@ function dryRunOption(): Option {
  */
 function listOption(flags: string, description: string, allowed?: readonly string[]): Option {
   const option = new Option(flags, description);
-  if (allowed) option.choices([...allowed]);
+
+  if (allowed) {
+    option.choices([...allowed]);
+  }
+
   return option.argParser((value: string, previous: readonly string[] | undefined) => {
     if (allowed && !allowed.includes(value)) {
       throw new InvalidArgumentError(`Allowed choices are ${allowed.join(", ")}.`);
     }
+
     return [...(previous ?? []), value];
   });
 }
@@ -100,12 +105,24 @@ export interface CommandSpec {
  * Commands are wired to behavior as the build reaches them; until then they report themselves
  * unimplemented rather than pretending to work.
  *
- * Thirteen commands, flat: no group. Twelve act on a project, and `self-update` acts on ambit
+ * Commands are flat. Project commands act on a project, and `self-update` acts on ambit
  * itself. Nothing writes into a catalog — a catalog is Markdown and YAML in a git repo, edited
  * directly — and nothing reads a catalog directory instead of an `ambit.yml`, because a catalog
  * repo lists itself.
  */
 export const COMMAND_SPECS: readonly CommandSpec[] = [
+  {
+    name: "export",
+    summary: "export selected packs as Claude plugins",
+    mutating: true,
+    options: [
+      new Option("--format <format>", "package format").choices(["claude-plugin"]),
+      new Option("--output <dir>", "new output directory, relative to the project"),
+      new Option("--link", "link skills and hook assets to local catalogs"),
+      new Option("--force", "replace an existing export directory"),
+      new Option("--check", "exit 5 when exported files or links differ"),
+    ],
+  },
   { name: "init", summary: "scaffold ambit.yml, skills/, mcps/, hooks/", mutating: true },
   {
     name: "search",
@@ -216,6 +233,7 @@ export type CommandRule = (ctx: CommandContext) => void;
  */
 export function projectDirOf(ctx: CommandContext): string {
   const given = ctx.options.project;
+
   return typeof given === "string" ? path.resolve(ctx.cwd, given) : ctx.cwd;
 }
 
@@ -236,7 +254,11 @@ export function offlineRequested(ctx: CommandContext): boolean {
  */
 export function listOf(ctx: CommandContext, name: string): readonly string[] {
   const given = ctx.options[name];
-  if (!Array.isArray(given)) return [];
+
+  if (!Array.isArray(given)) {
+    return [];
+  }
+
   return given.filter((value): value is string => typeof value === "string");
 }
 
@@ -292,10 +314,17 @@ function contextOf(
   io: Pick<CommandContext, "cwd" | "stdout" | "stderr">,
 ): CommandContext {
   const args = command.processedArgs.flatMap((value): readonly string[] => {
-    if (typeof value === "string") return [value];
-    if (!Array.isArray(value)) return [];
+    if (typeof value === "string") {
+      return [value];
+    }
+
+    if (!Array.isArray(value)) {
+      return [];
+    }
+
     return value.filter((entry): entry is string => typeof entry === "string");
   });
+
   return { options: command.opts(), args, ...io };
 }
 
@@ -328,13 +357,24 @@ export function buildCommand(
     .description(spec.summary)
     .helpOption("--help", "show usage");
 
-  for (const [argSpec, description] of spec.args ?? []) command.argument(argSpec, description);
-  for (const option of spec.options ?? []) command.addOption(option);
-  if (spec.mutating) command.addOption(dryRunOption());
+  for (const [argSpec, description] of spec.args ?? []) {
+    command.argument(argSpec, description);
+  }
+
+  for (const option of spec.options ?? []) {
+    command.addOption(option);
+  }
+
+  if (spec.mutating) {
+    command.addOption(dryRunOption());
+  }
+
   // A group takes no flags of its own: there is nothing for `--json` to shape when the answer is a
   // usage message, and a group sharing a flag with its children would silently claim it first.
   if (acts) {
-    for (const option of globalOptions(spec.readsProject !== false)) command.addOption(option);
+    for (const option of globalOptions(spec.readsProject !== false)) {
+      command.addOption(option);
+    }
   }
 
   if (spec.subcommands) {
@@ -353,18 +393,25 @@ export function buildCommand(
   // Commander fires `preAction` for the command that acted and for every ancestor, so a hook on a
   // *group* would also fire for its children's invocations. Only a leaf carries one.
   const rule = acts ? rules[name] : undefined;
-  if (rule !== undefined) command.hook("preAction", () => rule(contextOf(command, io)));
+
+  if (rule !== undefined) {
+    command.hook("preAction", () => rule(contextOf(command, io)));
+  }
 
   command.action(async () => {
     // A group is a request for usage, not a mistake, exactly like bare `ambit`. Printing through
     // `io` keeps it out of Commander's own exit path.
     if (!acts) {
       io.stdout(command.helpInformation().replace(/\n$/, ""));
+
       return onExit(ExitCode.Success);
     }
 
     const handler = handlers[name];
-    if (!handler) throw notImplemented(name);
+
+    if (!handler) {
+      throw notImplemented(name);
+    }
 
     onExit(await handler(contextOf(command, io)));
   });

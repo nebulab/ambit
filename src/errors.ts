@@ -10,7 +10,7 @@ export const ExitCode = {
   Resolution: 3,
   /** Network or cache error. */
   Network: 4,
-  /** Drift detected (`status --check`, `install --frozen`). */
+  /** Drift detected (`status --check`, `install --frozen`, `export --check`). */
   Drift: 5,
   /** A health check found something: `doctor` failures. */
   Doctor: 6,
@@ -38,7 +38,11 @@ export class AmbitError extends Error {
   /** The full multi-line rendering, without the trailing newline. */
   format(): string {
     const head = `error: ${this.message}`;
-    if (this.detail.length === 0) return head;
+
+    if (this.detail.length === 0) {
+      return head;
+    }
+
     return [head, ...this.detail.map((line) => `       ${line}`)].join("\n");
   }
 }

@@ -43,7 +43,10 @@ afterEach(async () => {
 /** A GitHub that names {@link NEWER} as latest, counting how many times it is asked. */
 const counting: Fetch = (url) => {
   calls += 1;
-  if (!url.endsWith("/releases/latest")) return Promise.resolve(new Response("", { status: 404 }));
+  if (!url.endsWith("/releases/latest")) {
+    return Promise.resolve(new Response("", { status: 404 }));
+  }
+
   return Promise.resolve(
     new Response(null, {
       status: 302,
@@ -55,6 +58,7 @@ const counting: Fetch = (url) => {
 /** A GitHub that is unreachable, counting how many times it is asked. */
 const failing: Fetch = () => {
   calls += 1;
+
   return Promise.reject(new Error("offline"));
 };
 
