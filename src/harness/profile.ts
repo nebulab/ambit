@@ -74,6 +74,8 @@ export const SHARED_HOOKS_DIR = `${SHARED_AGENTS_DIR}/hooks`;
 export interface McpLayout {
   /** Project-relative path to the config file. */
   readonly file: string;
+  /** Home-relative config file, when the harness stores user MCPs elsewhere. */
+  readonly userFile?: string;
   /** The top-level key holding one entry per server. */
   readonly section: string;
   /** How that file is parsed and written. */
@@ -239,10 +241,13 @@ function planMcpConfig(
     value: profile.serverConfig(mcp),
   }));
 
+  const file =
+    project.scope === "user" ? (profile.mcp.userFile ?? profile.mcp.file) : profile.mcp.file;
+
   return {
     kind: "harness-config",
-    path: profile.mcp.file,
-    target: path.join(project.root, profile.mcp.file),
+    path: file,
+    target: path.join(project.root, file),
     section: profile.mcp.section,
     format: profile.mcp.format,
     entries,

@@ -24,8 +24,9 @@ import {
 } from "../../src/harness/definitions.js";
 import type { ProjectPaths } from "../../src/harness/adapter.js";
 import type { HarnessProfile } from "../../src/harness/profile.js";
-import { SHARED_SKILLS_DIR, skippedHooks } from "../../src/harness/profile.js";
+import { adapterFor, SHARED_SKILLS_DIR, skippedHooks } from "../../src/harness/profile.js";
 import type { MergedHook, MergedMcp } from "../../src/model/catalog.js";
+import type { Bundle } from "../../src/resolution/resolve.js";
 import type { HookEvent } from "../../src/model/hook-entity.js";
 import { HOOK_EVENTS } from "../../src/model/hook-entity.js";
 
@@ -94,7 +95,12 @@ describe("the harness table", () => {
 
   it("names each harness's config file, section and format", () => {
     expect(Object.fromEntries(PROFILES.map((profile) => [profile.name, profile.mcp]))).toEqual({
-      claude: { file: ".mcp.json", section: "mcpServers", format: "json" },
+      claude: {
+        file: ".mcp.json",
+        userFile: ".claude.json",
+        section: "mcpServers",
+        format: "json",
+      },
       codex: { file: ".codex/config.toml", section: "mcp_servers", format: "toml" },
       cursor: { file: ".cursor/mcp.json", section: "mcpServers", format: "json" },
       opencode: { file: ".opencode/opencode.jsonc", section: "mcp", format: "jsonc" },
@@ -121,6 +127,20 @@ describe("the harness table", () => {
       expect(profile.mcp.file.startsWith("/")).toBe(false);
       expect(profile.mcp.file.startsWith("..")).toBe(false);
     }
+  });
+
+  it("writes Claude user MCPs to the user config", () => {
+    const bundle = { skills: [], mcps: [http()], hooks: [] } as unknown as Bundle;
+    const adapter = adapterFor(claude);
+    const home = { root: "/home/jane", scope: "user" } as const;
+    const project = { root: "/home/jane/work", scope: "project" } as const;
+
+    expect(
+      adapter.plan(bundle, home).find((artifact) => artifact.kind === "harness-config")?.path,
+    ).toBe(".claude.json");
+    expect(
+      adapter.plan(bundle, project).find((artifact) => artifact.kind === "harness-config")?.path,
+    ).toBe(".mcp.json");
   });
 });
 
