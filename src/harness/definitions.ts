@@ -262,7 +262,7 @@ function stdio(
 export const claude: HarnessProfile = {
   name: "claude",
   skillsLink: CLAUDE_SKILLS_LINK,
-  mcp: { file: ".mcp.json", section: "mcpServers", format: "json" },
+  mcp: { file: ".mcp.json", userFile: ".claude.json", section: "mcpServers", format: "json" },
   serverConfig: (mcp) => {
     if (mcp.transport.kind === "stdio") {
       return stdio({ ...mcp, transport: mcp.transport }, shellRef);

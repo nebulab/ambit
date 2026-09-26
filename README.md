@@ -174,7 +174,8 @@ else: `~/ambit.yml` says what you want, and it lands in `~/.agents/` and the har
 which is where a harness keeps the config it applies to every project on the machine.
 
 ambit reads that off the root. Your home directory is a user-level install, any other directory is a
-project. The one thing it changes is how a hook that ships a script is addressed. A project install
+project. Claude MCP servers go into `~/.claude.json` for a user-level install and `.mcp.json` for a
+project install. A hook that ships a script also uses a different address. A project install
 names the script relative to the project root:
 
 ```json
@@ -189,9 +190,8 @@ relative path there would resolve inside whichever project you happen to have op
 ```
 
 Which files under `~` a harness actually reads as your own config is the harness's own rule, and it
-differs between them. Claude Code reads `~/.claude/settings.json` and `~/.claude/skills` this way, so
-hooks and skills installed at home reach every project. Check your harness before relying on a home
-install for MCP servers.
+differs between them. Claude Code reads `~/.claude.json`, `~/.claude/settings.json`, and
+`~/.claude/skills` this way, so MCP servers, hooks, and skills installed at home reach every project.
 
 ## Authoring a catalog
 
